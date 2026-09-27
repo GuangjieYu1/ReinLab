@@ -407,6 +407,48 @@ window.location.assign('http://127.0.0.1:5173/?return=archive')
 
 ---
 
+## 十三、实施进度
+
+分支 `ios/capacitor`，`main` 保持冻结基线。
+
+### 已完成
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 备份 | git 基线 + 标签 `baseline-pre-ios`；目录外物理副本 | ✅ |
+| Phase 0 | `.nvmrc`、`.env.example`、`.gitignore` 补充 | ✅ |
+| Phase 4-1 | 移除硬编码 `127.0.0.1:3000`，改 `VITE_OPENMAIC_ORIGIN` | ✅ |
+| Phase 4-2 | 安全区 `env(safe-area-inset-*)`，用法 5 → 24 处 | ✅ |
+| Phase 4-3 | 课堂宽屏断点 1400px → 1190px | ✅ |
+| Phase 4-4 | `index.html` 加 `viewport-fit=cover` | ✅ |
+| Phase 1 | Capacitor 8 接入，`ios/` 工程（SPM，iOS 15.0） | ✅ |
+| Phase 1 | `Info.plist` ATS 例外（局域网明文 + 本地网络权限说明） | ✅ |
+| Phase 1 | `@capacitor/browser` 应用内浏览器，原生分支已接线 | ✅ |
+| Phase 2 | `.github/workflows/ios.yml`（macos-26，出未签名 ipa） | ✅ |
+
+构建与 75 个测试在 Node 24 下全绿；生产产物中已确认不含 `127.0.0.1:3000`。
+
+### 待办（按依赖顺序）
+
+**需要你操作：**
+
+1. **创建 GitHub 仓库并推送** —— CI 的前提。公开仓库 Actions 免费；私有仓库
+   每月 2000 分钟额度，macOS runner 按 10 倍计费 ≈ 每月 20–40 次构建。
+2. **OpenMAIC 改为局域网可访问**：启动时 `HOSTNAME=0.0.0.0`（现为 `127.0.0.1`）。
+3. **启动 PostgreSQL**（每次重启 Mac 后需手动起，命令见 RHINE_INTEGRATION.md 第 34 行）。
+4. **配置 `VITE_OPENMAIC_ORIGIN=http://10.82.81.123:3000`**（IP 为 DHCP，建议固定）。
+5. **安装 Sideloadly**（约 50MB，不需要 Xcode），用免费 Apple ID 签名装机。
+
+**待开发：**
+
+6. 用 `@capacitor/assets` 从 `favicon.svg` 生成 1024×1024 图标与启动图
+   （当前是 Capacitor 默认占位图）。
+7. 调试面板补触屏入口（`Ctrl/Cmd+Shift+D` 在无键盘时不可用）。
+8. 真机验收清单（见第七节）。
+9. OpenMAIC 侧：`RhineArchive.tsx:245` 的返回地址抽成配置或按原生场景隐藏。
+
+---
+
 ## 一句话总结
 
 **打包不是难点，Capacitor 半天能通；难点是移动端安全区与性能适配，以及

@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.2",
     "d3-geo": "^3.1.1",

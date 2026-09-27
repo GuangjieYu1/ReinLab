@@ -1,3 +1,6 @@
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
+
 /**
  * 解析 OpenMAIC 站点地址。
  *
@@ -74,5 +77,22 @@ export function enterOpenMAIC(destination: 'reinlab' | 'workspace', reduced = fa
   const url = destination === 'reinlab'
     ? `${OPENMAIC_ORIGIN}/reinlab?entry=rhine`
     : `${OPENMAIC_ORIGIN}/workspace`;
+
+  if (Capacitor.isNativePlatform()) {
+    // 原生外壳里整页跳转会离开应用、且没有返回按钮可点。
+    // 改用应用内浏览器 sheet：关闭 sheet 即回到原位，
+    // 因此不需要 OpenMAIC 侧的 ?return=archive 回跳地址。
+    window.setTimeout(async () => {
+      curtain.classList.remove('is-covering');
+      window.setTimeout(() => curtain.remove(), 220);
+      const handle = await Browser.addListener('browserFinished', () => {
+        departurePending = false;
+        void handle.remove();
+      });
+      await Browser.open({ url });
+    }, delay);
+    return;
+  }
+
   window.setTimeout(() => window.location.assign(url), delay);
 }
