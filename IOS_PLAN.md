@@ -497,7 +497,7 @@ Web 资源完整、**产物内不含 `127.0.0.1:3000`**。
 
 6. ~~应用图标与启动图~~ —— ✅ 已完成（见 Phase 4-6，矢量重建）。
 7. ~~调试面板补触屏入口~~ —— **误判，无需改动**（现成按钮已可用）。
-8. **真机验收清单**（见第七节）—— 需要你操作。
+8. **真机验收清单**（见第七节，11 项）—— 安装已完成，这是当前唯一的主要事项。
 9. OpenMAIC 侧：`RhineArchive.tsx:245` 的返回地址抽成配置或按原生场景隐藏
    （另一个仓库；仅在 iPad 上点「返回」时才会暴露）。
 10. **可选**：原生渲染 OpenMAIC 课程（`@openmaic/renderer`，已验证可行，
@@ -505,9 +505,66 @@ Web 资源完整、**产物内不含 `127.0.0.1:3000`**。
 
 ---
 
+## 十四、安装实录（2026-09-27，已成功）
+
+**结果**：M1 iPad Pro（iPadOS 26.5.2）上已成功运行，能连上 OpenMAIC 课程库。
+整条链路（iOS 适配 → 云 CI 出包 → 自签装机 → 运行时配置 → 连服务）全部打通。
+
+### 14.1 实际可行的路径
+
+1. 从 GitHub Actions 下载构件 `ReinLab-unsigned-ipa`（3.0 MB）
+2. 装 **AltServer 1.8.1**（`cdn.altstore.io/file/altstore/altserver/1_8_1.zip`）
+   → 移入 `/Applications` → 运行（只在菜单栏，无窗口）
+3. 菜单栏 `Install AltStore` → 选 iPad → 输入 Apple ID
+4. **把 ipa 放进 Mac 的 iCloud Drive**（`~/Library/Mobile Documents/com~apple~CloudDocs/`）
+5. iPad 打开 **AltStore → My Apps → `+`** → 选 iCloud Drive 里的 ipa → 输入 Apple ID
+6. iPad：设置 → 通用 → VPN 与设备管理 → **信任**；设置 → 隐私与安全性 → **开发者模式**
+7. App 内：工作台 → 终端设置 → 填 `http://Guangjies-MacBook-Air.local:3000`
+
+### 14.2 四条死路（记录以免重走）
+
+| 死路 | 实际情况 |
+|---|---|
+| **Sideloadly** | `sideloadly.io` 在**权威 DNS（Cloudflare NS）上返回 `127.0.0.2`**，域名级注销。与本地网络无关，换任何解析器都一样 |
+| **AltServer 的 `Sideload .ipa`** | nib 里确实存在（位于 `Install AltStore` 与 `Enable JIT` 之间），但实际菜单中不显示。不要在这上面耗时间 |
+| **AirDrop 未签名 ipa** | iOS 按「安装应用」处理，`无法验证其完整性` 直接拒绝——**iOS 不会自己签名** |
+| **`Enable JIT`** | 会弹 `Missing AltJIT Dependencies`（需 `pymobiledevice3`），与安装无关，误点请直接 Cancel |
+
+### 14.3 四个被验证的判断
+
+1. **运行时地址设置是对的**（Phase 4-5）。部署期间局域网 IP 从 `10.82.81.123`
+   变成了 `192.168.5.122`（换了网络）。若按最初设计写进构建产物，就得重新出包 + 重签 + 重装。
+   **实测收益，不是理论推演。**
+
+2. **`.local` 主机名是正解**。`http://Guangjies-MacBook-Air.local:3000` 实测返回 200，
+   且之前加的 `NSAllowsLocalNetworking` 正好覆盖 `.local` 域——两个独立决定互相咬合。
+
+3. **AltServer 是纯通知应用**：没有窗口，进度与报错**只**通过 macOS 通知传达。
+   通知权限没给时完全看不到反馈（本次安装就是如此）。
+   替代验证方式：`log show --predicate 'process == "AltServer"'` 能直接看到
+   `Installation Progress: 100` / `Finished installing app!`。
+
+4. **`ioreg` 比 `system_profiler` 可靠**：后者在这台机器上查不到 iPad，
+   `ioreg -p IOUSB -w0 -l | grep '"USB Product Name"'` 才看得到。
+
+### 14.4 免费 Apple ID 的限制（实际遇到）
+
+- 证书 **7 天**有效，到期需重签（用 AltStore 刷新即可，数据保留）
+- 同时最多 **3 个**自签 App
+- 有双重认证时必须用 **App 专用密码**，不是登录密码
+  （[appleid.apple.com](https://appleid.apple.com) → 登录与安全 → App 专用密码）
+
+---
+
 ## 一句话总结
 
-**打包不是难点，Capacitor 半天能通；难点是移动端安全区与性能适配，以及
-「CI 只能出未签名包、签名必须回本机」这条被迫的两段式链路。**
-建议严格按 Phase 1.5 的顺序走——先用局域网 iPhone Safari 把体验问题全部暴露，
-再动云端 CI，否则会在一个每次要等 CI、每 7 天要重签的慢循环里调试布局。
+**已交付并验证**：M1 iPad Pro（iPadOS 26.5.2）上运行成功，能连 OpenMAIC 课程库。
+免费的完整链路是「**云端出未签名包 → 本机用免费 Apple ID 签名 → AltStore 安装**」。
+
+回头看，最初的判断有一处重要偏差：以为难点在移动端适配，实际**真正花时间的是
+分发链路**——Sideloadly 域名被注销、AltServer 的 `Sideload .ipa` 不显示、
+AirDrop 未签名 ipa 被 iOS 拒绝，每一个都不在计划里。
+
+而两个当时看起来「多此一举」的决定，后来都成了关键：**把地址做成运行时设置**
+（部署期间 IP 真的变了两次）和 **`NSAllowsLocalNetworking` 覆盖 `.local`**
+（最终用的就是这个地址）。
