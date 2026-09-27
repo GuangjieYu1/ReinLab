@@ -332,7 +332,7 @@ git switch ios/capacitor            # 回到开发分支
 ### 12.1 两个项目的关系
 
 ```
-ReinLab（本仓库，Vite SPA，5173）        OpenMAIC（/Users/guangjieyu/Documents/OpenMAIC，3000）
+ReinLab（本仓库，Vite SPA，5173）        OpenMAIC（独立仓库，Next.js，3000）
   沉浸式外壳 / 档案终端          ←→         真实课程库 / AI 生成课堂
   ├─ 开场演出、登录                        ├─ Next.js App Router 服务端路由
   ├─ 档案阵列、抽取                        ├─ /reinlab      课程档案
@@ -348,17 +348,34 @@ OpenMAIC 才是主体产品；ReinLab 是它的沉浸式前端。集成是**双�
 - 3000 → `http://127.0.0.1:5173/?return=archive`（**硬编码**于 `components/rhine/RhineArchive.tsx:245`）
 - ReinLab 侧由 `CinematicExperience.tsx:31` 读取 `?return=archive`
 
-### 12.2 「能原生融入吗」——不能
+### 12.2 「能原生融入吗」——能，已实测验证
 
-OpenMAIC 是独立的 Next.js 服务端应用，具备：
+> **更正（2026-09-27）**：本节原结论为「不能」，**那是错的**——当时只查了服务端生成层，
+> 没有查 OpenMAIC 的 `packages/`。实际上渲染层早已拆成独立 npm 包并发布：
 
-- 服务端路由（`app/reinlab`、`app/classroom/[id]`、`app/workspace`）
-- 独立 PostgreSQL 集群（`~/Library/Application Support/ReinLab/OpenMAIC/pg16-data`，端口 55433）
-- 服务端 DeepSeek Agent 运行时（API key 在服务端）
-- 课程内容在服务端生成与存储
+| 包 | 版本 | 作用 |
+|---|---|---|
+| `@openmaic/dsl` | 0.11.2 | `Slide` 类型定义，**零依赖** |
+| `@openmaic/renderer` | 0.1.11 | **`<SlideCanvas slide={slide} />`**，可独立复用 |
+| `@openmaic/storage` | 0.31.1 | 存储层，含 HTTP 后端 |
+| `@openmaic/generation` | 0.3.13 | 生成管线契约 |
 
-这些**无法**塞进 ReinLab 这个纯前端 SPA。且本仓库设计原则明确「不嵌套 iframe」（README 第 63 行）。
-→ 结论：只能作为**外部服务**访问，采用应用内浏览器。
+**渲染器与内容分离，内容是纯数据（`Slide` JSON）**，所以能在 ReinLab 里原生渲染，
+既不需要 iframe，也不需要跳浏览器。已由 `openmaicRenderer.test.tsx` 实测通过。
+
+服务端能力（课程生成、PostgreSQL、DeepSeek Agent）确实无法塞进纯前端 SPA，
+**课程内容仍需从 OpenMAIC 服务端获取**。因此原生渲染的收益是**体验**，不是离线。
+
+必须付出的四项代价：
+
+1. **引入 Tailwind 4** —— renderer 官方要求「consumers must use Tailwind 4」。
+   可只引 utilities 层、跳过 preflight，避免与现有 CSS 冲突。
+2. **场景编排要自己写** —— `ClassroomSurface.tsx`（531 行）不在包里，深度耦合
+   OpenMAIC 的 zustand store 与 document-store，不可移植。
+3. **数据获取要处理跨域身份** —— `/api/stages/[id]` 是 owner-scoped，owner 默认来自 cookie。
+   解法：把 `PERSISTENCE_SHARED_OWNER_ID` 设为固定 UUID，所有请求解析到同一 owner，
+   无需 cookie，跨域即变得简单。
+4. 可选 `echarts`（图表元素）、`shiki`（代码元素）；不装则这两类元素不渲染。
 
 ### 12.3 好消息：原生外壳让集成反而变简单
 
@@ -377,10 +394,10 @@ sheet 的关闭动作天然完成了 Web 版要靠 URL 伪造的「返回」。
 |---|---|---|---|
 | 1 | OpenMAIC 监听范围 | `HOSTNAME=0.0.0.0` | 已改为监听所有网卡；局域网/iPad 可通过本机 IP 访问 |
 | 2 | PostgreSQL | 手动启动，不随开机 | 每次重启 Mac 后手动起（见 RHINE_INTEGRATION.md 第 34 行） |
-| 3 | ReinLab 目标地址 | 无 | `VITE_OPENMAIC_ORIGIN=http://10.82.81.123:3000` |
+| 3 | ReinLab 目标地址 | 无 | `VITE_OPENMAIC_ORIGIN=http://<Mac 的局域网 IP>:3000` |
 | 4 | iOS ATS | 默认禁止明文 HTTP | `Info.plist` 加 `NSAppTransportSecurity` 例外 |
 
-本机局域网 IP 当前为 **10.82.81.123**（DHCP，可能变化 → 建议路由器固定或改用 `.local` 主机名）。
+Mac 的局域网 IP 由 DHCP 分配，可能变化 → 建议在路由器上固定，或改用 `.local` 主机名。
 
 ### 12.5 OpenMAIC 侧建议改动（在另一个仓库）
 
@@ -425,8 +442,15 @@ window.location.assign('http://127.0.0.1:5173/?return=archive')
 | Phase 1 | `Info.plist` ATS 例外（局域网明文 + 本地网络权限说明） | ✅ |
 | Phase 1 | `@capacitor/browser` 应用内浏览器，原生分支已接线 | ✅ |
 | Phase 2 | `.github/workflows/ios.yml`（macos-26，出未签名 ipa） | ✅ |
+| 验证 | `@openmaic/renderer` 原生渲染可行性（`openmaicRenderer.test.tsx`） | ✅ |
 
-构建与 75 个测试在 Node 24 下全绿；生产产物中已确认不含 `127.0.0.1:3000`。
+构建与 **77** 个测试在 Node 24 下全绿；生产产物中已确认不含 `127.0.0.1:3000`。
+
+**原生渲染验证结论**（2026-09-27）：装 `@openmaic/renderer@0.1.11` + `@openmaic/dsl@0.11.2`
+后，用项目既有的 `renderToStaticMarkup`（node 环境）成功渲染含两个文本元素的 `Slide`。
+`tailwindcss@4.3.3` 作为必需 peer 由 npm 自动装入；`motion@12.43` 与 `react@19.3` 正确去重。
+**主包体积无变化**（308.68 kB，哈希未变）——renderer 只在测试中被引用，未进入应用打包图。
+注意：必须显式传 `scale`，省略时 renderer 会测量容器自适应，node 下无容器可测。
 
 ### 待办（按依赖顺序）
 
@@ -434,9 +458,10 @@ window.location.assign('http://127.0.0.1:5173/?return=archive')
 
 1. **创建 GitHub 仓库并推送** —— CI 的前提。公开仓库 Actions 免费；私有仓库
    每月 2000 分钟额度，macOS runner 按 10 倍计费 ≈ 每月 20–40 次构建。
-2. **OpenMAIC 改为局域网可访问** —— ✅ 已配置启动时 `HOSTNAME=0.0.0.0`。
-3. **启动 PostgreSQL**（每次重启 Mac 后需手动起，命令见 RHINE_INTEGRATION.md 第 34 行）。
-4. **配置 `VITE_OPENMAIC_ORIGIN=http://10.82.81.123:3000`**（IP 为 DHCP，建议固定）。
+2. ~~OpenMAIC 改为局域网可访问~~ —— ✅ 已验证：`node` 监听 `*:3000`（所有网卡）。
+3. ~~启动 PostgreSQL~~ —— ✅ 已验证：运行于 `127.0.0.1:55433`。
+   （注意重启 Mac 后仍需手动启动，命令见 RHINE_INTEGRATION.md。）
+4. **配置 `VITE_OPENMAIC_ORIGIN=http://<Mac 的局域网 IP>:3000`**（IP 为 DHCP，建议固定）。
 5. **安装 Sideloadly**（约 50MB，不需要 Xcode），用免费 Apple ID 签名装机。
 
 **待开发：**
