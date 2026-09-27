@@ -207,7 +207,9 @@
 #rhine-wide .rl-contact-order{position:absolute;left:7px;top:7px;border-radius:50%;background:var(--rl-sheet);color:var(--rl-ink);width:24px;height:24px;display:grid;place-items:center;font-size:11px}
 #rhine-wide .rl-sequence{margin-top:16px;padding:13px 0;border-top:1px solid var(--rl-line);font-size:12px}
 #rhine-wide .rl-sequence b{font-weight:500}
-@media(min-width:1400px){#rhine-wide .rl-split{grid-template-columns:minmax(240px,.82fr) minmax(390px,1.4fr);gap:38px}#rhine-wide .rl-lecture h3{font-size:26px}#rhine-wide .rl-lecture p{font-size:16px}#rhine-wide .rl-live-object .rl-object svg{height:310px}}
+/* 宽屏课堂档位。原为 1400px，iPad Pro 11" 横屏仅 1194pt 够不到，
+   下调至 1190px 让 iPad 也能获得这一版更宽松的双栏讲义与字号。 */
+@media(min-width:1190px){#rhine-wide .rl-split{grid-template-columns:minmax(240px,.82fr) minmax(390px,1.4fr);gap:38px}#rhine-wide .rl-lecture h3{font-size:26px}#rhine-wide .rl-lecture p{font-size:16px}#rhine-wide .rl-live-object .rl-object svg{height:310px}}
 @media(max-width:960px){#rhine-wide .rl-split{grid-template-columns:1fr}#rhine-wide .rl-lecture{max-width:none}#rhine-wide .rl-lecture h3{margin:7px 0 12px}#rhine-wide .rl-lecture p{margin-bottom:8px}#rhine-wide .rl-reading-source{margin-top:12px}#rhine-wide .rl-page-controls{justify-content:flex-start;gap:18px}#rhine-wide .rl-contact-sheet{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:610px){#rhine-wide{border-radius:12px}#rhine-wide .rl-layout{grid-template-columns:1fr}#rhine-wide #rl-display{padding:20px 16px}#rhine-wide .rl-notebook{padding:22px 18px}#rhine-wide .rl-header{padding:15px}#rhine-wide .rl-subjects{padding:7px 10px}#rhine-wide .rl-contact-sheet{grid-template-columns:repeat(2,minmax(0,1fr))}#rhine-wide .rl-ai-canvas{height:300px}#rhine-wide .rl-notebook .rl-answer-row textarea{font-size:16px}#rhine-wide .rl-video video{aspect-ratio:16/9}#rhine-wide .rl-video-meta{flex-wrap:wrap}}
 .learning-terminal{position:absolute;inset:0;z-index:16;overflow:auto;overscroll-behavior:contain;background:#eeece5;padding:25px;outline:none;scrollbar-color:#b1b8a9 #eeece5}

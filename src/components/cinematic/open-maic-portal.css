@@ -72,12 +72,21 @@
 .rhine-portal-arrival { animation: rhine-portal-unseal 1.3s .12s cubic-bezier(.22,1,.36,1) both; pointer-events: none; }
 .rhine-portal-arrival .rhine-portal-leaf { transform: translateY(-12px) scale(1.08); }
 .rhine-portal-arrival .rhine-portal-leaf::after { transform: rotateY(0); }
+/* 未配置 VITE_OPENMAIC_ORIGIN 时的就地说明；不会离开当前终端。 */
+.rhine-portal-notice {
+  position: absolute; bottom: calc(6% + 30px + env(safe-area-inset-bottom, 0px)); z-index: 4;
+  max-width: min(560px, 84vw); padding: 10px 17px;
+  border: 1px solid #c3cdb4; border-radius: 4px; background: #fbfcf6f2; color: #6c7d5f;
+  font: 11px 'IBM Plex Mono', monospace; letter-spacing: .06em; text-align: center;
+  box-shadow: 0 8px 24px #4051391f;
+}
 @keyframes rhine-portal-unseal { 0%, 38% { opacity: 1; } 100% { opacity: 0; } }
 @media(max-width:650px) {
   .rhine-portal-leaf { padding: 24px; }
   .rhine-portal-leaf::after { display: none; }
   .rhine-portal-folder > span { font-size: 6px; }
   .rhine-portal-departure p,.rhine-portal-arrival p { font-size: 8px; }
+  .rhine-portal-notice { font-size: 9px; padding: 8px 12px; }
 }
 @media(prefers-reduced-motion:reduce) {
   .rhine-portal-departure { transition-duration: .01ms; }
