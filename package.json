@@ -23,6 +23,7 @@
     "topojson-client": "^3.1.0"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.5.2",
     "@types/d3-geo": "^3.1.1",
     "@types/react": "^19.0.0",
