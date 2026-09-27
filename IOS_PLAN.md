@@ -441,13 +441,28 @@ window.location.assign('http://127.0.0.1:5173/?return=archive')
 | 验证 | `@openmaic/renderer` 原生渲染可行性（`openmaicRenderer.test.tsx`） | ✅ |
 | CI | 首次运行全绿（macos-26，14/14 步骤），产物已拆包验证 | ✅ |
 | Phase 4-5 | OpenMAIC 地址改为**运行时设置**（设置面板填写，存本机） | ✅ |
+| Phase 4-6 | 应用图标与启动图（矢量重建，非位图裁切） | ✅ |
 
 构建与 **85** 个测试在 Node 24 下全绿；生产产物中已确认不含 `127.0.0.1:3000`。
 
-**CI 产物验证**（2026-09-27）：下载 `ReinLab-unsigned-ipa`（1.15 MB）拆包核对 ——
+**图标与启动图的做法**（2026-09-27）：参考图都是位图（640×440 / 2715×1544），
+而 iOS 要求图标 1024×1024、启动图 2732×2732 的正方形。直接裁切放大有两个问题：
+参考截图中央有径向渐变（登录层 `radial-gradient`），裁出的矩形在补齐画布上会留下
+**可见边界**（已实测确认）；且位图放大后文字发虚。因此改为**用矢量重建**：
+
+- **图标**：复用 `BootStage.tsx` 的 `RhineMark` 组件路径（同一份矢量源），
+  背景 `#e6e5de` / 标志 `#080b07` 由参考图采样得到
+- **启动图**：用登录层的真实渐变（`radial-gradient(at 42% 42%, #efeee8, #e7e5df 70%, #dedbd3)`）
+  铺满画布，再按 `cine-welcome` / `cine-company` / `cine-welcome-logo` 的实际样式还原构图
+
+两个源文件保留在 `resources/`（`icon.source.svg`、`splash.source.html`），可重新生成。
+同时裁掉了参考截图里的 `ENTER SYSTEM` / `SOUND OFF` / `WORKBENCH` 等可点按钮——
+放进启动图会变成看得见但点不动的假 UI。
+
+**CI 产物验证**（2026-09-27）：下载 `ReinLab-unsigned-ipa` 拆包核对 ——
 `Payload/App.app` 结构正确、二进制 **arm64**、**未签名**（正是设计意图）、
 Bundle ID `chat.reinlab.terminal`、最低 iOS 15.0、ATS 例外已进包、
-24 个 Web 资源完整、**产物内不含 `127.0.0.1:3000`**。
+Web 资源完整、**产物内不含 `127.0.0.1:3000`**。
 
 **地址配置的修正**：最初把 `VITE_OPENMAIC_ORIGIN` 当作构建期变量，但 CI 不会注入它，
 且局域网 IP 是 DHCP 分配、会变化——写进产物意味着每次变了都要重新出包 + 重签 + 重装。
@@ -475,8 +490,7 @@ Bundle ID `chat.reinlab.terminal`、最低 iOS 15.0、ATS 例外已进包、
 
 **待开发：**
 
-6. 用 `@capacitor/assets` 从 `favicon.svg` 生成 1024×1024 图标与启动图
-   （当前是 Capacitor 默认占位图）。
+6. ~~应用图标与启动图~~ —— ✅ 已完成（见 Phase 4-6，矢量重建）。
 7. 调试面板补触屏入口（`Ctrl/Cmd+Shift+D` 在无键盘时不可用）。
 8. 真机验收清单（见第七节）。
 9. OpenMAIC 侧：`RhineArchive.tsx:245` 的返回地址抽成配置或按原生场景隐藏。
