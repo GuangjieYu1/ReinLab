@@ -4,6 +4,26 @@ import { Browser } from '@capacitor/browser';
 /** 设置面板里填写的地址；与构建期环境变量分开保存，不进仓库。 */
 export const OPENMAIC_ORIGIN_KEY = 'reinlab-openmaic-origin-v1';
 
+/**
+ * 原生课程层访问 /api/reinlab/* 时携带的令牌。
+ *
+ * 只在服务端设置了 REINLAB_EXPORT_TOKEN 时才需要填写。与地址一样存在本机：
+ * 令牌属于部署信息，写进构建产物就意味着每换一次都要重新出包。
+ */
+export const OPENMAIC_TOKEN_KEY = 'reinlab-openmaic-token-v1';
+
+export function readStoredToken(): string {
+  try { return (localStorage.getItem(OPENMAIC_TOKEN_KEY) ?? '').trim(); } catch { return ''; }
+}
+
+export function writeStoredToken(value: string): void {
+  try {
+    const next = value.trim();
+    if (next) localStorage.setItem(OPENMAIC_TOKEN_KEY, next);
+    else localStorage.removeItem(OPENMAIC_TOKEN_KEY);
+  } catch { /* 存储不可用时仅本次会话生效。 */ }
+}
+
 const stripTrailingSlashes = (url: string) => url.replace(/\/+$/, '');
 
 /** 读取设置面板中保存的地址；存储不可用时返回空串。 */

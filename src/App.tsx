@@ -6,13 +6,17 @@ import BlurText from './components/reactbits/BlurText';
 import Conversation from './components/Conversation';
 import TemplateStudio from './components/TemplateStudio';
 import CinematicExperience from './components/cinematic/CinematicExperience';
-import { enterOpenMAIC, hasBuildOrigin, readStoredOrigin, writeStoredOrigin } from './components/cinematic/openMaicPortal';
+import { enterOpenMAIC, hasBuildOrigin, readStoredOrigin, readStoredToken, writeStoredOrigin, writeStoredToken } from './components/cinematic/openMaicPortal';
 import { defaultTemplate, isTemplate, platforms, readStored, type Page, type Platform, type Template } from './model';
 
 type Modal = 'settings' | 'search' | 'about' | 'new' | 'conversation' | null;
 interface CustomProject { id: string; name: string; template: Template }
 const icons = { research: FlaskConical, learning: BookOpen, engineering: Atom, travel: Globe2 };
 const ResearchLab = lazy(() => import('./components/research/ResearchLab'));
+// 原生课程层按需加载：@openmaic/renderer 只被 NativeCourse 用到，静态引入会让它
+// 进入主包，把「主包体积不受影响」这条前提直接破坏掉。
+const NativeCourseLibrary = lazy(() => import('./components/classroom/native/NativeCourseLibrary'));
+const NativeCourse = lazy(() => import('./components/classroom/native/NativeCourse'));
 const workspaceNames: Record<Platform, string[]> = {
   research: ['文献与实验', '方法与证据', '研究笔记'],
   learning: ['线性代数', '概率与统计', '神经网络'],
@@ -47,6 +51,8 @@ function App() {
   const [query, setQuery] = useState('');
   // OpenMAIC 地址存在本机：IP 会随 DHCP 变化，写进构建产物就得重新出包装机。
   const [openmaicOrigin, setOpenmaicOrigin] = useState(() => readStoredOrigin());
+  const [openmaicToken, setOpenmaicToken] = useState(() => readStoredToken());
+  const [activeCourse, setActiveCourse] = useState<string | null>(null);
   const buildOrigin = hasBuildOrigin();
   const originTrimmed = openmaicOrigin.trim();
   const originInvalid = originTrimmed.length > 0 && !/^https?:\/\//i.test(originTrimmed);
@@ -77,7 +83,9 @@ function App() {
   }
   function navigate(next: Page) { setPage(next); setMobileNav(false); }
   function openPlatform(id: Platform) {
-    if (id === 'learning') { enterOpenMAIC('reinlab', reduced); return; }
+    // 学习平台不再整页跳走：课程在应用内原生渲染。浏览未下载的课程、生成新课程
+    // 仍然需要 OpenMAIC 页面，入口留在课程档案页的「在线课程库」。
+    if (id === 'learning') { setActiveCourse(null); navigate('learning'); return; }
     setPlatform(id);
     setActiveProject(null);
     if (id === 'research') setWorkspace(workspaceNames.research[0]);
@@ -116,7 +124,7 @@ function App() {
     navigate('conversation');
   }
 
-  useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); document.title = `${page === 'home' ? '研究中枢' : page === 'studio' ? '模板工坊' : page === 'conversation' ? unit : currentConfig.title} — REINLAB`; }, [page, unit, currentConfig.title]);
+  useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); document.title = `${page === 'home' ? '研究中枢' : page === 'studio' ? '模板工坊' : page === 'learning' ? '课程档案' : page === 'learning-course' ? '原生课堂' : page === 'conversation' ? unit : currentConfig.title} — REINLAB`; }, [page, unit, currentConfig.title]);
   useEffect(() => {
     if (modal && dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
@@ -134,7 +142,11 @@ function App() {
     return () => { window.removeEventListener('keydown', handler); if (toastTimer.current) clearTimeout(toastTimer.current); };
   }, []);
 
-  const breadcrumbs = page === 'home' ? ['研究中枢', '总览'] : page === 'studio' ? ['研究中枢', '模板工坊'] : [currentConfig.title, ...(activeProject ? [activeProject.name] : []), ...(page === 'projects' ? ['项目总览'] : page === 'workspace' || page === 'research-lab' ? [workspace] : [workspace, '对话工作区'])];
+  const breadcrumbs = page === 'home' ? ['研究中枢', '总览']
+    : page === 'studio' ? ['研究中枢', '模板工坊']
+    : page === 'learning' ? ['学习平台', '课程档案']
+    : page === 'learning-course' ? ['学习平台', '课程档案', '原生课堂']
+    : [currentConfig.title, ...(activeProject ? [activeProject.name] : []), ...(page === 'projects' ? ['项目总览'] : page === 'workspace' || page === 'research-lab' ? [workspace] : [workspace, '对话工作区'])];
   const modalTitle = modal === 'settings' ? '终端设置' : modal === 'search' ? '检索档案' : modal === 'new' ? '开启一项新探索' : modal === 'conversation' ? '创建新的对话' : '关于这座研究终端';
 
   return <MotionConfig reducedMotion={reduced ? 'always' : 'user'}>
@@ -200,6 +212,27 @@ function App() {
               </div>}
               {page === 'conversation' && <Conversation key={`${storageScope}:${workspace}:${unit}`} platform={platform} unit={unit} workspace={workspace} storageScope={storageScope} fresh={addedUnits.includes(unit)} reduced={reduced} defaultMode={activeProject?.template.mode ?? 'document'} onBack={() => navigate('workspace')} notify={notify} />}
               {page === 'studio' && <TemplateStudio saved={savedTemplate} onSave={saveTemplate} onCreate={createProject} notify={notify} />}
+              {page === 'learning' && <Suspense fallback={<div className="research-lab-loading" role="status">正在展开课程档案…</div>}>
+                <NativeCourseLibrary
+                  origin={openmaicOrigin}
+                  token={openmaicToken}
+                  onOpen={id => { setActiveCourse(id); navigate('learning-course'); }}
+                  onOpenOnline={() => enterOpenMAIC('reinlab', reduced)}
+                  onOpenSettings={() => setModal('settings')}
+                  notify={notify}
+                />
+              </Suspense>}
+              {page === 'learning-course' && activeCourse && <Suspense fallback={<div className="research-lab-loading" role="status">正在打开课程…</div>}>
+                <NativeCourse
+                  courseId={activeCourse}
+                  origin={openmaicOrigin}
+                  token={openmaicToken}
+                  reduced={reduced}
+                  onBack={() => navigate('learning')}
+                  onOpenOnline={() => enterOpenMAIC('reinlab', reduced)}
+                  notify={notify}
+                />
+              </Suspense>}
             </motion.div>
           </AnimatePresence>
         </main>
@@ -211,7 +244,7 @@ function App() {
       <AnimatePresence>{toast && <motion.div className="toast" role="status" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }}><Check size={15} /><span>{toast}</span><button className="icon-button" aria-label="关闭提示" onClick={() => setToast('')}><X size={13} /></button></motion.div>}</AnimatePresence>
       <dialog ref={dialogRef} className={`app-dialog ${modal === 'search' ? 'search-dialog' : ''}`} onCancel={() => setModal(null)} onClose={() => setModal(null)} aria-labelledby="dialog-title">
         <div className="dialog-header"><div><span className="eyebrow">REINLAB / SYSTEM</span><h2 id="dialog-title">{modalTitle}</h2></div><button className="icon-button" aria-label="关闭弹窗" onClick={() => setModal(null)}><X size={19} /></button></div>
-        {modal === 'settings' && <div className="dialog-body"><label className="setting-row"><span><b>减少动态效果</b><small>关闭入场、透视倾斜与呼吸动效</small></span><input type="checkbox" className="toggle" checked={reducedSetting} onChange={e => { setReducedSetting(e.target.checked); try { localStorage.setItem('reinlab-reduced', JSON.stringify(e.target.checked)); } catch { /* Optional preference. */ } }} /></label>{systemReduced && <p className="setting-note">已遵循系统的减少动态效果偏好。</p>}<div className="setting-row"><span><b>完整终端演出</b><small>约 35 秒：开场、阵列传播、抽取与解密</small></span><button className="secondary-button" disabled={reduced} onClick={() => { setModal(null); setCinemaReplay(v => v + 1); setCinemaVisible(true); }}>重播完整演出</button></div><div className="setting-field"><span><b>OpenMAIC 地址</b><small>课程库所在的服务地址。改动只保存在这台设备上，不需要重新出包。</small></span><div className="setting-input-row"><input type="url" inputMode="url" autoComplete="off" spellCheck={false} value={openmaicOrigin} onChange={e => setOpenmaicOrigin(e.target.value)} placeholder="http://192.168.1.10:3000" aria-label="OpenMAIC 地址" aria-invalid={originInvalid} /><button className="secondary-button" disabled={originInvalid} onClick={() => { writeStoredOrigin(openmaicOrigin); setOpenmaicOrigin(readStoredOrigin()); notify(originTrimmed ? 'OpenMAIC 地址已保存到本机' : '已清除 OpenMAIC 地址'); }}>保存</button></div><small className={originInvalid ? 'setting-field-state invalid' : 'setting-field-state'}>{buildOrigin ? '构建时已内置地址；此处填写会覆盖它' : originInvalid ? '地址需要以 http:// 或 https:// 开头' : originTrimmed ? '保存后，学习通道会跳转到该地址' : '未配置：学习通道停留在当前终端'}</small></div><div className="setting-row"><span><b>存储与连接</b><small>模板、项目及对话演示仅保存在当前浏览器。不连接任何模型或外部工具。</small></span><span className="outline-label">LOCAL ONLY</span></div></div>}
+        {modal === 'settings' && <div className="dialog-body"><label className="setting-row"><span><b>减少动态效果</b><small>关闭入场、透视倾斜与呼吸动效</small></span><input type="checkbox" className="toggle" checked={reducedSetting} onChange={e => { setReducedSetting(e.target.checked); try { localStorage.setItem('reinlab-reduced', JSON.stringify(e.target.checked)); } catch { /* Optional preference. */ } }} /></label>{systemReduced && <p className="setting-note">已遵循系统的减少动态效果偏好。</p>}<div className="setting-row"><span><b>完整终端演出</b><small>约 35 秒：开场、阵列传播、抽取与解密</small></span><button className="secondary-button" disabled={reduced} onClick={() => { setModal(null); setCinemaReplay(v => v + 1); setCinemaVisible(true); }}>重播完整演出</button></div><div className="setting-field"><span><b>OpenMAIC 地址</b><small>课程库所在的服务地址。改动只保存在这台设备上，不需要重新出包。</small></span><div className="setting-input-row"><input type="url" inputMode="url" autoComplete="off" spellCheck={false} value={openmaicOrigin} onChange={e => setOpenmaicOrigin(e.target.value)} placeholder="http://192.168.1.10:3000" aria-label="OpenMAIC 地址" aria-invalid={originInvalid} /><button className="secondary-button" disabled={originInvalid} onClick={() => { writeStoredOrigin(openmaicOrigin); setOpenmaicOrigin(readStoredOrigin()); notify(originTrimmed ? 'OpenMAIC 地址已保存到本机' : '已清除 OpenMAIC 地址'); }}>保存</button></div><small className={originInvalid ? 'setting-field-state invalid' : 'setting-field-state'}>{buildOrigin ? '构建时已内置地址；此处填写会覆盖它' : originInvalid ? '地址需要以 http:// 或 https:// 开头' : originTrimmed ? '保存后，学习通道会跳转到该地址' : '未配置：学习通道停留在当前终端'}</small></div><div className="setting-field"><span><b>导出令牌</b><small>原生课程层读取课程时携带。仅在 OpenMAIC 设置了 REINLAB_EXPORT_TOKEN 时需要填写。</small></span><div className="setting-input-row"><input type="text" autoComplete="off" spellCheck={false} value={openmaicToken} onChange={e => setOpenmaicToken(e.target.value)} placeholder="留空表示服务端未启用令牌" aria-label="OpenMAIC 导出令牌" /><button className="secondary-button" onClick={() => { writeStoredToken(openmaicToken); setOpenmaicToken(readStoredToken()); notify(openmaicToken.trim() ? '导出令牌已保存到本机' : '已清除导出令牌'); }}>保存</button></div></div><div className="setting-row"><span><b>存储与连接</b><small>模板、项目及对话演示仅保存在当前浏览器。不连接任何模型或外部工具。</small></span><span className="outline-label">LOCAL ONLY</span></div></div>}
         {modal === 'search' && <div className="dialog-body"><div className="search-input-wrap"><Search size={18} /><input autoFocus placeholder="搜索平台、档案或学习单元…" value={query} onChange={e => setQuery(e.target.value)} aria-label="检索内容" /></div><div className="search-results">{platforms.filter(p => `${p.title}${p.project}${p.workspace}${p.unit}`.toLowerCase().includes(query.toLowerCase())).map(p => <button key={p.id} onClick={() => { openPlatform(p.id); setModal(null); }}><FolderClosed size={18} /><span><b>{p.project}</b><small>{p.title} / {p.workspace} / {p.unit}</small></span><ArrowUpRight size={16} /></button>)}{('模板工坊知识探索论文精读'.includes(query) || !query) && <button onClick={() => { navigate('studio'); setModal(null); }}><LayoutTemplate size={18} /><span><b>模板工坊</b><small>设计属于你的工作方式</small></span><ArrowUpRight size={16} /></button>}{!platforms.some(p => `${p.title}${p.project}${p.workspace}${p.unit}`.toLowerCase().includes(query.toLowerCase())) && !'模板工坊知识探索论文精读'.includes(query) && <p className="no-results">没有匹配的档案，试试“学习”或“科研”。</p>}</div></div>}
         {modal === 'new' && <form className="dialog-body" onSubmit={e => { e.preventDefault(); if (newName.trim()) createProject({ ...defaultTemplate, platform: newPlatform }, newName.trim()); }}><p className="dialog-intro">用一个清晰的问题，开启一项新的探索。</p><label className="field-label">项目名称<input autoFocus value={newName} maxLength={60} onChange={e => setNewName(e.target.value)} placeholder="例如：我的机器学习计划" required /></label><label className="field-label">所属平台<select value={newPlatform} onChange={e => setNewPlatform(e.target.value as Platform)}>{platforms.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label><p className="setting-note">将创建带有示例档案的本地项目，用于验证交互。</p><button className="primary-button" disabled={!newName.trim()}><Plus size={14} />创建项目</button></form>}
         {modal === 'conversation' && <form className="dialog-body" onSubmit={e => { e.preventDefault(); createConversation(); }}><p className="dialog-intro">在「{workspace}」里，留下一条新的探索路径。</p><label className="field-label">对话名称<input autoFocus value={newName} maxLength={60} onChange={e => setNewName(e.target.value)} placeholder="给这次探索起一个名字" required /></label><p className="setting-note">新对话从空白开始，不继承其他对话的示例节点。</p><button className="primary-button" disabled={!newName.trim()}><Plus size={14} />创建对话</button></form>}
