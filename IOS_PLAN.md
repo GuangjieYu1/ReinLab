@@ -375,7 +375,7 @@ sheet 的关闭动作天然完成了 Web 版要靠 URL 伪造的「返回」。
 
 | # | 事项 | 现状 | 需要做什么 |
 |---|---|---|---|
-| 1 | OpenMAIC 监听范围 | `HOSTNAME=127.0.0.1` | 改为 `0.0.0.0`，否则 iPad 连不上 |
+| 1 | OpenMAIC 监听范围 | `HOSTNAME=0.0.0.0` | 已改为监听所有网卡；局域网/iPad 可通过本机 IP 访问 |
 | 2 | PostgreSQL | 手动启动，不随开机 | 每次重启 Mac 后手动起（见 RHINE_INTEGRATION.md 第 34 行） |
 | 3 | ReinLab 目标地址 | 无 | `VITE_OPENMAIC_ORIGIN=http://10.82.81.123:3000` |
 | 4 | iOS ATS | 默认禁止明文 HTTP | `Info.plist` 加 `NSAppTransportSecurity` 例外 |
@@ -434,7 +434,7 @@ window.location.assign('http://127.0.0.1:5173/?return=archive')
 
 1. **创建 GitHub 仓库并推送** —— CI 的前提。公开仓库 Actions 免费；私有仓库
    每月 2000 分钟额度，macOS runner 按 10 倍计费 ≈ 每月 20–40 次构建。
-2. **OpenMAIC 改为局域网可访问**：启动时 `HOSTNAME=0.0.0.0`（现为 `127.0.0.1`）。
+2. **OpenMAIC 改为局域网可访问** —— ✅ 已配置启动时 `HOSTNAME=0.0.0.0`。
 3. **启动 PostgreSQL**（每次重启 Mac 后需手动起，命令见 RHINE_INTEGRATION.md 第 34 行）。
 4. **配置 `VITE_OPENMAIC_ORIGIN=http://10.82.81.123:3000`**（IP 为 DHCP，建议固定）。
 5. **安装 Sideloadly**（约 50MB，不需要 Xcode），用免费 Apple ID 签名装机。
