@@ -1,0 +1,86 @@
+.rhine-portal-departure,
+.rhine-portal-arrival {
+  position: fixed; inset: 0; z-index: 200; display: grid; place-items: center;
+  overflow: hidden; perspective: 1250px; color: #45533c;
+  background: radial-gradient(ellipse at 48% 40%, #fafbf6, #e8ebdf 76%);
+  font-family: 'DM Sans', 'Noto Sans SC', sans-serif;
+}
+.rhine-portal-departure { opacity: 0; transition: opacity .22s ease; }
+.rhine-portal-departure.is-covering { opacity: 1; }
+.rhine-portal-departure::before,
+.rhine-portal-arrival::before {
+  content: ''; position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent 0 43px, #8192710b 44px 45px),
+    repeating-linear-gradient(90deg, transparent 0 43px, #8192710b 44px 45px);
+  mask-image: linear-gradient(110deg, transparent, #000 45%, transparent);
+}
+.rhine-portal-folder {
+  position: absolute; z-index: 1; width: min(640px, 82vw); height: min(382px, 54vw);
+  max-height: 43vh; transform: translateY(28px) rotate(-3deg);
+  border: 1px solid #aeb9a0; border-radius: 5px 5px 11px 11px;
+  background: linear-gradient(145deg, #d8dfca, #aebd9e);
+  box-shadow: 0 35px 85px #4051392e, inset 0 2px #ffffff8a;
+}
+.rhine-portal-folder > span {
+  position: absolute; top: -24px; left: -1px; width: 48%; height: 25px; padding: 7px 15px;
+  border: 1px solid #aeb9a0; border-bottom: 0; border-radius: 6px 6px 0 0;
+  background: #d8dfca; color: #627356; font: 8px 'IBM Plex Mono', monospace;
+  letter-spacing: .1em; white-space: nowrap;
+}
+.rhine-portal-folder > i {
+  position: absolute; z-index: 3; left: -1px; right: -1px; bottom: -1px; height: 42%;
+  border: 1px solid #aeb9a0; border-radius: 0 0 9px 9px;
+  background: linear-gradient(170deg, #e4e9d8, #bbc9aa); box-shadow: 0 -7px 18px #53694a13;
+}
+.rhine-portal-leaf {
+  position: relative; z-index: 2; width: min(560px, 72vw); aspect-ratio: 1.45;
+  display: flex; flex-direction: column; justify-content: space-between; padding: 38px 44px;
+  border: 1px solid #bac7ab; border-radius: 3px;
+  background: repeating-linear-gradient(0deg, transparent 0 31px, #879a7720 32px),
+    linear-gradient(135deg, #fcfcf6, #f0f3e8 76%);
+  box-shadow: 0 24px 55px #4a5d3829, inset 0 0 0 6px #fffefaa1;
+  transform-origin: 40% 75%; transform: translateY(94px) scale(.86) rotate(-4deg);
+  will-change: transform;
+}
+.rhine-portal-leaf::after {
+  content: ''; position: absolute; top: -1px; bottom: -1px; right: -26%; width: 27%;
+  border: 1px solid #cad4bd;
+  background: repeating-linear-gradient(0deg, #fafbf4 0 32px, #dfe7d4 33px);
+  transform-origin: left center; transform: rotateY(-88deg); box-shadow: 12px 12px 35px #3c513020;
+}
+.rhine-portal-leaf small { color: #8a9a7d; font: 8px 'IBM Plex Mono', monospace; letter-spacing: .12em; }
+.rhine-portal-leaf span { font-size: clamp(29px, 5vw, 55px); font-weight: 650; letter-spacing: -.04em; }
+.rhine-portal-leaf i { height: 1px; width: 100%; background: #8fa17d; }
+.rhine-portal-leaf b { align-self: flex-end; font-size: 10px; font-weight: 500; letter-spacing: .18em; }
+.is-covering .rhine-portal-leaf { animation: rhine-portal-extract 1.36s cubic-bezier(.22,1,.36,1) both; }
+.is-covering .rhine-portal-leaf::after { animation: rhine-portal-unfold .5s .82s cubic-bezier(.22,1,.36,1) both; }
+.is-covering .rhine-portal-folder { animation: rhine-portal-folder-recede 1.36s ease both; }
+@keyframes rhine-portal-extract {
+  0%, 17% { transform: translateY(94px) scale(.86) rotate(-4deg); }
+  58% { transform: translateY(-65px) scale(.92) rotate(1deg); }
+  100% { transform: translateY(-12px) scale(1.08) rotate(0); }
+}
+@keyframes rhine-portal-unfold { to { transform: rotateY(0); } }
+@keyframes rhine-portal-folder-recede {
+  0%, 48% { opacity: 1; }
+  100% { opacity: .16; transform: translateY(76px) rotate(-3deg) scale(.88); }
+}
+.rhine-portal-departure p,.rhine-portal-arrival p {
+  position: absolute; bottom: 6%; color: #7c8d70;
+  font: 10px 'IBM Plex Mono', monospace; letter-spacing: .11em;
+}
+.rhine-portal-arrival { animation: rhine-portal-unseal 1.3s .12s cubic-bezier(.22,1,.36,1) both; pointer-events: none; }
+.rhine-portal-arrival .rhine-portal-leaf { transform: translateY(-12px) scale(1.08); }
+.rhine-portal-arrival .rhine-portal-leaf::after { transform: rotateY(0); }
+@keyframes rhine-portal-unseal { 0%, 38% { opacity: 1; } 100% { opacity: 0; } }
+@media(max-width:650px) {
+  .rhine-portal-leaf { padding: 24px; }
+  .rhine-portal-leaf::after { display: none; }
+  .rhine-portal-folder > span { font-size: 6px; }
+  .rhine-portal-departure p,.rhine-portal-arrival p { font-size: 8px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .rhine-portal-departure { transition-duration: .01ms; }
+  .is-covering .rhine-portal-leaf,.is-covering .rhine-portal-leaf::after,
+  .is-covering .rhine-portal-folder,.rhine-portal-arrival { animation-duration: .01ms; }
+}

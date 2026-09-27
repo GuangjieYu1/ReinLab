@@ -1,0 +1,54 @@
+/* One continuous scene: the same emblem draws at center, then settles beside the form. */
+.login-sequence .login-emblem {
+  animation: login-emblem-arrive 3.6s cubic-bezier(.22,1,.36,1) both;
+  will-change: transform, opacity;
+}
+.login-sequence .login-emblem > svg > path:first-child {
+  stroke-dasharray: 1;
+  animation: login-mark-draw 1.5s .2s cubic-bezier(.4,0,.2,1) both;
+}
+.login-sequence .login-emblem > svg > path:nth-child(2),
+.login-sequence .login-emblem > svg > text { animation: login-ink-in .65s 1.15s both; }
+.login-sequence .login-emblem > span { animation: login-ink-in .8s 3s both; }
+.login-sequence .login-form {
+  animation: login-form-unfold 1.15s 2.65s cubic-bezier(.22,1,.36,1) both;
+  will-change: transform, opacity;
+}
+.login-sequence .login-brand { animation: login-ink-in 1s 2.5s both; }
+.login-sequence .login-corner, .login-sequence .login-footer { animation: login-ink-in 1s 2.85s both; }
+.login-entry-caption { position: absolute; top: 68%; left: 0; right: 0; text-align: center; pointer-events: none; animation: login-caption-pass 3s both; }
+.login-entry-caption span { display: block; font-size: 8px; letter-spacing: .2em; color: #8b9480; }
+.login-entry-caption span + span { margin-top: 11px; font-size: 6px; color: #a0a694; letter-spacing: .17em; }
+.login-skip-intro { position: absolute; z-index: 2; top: 6%; right: 4.5%; display: flex; align-items: center; gap: 9px; color: #939b87; font-size: 9px; padding: 10px; animation: login-ink-in .5s .5s both; }
+@keyframes login-emblem-arrive {
+  0% { opacity: 0; transform: translate3d(var(--intro-x, 220px), var(--intro-y, 0px), 0) scale(.92); }
+  12%, 57% { opacity: 1; transform: translate3d(var(--intro-x, 220px), var(--intro-y, 0px), 0) scale(1); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes login-mark-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes login-ink-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes login-form-unfold {
+  from { opacity: 0; transform: translate3d(32px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes login-caption-pass {
+  0%, 20% { opacity: 0; transform: translateY(7px); }
+  40%, 65% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+.login-sequence[data-entry-phase="login"] .login-emblem,
+.login-sequence[data-entry-phase="login"] .login-form { will-change: auto; }
+.login-sequence.no-motion *, .login-sequence.intro-skipped * { animation: none !important; }
+.login-sequence.no-motion .login-entry-caption, .login-sequence.intro-skipped .login-entry-caption { display: none; }
+@media (max-width: 520px) {
+  .login-sequence .login-emblem { display: block; position: absolute; top: calc(50% - 70px); left: calc(50% - 95px); width: 190px; pointer-events: none; animation-name: login-emblem-mobile; }
+  .login-sequence .login-emblem > span { display: none; }
+  .login-sequence .login-form { animation-delay: 2.65s; }
+  .login-entry-caption { top: 64%; }
+  .login-sequence.no-motion .login-emblem, .login-sequence.intro-skipped .login-emblem { display: none; }
+  @keyframes login-emblem-mobile {
+    0% { opacity: 0; transform: translate3d(var(--intro-x, 0px), var(--intro-y, 0px), 0) scale(.92); }
+    12%, 57% { opacity: 1; transform: translate3d(var(--intro-x, 0px), var(--intro-y, 0px), 0) scale(1); }
+    100% { opacity: 0; transform: translate3d(0, -90px, 0) scale(.8); }
+  }
+}
