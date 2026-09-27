@@ -438,13 +438,21 @@ window.location.assign('http://127.0.0.1:5173/?return=archive')
 | Phase 4-2 | 安全区 `env(safe-area-inset-*)`，用法 5 → 24 处 | ✅ |
 | Phase 4-3 | 课堂宽屏断点 1400px → 1190px | ✅ |
 | Phase 4-4 | `index.html` 加 `viewport-fit=cover` | ✅ |
-| Phase 1 | Capacitor 8 接入，`ios/` 工程（SPM，iOS 15.0） | ✅ |
-| Phase 1 | `Info.plist` ATS 例外（局域网明文 + 本地网络权限说明） | ✅ |
-| Phase 1 | `@capacitor/browser` 应用内浏览器，原生分支已接线 | ✅ |
-| Phase 2 | `.github/workflows/ios.yml`（macos-26，出未签名 ipa） | ✅ |
 | 验证 | `@openmaic/renderer` 原生渲染可行性（`openmaicRenderer.test.tsx`） | ✅ |
+| CI | 首次运行全绿（macos-26，14/14 步骤），产物已拆包验证 | ✅ |
+| Phase 4-5 | OpenMAIC 地址改为**运行时设置**（设置面板填写，存本机） | ✅ |
 
-构建与 **77** 个测试在 Node 24 下全绿；生产产物中已确认不含 `127.0.0.1:3000`。
+构建与 **85** 个测试在 Node 24 下全绿；生产产物中已确认不含 `127.0.0.1:3000`。
+
+**CI 产物验证**（2026-09-27）：下载 `ReinLab-unsigned-ipa`（1.15 MB）拆包核对 ——
+`Payload/App.app` 结构正确、二进制 **arm64**、**未签名**（正是设计意图）、
+Bundle ID `chat.reinlab.terminal`、最低 iOS 15.0、ATS 例外已进包、
+24 个 Web 资源完整、**产物内不含 `127.0.0.1:3000`**。
+
+**地址配置的修正**：最初把 `VITE_OPENMAIC_ORIGIN` 当作构建期变量，但 CI 不会注入它，
+且局域网 IP 是 DHCP 分配、会变化——写进产物意味着每次变了都要重新出包 + 重签 + 重装。
+现改为**运行时设置**：设置面板填写、存 `localStorage`、调用时求值，改完立即生效。
+优先级：构建期环境变量 → 设置面板 → 仅开发服务器回退 `127.0.0.1:3000`。
 
 **原生渲染验证结论**（2026-09-27）：装 `@openmaic/renderer@0.1.11` + `@openmaic/dsl@0.11.2`
 后，用项目既有的 `renderToStaticMarkup`（node 环境）成功渲染含两个文本元素的 `Slide`。
@@ -456,12 +464,13 @@ window.location.assign('http://127.0.0.1:5173/?return=archive')
 
 **需要你操作：**
 
-1. **创建 GitHub 仓库并推送** —— CI 的前提。公开仓库 Actions 免费；私有仓库
-   每月 2000 分钟额度，macOS runner 按 10 倍计费 ≈ 每月 20–40 次构建。
-2. ~~OpenMAIC 改为局域网可访问~~ —— ✅ 已验证：`node` 监听 `*:3000`（所有网卡）。
+1. ~~创建 GitHub 仓库并推送~~ —— ✅ 已完成：https://github.com/GuangjieYu1/ReinLab
+   （注意：本机 `github.com:443` 被阻断，已改用 SSH over 443 + 仓库级 deploy key。）
+2. ~~OpenMAIC 改为局域网可访问~~ —— ✅ 已验证：`node` 监听 `*:3000`（所有网卡），
+   经局域网 IP 访问 `/reinlab` 返回 HTTP 200。
 3. ~~启动 PostgreSQL~~ —— ✅ 已验证：运行于 `127.0.0.1:55433`。
    （注意重启 Mac 后仍需手动启动，命令见 RHINE_INTEGRATION.md。）
-4. **配置 `VITE_OPENMAIC_ORIGIN=http://<Mac 的局域网 IP>:3000`**（IP 为 DHCP，建议固定）。
+4. ~~配置构建期地址~~ —— ✅ 已改为运行时设置，无需配置环境变量。
 5. **安装 Sideloadly**（约 50MB，不需要 Xcode），用免费 Apple ID 签名装机。
 
 **待开发：**
