@@ -325,6 +325,88 @@ git switch ios/capacitor            # 回到开发分支
 
 ---
 
+## 十二、OpenMAIC 集成真相（2026-09-27 核查）
+
+原以为 `127.0.0.1:3000` 只是个本地开发服务器，实际核查后结论完全不同。
+
+### 12.1 两个项目的关系
+
+```
+ReinLab（本仓库，Vite SPA，5173）        OpenMAIC（/Users/guangjieyu/Documents/OpenMAIC，3000）
+  沉浸式外壳 / 档案终端          ←→         真实课程库 / AI 生成课堂
+  ├─ 开场演出、登录                        ├─ Next.js App Router 服务端路由
+  ├─ 档案阵列、抽取                        ├─ /reinlab      课程档案
+  ├─ 研究实验室                            ├─ /classroom/stage-xxx  原生课堂
+  └─ 对话工作台 / 模板工坊                 ├─ /workspace    Pro 工作台
+                                           ├─ PostgreSQL（127.0.0.1:55433）
+                                           └─ DeepSeek Agent 运行时
+```
+
+OpenMAIC 才是主体产品；ReinLab 是它的沉浸式前端。集成是**双向 localhost 跳转**：
+
+- 5173 → `http://127.0.0.1:3000/reinlab?entry=rhine`
+- 3000 → `http://127.0.0.1:5173/?return=archive`（**硬编码**于 `components/rhine/RhineArchive.tsx:245`）
+- ReinLab 侧由 `CinematicExperience.tsx:31` 读取 `?return=archive`
+
+### 12.2 「能原生融入吗」——不能
+
+OpenMAIC 是独立的 Next.js 服务端应用，具备：
+
+- 服务端路由（`app/reinlab`、`app/classroom/[id]`、`app/workspace`）
+- 独立 PostgreSQL 集群（`~/Library/Application Support/ReinLab/OpenMAIC/pg16-data`，端口 55433）
+- 服务端 DeepSeek Agent 运行时（API key 在服务端）
+- 课程内容在服务端生成与存储
+
+这些**无法**塞进 ReinLab 这个纯前端 SPA。且本仓库设计原则明确「不嵌套 iframe」（README 第 63 行）。
+→ 结论：只能作为**外部服务**访问，采用应用内浏览器。
+
+### 12.3 好消息：原生外壳让集成反而变简单
+
+Web 版之所以需要 `?return=archive` 双向跳转，是因为浏览器整页跳转后无法自行返回。
+而在 iPad 原生外壳里：
+
+> **用应用内浏览器 sheet 打开 OpenMAIC，用户点「完成」关闭 sheet，
+> 自动回到 ReinLab 原位置——不需要任何回跳 URL。**
+
+sheet 的关闭动作天然完成了 Web 版要靠 URL 伪造的「返回」。
+`?return=archive` 在 iPad 场景下可以完全不使用。
+
+### 12.4 必须处理的四件事
+
+| # | 事项 | 现状 | 需要做什么 |
+|---|---|---|---|
+| 1 | OpenMAIC 监听范围 | `HOSTNAME=127.0.0.1` | 改为 `0.0.0.0`，否则 iPad 连不上 |
+| 2 | PostgreSQL | 手动启动，不随开机 | 每次重启 Mac 后手动起（见 RHINE_INTEGRATION.md 第 34 行） |
+| 3 | ReinLab 目标地址 | 无 | `VITE_OPENMAIC_ORIGIN=http://10.82.81.123:3000` |
+| 4 | iOS ATS | 默认禁止明文 HTTP | `Info.plist` 加 `NSAppTransportSecurity` 例外 |
+
+本机局域网 IP 当前为 **10.82.81.123**（DHCP，可能变化 → 建议路由器固定或改用 `.local` 主机名）。
+
+### 12.5 OpenMAIC 侧建议改动（在另一个仓库）
+
+`RhineArchive.tsx:245` 的返回地址硬编码：
+
+```ts
+window.location.assign('http://127.0.0.1:5173/?return=archive')
+```
+
+在 iPad 场景下这是一个**死地址**（设备上没有 5173 服务）。建议二选一：
+
+- 抽成环境变量（如 `NEXT_PUBLIC_RHINE_RETURN_URL`），未设置时隐藏该入口；
+- 或按 `?entry=native` 之类的查询参数判断，在原生外壳中隐藏「返回」入口
+  （因为 sheet 关闭已经完成返回）。
+
+### 12.6 边界与风险
+
+- **Mac 必须开机**且 Postgres + OpenMAIC 在跑，否则 iPad 上学习通道不可用。
+- 明文 HTTP 仅限局域网；同一 Wi-Fi 下的其他设备也能访问该服务。
+- 本部署**无服务端 TTS**，Agent 生成的语音稿可读但无法合成音频
+  （RHINE_INTEGRATION.md 第 32 行），此限制与文本/Agent 连接无关。
+- ReinLab 自带的六种原生课堂仍是**可离线**的备选：若希望 iPad 在无网/无 Mac 时也能学，
+  可以把它们接回为默认入口（改动点已在会话中定位）。
+
+---
+
 ## 一句话总结
 
 **打包不是难点，Capacitor 半天能通；难点是移动端安全区与性能适配，以及
