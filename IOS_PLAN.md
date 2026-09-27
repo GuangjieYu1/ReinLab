@@ -61,12 +61,15 @@
 - `.skip-boot { bottom: 35px; right: 40px }` → 撞 Home 指示条
 - 开场右上角跳过 / 调试按钮同理
 
-### 4. 调试面板在 iPhone 上打不开
+### 4. ~~调试面板在 iPhone 上打不开~~（**此条为误判，已更正**）
 
-性能面板靠 `Ctrl/Cmd+Shift+D`（`CinematicExperience.tsx:498`）。iPhone 无键盘，
-**无法在真机测量那 25 秒开场的真实 FPS**——而 128 份 CSS 3D 档案阵列恰是最大性能风险点。
-
-→ 必须补触屏入口（长按标题 / 五连点）。
+> **更正**：曾认为性能面板只能靠 `Ctrl/Cmd+Shift+D` 打开。实际核查后发现
+> `CinematicExperience.tsx:537` **早就有一个可见的触屏按钮**
+> （`aria-label="性能与分镜调试"`，`.cine-system-nav` 内的滑块图标），
+> 且它在该导航出现时始终渲染，不依赖键盘。README 第 24 行的原文也是
+> 「右上角调试按钮**或** Ctrl/Cmd+Shift+D」。
+>
+> → **无需补任何触屏入口**，真机 FPS 可直接用手指点开测量。原判断有误。
 
 ### 5. 缺图标与启动图 + 不是 git 仓库
 
@@ -169,10 +172,10 @@ npm run dev -- --host 0.0.0.0    # 默认只绑 127.0.0.1，必须放开
 
 ### Phase 4 — 移动端适配修复（按实测结果排期）
 
-1. **修 `openMaicPortal.ts` 硬编码 origin**（`VITE_OPENMAIC_ORIGIN` + 优雅降级）
+1. **修 `openMaicPortal.ts` 硬编码 origin**（已完成：改为运行时设置）
 2. `index.html` 加 `viewport-fit=cover`；给 `.boot-corner` / `.skip-boot` /
-   开场右上角控件补 `env(safe-area-inset-*)`
-3. 调试面板补触屏入口，让真机 FPS 可测
+   开场右上角控件补 `env(safe-area-inset-*)`（已完成，用法 5 → 24 处）
+3. ~~调试面板补触屏入口~~ —— **误判**：`CinematicExperience.tsx:537` 本就有可见触屏按钮
 4. `@capacitor/assets` 从 `favicon.svg` 生成 1024×1024 图标 + 启动图
 5. 字体：`src/styles.css:1` 的 Google Fonts `@import` 在原生壳需联网
    （Noto Sans SC 是 CJK 大字体，自托管要按 unicode-range 切子集）。
@@ -272,10 +275,10 @@ M1（8 核 GPU）+ ProMotion 120Hz。第三节曾把「128 份 CSS 3D 档案阵�
 - 但仍有：状态栏、Home 指示条、圆角屏幕
 - `.boot-corner { top: 33px }` 仍贴近状态栏；`.skip-boot { bottom: 35px }` 仍贴近 Home 条
 
-### 10.5 调试面板有救了
+### 10.5 调试面板（原判断有误）
 
-配妙控键盘则 `Cmd+Shift+D` 直接可用（第三节卡点 4 缓解）。
-无键盘时仍需补触屏入口。
+`CinematicExperience.tsx:537` 本就有一个可见的触屏按钮（`.cine-system-nav` 内的滑块图标），
+**不依赖键盘，也不需要配妙控键盘**。详见第三节卡点 4 的更正。
 
 ### 10.6 方向与装机
 
@@ -490,10 +493,15 @@ Web 资源完整、**产物内不含 `127.0.0.1:3000`**。
 
 **待开发：**
 
+**代码侧已无待办。** 下列为外部依赖项：
+
 6. ~~应用图标与启动图~~ —— ✅ 已完成（见 Phase 4-6，矢量重建）。
-7. 调试面板补触屏入口（`Ctrl/Cmd+Shift+D` 在无键盘时不可用）。
-8. 真机验收清单（见第七节）。
-9. OpenMAIC 侧：`RhineArchive.tsx:245` 的返回地址抽成配置或按原生场景隐藏。
+7. ~~调试面板补触屏入口~~ —— **误判，无需改动**（现成按钮已可用）。
+8. **真机验收清单**（见第七节）—— 需要你操作。
+9. OpenMAIC 侧：`RhineArchive.tsx:245` 的返回地址抽成配置或按原生场景隐藏
+   （另一个仓库；仅在 iPad 上点「返回」时才会暴露）。
+10. **可选**：原生渲染 OpenMAIC 课程（`@openmaic/renderer`，已验证可行，
+    约 2–4 天）—— 建议等真机验收结果出来再决定是否需要。
 
 ---
 
