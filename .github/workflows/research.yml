@@ -1,0 +1,28 @@
+name: Research foundation
+on:
+  push:
+    branches: ['codex/**']
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      VITE_BACKEND: mock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: 依赖边界
+        run: pnpm lint
+      - name: 测试
+        run: pnpm test --reporter=json --outputFile=test-report.json
+      - name: mock 构建
+        run: pnpm build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-test-report
+          path: test-report.json
