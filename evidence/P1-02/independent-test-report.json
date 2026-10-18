@@ -1,0 +1,1509 @@
+{
+  "task": "P1-02",
+  "role": "independent-test",
+  "status": "passed",
+  "cases": [
+    {
+      "id": "valid-tool-card_answer",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-card_answer",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-card_approval",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-card_approval",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-plan_propose",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-plan_propose",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-finding_record",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-finding_record",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-verdict_record",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-verdict_record",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-memory_read",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-memory_read",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-memory_propose",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-memory_propose",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-read_layer_write",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-read_layer_write",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-read_quiz_write",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-read_quiz_write",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-swarm_broadcast",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-swarm_broadcast",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-swarm_claim",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-swarm_claim",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-swarm_ask",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-swarm_ask",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-swarm_deliver",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-swarm_deliver",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-swarm_help",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-swarm_help",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-swarm_handoff",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-swarm_handoff",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-swarm_refute",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-swarm_refute",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "valid-tool-swarm_board",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "unknown-tool-swarm_board",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'approved'"
+        }
+      ]
+    },
+    {
+      "id": "risk-danger-is-label",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "approval-card-danger-is-request-label",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "valid-token",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "token-grant-danger",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "grants",
+            0,
+            "risk"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'read' | 'write', received 'danger'"
+        }
+      ]
+    },
+    {
+      "id": "token-grant-admin",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "grants",
+            0,
+            "risk"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'read' | 'write', received 'admin'"
+        }
+      ]
+    },
+    {
+      "id": "token-grant-READ",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "grants",
+            0,
+            "risk"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'read' | 'write', received 'READ'"
+        }
+      ]
+    },
+    {
+      "id": "token-grant-write_all",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "grants",
+            0,
+            "risk"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'read' | 'write', received 'write_all'"
+        }
+      ]
+    },
+    {
+      "id": "approval-scope-always",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "scope"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'once' | 'session', received 'always'"
+        }
+      ]
+    },
+    {
+      "id": "approval-scope-project",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "scope"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'once' | 'session', received 'project'"
+        }
+      ]
+    },
+    {
+      "id": "approval-scope-account",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "scope"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'once' | 'session', received 'account'"
+        }
+      ]
+    },
+    {
+      "id": "approval-scope-global",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "scope"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'once' | 'session', received 'global'"
+        }
+      ]
+    },
+    {
+      "id": "approval-scope-Once",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "scope"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'once' | 'session', received 'Once'"
+        }
+      ]
+    },
+    {
+      "id": "approval-scope-",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "scope"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'once' | 'session', received ''"
+        }
+      ]
+    },
+    {
+      "id": "approval-scope-null",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "scope"
+          ],
+          "code": "invalid_type",
+          "message": "Expected 'once' | 'session', received null"
+        }
+      ]
+    },
+    {
+      "id": "approval-scope-once",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "approval-scope-session",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "approval-self-role",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'roleId'"
+        }
+      ]
+    },
+    {
+      "id": "token-grant-unknown-field",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "grants",
+            0
+          ],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'scope'"
+        }
+      ]
+    },
+    {
+      "id": "token-readscope-unknown",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "readScope"
+          ],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'all'"
+        }
+      ]
+    },
+    {
+      "id": "token-unknown-account-field",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'admin'"
+        }
+      ]
+    },
+    {
+      "id": "token-invalid-account-uuid",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "accountId"
+          ],
+          "code": "invalid_string",
+          "message": "Invalid uuid"
+        }
+      ]
+    },
+    {
+      "id": "token-invalid-layer",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "readScope",
+            "layers",
+            0
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'L1' | 'L2' | 'L3' | 'L4', received 'L5'"
+        }
+      ]
+    },
+    {
+      "id": "read-verified-item",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "items",
+            0
+          ],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'verified'"
+        }
+      ]
+    },
+    {
+      "id": "read-verified-top",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'verified'"
+        }
+      ]
+    },
+    {
+      "id": "read-citation-verified-boolean",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "items",
+            0,
+            "citations",
+            0
+          ],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'verified'"
+        }
+      ]
+    },
+    {
+      "id": "swarm-self-signed",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'signedOffBy'"
+        }
+      ]
+    },
+    {
+      "id": "claim-no-citation",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "items",
+            0
+          ],
+          "code": "custom",
+          "message": "作者声称必须带引用"
+        }
+      ]
+    },
+    {
+      "id": "interpretation-no-citation",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "finding-negative-empty-citation",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "citations"
+          ],
+          "code": "too_small",
+          "message": "Array must contain at least 1 element(s)"
+        }
+      ]
+    },
+    {
+      "id": "finding-negative-search-record",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "swarm-negative-empty-citation",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "swarm-positive-empty-citation",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "custom",
+          "message": "交付必须附引用，负结果须写检索过程"
+        }
+      ]
+    },
+    {
+      "id": "swarm-unspecified-empty-citation",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "custom",
+          "message": "交付必须附引用，负结果须写检索过程"
+        }
+      ]
+    },
+    {
+      "id": "swarm-negative-empty-summary",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "summary"
+          ],
+          "code": "too_small",
+          "message": "String must contain at least 1 character(s)"
+        }
+      ]
+    },
+    {
+      "id": "json-reject-infinity",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "nested",
+            0,
+            "value"
+          ],
+          "code": "not_finite",
+          "message": "Number must be finite"
+        }
+      ]
+    },
+    {
+      "id": "json-reject-negative-infinity",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "nested",
+            0,
+            "value"
+          ],
+          "code": "not_finite",
+          "message": "Number must be finite"
+        }
+      ]
+    },
+    {
+      "id": "json-reject-nan",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "invalid_union",
+          "message": "Invalid input"
+        }
+      ]
+    },
+    {
+      "id": "json-reject-undefined",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "invalid_union",
+          "message": "Invalid input"
+        }
+      ]
+    },
+    {
+      "id": "json-reject-function",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "invalid_union",
+          "message": "Invalid input"
+        }
+      ]
+    },
+    {
+      "id": "json-reject-bigint",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "invalid_union",
+          "message": "Invalid input"
+        }
+      ]
+    },
+    {
+      "id": "json-reject-symbol",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "invalid_union",
+          "message": "Invalid input"
+        }
+      ]
+    },
+    {
+      "id": "json-reject-date",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "invalid_union",
+          "message": "Invalid input"
+        }
+      ]
+    },
+    {
+      "id": "json-reject-map",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "invalid_union",
+          "message": "Invalid input"
+        }
+      ]
+    },
+    {
+      "id": "json-valid",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "promotion-empty-evidence",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "items",
+            0,
+            "evidence"
+          ],
+          "code": "too_small",
+          "message": "Array must contain at least 1 element(s)"
+        }
+      ]
+    },
+    {
+      "id": "promotion-unknown-status",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'status'"
+        }
+      ]
+    },
+    {
+      "id": "promotion-approve-extra-items",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'items'"
+        }
+      ]
+    },
+    {
+      "id": "promotion-edit-no-items",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "items"
+          ],
+          "code": "invalid_type",
+          "message": "Required"
+        }
+      ]
+    },
+    {
+      "id": "promotion-unknown-target",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "target"
+          ],
+          "code": "invalid_enum_value",
+          "message": "Invalid enum value. Expected 'L3.profile' | 'L3.preference' | 'L3.procedure' | 'L4.knowledge', received 'L1.system'"
+        }
+      ]
+    },
+    {
+      "id": "budget-append-negative",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "cny"
+          ],
+          "code": "too_small",
+          "message": "Number must be greater than or equal to 0"
+        },
+        {
+          "path": [
+            "cny"
+          ],
+          "code": "too_small",
+          "message": "Number must be greater than 0"
+        }
+      ]
+    },
+    {
+      "id": "budget-append-infinity",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "cny"
+          ],
+          "code": "not_finite",
+          "message": "Number must be finite"
+        }
+      ]
+    },
+    {
+      "id": "budget-append-nan",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "cny"
+          ],
+          "code": "invalid_type",
+          "message": "Expected number, received nan"
+        }
+      ]
+    },
+    {
+      "id": "budget-append-zero",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "cny"
+          ],
+          "code": "too_small",
+          "message": "Number must be greater than 0"
+        }
+      ]
+    },
+    {
+      "id": "run-valid",
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "success": true,
+      "issues": []
+    },
+    {
+      "id": "run-unconfirmed",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "confirmed"
+          ],
+          "code": "invalid_literal",
+          "message": "Invalid literal value, expected true"
+        }
+      ]
+    },
+    {
+      "id": "run-missing-estimate",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [
+            "estimateId"
+          ],
+          "code": "invalid_type",
+          "message": "Required"
+        }
+      ]
+    },
+    {
+      "id": "run-client-account",
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "success": false,
+      "issues": [
+        {
+          "path": [],
+          "code": "unrecognized_keys",
+          "message": "Unrecognized key(s) in object: 'accountId'"
+        }
+      ]
+    },
+    {
+      "id": "finding-record-no-selfverified",
+      "input": {
+        "claim": "主张",
+        "citations": [
+          {
+            "source": "paper:1",
+            "locator": "p1",
+            "verifiedBy": "self"
+          }
+        ],
+        "negative": false
+      },
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "issues": [
+        {
+          "code": "unrecognized_keys",
+          "keys": [
+            "verifiedBy"
+          ],
+          "path": [
+            "citations",
+            0
+          ],
+          "message": "Unrecognized key(s) in object: 'verifiedBy'"
+        }
+      ]
+    },
+    {
+      "id": "read-layer-no-selfverified",
+      "input": {
+        "paperId": "11111111-1111-4111-8111-111111111111",
+        "layer": "method",
+        "items": [
+          {
+            "kind": "claim",
+            "text": "主张",
+            "citations": [
+              {
+                "source": "paper:1",
+                "locator": "p1",
+                "verifiedBy": "self"
+              }
+            ]
+          }
+        ]
+      },
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "issues": [
+        {
+          "code": "unrecognized_keys",
+          "keys": [
+            "verifiedBy"
+          ],
+          "path": [
+            "items",
+            0,
+            "citations",
+            0
+          ],
+          "message": "Unrecognized key(s) in object: 'verifiedBy'"
+        }
+      ]
+    },
+    {
+      "id": "swarm-deliver-no-selfverified",
+      "input": {
+        "taskId": "t1",
+        "summary": "主张",
+        "citations": [
+          {
+            "source": "paper:1",
+            "locator": "p1",
+            "verifiedBy": "self"
+          }
+        ]
+      },
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "issues": [
+        {
+          "code": "unrecognized_keys",
+          "keys": [
+            "verifiedBy"
+          ],
+          "path": [
+            "citations",
+            0
+          ],
+          "message": "Unrecognized key(s) in object: 'verifiedBy'"
+        }
+      ]
+    },
+    {
+      "id": "swarm-refute-no-selfverified",
+      "input": {
+        "claimId": "c1",
+        "reason": "反驳",
+        "citations": [
+          {
+            "source": "paper:1",
+            "locator": "p1",
+            "verifiedBy": "self"
+          }
+        ]
+      },
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "issues": [
+        {
+          "code": "unrecognized_keys",
+          "keys": [
+            "verifiedBy"
+          ],
+          "path": [
+            "citations",
+            0
+          ],
+          "message": "Unrecognized key(s) in object: 'verifiedBy'"
+        }
+      ]
+    },
+    {
+      "id": "citation-input-no-selfverified",
+      "input": {
+        "source": "paper:1",
+        "locator": "p1",
+        "verifiedBy": "self"
+      },
+      "expectedAccepted": false,
+      "actualAccepted": false,
+      "pass": true,
+      "issues": [
+        {
+          "code": "unrecognized_keys",
+          "keys": [
+            "verifiedBy"
+          ],
+          "path": [],
+          "message": "Unrecognized key(s) in object: 'verifiedBy'"
+        }
+      ]
+    },
+    {
+      "id": "citation-output-provenance-allowed",
+      "input": {
+        "source": "paper:1",
+        "locator": "p1",
+        "verifiedBy": "self"
+      },
+      "expectedAccepted": true,
+      "actualAccepted": true,
+      "pass": true,
+      "issues": []
+    }
+  ],
+  "summary": {
+    "checks": 106,
+    "passed": 106,
+    "failed": 0,
+    "independentSampleCases": 97,
+    "independentSamplePassed": 97,
+    "independentSampleFailed": 0
+  },
+  "baseline": {
+    "files": 250,
+    "mismatches": []
+  },
+  "snapshot": {
+    "date": "2026-10-18T18:07:04.105Z",
+    "node": "v22.23.3",
+    "sha256": {
+      "packages/contracts/src/index.ts": "b55d036f920de49fa490dbfa64927bb8be8c983ae22681f26094844bb799340b",
+      "packages/contracts/package.json": "1a836bc52bcb40a6d0bbf0547fe2cd9f7775b1836cf3240bcd27230a4dd714ee",
+      "packages/contracts/tsconfig.json": "ab39791bb31b432ec2029e7f078858af406fcd8d2d354bd9ac1e7c604464c3bc",
+      "tooling/contracts.test.ts": "50290d45e80b55bac363aa1abb32d70cdbdf53f7f06c6997d3950bb097b21f61",
+      "pnpm-lock.yaml": "5e049ca8a899684c0f1cb6d9090bfdf8f562a5d22a6ff2bfa06c0fc3a1691710"
+    }
+  },
+  "limits": [
+    "schema合法不等于角色/租户/档案权限已授予，需后续服务端校验",
+    "检索过程真实性与令牌期限/签发真实性留给服务端",
+    "Q-005既有无头回归脚本未定位，未宣称通过",
+    "Citation输出可携带verifiedBy；CitationInput和四个引用写入口拒绝客户端自签"
+  ],
+  "checks": [
+    {
+      "id": "lint",
+      "command": "pnpm lint",
+      "pass": true,
+      "exitCode": 0
+    },
+    {
+      "id": "schema-tests",
+      "command": "pnpm exec vitest run tooling/contracts.test.ts",
+      "pass": true,
+      "exitCode": 0,
+      "passedTests": 87,
+      "passedFiles": 1
+    },
+    {
+      "id": "strict-tsc",
+      "command": "pnpm exec tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --skipLibCheck packages/contracts/src/index.ts",
+      "pass": true,
+      "exitCode": 0
+    },
+    {
+      "id": "original-frontend-tests",
+      "command": "pnpm exec vitest run src",
+      "pass": true,
+      "exitCode": 0,
+      "passedTests": 162,
+      "passedFiles": 20
+    },
+    {
+      "id": "mock-build",
+      "command": "VITE_BACKEND=mock pnpm build",
+      "pass": true,
+      "exitCode": 0,
+      "warning": "existing chunk larger than 500kB warning"
+    },
+    {
+      "id": "frontend-baseline",
+      "pass": true,
+      "files": 250
+    },
+    {
+      "id": "production-only-zod",
+      "pass": true,
+      "dependencies": {
+        "zod": "3.25.76"
+      }
+    },
+    {
+      "id": "contracts-tsconfig-strict-ci-command",
+      "command": "pnpm exec tsc -p packages/contracts/tsconfig.json",
+      "pass": true,
+      "exitCode": 0
+    },
+    {
+      "id": "coverage-report-inspection",
+      "pass": true,
+      "evidence": "evidence/P1-02/coverage/coverage-summary.json",
+      "executedBy": "main-agent",
+      "independentlyInspected": true,
+      "coverage": {
+        "lines": {
+          "total": 42,
+          "covered": 42,
+          "skipped": 0,
+          "pct": 100
+        },
+        "statements": {
+          "total": 44,
+          "covered": 44,
+          "skipped": 0,
+          "pct": 100
+        },
+        "functions": {
+          "total": 3,
+          "covered": 3,
+          "skipped": 0,
+          "pct": 100
+        },
+        "branches": {
+          "total": 4,
+          "covered": 4,
+          "skipped": 0,
+          "pct": 100
+        },
+        "branchesTrue": {
+          "total": 0,
+          "covered": 0,
+          "skipped": 0,
+          "pct": "Unknown"
+        }
+      }
+    }
+  ],
+  "history": [
+    {
+      "round": 1,
+      "schemaTests": 83,
+      "independentCases": 91,
+      "failed": 0,
+      "note": "Review subsequently found input verifiedBy spoofing and split CitationInput; this initial check had not rejected spec-defined output provenance."
+    },
+    {
+      "round": 2,
+      "schemaTests": 87,
+      "newIndependentCases": 6,
+      "note": "All four mutation input paths reject verifiedBy; output Citation retains provenance per spec."
+    }
+  ]
+}

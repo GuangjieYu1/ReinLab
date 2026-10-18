@@ -12,6 +12,8 @@
 | Q-006 | Fly、Supabase staging 项目不存在 | 用户明确答复“没有”。继续本地真实数据库与容器验证、交付部署步骤；P1-08 云端三分钟可用不可判完成，不擅自开通付费账户 | 外部条件缺失，云验收待配置 |
 | Q-007 | 旧 WORKBENCH_SPEC 的 50%/80% 暂停与现行 80%提醒/100%停止不同 | live 遵循现行实现规格，mock 保留旧表现；同一视图从数据源取得状态 | 用户已确认 |
 | Q-008 | 技术选型要求本地 Supabase CLI，目录示例又要求 compose Postgres | 迁移须兼容 Supabase；本地集成优先 Supabase Postgres 镜像，CLI 配置保留，不能降低 RLS 校验 | 推荐执行，随环境记录 |
+| Q-009 | RunToken、运行确认字段、artifactRef、升级 items 未给完整 schema | 使用账户/档案/运行/会话/角色绑定令牌；明确 read/write 授权（无 danger）、只读引用与期限。启动绑定 estimateId+confirmed:true；artifactRef 复用带版本 Ref；升级每项必须有依据。结构与权限分开，schema 合法不等于已授权 | 推荐执行；P1-02 起落地 |
+| Q-010 | finding_record 要至少1引用，而 swarm.deliver 允许无引用的负结果 | 保留各自合同：finding_record 要引用检索记录产物；swarm.deliver negative=true 可以无论文引用，但 summary 不为空并必须说明检索过程。语义核实留给服务端，不用字数或关键词假装验证 | 推荐执行；P1-02 已区分 |
 
 外部凭据仅使用安全环境配置，不写入本文件、账本或证据。
 
