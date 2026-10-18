@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { checkSource, checkManifest } from './boundaries';
+import { checkSource, checkManifest, checkWorkspace } from './boundaries';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 describe('依赖边界', () => {
+  it.each(['tooling/escape.ts', 'escape.ts'])('仓库其他目录也必须检查 %s', file => {
+    const root = mkdtempSync(path.join(tmpdir(), 'reinlab-boundaries-'));
+    try {
+      writeFileSync(path.join(root, 'package.json'), '{}');
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      writeFileSync(path.join(root, file), "import x from '@synsci/sdk'");
+      expect(checkWorkspace(root).length).toBeGreaterThan(0);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   it.each([
     "import {x} from '@synsci/sdk'", "export * from '@synsci/sdk/v2'",
     "const x = import('@synsci/sdk')", "const x = require('@synsci/sdk')",
