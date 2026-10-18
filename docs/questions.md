@@ -14,6 +14,9 @@
 | Q-008 | 技术选型要求本地 Supabase CLI，目录示例又要求 compose Postgres | 迁移须兼容 Supabase；本地集成优先 Supabase Postgres 镜像，CLI 配置保留，不能降低 RLS 校验 | 推荐执行，随环境记录 |
 | Q-009 | RunToken、运行确认字段、artifactRef、升级 items 未给完整 schema | 使用账户/档案/运行/会话/角色绑定令牌；明确 read/write 授权（无 danger）、只读引用与期限。启动绑定 estimateId+confirmed:true；artifactRef 复用带版本 Ref；升级每项必须有依据。结构与权限分开，schema 合法不等于已授权 | 推荐执行；P1-02 起落地 |
 | Q-010 | finding_record 要至少1引用，而 swarm.deliver 允许无引用的负结果 | 保留各自合同：finding_record 要引用检索记录产物；swarm.deliver negative=true 可以无论文引用，但 summary 不为空并必须说明检索过程。语义核实留给服务端，不用字数或关键词假装验证 | 推荐执行；P1-02 已区分 |
+| Q-011 | request_id/dedupe_key 草案全局唯一会让不同账户键冲突 | 唯一性限定(account_id,key)，保留同账户幂等与去重。外键补account_id和必要dossier_id，避免A写入关联B资源 | 推荐执行；P1-03 |
+| Q-012 | 本地环境没有Supabase CLI实例，staging尚未开通 | 使用现有锁定pgvector/Postgres16镜像跑真实SQL/RLS测试，保留Supabase CLI配置。只宣称Postgres部分通过；Auth注册触发器、Vault/Storage及东京部署另需真实Supabase复验 | 条件限制，待Supabase项目配置 |
+| Q-013 | 角色步数和权限JSON未给完整字段 | 种子采用只读allow、写入ask、无danger的精确工具白名单；read_scope限定本档案、本人消息和显式引用。步数按角色32–96，模板只读；翻译层接入时须再验证实际工具与权限语义 | 推荐执行；P1-03，后续依赖SPIKE |
 
 外部凭据仅使用安全环境配置，不写入本文件、账本或证据。
 
