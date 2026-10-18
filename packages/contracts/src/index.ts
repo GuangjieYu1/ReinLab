@@ -120,3 +120,13 @@ export type DossierCreate = z.infer<typeof DossierCreate>;
 export type EstimateRequest = z.infer<typeof EstimateRequest>;
 export type RunCreate = z.infer<typeof RunCreate>;
 export type BudgetAppend = z.infer<typeof BudgetAppend>;
+export const Bench = z.enum(['research','curriculum','engineering','creative','automation','exploration','data']);
+export const Dossier = z.object({ id, bench: Bench, title: text, createdAt: timestamp, archivedAt: timestamp.nullable().optional() }).strict();
+export type Dossier = z.infer<typeof Dossier>;
+export const AccountProfile = z.object({ id, displayName: z.string().nullable(), monthlyBudgetCny: money,
+  machine: z.object({ state: text, osVersion: z.string().nullable(), lastHealthAt: timestamp.nullable() }).strict().nullable(),
+}).strict();
+export type AccountProfile = z.infer<typeof AccountProfile>;
+export const RunSummary = z.object({ id, mode: Mode, state: RunState, budgetCny: money, spentCny: money }).strict();
+export const DossierDetail = z.object({ dossier: Dossier, gates: z.array(z.object({ id, subject: text, state: GateState }).strict()), activeRuns: z.array(RunSummary), budget: z.object({ allocatedCny: money, spentCny: money }).strict() }).strict();
+export type DossierDetail = z.infer<typeof DossierDetail>;
