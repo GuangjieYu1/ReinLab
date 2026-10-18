@@ -98,9 +98,24 @@ importers:
 
   services/control:
     dependencies:
+      '@hono/node-server':
+        specifier: 2.1.5
+        version: 2.1.5(hono@4.13.13)
+      '@reinlab/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      hono:
+        specifier: 4.13.13
+        version: 4.13.13
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       pg:
         specifier: 8.16.3
         version: 8.16.3
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
 
   services/worker: {}
 
@@ -376,6 +391,12 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@hono/node-server@2.1.5':
+    resolution: {integrity: sha512-MgP/I06GdvsilDspMk/qmRzpk8LOUStP6jFAbSRi40W09DhoyUn+Mj7eyKICPqeYKybOjVFLVIAQzvu1bfIa7Q==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4 || ^5.0.0-0
 
   '@ionic/cli-framework-output@2.2.8':
     resolution: {integrity: sha512-TshtaFQsovB4NWRBydbNFawql6yul7d5bMiW1WYYf17hd99V6xdDdk3vtF51bw6sLkxON3bDQpWsnUc9/hVo3g==}
@@ -1134,6 +1155,10 @@ packages:
     resolution: {integrity: sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw==}
     hasBin: true
 
+  hono@4.13.13:
+    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
+    engines: {node: '>=16.9.0'}
+
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
 
@@ -1195,6 +1220,9 @@ packages:
   istanbul-reports@3.2.0:
     resolution: {integrity: sha512-HGYWWS/ehqTV3xN10i23tkPkpH46MLCIMFNCaaKNavAXTF1RkqxawEPtnjnGZ6XKSInBKkiOA5BKS+aZiY3AvA==}
     engines: {node: '>=8'}
+
+  jose@6.2.12:
+    resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
 
   js-tokens@10.0.0:
     resolution: {integrity: sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q==}
@@ -2190,6 +2218,10 @@ snapshots:
   '@esbuild/win32-x64@0.25.12':
     optional: true
 
+  '@hono/node-server@2.1.5(hono@4.13.13)':
+    dependencies:
+      hono: 4.13.13
+
   '@ionic/cli-framework-output@2.2.8':
     dependencies:
       '@ionic/utils-terminal': 2.3.5
@@ -2972,6 +3004,8 @@ snapshots:
 
   he@1.2.0: {}
 
+  hono@4.13.13: {}
+
   html-escaper@2.0.2: {}
 
   html-to-image@1.11.13: {}
@@ -3017,6 +3051,8 @@ snapshots:
     dependencies:
       html-escaper: 2.0.2
       istanbul-lib-report: 3.0.1
+
+  jose@6.2.12: {}
 
   js-tokens@10.0.0: {}
 

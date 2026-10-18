@@ -15,6 +15,7 @@
     "lint": "tsx tooling/boundaries.ts",
     "db:up": "docker compose -f infra/docker-compose.dev.yml up -d db",
     "db:migrate:local": "tsx services/control/scripts/migrate.ts --local-test",
+    "dev:control": "tsx services/control/src/main.ts",
     "check": "pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
