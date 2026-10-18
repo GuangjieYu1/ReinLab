@@ -1,0 +1,58 @@
+/* IDE 式资源管理器 · 莱茵生命：墨色活动栏 + 纸面文件树。全部取自 --rh-* token。 */
+.xp { display:grid; grid-template-columns:48px minmax(0,1fr); width:48px; min-height:0; height:100%; border-right:1px solid var(--rh-line); background:var(--rh-paper); overflow:hidden; transition:width .32s var(--rh-ease-move); }
+.xp[data-open] { width:var(--xp-w, 296px); }
+.xp .xp-bar { display:flex; flex-direction:column; align-items:stretch; background:var(--rh-ink); padding:4px 0; }
+.xp .xp-bar button { position:relative; color:#9a9792; height:48px; display:grid; place-items:center; border:0; background:none; transition:color var(--rh-dur-1); }
+.xp .xp-bar button svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:square; }
+.xp .xp-bar button:hover { color:var(--rh-paper); }
+.xp .xp-bar button[aria-pressed='true'] { color:var(--rh-paper); }
+.xp .xp-bar button[aria-pressed='true']::before { content:''; position:absolute; left:0; top:10px; bottom:10px; width:3px; background:var(--rh-accent); }
+.xp .xp-bar button em { position:absolute; right:7px; bottom:8px; min-width:15px; height:15px; padding:0 3px; display:grid; place-items:center; font:normal 600 9.5px/1 var(--rh-f-mono); background:var(--rh-accent); color:var(--rh-ink); }
+.xp .xp-bar-foot { margin-top:auto; padding:10px 0; writing-mode:vertical-rl; transform:rotate(180deg); align-self:center; font:800 11px/1 var(--rh-f-display); font-stretch:125%; letter-spacing:.2em; color:#3a3837; }
+
+.xp .xp-panel { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; animation:xp-in .3s var(--rh-ease-enter) both; }
+@keyframes xp-in { from { opacity:0; transform:translateX(-10px); } }
+.xp .xp-head { display:flex; align-items:center; gap:8px; height:38px; padding:0 8px 0 14px; border-bottom:1px solid var(--rh-line); }
+.xp .xp-head b { font:700 11px/1 var(--rh-f-display); font-stretch:125%; letter-spacing:.14em; }
+.xp .xp-head small { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:400 10px/1 var(--rh-f-mono); letter-spacing:.06em; color:var(--rh-ink-4); }
+.xp .xp-head button { width:24px; height:24px; border:1px solid var(--rh-line); background:var(--rh-white); color:var(--rh-ink-3); font:600 12px/1 var(--rh-f-mono); }
+.xp .xp-head button:hover { border-color:var(--rh-ink); background:var(--rh-ink); color:var(--rh-paper); }
+
+.xp .xp-sections { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+.xp .xp-sec { display:flex; flex-direction:column; min-height:0; border-bottom:1px solid var(--rh-line-2); }
+.xp .xp-sec[data-grow] { flex:1; }
+.xp .xp-sec > header { display:flex; align-items:center; height:28px; flex:none; padding-right:6px; background:var(--rh-paper-2); }
+.xp .xp-sec > header > button { flex:1; display:flex; align-items:center; gap:6px; height:100%; padding:0 8px; border:0; background:none; text-align:left; font:600 10.5px/1 var(--rh-f-mono); letter-spacing:.12em; color:var(--rh-ink); text-transform:uppercase; }
+.xp .xp-sec > header > button i { font-style:normal; width:10px; color:var(--rh-ink-4); }
+.xp .xp-sec > header > button em { font-style:normal; margin-left:4px; padding:2px 4px; background:var(--rh-ink); color:var(--rh-paper); font-size:9.5px; letter-spacing:.04em; }
+.xp .xp-sec-act { display:flex; gap:2px; }
+.xp .xp-sec-act button { height:20px; padding:0 6px; border:1px solid transparent; background:none; font:500 10.5px/1 var(--rh-f-mono); color:var(--rh-ink-3); }
+.xp .xp-sec-act button:hover { border-color:var(--rh-ink); color:var(--rh-ink); }
+.xp .xp-sec-body { min-height:0; overflow:auto; padding:3px 0 6px; }
+.xp .xp-sec[data-grow] .xp-sec-body { flex:1; }
+
+.xp .xp-tree { display:grid; }
+.xp .xp-row { position:relative; display:flex; align-items:center; gap:6px; width:100%; height:26px; padding:0 8px 0 calc(8px + var(--d, 0) * 12px); border:0; background:none; text-align:left; font:400 12.5px/1 var(--rh-f-ui); color:var(--rh-ink-2); white-space:nowrap; user-select:none; }
+.xp .xp-row:hover { background:var(--rh-paper-3); }
+.xp .xp-row[aria-selected='true'] { background:var(--rh-paper-3); box-shadow:inset 0 0 0 1px var(--rh-ink-4); }
+.xp .xp-row[aria-current='true'] { background:var(--rh-ink); color:var(--rh-paper); box-shadow:none; }
+.xp .xp-row[aria-current='true'] .xp-ext { background:var(--rh-paper); color:var(--rh-ink); } .xp-row[aria-current='true'] .xp-name small, .xp-row[aria-current='true'] .xp-meta { color:#9a9792; }
+.xp .xp-row[data-open]:not([aria-current]) .xp-name { font-weight:600; color:var(--rh-ink); }
+.xp .xp-guide { position:absolute; top:0; bottom:0; width:1px; background:var(--rh-line-2); }
+.xp .xp-chev { width:10px; flex:none; font-size:9px; color:var(--rh-ink-4); }
+.xp .xp-folder { width:13px; height:10px; flex:none; border:1.2px solid currentColor; border-top-width:3px; opacity:.75; }
+.xp .xp-ext { flex:none; min-width:22px; padding:2px 2px; text-align:center; font:600 8.5px/1 var(--rh-f-mono); letter-spacing:.02em; background:var(--rh-paper-3); color:var(--rh-ink-3); }
+.xp .xp-ext[data-ext='MD'] { background:var(--rh-ink); color:var(--rh-paper); }
+.xp .xp-ext[data-ext='TSX'], .xp-ext[data-ext='TS'] { background:var(--rh-ink-3); color:var(--rh-paper); }
+.xp .xp-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.xp .xp-name small { margin-left:7px; font-size:11.5px; color:var(--rh-ink-4); }
+.xp .xp-row[data-dir] .xp-name { font-weight:500; color:var(--rh-ink); }
+.xp .xp-meta { flex:none; font:400 10px/1 var(--rh-f-mono); color:var(--rh-ink-4); }
+.xp .xp-ai { width:6px; height:6px; flex:none; background:var(--rh-accent); }
+.xp .xp-badge { flex:none; width:14px; text-align:center; font:600 10px/1 var(--rh-f-mono); }
+.xp .xp-badge[data-b='A'] { color:var(--rh-ink); } .xp-badge[data-b='M'] { color:var(--rh-ink-3); } .xp-badge[data-b='D'] { color:var(--rh-danger); }
+[aria-current='true'] .xp-badge { color:var(--rh-paper); }
+
+.xp .xp-search { display:flex; padding:8px; } .xp-search input { flex:1; min-width:0; height:28px; padding:0 9px; border:1px solid var(--rh-ink); background:var(--rh-white); font:400 12px/1 var(--rh-f-ui); color:var(--rh-ink); }
+.xp .xp-search input:focus { outline:none; }
+.xp .xp-empty { padding:10px 14px; font-size:12px; color:var(--rh-ink-4); }
