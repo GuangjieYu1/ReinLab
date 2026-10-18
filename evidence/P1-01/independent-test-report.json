@@ -1,0 +1,460 @@
+{
+  "task": "P1-01",
+  "role": "independent-test",
+  "date": "2026-10-18T17:54:13.538Z",
+  "runtime": {
+    "node": "v22.23.3",
+    "pnpm": "11.5.2"
+  },
+  "status": "passed",
+  "summary": {
+    "checks": 37,
+    "passed": 37,
+    "failed": 0,
+    "boundaryCases": 29,
+    "boundaryPassed": 29,
+    "boundaryFailed": 0
+  },
+  "checks": [
+    {
+      "id": "pnpm-lint",
+      "pass": true,
+      "exitCode": 0
+    },
+    {
+      "id": "pnpm-test",
+      "pass": true,
+      "passedTests": 207,
+      "passedFiles": 21
+    },
+    {
+      "id": "original-frontend-tests",
+      "pass": true,
+      "command": "pnpm exec vitest run src",
+      "passedTests": 162,
+      "passedFiles": 20
+    },
+    {
+      "id": "mock-build",
+      "pass": true,
+      "command": "VITE_BACKEND=mock npm run build",
+      "exitCode": 0
+    },
+    {
+      "id": "frontend-baseline",
+      "pass": true,
+      "files": 250,
+      "mismatches": []
+    },
+    {
+      "id": "locked-versions-preserved",
+      "pass": true,
+      "oldPairs": 383,
+      "newPairs": 386,
+      "missing": [],
+      "added": [
+        "get-tsconfig@4.14.3",
+        "resolve-pkg-maps@1.0.0",
+        "tsx@4.20.6"
+      ]
+    },
+    {
+      "id": "workspace-tsconfig-server-alias",
+      "pass": true,
+      "errors": [
+        "src/a.ts: 导入解析后越界 @backend/index"
+      ]
+    },
+    {
+      "id": "workspace-symlink-source",
+      "pass": true,
+      "errors": [
+        "src/linked.ts: 源码树禁止符号链接绕过"
+      ]
+    }
+  ],
+  "boundaryCases": [
+    {
+      "id": "static-sdk",
+      "file": "services/control/src/api/a.ts",
+      "source": "import x from '@synsci/sdk'",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.ts:1: 禁止依赖 @synsci/sdk"
+      ]
+    },
+    {
+      "id": "dynamic-concat",
+      "file": "services/control/src/api/a.ts",
+      "source": "import('@synsci/' + 'sdk')",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.ts: 禁止无法静态验证的模块导入"
+      ]
+    },
+    {
+      "id": "require-concat",
+      "file": "services/control/src/api/a.ts",
+      "source": "require('@synsci/' + 'sdk')",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.ts: 禁止无法静态验证的模块导入"
+      ]
+    },
+    {
+      "id": "type-sdk",
+      "file": "services/control/src/api/a.ts",
+      "source": "type X = import('@synsci/sdk').X",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.ts:1: 禁止依赖 @synsci/sdk"
+      ]
+    },
+    {
+      "id": "relative-sdk-node-modules",
+      "file": "services/control/src/api/a.ts",
+      "source": "import x from '../../../../node_modules/@synsci/sdk/index.js'",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.ts:1: 禁止依赖 ../../../../node_modules/@synsci/sdk/index.js"
+      ]
+    },
+    {
+      "id": "require-property",
+      "file": "services/control/src/api/a.ts",
+      "source": "module.require('@synsci/sdk')",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.ts: 禁止全局加载器来源 module 流出静态检查",
+        "services/control/src/api/a.ts: 禁止 require 别名或属性调用"
+      ]
+    },
+    {
+      "id": "require-alias",
+      "file": "services/control/src/api/a.ts",
+      "source": "const load = require; load('@synsci/sdk')",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.ts: 禁止 require 别名或属性调用"
+      ]
+    },
+    {
+      "id": "frontend-absolute-service",
+      "file": "src/a.ts",
+      "source": "import x from '/services/control/src/index.ts'",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "src/a.ts:1: 禁止依赖 /services/control/src/index.ts"
+      ]
+    },
+    {
+      "id": "frontend-plugin-relative",
+      "file": "src/a.ts",
+      "source": "import x from '../plugins/reinlab-os-plugin/src/index'",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "src/a.ts:1: 禁止依赖 ../plugins/reinlab-os-plugin/src/index"
+      ]
+    },
+    {
+      "id": "bridge-sdk",
+      "file": "services/control/src/bridge/openscience/a.ts",
+      "source": "import x from '@synsci/sdk'",
+      "expectedDenied": false,
+      "actualDenied": false,
+      "pass": true,
+      "errors": []
+    },
+    {
+      "id": "contracts-zod",
+      "file": "packages/contracts/src/a.ts",
+      "source": "import x from 'zod'",
+      "expectedDenied": false,
+      "actualDenied": false,
+      "pass": true,
+      "errors": []
+    },
+    {
+      "id": "frontend-contracts",
+      "file": "src/a.ts",
+      "source": "import x from '@reinlab/contracts'",
+      "expectedDenied": false,
+      "actualDenied": false,
+      "pass": true,
+      "errors": []
+    },
+    {
+      "id": "frontend-alias-manifest",
+      "file": "package.json",
+      "manifest": {
+        "dependencies": {
+          "os": "npm:@synsci/sdk@1.0.0"
+        }
+      },
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "package.json: 禁止 SDK 别名 os"
+      ]
+    },
+    {
+      "id": "control-alias-manifest",
+      "file": "services/control/package.json",
+      "manifest": {
+        "dependencies": {
+          "os": "npm:@synsci/sdk@1.0.0"
+        }
+      },
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/package.json: 禁止 SDK 别名 os"
+      ]
+    },
+    {
+      "id": "module-computed-require",
+      "file": "services/control/src/api/a.cts",
+      "source": "module['requ' + 'ire']('@synsci/sdk')",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.cts: 禁止计算全局模块加载入口",
+        "services/control/src/api/a.cts: 禁止全局加载器来源 module 流出静态检查"
+      ]
+    },
+    {
+      "id": "module-template-require",
+      "file": "services/control/src/api/a.cts",
+      "source": "module[`requ${'ire'}`]('@synsci/sdk')",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.cts: 禁止计算全局模块加载入口",
+        "services/control/src/api/a.cts: 禁止全局加载器来源 module 流出静态检查"
+      ]
+    },
+    {
+      "id": "process-getBuiltinModule",
+      "file": "services/control/src/api/a.cts",
+      "source": "process.getBuiltinModule('module').createRequire(import.meta.url)('@synsci/sdk')",
+      "expectedDenied": true,
+      "actualDenied": true,
+      "pass": true,
+      "errors": [
+        "services/control/src/api/a.cts: 禁止全局加载器来源 process 流出静态检查",
+        "services/control/src/api/a.cts: 禁止无法静态校验的模块加载入口 getBuiltinModule"
+      ]
+    },
+    {
+      "id": "parenthesized-module",
+      "file": "services/control/src/api/a.cts",
+      "source": "(module)['requ' + 'ire']('@synsci/sdk')",
+      "expectedDenied": true,
+      "errors": [
+        "services/control/src/api/a.cts: 禁止全局加载器来源 module 流出静态检查"
+      ],
+      "actualDenied": true,
+      "pass": true
+    },
+    {
+      "id": "assignment-module-alias",
+      "file": "services/control/src/api/a.cts",
+      "source": "let loader; loader = module; loader['requ' + 'ire']('@synsci/sdk')",
+      "expectedDenied": true,
+      "errors": [
+        "services/control/src/api/a.cts: 禁止全局加载器来源 module 流出静态检查"
+      ],
+      "actualDenied": true,
+      "pass": true
+    },
+    {
+      "id": "ambient-module-binding",
+      "file": "services/control/src/api/a.cts",
+      "source": "declare const module: any; (module)['requ' + 'ire']('@synsci/sdk')",
+      "expectedDenied": true,
+      "errors": [
+        "services/control/src/api/a.cts: 禁止全局加载器来源 module 流出静态检查",
+        "services/control/src/api/a.cts: 禁止全局加载器来源 module 流出静态检查"
+      ],
+      "actualDenied": true,
+      "pass": true
+    },
+    {
+      "id": "process-alias",
+      "file": "services/control/src/api/a.ts",
+      "source": "const p=process; p['get'+'BuiltinModule']('module').createRequire(import.meta.url)('@synsci/sdk')",
+      "expectedDenied": true,
+      "errors": [
+        "services/control/src/api/a.ts: 禁止全局加载器来源 process 流出静态检查"
+      ],
+      "actualDenied": true,
+      "pass": true
+    },
+    {
+      "id": "file-sdk",
+      "file": "services/control/src/api/a.ts",
+      "source": "import('file:///tmp/node_modules/@synsci/sdk/index.js')",
+      "expectedDenied": true,
+      "errors": [
+        "services/control/src/api/a.ts:1: 禁止依赖 file:///tmp/node_modules/@synsci/sdk/index.js"
+      ],
+      "actualDenied": true,
+      "pass": true
+    },
+    {
+      "id": "encoded-sdk",
+      "file": "services/control/src/api/a.ts",
+      "source": "import('@synsci/%73dk')",
+      "expectedDenied": true,
+      "errors": [
+        "services/control/src/api/a.ts:1: 禁止依赖 @synsci/%73dk"
+      ],
+      "actualDenied": true,
+      "pass": true
+    },
+    {
+      "id": "type-only-module",
+      "file": "services/control/src/api/a.cts",
+      "source": "import type {module} from './types'; (module)['requ'+'ire']('@synsci/sdk')",
+      "expectedDenied": true,
+      "errors": [
+        "services/control/src/api/a.cts: 禁止全局加载器来源 module 流出静态检查",
+        "services/control/src/api/a.cts: 禁止全局加载器来源 module 流出静态检查"
+      ],
+      "actualDenied": true,
+      "pass": true
+    },
+    {
+      "id": "local-module-safe",
+      "file": "src/a.ts",
+      "source": "const module = {title:'local'}; console.log(module.title)",
+      "expectedDenied": false,
+      "errors": [],
+      "actualDenied": false,
+      "pass": true
+    },
+    {
+      "id": "module-field-safe",
+      "file": "src/a.ts",
+      "source": "const item = {module:'lesson'}; console.log(item.module)",
+      "expectedDenied": false,
+      "errors": [],
+      "actualDenied": false,
+      "pass": true
+    },
+    {
+      "id": "safe-process-env",
+      "file": "services/control/src/api/a.ts",
+      "source": "const mode=process.env.NODE_ENV",
+      "expectedDenied": false,
+      "errors": [],
+      "actualDenied": false,
+      "pass": true
+    },
+    {
+      "id": "safe-global-timer",
+      "file": "src/a.ts",
+      "source": "globalThis.setTimeout(()=>{},0)",
+      "expectedDenied": false,
+      "errors": [],
+      "actualDenied": false,
+      "pass": true
+    },
+    {
+      "id": "globalThis-global-alias",
+      "file": "services/control/src/a.ts",
+      "source": "const g=globalThis.global; const p=g['pro'+'cess']; p['getBuiltin'+'Module']('module').createRequire(import.meta.url)('@synsci/sdk')",
+      "expectedDenied": true,
+      "errors": [
+        "services/control/src/a.ts: 禁止全局加载器来源 globalThis 流出静态检查"
+      ],
+      "actualDenied": true,
+      "pass": true
+    }
+  ],
+  "limits": [
+    "既有无头回归脚本入口未定位，未宣称通过",
+    "别名 manifest 测试仅静态调用检查器，未安装 SDK 或访问网络",
+    "通过表示所列边界规则与恶意样本满足预期；本静态检查未作为任意不可信JavaScript的执行沙盒验收"
+  ],
+  "history": [
+    {
+      "round": 1,
+      "lint": "passed",
+      "vitestPassed": 183,
+      "frontendPassed": 162,
+      "build": "failed TS2307 topojson-specification",
+      "baseline": "250/250 unchanged",
+      "boundary": "original 14 cases: 8 passed, 6 failed"
+    },
+    {
+      "round": 2,
+      "lint": "passed",
+      "vitestPassed": 193,
+      "build": "passed",
+      "boundary": "original 14 cases all passed; 3 additional bypasses found"
+    },
+    {
+      "round": 3,
+      "lint": "passed",
+      "vitestPassed": 198,
+      "frontendPassed": 162,
+      "build": "passed",
+      "boundary": "previous 17 cases passed; parenthesized module and assignment alias bypasses found"
+    },
+    {
+      "round": 4,
+      "lint": "passed",
+      "vitestPassed": 203,
+      "frontendPassed": 162,
+      "build": "passed",
+      "boundary": "previous 19 cases passed; ambient declaration with parenthesized loader bypass found"
+    },
+    {
+      "round": 5,
+      "lint": "passed",
+      "vitestPassed": 206,
+      "frontendPassed": 162,
+      "build": "passed",
+      "boundary": "all previous cases plus additional attacks and allowed locals passed; tsconfig alias and source symlink rejection passed"
+    },
+    {
+      "round": 6,
+      "reason": "reviewer found globalThis.global alias; positive global-property allowlist added",
+      "lint": "passed",
+      "vitestPassed": 207,
+      "boundary": "29/29 passed"
+    }
+  ],
+  "snapshot": {
+    "date": "2026-10-18T18:00:27.638Z",
+    "sha256": {
+      "tooling/boundaries.ts": "6bccb6f017bfe59908e5c3dadfcf7ba31112f9ebf147ea0f4292358b881dbaf9",
+      "package.json": "0021d4c8a9cf171484a8a0ec4b55190b516e3d1347d8cc8d6db4a18a7f3c32c5",
+      "pnpm-lock.yaml": "eba0071a89278b8f9e7ca651b15bad8a901ef93fb171a4bb8712bd7dd49d79d6",
+      "tooling/boundaries.test.ts": "a864f282b5ad34d21f3ced4e9e488fa7bb42309ce92cca97bf922ea0823aafc4"
+    }
+  }
+}

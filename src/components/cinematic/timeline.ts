@@ -31,7 +31,8 @@ export const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] +
 export const mul = (v: Vec3, s: number): Vec3 => [v[0] * s, v[1] * s, v[2] * s];
 export const cellX = (lane: number) => (lane - 1.5) * 5.2;
 export const cellZ = (row: number) => (row - 15.5) * .62;
-export const cellIndex = (cell: Cell) => cell.lane * ROWS + cell.row;
+// 无限档案场里行号可以超出 0…ROWS-1：同一列的 ROWS 个格位循环复用，按行号取模找到它的格位。
+export const cellIndex = (cell: Cell) => cell.lane * ROWS + ((cell.row % ROWS) + ROWS) % ROWS;
 export const sameCell = (a: Cell, b: Cell) => a.lane === b.lane && a.row === b.row;
 
 export function cameraBasis(yaw: number, elevation: number) {

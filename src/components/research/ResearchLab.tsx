@@ -7,6 +7,12 @@ import { nextResearchEvent, projectResearchEvents, workflowPosition, workflowScr
 import './research-reference.css';
 export type { ResearchLabProps } from './ResearchRecords';
 type Selection = { kind: 'agent'; id: number } | { kind: 'task' | 'event'; id: string } | { kind: 'group'; id: number } | { kind: 'log' | 'forum' | 'champion' | 'discussion' | 'report' };
+type ResearchSurfaceProps = ResearchLabProps & {
+  overview?: boolean;
+  archiveCount?: number;
+  suspended?: boolean;
+  onOpenNotes?: () => void;
+};
 const executionText = { running: '执行中', completed: '已完成', blocked: '待资源' };
 const verdictText = { pending: '未判断', unsupported: '本轮未支持', candidate: '待核验', supported: '条件内支持' };
 
@@ -22,12 +28,12 @@ function PaperStack({ x, y, count, color = '#e4e2dc' }: { x: number; y: number; 
   </g>)}</g>;
 }
 
-export default function ResearchLab(props: ResearchLabProps) {
+export default function ResearchLab(props: ResearchSurfaceProps) {
   // Keying the session keeps archives separate without touching legacy persistent notes.
   return <ResearchSession key={props.archiveName} {...props} />;
 }
-function ResearchSession(props: ResearchLabProps) {
-  const [events, setEvents] = useState<ResearchEvent[]>([]);
+function ResearchSession(props: ResearchSurfaceProps) {
+  const [events, setEvents] = useState<ResearchEvent[]>(() => props.overview ? workflowScript.slice(0, 3) : []);
   const [mode, setMode] = useState<'manual' | 'auto'>('manual');
   const [running, setRunning] = useState(!props.reduced);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -48,13 +54,13 @@ function ResearchSession(props: ResearchLabProps) {
   useEffect(() => { if (props.reduced) setRunning(false); }, [props.reduced]);
   useEffect(() => { if (selection) panel.current?.focus({ preventScroll: true }); }, [selection]);
   useEffect(() => {
-    if (!running || waiting || finished || replaying || records || selection) return;
+    if (!running || waiting || finished || replaying || records || selection || props.suspended) return;
     const timer = setTimeout(() => {
       if (document.hidden) { setRunning(false); return; }
       setEvents(current => { const next = nextResearchEvent(current, mode); return next ? [...current, next] : current; });
     }, 1600);
     return () => clearTimeout(timer);
-  }, [events.length, mode, running, waiting, finished, replaying, records, selection]);
+  }, [events.length, mode, running, waiting, finished, replaying, records, selection, props.suspended]);
 
   function inspect(value: Selection) { if (!selection) focusOrigin.current = document.activeElement; setSelection(value); }
   function closeInspector() { setSelection(null); const el = focusOrigin.current; if (el instanceof HTMLElement || el instanceof SVGElement) el.focus({ preventScroll: true }); }
@@ -64,7 +70,7 @@ function ResearchSession(props: ResearchLabProps) {
     setEvents(current => { const next = nextResearchEvent(current, 'manual', true); return next ? [...current, next] : current; });
     setSelection(null); setRunning(true);
   }
-  function reset() { setRunning(false); setCursor(null); setEvents([]); setSelection(null); }
+  function reset() { setRunning(!!props.overview && !props.reduced); setCursor(null); setEvents(props.overview ? workflowScript.slice(0, 3) : []); setSelection(null); }
   function taskDetails(task: Task) {
     return <article className="wf-task-detail" key={task.id}>
       <div className="wf-detail-kicker">{task.id} / {task.agents.map(id => `a${id}`).join(' · ')}</div><h3>{task.title}</h3>
@@ -77,70 +83,82 @@ function ResearchSession(props: ResearchLabProps) {
   }
   if (records) return <ResearchRecords {...props} backLabel="返回实验场景" onBack={() => setRecords(false)} />;
 
-  return <div className={`research-lab research-reference research-workflow${props.reduced ? ' research-reduced' : ''}`} ref={root} tabIndex={-1} aria-label={`${props.archiveName} · AI 研究实验室`}>
-    <header className="reference-header">
-      <button onClick={props.onBack}><ArrowLeft size={14} />返回档案</button>
-      <span>REINLAB <span>/</span> {props.archiveName} <span>/</span> 事件模拟</span>
-      <div><button onClick={() => { setRunning(false); setRecords(true); }}><NotebookPen size={14} />原有记录</button>{props.soundControl}</div>
-    </header>
+  return <div className={`research-lab research-reference research-workflow${props.overview ? ' research-overview' : ''}${props.reduced ? ' research-reduced' : ''}`} ref={root} tabIndex={-1} aria-label={`${props.archiveName} · AI 研究实验室`}>
+    {props.overview ? <header className="reference-header overview-heading">
+      <div className="overview-title"><span>DEPARTMENT / 02 — RESEARCH</span><h1>研究总览<small>RESEARCH OBSERVATORY</small></h1></div>
+      <div className="overview-actions"><button onClick={props.onBack}>研究档案 <span>{String(props.archiveCount ?? 3).padStart(2, '0')}</span><ArrowRight size={12}/></button><button onClick={props.onOpenNotes}><NotebookPen size={13}/>草案与笔记</button>{props.soundControl}</div>
+    </header> : <header className="reference-header">
+      <button onClick={props.onBack}><ArrowLeft size={14} />{props.overview ? '研究档案 / 03' : '返回档案'}</button>
+      <span>{props.overview ? 'RESEARCH OVERVIEW' : 'REINLAB'} <span>/</span> {props.archiveName} <span>/</span> {props.overview ? '研究总览' : '事件模拟'}</span>
+      <div><button onClick={() => { if (props.onOpenNotes) { props.onOpenNotes(); return; } setRunning(false); setRecords(true); }}><NotebookPen size={14} />{props.overview ? '草案与笔记' : '原有记录'}</button>{props.soundControl}</div>
+    </header>}
     <div className="wf-mission"><span>RESEARCH QUESTION</span><p>固定计算预算下，模型结构的收益是否依赖优化方法？</p><button onClick={() => inspect({ kind: 'report' })}>研究报告 <span>{state.reportReady ? 'v2' : 'v1'}</span><ArrowRight size={12} /></button></div>
     <main className="research-lab-main reference-main">
-      <svg className="reference-scene" role="group" viewBox="0 0 1120 720" aria-label="事件驱动研究场景：共享成果、跨组讨论与三条研究方向">
-        <text className="ref-label" x="35" y="40">SHARED STATE</text><rect className="ref-shared-box" x="25" y="56" width="245" height="626" rx="18" />
+      <svg className={`reference-scene${state.discussion ? ' overview-discussing' : ''}`} role="group" viewBox={props.overview ? '0 20 1120 510' : '0 0 1120 720'} aria-label="事件驱动研究场景：共享成果、跨组讨论与三条研究方向">
+        {props.overview && <g className="overview-ground" aria-hidden="true">
+          <defs><pattern id="overview-grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0V28" fill="none" stroke="#dbdfcf" strokeWidth=".45"/></pattern></defs>
+          <rect x="310" y="95" width="790" height="413" fill="url(#overview-grid)" opacity=".38"/>
+          <path d="M310 104V86H328M1082 86H1100V104M310 490V508H328M1082 508H1100V490" fill="none" stroke="#b6bea3" strokeWidth="1"/>
+          <path d="M305 329V451" stroke="#d6dcc9" strokeWidth=".7"/>
+          <text x="306" y={props.overview ? 497 : 656} className="overview-coordinate">FIELD / 03</text>
+          <text x="1100" y="63" textAnchor="end" className="overview-coordinate">PARALLEL RESEARCH / 09 AGENTS</text>
+        </g>}
+        <text className="ref-label" x="35" y="40">SHARED STATE</text><rect className="ref-shared-box" x="25" y="56" width="245" height={props.overview ? 456 : 626} rx="18" />
         <SvgButton label="查看 Champion 的依据与限制" onClick={() => inspect({ kind: 'champion' })}>
-          <rect className="wf-hitbox" x="34" y="64" width="227" height="232" rx="10" />
+          <rect className="wf-hitbox" x="34" y="64" width="227" height={props.overview ? 220 : 232} rx="10" />
           <text className="ref-title" x="147" y="92" textAnchor="middle">Champion <tspan fontStyle="italic">p*</tspan></text>
           {!state.champion ? <><text className="ref-muted" x="147" y="172" textAnchor="middle">等待候选核验</text><text className="ref-small" x="147" y="200" textAnchor="middle">不以讨论共识替代证据</text></> : <>
             <text className="ref-small" x="47" y="128">{state.champion.id} · 比较条件已核验（模拟）</text><path className="ref-chart-axis" d="M52 144V238H244" />
             <motion.path key={state.champion.id} d={state.champion.id === 'E11' ? 'M68 215L228 154' : 'M68 215H228'} fill="none" stroke="#5d7362" strokeWidth="2" initial={{ pathLength: props.reduced ? 1 : 0 }} animate={{ pathLength: 1 }} transition={{ duration: .8 }} />
-            <text className="ref-score" x="242" y="264" textAnchor="end">{state.champion.score!.toFixed(4)}</text>
+            <text className="ref-score" x="242" y={props.overview ? 250 : 264} textAnchor="end">{state.champion.score!.toFixed(4)}</text>
           </>}
-          <text className="ref-small" x="147" y="285" textAnchor="middle">固定验证任务 · 当前候选，不是定论</text>
+          <text className="ref-small" x="147" y={props.overview ? 275 : 285} textAnchor="middle">固定验证任务 · 当前候选，不是定论</text>
         </SvgButton>
         <SvgButton label={`打开 Log，${visibleEvents.filter(e => e.kind === 'result').length} 条结果`} onClick={() => inspect({ kind: 'log' })}>
-          <rect className="wf-hitbox" x="34" y="307" width="227" height="190" rx="10" /><text className="ref-title" x="147" y="349" textAnchor="middle">Log</text>
-          <PaperStack x={125} y={430} count={visibleEvents.filter(e => e.kind === 'result').length} /><text className="ref-small" x="147" y="480" textAnchor="middle">事实与产物 / {visibleEvents.filter(e => e.kind === 'result').length}</text>
+          <rect className="wf-hitbox" x="34" y={props.overview ? 292 : 307} width="227" height={props.overview ? 105 : 190} rx="10" /><text className="ref-title" x="147" y={props.overview ? 315 : 349} textAnchor="middle">Log</text>
+          <PaperStack x={125} y={props.overview ? 342 : 430} count={visibleEvents.filter(e => e.kind === 'result').length} /><text className="ref-small" x="147" y={props.overview ? 387 : 480} textAnchor="middle">事实与产物 / {visibleEvents.filter(e => e.kind === 'result').length}</text>
         </SvgButton>
         <SvgButton label={`打开 Forum，${state.posts.length} 条讨论`} onClick={() => inspect({ kind: 'forum' })}>
-          <rect className="wf-hitbox" x="34" y="510" width="227" height="162" rx="10" /><text className="ref-title" x="147" y="541" textAnchor="middle">Forum</text>
-          <PaperStack x={125} y={610} count={state.posts.length} color="#f1e5cd" /><text className="ref-small" x="147" y="656" textAnchor="middle">解释、质疑与决定 / {state.posts.length}</text>
+          <rect className="wf-hitbox" x="34" y={props.overview ? 400 : 510} width="227" height={props.overview ? 105 : 162} rx="10" /><text className="ref-title" x="147" y={props.overview ? 425 : 541} textAnchor="middle">Forum</text>
+          <PaperStack x={125} y={props.overview ? 452 : 610} count={state.posts.length} color="#f1e5cd" /><text className="ref-small" x="147" y={props.overview ? 497 : 656} textAnchor="middle">解释、质疑与决定 / {state.posts.length}</text>
         </SvgButton>
-        <text className="ref-label" x="742" y="74" textAnchor="middle">DISCUSSION</text>
-        <ellipse className="ref-discussion-orbit" cx="742" cy="232" rx="327" ry="118" />
-        {!state.discussion && !state.approved ? <><text className="wf-orbit-hint" x="742" y="229" textAnchor="middle">让证据先发生。</text><text className="ref-small" x="742" y="254" textAnchor="middle">出现跨组分歧时，仅召集相关研究员</text></> : <SvgButton label="打开跨组讨论与决策记录" onClick={() => inspect({ kind: 'discussion' })}>
-          <rect className="wf-topic-card" x="567" y="164" width="350" height="123" rx="9" />
-          <text className="wf-topic-kicker" x="585" y="186">{state.approved ? 'DECISION RECORDED / 已形成决定' : 'D01 / 跨组讨论'}</text>
-          <text className="wf-topic-title" x="585" y="215">结构收益是否依赖优化方法？</text>
-          <text className="ref-small" x="585" y="240">{state.approved ? '收窄 H1 → a2、a5 联合对照 → a3 核验' : 'E07 未支持预期；a5 质疑优化设置的影响'}</text>
-          <text className="wf-topic-link" x="585" y="266">{state.approved ? '查看决定、依据与新任务 E11 →' : replaying ? '历史状态 · 查看本轮讨论 →' : mode === 'manual' ? '等待你的决定 · 查看证据并确认 →' : '按规则 R1 确认匹配预算对照 →'}</text>
+        <text className="ref-label" x="742" y={props.overview ? 62 : 74} textAnchor="middle">DISCUSSION</text>
+        <ellipse className="ref-discussion-orbit" cx="742" cy={props.overview ? 160 : 232} rx="327" ry={props.overview ? 85 : 118} />
+        {!state.discussion && !state.approved ? <><text className="wf-orbit-hint" x="742" y={props.overview ? 155 : 229} textAnchor="middle">让证据先发生。</text><text className="ref-small" x="742" y={props.overview ? 179 : 254} textAnchor="middle">出现跨组分歧时，仅召集相关研究员</text></> : <SvgButton label="打开跨组讨论与决策记录" onClick={() => inspect({ kind: 'discussion' })}>
+          <rect className="wf-topic-card" x="567" y={props.overview ? 112 : 164} width="350" height={props.overview ? 105 : 123} rx="9" />
+          <text className="wf-topic-kicker" x="585" y={props.overview ? 134 : 186}>{state.approved ? 'DECISION RECORDED / 已形成决定' : 'D01 / 跨组讨论'}</text>
+          <text className="wf-topic-title" x="585" y={props.overview ? 159 : 215}>结构收益是否依赖优化方法？</text>
+          <text className="ref-small" x="585" y={props.overview ? 182 : 240}>{state.approved ? '收窄 H1 → a2、a5 联合对照 → a3 核验' : 'E07 未支持预期；a5 质疑优化设置的影响'}</text>
+          <text className="wf-topic-link" x="585" y={props.overview ? 204 : 266}>{state.approved ? '查看决定、依据与新任务 E11 →' : replaying ? '历史状态 · 查看本轮讨论 →' : mode === 'manual' ? '等待你的决定 · 查看证据并确认 →' : '按规则 R1 确认匹配预算对照 →'}</text>
         </SvgButton>}
         {sceneGroups.map((group, lane) => {
           const x = groupCenters[lane], tasks = state.tasks.filter(task => task.lane === lane);
           const status = lane === 2 && tasks.some(t => t.execution === 'blocked') ? '待资源 · 不作研究判断' : state.discussion && lane === 0 ? '暂缓原方案 · 进入复核' : lane === 0 && state.approved ? 'H1′ · 联合验证' : ['H1 · 结构是否限制表现？', 'H2 · 优化是否限制收敛？', 'H3 · 调度是否影响表现？'][lane];
           return <g key={group} className={`ref-group ref-group-${lane}`}>
             <SvgButton label={`研究方向 ${group}`} onClick={() => inspect({ kind: 'group', id: lane })}>
-              <text className="ref-group-title" x={x} y="392" textAnchor="middle">{group}</text><text className="ref-small" x={x} y="416" textAnchor="middle">{status}</text><rect className="ref-group-box" x={x - 103} y="428" width="206" height="237" rx="17" />
+              <text className="ref-group-title" x={x} y={props.overview ? 287 : 392} textAnchor="middle">{group}</text><text className="ref-small" x={x} y={props.overview ? 309 : 416} textAnchor="middle">{status}</text><rect className="ref-group-box" x={x - 103} y={props.overview ? 322 : 428} width="206" height={props.overview ? 185 : 237} rx="17" />
             </SvgButton>
-            <text className="ref-label ref-experiments-title" x={x - 85} y="529">EXPERIMENTS</text>
+            <text className="ref-label ref-experiments-title" x={x - 85} y={props.overview ? 394 : 529}>EXPERIMENTS</text>
             {tasks.map((task, index) => <SvgButton key={task.id} label={`打开 ${task.id} ${task.title}`} onClick={() => inspect({ kind: 'task', id: task.id })}>
-              <rect x={x - 87} y={548 + index * 51} width="174" height="43" rx="4" fill={task.verified ? '#e6eee2' : task.execution === 'blocked' ? '#f5ead4' : '#f0eee8'} stroke="#d4d1c6" strokeWidth=".7" />
-              <text className="wf-task-name" x={x - 77} y={564 + index * 51}>{task.id}<tspan x={x + 77} textAnchor="end">{executionText[task.execution]}</tspan></text>
-              <text className="ref-small" x={x - 77} y={581 + index * 51}>{verdictText[task.verdict]}{task.score !== undefined ? ` · ${task.score.toFixed(4)}` : ''}</text>
+              <rect x={x - 87} y={(props.overview ? 407 : 548) + index * 51} width="174" height="43" rx="4" fill={task.verified ? '#e6eee2' : task.execution === 'blocked' ? '#f5ead4' : '#f0eee8'} stroke="#d4d1c6" strokeWidth=".7" />
+              <text className="wf-task-name" x={x - 77} y={(props.overview ? 423 : 564) + index * 51}>{task.id}<tspan x={x + 77} textAnchor="end">{executionText[task.execution]}</tspan></text>
+              <text className="ref-small" x={x - 77} y={(props.overview ? 440 : 581) + index * 51}>{verdictText[task.verdict]}{task.score !== undefined ? ` · ${task.score.toFixed(4)}` : ''}</text>
             </SvgButton>)}
-            {!tasks.length && <text className="ref-small" x={x} y="582" textAnchor="middle">等待任务分配</text>}
+            {!tasks.length && <text className="ref-small" x={x} y={props.overview ? 455 : 582} textAnchor="middle">等待任务分配</text>}
           </g>;
         })}
         {Array.from({ length: 9 }, (_, index) => {
-          const agent = index + 1, position = workflowPosition(agent, state), lane = Math.floor(index / 3);
+          const agent = index + 1, sourcePosition = workflowPosition(agent, state), lane = Math.floor(index / 3);
+          const position = props.overview ? {x:sourcePosition.x,y:state.discussion && state.participants.includes(agent) ? (sourcePosition.y===337 ? 230 : 155) : 354} : sourcePosition;
           const tasks = state.tasks.filter(task => task.agents.includes(agent));
           const action = state.participants.includes(agent) ? '参与 D01 跨组讨论' : tasks.at(-1)?.title ?? '等待任务';
-          return <motion.g key={agent} className={`ref-agent ref-agent-${lane}`} role="button" tabIndex={0} aria-label={`研究员 a${agent}：${action}`}
+          return <motion.g key={agent} className={`ref-agent ref-agent-${lane}${props.overview && running && !waiting && !selection && !props.suspended && tasks.at(-1)?.execution === 'running' ? ' ref-agent-active' : ''}`} role="button" tabIndex={0} aria-label={`研究员 a${agent}：${action}`}
             initial={false} animate={{ x: position.x, y: position.y }} transition={{ duration: props.reduced ? 0 : 1.1, ease: [.22, 1, .36, 1] }}
             onClick={() => inspect({ kind: 'agent', id: agent })} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); inspect({ kind: 'agent', id: agent }); } }}>
-            <title>{`a${agent} · ${action}`}</title><circle className="ref-agent-halo" r="22" /><circle className="ref-agent-body" r="13" /><circle cy="-4" r="3.4" fill="#fff" fillOpacity=".88" /><path d="M-6 7c0-8 12-8 12 0" fill="#fff" fillOpacity=".88" /><text className="ref-agent-name" y="33" textAnchor="middle">a{agent}</text>
+            <title>{`a${agent} · ${action}`}</title><circle className="ref-agent-halo" r="22" /><circle className="ref-agent-body" r="13" /><circle cy="-4" r="3.4" fill="#fff" fillOpacity=".88" /><path d="M-6 7c0-8 12-8 12 0" fill="#fff" fillOpacity=".88" /><text className="ref-agent-name" y={props.overview ? 25 : 33} textAnchor="middle">a{agent}</text>
           </motion.g>;
         })}
-        {!props.reduced && lastEvent?.kind === 'result' && lastEvent.task && <motion.g key={`${lastEvent.id}-${replaying}`} aria-hidden="true" initial={{ x: groupCenters[lastEvent.task.lane], y: 565, opacity: 0 }} animate={{ x: 147, y: 408, opacity: [0, 1, 1, 0] }} transition={{ duration: 1.4, ease: 'easeInOut' }}><rect width="11" height="11" rx="2" fill="#a5ad8d" /><text className="ref-small" x="18" y="10">{lastEvent.task.id} · 存入 Log</text></motion.g>}
+        {!props.reduced && lastEvent?.kind === 'result' && lastEvent.task && <motion.g key={`${lastEvent.id}-${replaying}`} aria-hidden="true" initial={{ x: groupCenters[lastEvent.task.lane], y: props.overview ? 427 : 565, opacity: 0 }} animate={{ x: 147, y: props.overview ? 350 : 408, opacity: [0, 1, 1, 0] }} transition={{ duration: 1.4, ease: 'easeInOut' }}><rect width="11" height="11" rx="2" fill="#a5ad8d" /><text className="ref-small" x="18" y="10">{lastEvent.task.id} · 存入 Log</text></motion.g>}
       </svg>
     </main>
     {selection && <aside className="ref-inspector wf-inspector" ref={panel} tabIndex={-1} role="dialog" aria-label="研究对象详情" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); closeInspector(); } }}>

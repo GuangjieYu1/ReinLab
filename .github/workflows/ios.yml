@@ -15,7 +15,8 @@ on:
       - 'public/**'
       - 'index.html'
       - 'package.json'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - 'capacitor.config.ts'
       - 'ios/**'
       - '.github/workflows/ios.yml'
@@ -35,7 +36,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
-          cache: 'npm'
+
+      - uses: pnpm/action-setup@v4
 
       - name: 环境信息
         run: |
@@ -44,17 +46,17 @@ jobs:
           xcodebuild -version
 
       - name: 安装依赖
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # 75 个测试很快（约 0.4s），作为构建门禁。
       - name: 测试
-        run: npm test
+        run: pnpm test
 
       - name: 构建 Web 产物
-        run: npm run build
+        run: pnpm build
 
       - name: 同步到 iOS 工程
-        run: npx cap sync ios
+        run: pnpm exec cap sync ios
 
       - name: 构建未签名 .app
         run: |

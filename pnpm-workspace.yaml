@@ -1,0 +1,7 @@
+packages:
+  - packages/*
+  - services/*
+  - plugins/*
+allowBuilds:
+  esbuild@0.25.12: true
+  sharp@0.32.6: true

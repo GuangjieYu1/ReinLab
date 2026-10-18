@@ -1,0 +1,44 @@
+/* Design picker (moved here from the retired first-round stylesheet). */
+.entry-design-picker { position:absolute; z-index:55; top:79px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:3px; padding:4px; background:#f7f4e9e8; border:1px solid #bbac8a42; }
+.entry-design-picker button { padding:7px 16px; font-size:10px; color:#948567; white-space:nowrap; }
+.entry-design-picker button[aria-pressed="true"] { color:#434c33; background:#e6dfcd; }
+/* The picker only compares openings; once inside a workbench it steps aside. */
+.entry-design-picker { transition:opacity .45s ease; }
+.entry-comparison:not([data-stage="chooser"]) .entry-design-picker { opacity:0; pointer-events:none; }
+@media(max-width:700px) { .entry-design-picker { top:97px; gap:1px; width:calc(100% - 32px); justify-content:center; } .entry-design-picker button { padding:7px 9px; font-size:9px; } }
+
+/* Handoff from the workbench chooser into Files.
+   The chooser fades above, the archive field arrives below with a ripple, and
+   the chosen logo is laid onto the selected cassette where it stays as a seal. */
+.entry-chooser-shell { position:absolute; inset:0; z-index:5; transition:opacity .8s ease .08s; }
+.entry-chooser-shell[data-handoff="true"] { opacity:0; pointer-events:none; }
+
+.entry-flyer { position:absolute; left:0; top:0; z-index:30; width:220px; height:220px; transform-origin:0 0; pointer-events:none; will-change:transform; transition:opacity .38s ease; }
+.entry-flyer .entry-logo { filter:drop-shadow(0 16px 18px #4a432f22); }
+
+/* In Files only the label band at the top of the selected cassette is in view,
+   so the seal is stamped there, beside the RHINE LAB etching. */
+.entry-seal { position:absolute; left:322px; top:5px; width:72px; height:72px; pointer-events:none; transition:opacity .3s ease; }
+.entry-seal .entry-logo { filter:contrast(1.05); }
+.entry-comparison[data-stamped="true"] .entry-seal { animation:entry-stamp .55s cubic-bezier(.2,1.6,.4,1) both; }
+@keyframes entry-stamp { from { transform:scale(1.35); } }
+.entry-seal > i { position:absolute; width:0; height:0; }
+.entry-seal > i[data-corner="0"] { left:0; top:0; }
+.entry-seal > i[data-corner="1"] { right:0; top:0; }
+.entry-seal > i[data-corner="2"] { left:0; bottom:0; }
+.entry-seal > i[data-corner="3"] { right:0; bottom:0; }
+.entry-comparison[data-sealing="true"] .entry-seal { opacity:0; transition:none; }
+
+.entry-comparison[data-arriving="true"] .entry-field-viewport { animation:entry-field-arrive 1.4s cubic-bezier(.16,.8,.2,1) both; }
+@keyframes entry-field-arrive { from { opacity:0; transform:scale(1.18) translateY(2.5%); } }
+.entry-comparison[data-arriving="true"] :is(.entry-brand,.entry-files-heading,.entry-file-callout,.entry-module-files,.entry-module-identity) { animation:entry-ui-arrive .7s var(--arrive,.55s) cubic-bezier(.22,1,.36,1) both; }
+.entry-comparison[data-arriving="true"] .entry-files-heading { --arrive:.65s; }
+.entry-comparison[data-arriving="true"] .entry-file-callout { --arrive:.75s; }
+.entry-comparison[data-arriving="true"] .entry-module-files { --arrive:.8s; }
+.entry-comparison[data-arriving="true"] .entry-module-identity { --arrive:.95s; }
+@keyframes entry-ui-arrive { from { opacity:0; transform:translateY(14px); } }
+
+@media(prefers-reduced-motion:reduce) {
+  .entry-chooser-shell, .entry-flyer, .entry-seal { transition:none; }
+  .entry-comparison[data-arriving="true"] :is(.entry-field-viewport,.entry-brand,.entry-files-heading,.entry-file-callout,.entry-module-files,.entry-module-identity) { animation:none; }
+}

@@ -1,0 +1,72 @@
+/* CRTV · script → shots → frame → film, with a timeline across the bottom. */
+.cr { display:grid; grid-template-columns:272px 330px minmax(0,1fr); grid-template-rows:38px minmax(0,1fr) 190px; gap:8px; height:100%; padding:8px; }
+.cr select, .cr input, .cr textarea { font:inherit; color:var(--ink); }
+.cr select { height:24px; padding:0 4px; border:0; background:var(--paper-2); box-shadow:inset 0 0 0 1px var(--line); font-size:11px; }
+.cr-top { grid-column:1/-1; display:flex; align-items:center; gap:14px; padding:0 10px; background:var(--paper); box-shadow:inset 0 0 0 1px var(--line); }
+.cr-top > b { font-size:13px; } .cr-top > .mono { font-size:10.5px; color:var(--moss); }
+.cr-top label { display:flex; align-items:center; gap:6px; font-size:10px; letter-spacing:.1em; color:var(--moss); }
+.cr-top-gap { flex:1; }
+
+.cr-script textarea { flex:1; min-height:0; margin:0; padding:12px 14px; border:0; resize:none; background:none; font-size:12.5px; line-height:1.8; outline:none; }
+.cr-script-foot { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:8px 10px; border-top:1px solid var(--line); }
+.cr-script-foot small { width:100%; font-size:10px; color:var(--moss); }
+.cr-legend { display:flex; flex-wrap:wrap; gap:4px 8px; padding:8px 10px 10px; border-top:1px solid var(--line-2); font-size:10px; color:var(--sage); }
+.cr-legend b { width:100%; font-size:9px; letter-spacing:.16em; color:var(--moss); font-weight:500; }
+
+.cr-shots ol { margin:0; padding:6px; list-style:none; display:flex; flex-direction:column; gap:6px; }
+.cr-shots li { padding:8px; background:var(--paper-2); box-shadow:inset 0 0 0 1px var(--line-2); cursor:pointer; transition:box-shadow .2s, background .2s; }
+.cr-shots li[data-on] { background:var(--paper); box-shadow:inset 0 0 0 1.5px var(--ink), inset 3px 0 0 var(--gold); }
+.cr-shot-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:9.5px; color:var(--moss); }
+.cr-shot-row em { font-style:normal; font-size:15px; color:var(--ink); }
+.cr-shot-row label { display:flex; align-items:center; gap:3px; }
+.cr-shot-row select { height:22px; font-size:10.5px; }
+.cr-sec { margin-left:auto; } .cr-sec input { width:38px; height:22px; border:0; background:var(--paper); box-shadow:inset 0 0 0 1px var(--line); text-align:center; font-size:11px; }
+.cr-shot-title, .cr-shot-body { display:block; width:100%; border:0; background:var(--paper); box-shadow:inset 0 0 0 1px var(--line-2); outline:none; }
+.cr-shot-title { height:26px; padding:0 8px; font-size:12.5px; font-weight:600; }
+.cr-shot-body { margin-top:4px; padding:5px 8px; resize:none; font-size:11.5px; line-height:1.5; color:var(--sage); }
+.cr-shot-title:focus, .cr-shot-body:focus { box-shadow:inset 0 0 0 1px var(--ink); }
+.cr-shot-tools { display:flex; justify-content:flex-end; gap:2px; margin-top:4px; }
+.cr-shot-tools .b { height:20px; padding:0 6px; font-size:10px; }
+
+.cr-stage { min-height:0; }
+.cr-canvas { flex:1; min-height:0; display:grid; place-items:center; padding:12px; background:repeating-linear-gradient(45deg,var(--paper-2) 0 8px,#ebe8df 8px 9px); container-type:size; }
+.cr-canvas-in { width:min(100cqw - 24px,(100cqh - 24px) * 16 / 9); aspect-ratio:16/9; box-shadow:0 20px 50px #1d211a33, 0 0 0 1px #1d211a33; animation:cr-cut .5s cubic-bezier(.2,.8,.2,1) both; }
+.cr-canvas-in[data-transition="推进"] { animation-name:cr-push; } .cr-canvas-in[data-transition="聚焦"] { animation-name:cr-focus; } .cr-canvas-in[data-transition="上移"] { animation-name:cr-up; }
+@keyframes cr-cut { from { opacity:0; } } @keyframes cr-push { from { opacity:0; transform:translateX(40px); } } @keyframes cr-focus { from { opacity:0; transform:scale(1.06); filter:blur(6px); } } @keyframes cr-up { from { opacity:0; transform:translateY(30px); } }
+.cr-frame { display:block; width:100%; height:100%; }
+.cr-gen { flex:none; padding:10px 12px; border-top:1px solid var(--line); }
+.cr-gen-row { display:flex; flex-wrap:wrap; gap:16px; margin-bottom:8px; }
+.cr-gen-row label { display:flex; align-items:center; gap:8px; font-size:10px; letter-spacing:.1em; color:var(--moss); }
+.cr-gen-prompt { display:flex; gap:8px; }
+.cr-gen-prompt textarea { flex:1; padding:6px 8px; border:0; resize:none; background:var(--paper-2); box-shadow:inset 0 0 0 1px var(--line); font-size:11.5px; outline:none; }
+.cr-gen-prompt .b { height:auto; }
+.cr-cands { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:8px; min-height:64px; }
+.cr-cands p { grid-column:1/-1; margin:0; align-self:center; font-size:10.5px; color:var(--moss); }
+.cr-cands button { position:relative; padding:0; border:0; background:none; box-shadow:0 0 0 1px var(--line); aspect-ratio:16/9; overflow:hidden; transition:box-shadow .2s, transform .2s; }
+.cr-cands button:hover { box-shadow:0 0 0 2px var(--gold); transform:translateY(-2px); }
+.cr-cands button span { position:absolute; left:4px; bottom:3px; padding:0 4px; font-size:8.5px; background:#1d211acc; color:var(--paper); }
+.cr-cand-wait { aspect-ratio:16/9; background:linear-gradient(100deg,var(--paper-3) 30%,var(--paper) 50%,var(--paper-3) 70%) 0 0/200% 100%; animation:cr-shimmer 1s linear infinite; }
+@keyframes cr-shimmer { to { background-position:-200% 0; } }
+.cr-player { display:flex; align-items:center; gap:10px; flex:none; padding:10px 12px; border-top:1px solid var(--line); }
+.cr-player input[type=range] { flex:1; accent-color:var(--ink); }
+.cr-player .mono { font-size:11px; }
+.cr-player-shot { font-size:11px; color:var(--sage); }
+
+.cr-timeline { grid-column:1/-1; }
+.cr-tracks { position:relative; flex:1; display:grid; grid-template-columns:56px 1fr; grid-template-rows:66px 20px 24px 20px; gap:4px 0; padding:6px 10px 8px 0; min-height:0; }
+.cr-track-name { align-self:center; padding-left:12px; font-size:9.5px; color:var(--moss); letter-spacing:.08em; }
+.cr-track { display:flex; gap:2px; min-width:0; }
+.cr-track > * { min-width:0; }
+.cr-track-film button { position:relative; padding:0; border:0; background:var(--ink); overflow:hidden; box-shadow:inset 0 0 0 1px var(--line); }
+.cr-track-film button .cr-frame { position:absolute; inset:0; width:100%; height:100%; }
+.cr-track-film button span { position:absolute; left:0; right:0; bottom:0; padding:1px 4px; background:#1d211ad9; color:var(--paper); font-size:8.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:left; }
+.cr-track-film button[data-on] { box-shadow:inset 0 0 0 2px var(--gold); }
+.cr-track > i { font-style:normal; padding:0 6px; line-height:20px; font-size:10px; color:var(--sage); background:var(--paper-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cr-wave > i { display:flex; align-items:center; gap:1px; padding:0 3px; background:#e9e4d6; }
+.cr-wave b { flex:1; background:var(--sage-2); opacity:.7; }
+.cr-music > i { background:#efe6cf; color:var(--gold); }
+.cr-playhead { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px; background:var(--gold); pointer-events:none; }
+.cr-playhead::before { content:''; position:absolute; top:0; left:-4px; border:5px solid transparent; border-top-color:var(--gold); }
+
+@media (max-width:1280px) { .cr { grid-template-columns:240px 290px minmax(0,1fr); } }
+@media (max-width:760px) { .cr { display:flex; flex-direction:column; height:auto; } .cr-top { flex-wrap:wrap; padding:8px; } .cr-script { height:300px; } .cr-shots { height:420px; } .cr-stage { height:auto; } .cr-canvas { height:230px; flex:none; } .cr-timeline { overflow-x:auto; } .cr-tracks { min-width:700px; } }

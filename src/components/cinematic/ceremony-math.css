@@ -1,0 +1,441 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,800;9..40,900&display=swap');
+/* Fifth-round entry designs: 量子涨落 / 莫比乌斯环 / 分形与群 / 混沌吸引子 / 晶带轴.
+   CSS 3D on the shared camera rig (ceremony-workbenches.css); the vacuum floor
+   is a 2D canvas laid in the scene. Paper, grey-green ink, a little gold. */
+
+/* Shared: the opening's ring hands over exactly as in the double helix. */
+.ceremony-seeded[data-phase="intro"] :is(.qf-root,.mb-root,.fg-root,.lz-root,.cr-root) :is(.hx-seed-detail,.hx-seed-core) { animation:hx-detail .6s .35s ease both; }
+.ceremony:is(.ceremony-quantum,.ceremony-mobius,.ceremony-fractal,.ceremony-lorenz)[data-phase="intro"] .hx-seed-satellite { animation:hx-satellite .55s calc(.35s + var(--i) * .05s) cubic-bezier(.5,0,.75,0) both; }
+.ceremony:is(.ceremony-quantum,.ceremony-mobius,.ceremony-fractal,.ceremony-lorenz,.ceremony-crystal)[data-phase="leaving"] .hx-seed { opacity:0; transition:opacity .6s ease; }
+.ceremony:is(.ceremony-quantum,.ceremony-mobius,.ceremony-fractal,.ceremony-lorenz,.ceremony-crystal) .c3-view { cursor:grab; }
+:is(.qf-root,.mb-root,.fg-root,.lz-root,.cr-root) { position:absolute; left:0; top:0; width:0; height:0; transform-style:preserve-3d; }
+
+/* ── 量子涨落 ─────────────────────────────────────────────────────────── */
+@property --qf-rot { syntax:'<angle>'; inherits:true; initial-value:0deg; }
+@property --qf-wind { syntax:'<angle>'; inherits:true; initial-value:0deg; }
+.ceremony-quantum .c3-world { --c-pitch:-18deg; --c-yaw:0deg; --c-dolly:-90px; }
+.qf-root { transition:--qf-rot 1.3s cubic-bezier(.5,0,.15,1); }
+.qf-floor { position:absolute; left:-1200px; top:-1200px; width:2400px; height:2400px; transform:translateY(250px) rotateX(90deg); pointer-events:none; }
+.qf-field { display:block; width:100%; height:100%; }
+.ceremony-quantum .hx-seed { transform:translateY(250px) rotateX(90deg) scale(2.41); }
+.ceremony-quantum .hx-seed-ring { opacity:.5; }
+.qf-orbit, .qf-packet { position:absolute; left:0; top:0; width:0; height:0; transform-style:preserve-3d; }
+.qf-orbit { --t:calc(var(--a) + var(--qf-rot) + var(--qf-wind)); transform:rotateY(var(--t)) translateZ(540px) rotateY(calc(var(--t) * -1)); }
+.qf-packet { transform:var(--bill); }
+.qf-lift { position:absolute; left:0; top:0; width:0; height:0; transform:translate3d(0px,-20px,0px); transition:transform 1s cubic-bezier(.22,1,.36,1); }
+.qf-orbit[data-current="true"] .qf-lift { transform:translate3d(0px,-90px,170px); }
+.ceremony .qf-hit { position:absolute; left:-125px; top:-125px; width:250px; height:250px; padding:0; border:0; border-radius:50%; background:transparent; cursor:pointer; }
+.qf-cloud, .qf-lens { position:absolute; inset:0; border-radius:50%; pointer-events:none; }
+.qf-cloud { background:radial-gradient(circle,#5d665030 0%,#5d665016 40%,#5d665000 70%); transition:opacity .55s ease, transform .8s cubic-bezier(.22,1,.36,1); }
+.qf-cloud > i { position:absolute; inset:var(--in); border-radius:50%; border:1.2px dashed #5d665080; animation:qf-orbital var(--dur) linear infinite; }
+.qf-cloud > i:nth-child(1) { --in:30px; --dur:7s; }
+.qf-cloud > i:nth-child(2) { --in:58px; --dur:5s; border-style:dotted; border-width:2px; animation-direction:reverse; }
+.qf-cloud > i:nth-child(3) { --in:6px; --dur:13s; border-color:#a68b5866; }
+@keyframes qf-orbital { 0% { transform:rotate(0deg) scale(1); } 50% { transform:rotate(180deg) scale(1.07); } 100% { transform:rotate(360deg) scale(1); } }
+.qf-ghost { position:absolute; inset:64px; filter:blur(2.4px); opacity:.5; animation:qf-jitter 1.4s steps(1) infinite; }
+@keyframes qf-jitter { 0% { transform:translate(3px,-2px); } 25% { transform:translate(-4px,1px); } 50% { transform:translate(1px,3px); } 75% { transform:translate(-2px,-3px); } }
+.qf-orbit:nth-child(2n) .qf-ghost { animation-duration:1.9s; }
+.qf-lens { opacity:0; transform:scale(1.5); background:radial-gradient(circle at 36% 30%,#fffef9f6,#f2efe6f0 46%,#ddd7c8ec); box-shadow:inset 0 0 0 1px #fcfaf3, 0 0 0 1px var(--gold), 0 0 0 9px #a68b5822, 0 30px 60px #4a432f22; transition:opacity .45s ease .2s, transform .7s cubic-bezier(.2,1.3,.4,1) .2s; }
+.qf-lens .ceremony-emblem { position:absolute; left:40px; top:40px; width:170px; height:170px; }
+.qf-ticks { position:absolute; inset:-18px; border-radius:50%; background:repeating-conic-gradient(#8f947d 0deg .8deg,transparent .8deg 6deg);
+  -webkit-mask:radial-gradient(circle closest-side,transparent 90%,#000 91%,#000 97%,transparent 98%); mask:radial-gradient(circle closest-side,transparent 90%,#000 91%,#000 97%,transparent 98%); }
+.qf-orbit[data-current="true"] .qf-cloud { opacity:0; transform:scale(.35); }
+.qf-orbit[data-current="true"] .qf-lens { opacity:1; transform:none; }
+.qf-orbit:not([data-current="true"]) .qf-hit:hover .qf-cloud { transform:scale(1.08); }
+.qf-label { position:absolute; left:50%; top:calc(100% + 16px); transform:translateX(-50%); white-space:nowrap; font-family:'IBM Plex Mono',monospace; font-size:13px; letter-spacing:.1em; color:#8f947d; }
+.qf-label b { color:var(--gold); font-weight:400; margin-right:10px; }
+.qf-orbit[data-current="true"] .qf-label { color:var(--ink); padding:3px 12px; background:#f6f3eae6; border:1px solid #a68b5833; border-radius:999px; }
+.qf-beam { position:absolute; left:-1px; top:-1180px; width:2px; height:1080px; transform-origin:50% 0; background:linear-gradient(#a68b5800,#a68b58c0 70%,#a68b58); opacity:0; pointer-events:none;
+  transform:translate3d(0px,0px,600px); animation:qf-beam 1.2s .15s cubic-bezier(.3,0,.2,1) both; }
+@keyframes qf-beam { 0% { opacity:1; transform:translate3d(0px,0px,600px) scaleY(0); } 45% { opacity:1; transform:translate3d(0px,0px,600px) scaleY(1); } 100% { opacity:0; transform:translate3d(0px,0px,600px) scaleY(1); } }
+.qf-spark { position:absolute; left:-3px; top:-3px; width:6px; height:6px; border-radius:50%; background:var(--gold); box-shadow:0 0 0 3px #a68b5826; opacity:0; pointer-events:none;
+  transform:translate3d(var(--x),250px,var(--z)) var(--bill); animation:qf-spark var(--dur) var(--delay) ease-out infinite; }
+@keyframes qf-spark { 0% { opacity:0; translate:0 0; } 12% { opacity:.9; } 100% { opacity:0; translate:0 -240px; } }
+/* Opening: the ring lies down into the vacuum, packets condense, one collapses */
+.ceremony-quantum[data-phase="intro"] .c3-world { animation:qf-camera 2.8s .3s cubic-bezier(.45,0,.15,1) both; }
+@keyframes qf-camera { from { --c-pitch:0deg; --c-yaw:0deg; --c-dolly:0px; } }
+.ceremony-quantum[data-phase="intro"] .qf-root { animation:qf-wind 2.6s .5s cubic-bezier(.3,0,.1,1) both; }
+@keyframes qf-wind { from { --qf-wind:-200deg; } }
+.ceremony-quantum[data-phase="intro"] .hx-seed { animation:qf-seed 1.4s .35s cubic-bezier(.6,0,.2,1) both; }
+@keyframes qf-seed { from { transform:translateY(0px) rotateX(0deg) scale(1); } }
+.ceremony-quantum[data-phase="intro"] .qf-hit { animation:qf-materialize 1s calc(1.15s + var(--i) * .1s) cubic-bezier(.22,1,.36,1) both; }
+@keyframes qf-materialize { from { opacity:0; transform:scale(.2); filter:blur(14px); } }
+.ceremony-quantum[data-phase="intro"] .qf-orbit[data-current="true"] .qf-cloud { animation:qf-decay .55s 2.3s ease both; }
+@keyframes qf-decay { from { opacity:1; transform:none; } }
+.ceremony-quantum[data-phase="intro"] .qf-orbit[data-current="true"] .qf-lens { animation:qf-collapse .75s 2.4s cubic-bezier(.2,1.3,.4,1) both; }
+@keyframes qf-collapse { from { opacity:0; transform:scale(1.5); } }
+.ceremony-quantum[data-phase="intro"] .qf-orbit[data-current="true"] .qf-lift { animation:qf-rise 1s 2.2s cubic-bezier(.22,1,.36,1) both; }
+@keyframes qf-rise { from { transform:translate3d(0px,-20px,0px); } }
+.ceremony-quantum[data-phase="intro"] .qf-beam { animation-delay:2.1s; }
+.ceremony-quantum[data-phase="intro"] .qf-spark { animation-delay:calc(var(--delay) + 1.4s); }
+/* Departure: decoherence */
+.ceremony-quantum[data-phase="leaving"] .c3-world { --c-pitch:0deg; --c-dolly:0px; }
+.ceremony-quantum[data-phase="leaving"] .qf-orbit:not([data-current="true"]) .qf-hit { opacity:0; transform:scale(.3); filter:blur(10px); transition:opacity .7s ease, transform .9s ease, filter .8s ease; }
+.ceremony-quantum[data-phase="leaving"] .qf-orbit[data-current="true"] .qf-lift { transform:translate3d(0px,-40px,660px); transition:transform 1.15s cubic-bezier(.6,0,.3,1); }
+.ceremony-quantum[data-phase="leaving"] .qf-label { opacity:0; transition:opacity .4s ease; }
+.ceremony-quantum[data-phase="leaving"] .qf-spark { animation:none; opacity:0; }
+.ceremony-quantum[data-reduced="true"] .qf-root { transition:none; }
+
+/* ── 莫比乌斯环 ───────────────────────────────────────────────────────── */
+/* The ribbon is drawn on canvas with its own camera; the CSS camera stays put. */
+.ceremony-mobius .c3-world { --c-pitch:0deg; --c-yaw:0deg; --c-dolly:0px; --look-pitch:0deg; --look-yaw:0deg; }
+.ceremony-mobius .hx-seed { transform:none; opacity:0; }
+.ceremony-mobius[data-phase="intro"] .hx-seed { animation:mb-seed .5s .15s ease both; }
+@keyframes mb-seed { from { opacity:1; } }
+.mb-stage { position:absolute; left:-960px; top:-540px; width:1920px; height:1080px; }
+.mb-stage canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+.mb-back { filter:blur(2.2px); }
+.mb-links { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+.mb-links polyline { fill:none; stroke:#1d211a; stroke-width:1.2; opacity:0; }
+.ceremony .mb-node { position:absolute; left:0; top:0; display:flex; align-items:center; gap:7px; padding:0; border:0; border-radius:0; background:transparent; cursor:pointer; opacity:0; white-space:nowrap; will-change:transform; }
+.mb-node i { width:9px; height:9px; margin-left:-4.5px; background:#f4f1e8; border:1.5px solid #1d211a; transform:rotate(45deg); }
+.mb-node b { padding:3px 7px; background:#1d211a; color:#f4f1e8; font-family:'DM Sans',sans-serif; font-weight:800; font-size:13px; letter-spacing:.06em; }
+.mb-node span { font-size:12px; color:#2f3826; padding:2px 6px; background:#efede7cc; }
+.mb-node[aria-pressed="true"] i { background:var(--gold); border-color:var(--gold); }
+.mb-node[aria-pressed="true"] :is(b,span) { visibility:hidden; }
+.mb-node:not([aria-pressed="true"]):hover b { background:var(--gold); }
+.mb-card { position:absolute; left:1190px; top:330px; width:270px; height:330px; }
+.mb-card-in { position:absolute; inset:0; overflow:hidden; background:linear-gradient(160deg,#fbf9f3,#ece7db); box-shadow:0 30px 70px #1d211a2e, inset 0 0 0 1px #fffdf6; animation:mb-card-in .7s cubic-bezier(.2,.9,.25,1) both; transition:transform 1.1s cubic-bezier(.6,0,.3,1); }
+@keyframes mb-card-in { 0% { opacity:0; transform:translateX(40px) skewX(-6deg); filter:blur(8px); } }
+.mb-card-head { position:absolute; left:0; right:0; top:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 14px; background:#1d211a; color:#f4f1e8; }
+.mb-card-head b { font-family:'DM Sans',sans-serif; font-weight:800; font-size:24px; letter-spacing:.02em; }
+.mb-card-head small { font-size:8px; letter-spacing:.2em; color:#c9c3b2; }
+.mb-card-head i { margin-left:auto; font-style:normal; font-size:12px; color:#f4f1e880; }
+.mb-seal { position:absolute; left:50px; top:70px; width:170px; height:170px; }
+.mb-title { position:absolute; left:18px; right:18px; bottom:40px; display:flex; gap:8px; align-items:baseline; font-size:15px; font-weight:600; letter-spacing:.04em; color:#1d211a; white-space:nowrap; }
+.mb-title b { font-size:15px; font-weight:400; color:var(--gold); }
+.mb-serial { position:absolute; left:18px; bottom:18px; font-family:'IBM Plex Mono',monospace; font-size:8px; letter-spacing:.14em; color:#8a8d78; }
+.ceremony .mb-hit { position:absolute; inset:0; padding:0; border:0; background:transparent; cursor:pointer; }
+.ceremony:is(.ceremony-mobius,.ceremony-lorenz)[data-phase="intro"] .mb-card { animation:ceremony-fade .8s 2.75s ease backwards; }
+.ceremony-mobius[data-phase="intro"] .mb-card { animation-delay:3.3s; }
+
+.ceremony:is(.ceremony-mobius,.ceremony-lorenz)[data-phase="leaving"] .mb-card-in { transform:translate(-270px,-30px) scale(1.25); }
+.ceremony:is(.ceremony-mobius,.ceremony-lorenz)[data-phase="leaving"] :is(.mb-card-head,.mb-title,.mb-serial) { opacity:0; transition:opacity .4s ease; }
+
+/* ── 分形与群 ─────────────────────────────────────────────────────────── */
+@property --fg-rot { syntax:'<angle>'; inherits:true; initial-value:0deg; }
+@property --fg-wind { syntax:'<angle>'; inherits:true; initial-value:0deg; }
+@property --fg-f { syntax:'<number>'; inherits:true; initial-value:1; }
+.ceremony-fractal .c3-world { --c-pitch:-36deg; --c-yaw:0deg; --c-dolly:-170px; --oy:600px; }
+.fg-root { transition:--fg-rot 1.3s cubic-bezier(.5,0,.15,1), --fg-f 1.4s cubic-bezier(.65,0,.35,1); }
+.fg-defs { position:absolute; width:0; height:0; overflow:hidden; }
+.fg-zoom, .fg-flake, .fg-plate, .fg-anchor, .fg-bill, .fg-algebra-anchor { position:absolute; left:0; top:0; width:0; height:0; transform-style:preserve-3d; }
+.fg-zoom { transition:transform 1.25s cubic-bezier(.6,0,.3,1); }
+/* Rotation, then the mirror across the left–right axis (f = ±1). */
+.fg-flake { transform:scale3d(1,1,var(--fg-f)) rotateY(calc(var(--fg-rot) + var(--fg-wind))); }
+.ceremony-fractal .hx-seed { transform:rotateX(90deg) scale(2.9); }
+.ceremony-fractal .hx-seed-ring { opacity:.6; }
+.fg-chart { position:absolute; left:-720px; top:-720px; width:1440px; height:1440px; overflow:visible; transform:rotateX(90deg); pointer-events:none; }
+.fg-chart :is(circle,polygon,line) { fill:none; stroke:#5d6650; stroke-width:1.2; }
+.fg-circle { stroke:#a68b58 !important; stroke-dasharray:.004 .006 !important; }
+.fg-parent { stroke:#2f3826 !important; stroke-width:2.2 !important; }
+.fg-child { stroke:#8f947d !important; }
+.fg-child-mine { stroke:#a68b58 !important; stroke-width:2 !important; }
+.fg-generator { stroke:#a68b5899 !important; stroke-dasharray:.02 .02 !important; }
+.fg-plate { left:-70px; top:-70px; width:140px; height:140px; transition:transform .9s cubic-bezier(.22,1,.36,1); }
+.fg-plate svg { display:block; width:100%; height:100%; overflow:visible; }
+.fg-hex { fill:#f3f0e7e6; stroke:#8f947d; stroke-width:1.2; vector-effect:non-scaling-stroke; transition:fill .6s ease, stroke .6s ease; }
+.fg-plate[data-centre="true"] .fg-hex { fill:#ece8dce8; }
+.fg-plate[data-mine="true"] .fg-hex { fill:#1d211af2; stroke:#a68b58; stroke-width:1.8; }
+.fg-anchor { --ang:calc(var(--phi) - var(--fg-rot) - var(--fg-wind)); transform:translate3d(calc(cos(var(--ang)) * 400px),0px,calc(sin(var(--ang)) * 400px * var(--fg-f))); }
+.fg-bill { transform:var(--bill); }
+/* The seventh section stands on the centre child, fixed under the group. */
+.fg-anchor[data-centre] { transform:none; }
+.fg-anchor[data-centre]:not([data-current="true"]) .fg-stand { transform:translate3d(0px,-110px,0px) scale(.62); }
+.ceremony-fractal[data-phase="leaving"] .fg-root[data-centre] .fg-zoom { transform:scale3d(3,3,3); }
+.fg-stand { position:absolute; left:0; top:0; width:0; height:0; transform:translate3d(0px,-150px,0px) scale(.74); transition:transform .9s cubic-bezier(.22,1,.36,1), opacity .6s ease; }
+.fg-anchor[data-current="true"] .fg-stand { transform:translate3d(0px,-215px,90px); }
+.fg-anchor:not([data-current="true"]) .fg-stand:hover { transform:translate3d(0px,-170px,0px) scale(.8); }
+.fg-stem { position:absolute; left:-.5px; top:0; width:1px; height:150px; background:repeating-linear-gradient(#5d6650 0 6px,transparent 6px 11px); }
+.fg-anchor[data-current="true"] .fg-stem { height:215px; background:repeating-linear-gradient(#a68b58 0 6px,transparent 6px 11px); }
+.ceremony .fg-token { position:absolute; left:-104px; top:-120px; width:208px; height:240px; padding:0; border:0; background:transparent; cursor:pointer; }
+.fg-token-frame { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.fg-token-frame polygon:first-child { fill:#f6f3eaf0; stroke:#8f947d; stroke-width:.02; }
+.fg-token-frame polygon:last-child { fill:none; stroke:#bdb6a4; stroke-width:.012; }
+.fg-anchor[data-current="true"] .fg-token-frame polygon:first-child { stroke:#a68b58; stroke-width:.028; }
+.fg-token .ceremony-emblem { position:absolute; left:34px; top:50px; width:140px; height:140px; }
+.fg-code { position:absolute; left:50%; top:132px; transform:translateX(-50%); display:flex; gap:8px; align-items:baseline; white-space:nowrap; padding:3px 12px; font-size:14px; letter-spacing:.1em; color:#5d6650; background:#f6f3eae0; border:1px solid #8f947d33; border-radius:999px; }
+.fg-code b { font-weight:400; color:var(--gold); }
+.fg-index { position:absolute; left:-14px; top:-14px; width:28px; height:28px; background:var(--gold); clip-path:polygon(50% 0,100% 100%,0 100%); transform:translate3d(0px,0px,700px) rotateX(90deg); }
+.fg-algebra-anchor { transform:translate3d(780px,-170px,-60px); }
+.fg-algebra { position:absolute; left:-200px; top:-40px; width:400px; transform:var(--bill); text-align:left; font-family:'Times New Roman',serif; font-style:italic; font-size:22px; letter-spacing:.04em; color:#5d6650; white-space:nowrap; pointer-events:none; }
+.fg-algebra sub { font-size:13px; }
+.fg-algebra b { display:block; margin-top:10px; font-size:44px; font-weight:400; color:var(--gold); animation:fg-element .6s ease both; }
+.fg-algebra small { display:block; margin-top:4px; font-family:'IBM Plex Mono',monospace; font-style:normal; font-size:9px; letter-spacing:.2em; color:#8f947d; }
+@keyframes fg-element { from { opacity:0; transform:translateY(8px); } }
+/* Opening: circumcircle → hexagons → plates → standards */
+.ceremony-fractal[data-phase="intro"] .c3-world { animation:fg-camera 3s .3s cubic-bezier(.45,0,.15,1) both; }
+@keyframes fg-camera { from { --c-pitch:0deg; --c-yaw:0deg; --c-dolly:0px; --oy:540px; } }
+.ceremony-fractal[data-phase="intro"] .hx-seed { animation:fg-seed 1.4s .35s cubic-bezier(.6,0,.2,1) both; }
+@keyframes fg-seed { from { transform:rotateX(0deg) scale(1); } }
+.ceremony-fractal[data-phase="intro"] .fg-root { animation:fg-wind 2.6s .5s cubic-bezier(.3,0,.1,1) both; }
+@keyframes fg-wind { from { --fg-wind:150deg; } }
+.fg-draw { stroke-dasharray:1 1; }
+.ceremony-fractal[data-phase="intro"] .fg-draw { animation:fg-draw .9s var(--delay) cubic-bezier(.6,0,.2,1) both; }
+@keyframes fg-draw { from { stroke-dashoffset:1; } to { stroke-dashoffset:0; } }
+.ceremony-fractal[data-phase="intro"] .fg-plate svg { animation:fg-plate .7s calc(1.65s + var(--r) * .75s) cubic-bezier(.2,1.3,.4,1) both; }
+@keyframes fg-plate { from { scale:0; opacity:0; } }
+.ceremony-fractal[data-phase="intro"] .fg-stand { animation:fg-rise .85s calc(2.25s + var(--i) * .07s) cubic-bezier(.2,1.2,.4,1) both; }
+@keyframes fg-rise { from { opacity:0; transform:translate3d(0px,0px,0px) scale(.15); } }
+.ceremony-fractal[data-phase="intro"] :is(.fg-algebra,.fg-index) { animation:ceremony-fade .9s 2.6s ease both; }
+/* Departure: zoom into the chosen child — it becomes the whole */
+.ceremony-fractal[data-phase="leaving"] .c3-world { --c-pitch:-14deg; --c-dolly:0px; --oy:540px; }
+.ceremony-fractal[data-phase="leaving"] .fg-zoom { transform:translateZ(400px) scale3d(3,3,3) translateZ(-400px); }
+.ceremony-fractal[data-phase="leaving"] .fg-plate:not([data-mine="true"]) svg, .ceremony-fractal[data-phase="leaving"] .fg-chart { opacity:0; transition:opacity .7s ease .1s; }
+.ceremony-fractal[data-phase="leaving"] .fg-plate[data-mine="true"] svg { opacity:0; transition:opacity .5s ease .7s; }
+.ceremony-fractal[data-phase="leaving"] .fg-anchor:not([data-current="true"]) .fg-stand { opacity:0; transform:translate3d(0px,120px,0px) scale(.3); }
+.ceremony-fractal[data-phase="leaving"] .fg-anchor[data-current="true"] .fg-stand { transform:translate3d(0px,-120px,640px); transition-duration:1.15s; transition-timing-function:cubic-bezier(.6,0,.3,1); }
+.ceremony-fractal[data-phase="leaving"] :is(.fg-algebra,.fg-index,.fg-stem,.fg-code) { opacity:0; transition:opacity .4s ease; }
+.ceremony-fractal[data-reduced="true"] .fg-root { transition:none; }
+
+/* ── 混沌吸引子 ───────────────────────────────────────────────────────── */
+/* Canvas scene like the ribbon: the CSS camera stays put. */
+.ceremony-lorenz .c3-world { --c-pitch:0deg; --c-yaw:0deg; --c-dolly:0px; --look-pitch:0deg; --look-yaw:0deg; }
+.ceremony-lorenz .hx-seed { transform:scale(.2); opacity:0; }
+.ceremony-lorenz[data-phase="intro"] .hx-seed { animation:lz-seed 1.1s .3s cubic-bezier(.6,0,.3,1) both; }
+@keyframes lz-seed { 0% { transform:scale(1); opacity:1; } 50% { opacity:.7; } }
+
+/* ── 晶带轴 ───────────────────────────────────────────────────────────── */
+@property --cr-a { syntax:'<angle>'; inherits:true; initial-value:0deg; }
+@property --cr-b { syntax:'<angle>'; inherits:true; initial-value:0deg; }
+@property --cr-wa { syntax:'<angle>'; inherits:true; initial-value:0deg; }
+@property --cr-wb { syntax:'<angle>'; inherits:true; initial-value:0deg; }
+@property --cr-index { syntax:'<angle>'; inherits:true; initial-value:0deg; }
+@property --cr-burst { syntax:'<number>'; inherits:true; initial-value:1; }
+.ceremony-crystal .c3-world { --c-pitch:0deg; --c-yaw:0deg; --c-dolly:0px; }
+.cr-root { transition:--cr-a 1.5s cubic-bezier(.55,0,.1,1), --cr-b 1.5s cubic-bezier(.55,0,.1,1), --cr-index 1s cubic-bezier(.5,0,.15,1); }
+.ceremony-crystal .hx-seed { transform:scale(1.36); }
+.ceremony-crystal .hx-seed-satellite { transform:translate(var(--tx),var(--ty)) scale(6); opacity:0; }
+.cr-lattice, .cr-atom, .cr-lens-anchor, .cr-token-anchor { position:absolute; left:0; top:0; width:0; height:0; transform-style:preserve-3d; }
+.cr-lattice { --cr-burst:1; transform:rotateX(calc(var(--cr-a) + var(--cr-wa))) rotateY(calc(var(--cr-b) + var(--cr-wb))) scale3d(var(--cr-burst),var(--cr-burst),var(--cr-burst)); transition:--cr-burst 1.15s cubic-bezier(.6,0,.3,1); }
+.cr-atom { pointer-events:none; transform:var(--p) rotateY(calc((var(--cr-b) + var(--cr-wb)) * -1)) rotateX(calc((var(--cr-a) + var(--cr-wa)) * -1)) var(--bill); }
+.cr-atom b { position:absolute; left:-9px; top:-9px; width:18px; height:18px; border-radius:50%; background:radial-gradient(circle at 35% 30%,#7b8470,#2b3127 72%); opacity:.78; }
+.cr-atom[data-body="true"] b { left:-7px; top:-7px; width:14px; height:14px; background:radial-gradient(circle at 35% 30%,#e2cb9d,#a68b58 72%); opacity:.9; }
+.cr-diffraction { position:absolute; left:-400px; top:-400px; width:800px; height:800px; overflow:visible; pointer-events:none; transform:translateZ(-420px) scale(1.05); transition:opacity .6s ease; }
+.cr-spots { animation:cr-pattern 1s 1.25s ease both; }
+@keyframes cr-pattern { from { opacity:0; transform:scale(.9); } }
+.cr-plate { fill:#2f38260d; stroke:#8f947d66; stroke-width:1; }
+.cr-spot { fill:#3e4732; }
+.cr-spot-zero { fill:var(--gold); }
+.cr-index { position:absolute; left:-11px; top:-11px; width:22px; height:22px; background:var(--gold); clip-path:polygon(0 0,100% 50%,0 100%); pointer-events:none; transform:rotate(var(--cr-index)) translateX(302px); }
+.cr-lens { position:absolute; left:0; top:0; width:0; height:0; transform:translateZ(300px); transition:transform 1.15s cubic-bezier(.6,0,.3,1); }
+.cr-lens-in { position:absolute; left:-120px; top:-120px; width:240px; height:240px; animation:cr-lens .8s 1.2s cubic-bezier(.2,1.3,.4,1) both; }
+@keyframes cr-lens { from { opacity:0; transform:scale(.55); } }
+.ceremony .cr-lens-hit { position:absolute; inset:0; padding:0; border:0; border-radius:50%; cursor:pointer;
+  background:radial-gradient(circle at 38% 30%,#fffef9f2,#f4f1e9e6 52%,#e6e1d4d8); box-shadow:inset 0 0 0 1px #fcfaf3, 0 0 0 1px var(--gold), 0 0 0 9px #a68b5822, 0 26px 52px #4a432f22; }
+.cr-lens-hit .ceremony-emblem { position:absolute; left:45px; top:40px; width:150px; height:150px; }
+.cr-lens-cross { position:absolute; inset:-30px; pointer-events:none; background:linear-gradient(#a68b5899,#a68b5899) 50% 0 / 1px 26px no-repeat, linear-gradient(#a68b5899,#a68b5899) 50% 100% / 1px 26px no-repeat, linear-gradient(#a68b5899,#a68b5899) 0 50% / 26px 1px no-repeat, linear-gradient(#a68b5899,#a68b5899) 100% 50% / 26px 1px no-repeat; }
+.cr-lens-label { position:absolute; left:50%; top:calc(100% + 14px); transform:translateX(-50%); white-space:nowrap; padding:3px 12px; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:.16em; color:var(--gold); background:#f6f3eae6; border:1px solid #a68b5833; border-radius:999px; }
+.cr-token-anchor { transform:translate3d(var(--tx),var(--ty),0px); }
+.ceremony .cr-token { position:absolute; left:-54px; top:-54px; width:108px; height:108px; padding:0; border:0; border-radius:50%; cursor:pointer;
+  background:radial-gradient(circle at 38% 30%,#fffef9f0,#f1eee5e8 55%,#dcd6c6e4); box-shadow:inset 0 0 0 1px #fcfaf3, 0 0 0 1px #8f947d88; transition:transform .6s cubic-bezier(.2,1.3,.4,1), box-shadow .5s ease, opacity .5s ease; }
+.cr-token .ceremony-emblem { position:absolute; left:20px; top:20px; width:68px; height:68px; }
+.cr-token[aria-pressed="true"] { transform:scale(1.14); box-shadow:inset 0 0 0 1px #fcfaf3, 0 0 0 1.5px var(--gold), 0 0 0 7px #a68b5822; }
+.cr-token:not([aria-pressed="true"]):hover { transform:scale(1.07); }
+.cr-token-label { position:absolute; left:50%; top:66px; transform:translateX(-50%); display:flex; gap:7px; align-items:baseline; white-space:nowrap; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; color:#8f947d; pointer-events:none; transition:opacity .4s ease; }
+.cr-token-label b { font-weight:400; color:var(--gold); }
+/* Opening: crystal condenses and tumbles, then snaps onto the zone axis */
+.ceremony-crystal[data-phase="intro"] .hx-seed { animation:cr-seed 1.2s .35s cubic-bezier(.6,0,.2,1) both; }
+@keyframes cr-seed { from { transform:scale(1); } }
+.ceremony-crystal[data-phase="intro"] .hx-seed-satellite { animation:cr-satellite 1.25s calc(.4s + var(--i) * .06s) cubic-bezier(.6,0,.2,1) both; }
+@keyframes cr-satellite { 0% { opacity:1; transform:none; } 75% { opacity:1; transform:translate(var(--tx),var(--ty)) scale(1.4); } 100% { opacity:0; transform:translate(var(--tx),var(--ty)) scale(6); } }
+.ceremony-crystal[data-phase="intro"] .cr-root { animation:cr-tumble 2.5s .6s cubic-bezier(.35,0,.08,1) both; }
+@keyframes cr-tumble { from { --cr-wa:52deg; --cr-wb:-150deg; } }
+.ceremony-crystal[data-phase="intro"] .cr-atom b { animation:cr-atom .7s calc(.45s + var(--r) * .8s) cubic-bezier(.2,1.3,.4,1) both; }
+@keyframes cr-atom { from { transform:scale(0); opacity:0; } }
+.ceremony-crystal[data-phase="intro"] .cr-token { animation:cr-token .7s calc(1.3s + var(--i) * .06s) cubic-bezier(.2,1.3,.4,1) both; }
+@keyframes cr-token { from { transform:scale(0); opacity:0; } }
+.ceremony-crystal[data-phase="intro"] .cr-token-label { animation:ceremony-fade .6s 1.9s ease both; }
+.ceremony-crystal[data-phase="intro"] .cr-index { animation:ceremony-fade .6s 2.7s ease both; }
+.ceremony-crystal[data-phase="intro"] .cr-lens-in { animation-delay:3.05s; }
+.ceremony-crystal[data-phase="intro"] .cr-spots { animation-delay:2.95s; }
+/* Departure: the lattice bursts, the lens comes forward */
+.ceremony-crystal[data-phase="leaving"] .cr-lattice { --cr-burst:3.2; }
+.ceremony-crystal[data-phase="leaving"] .cr-atom b { opacity:0; transition:opacity .9s ease .15s; }
+.ceremony-crystal[data-phase="leaving"] :is(.cr-diffraction,.cr-index,.cr-token-label,.cr-lens-label,.cr-lens-cross) { opacity:0; transition:opacity .5s ease; }
+.ceremony-crystal[data-phase="leaving"] .cr-token { opacity:0; transform:scale(.4); }
+.ceremony-crystal[data-phase="leaving"] .cr-lens { transform:translateZ(780px); }
+.ceremony-crystal[data-reduced="true"] .cr-root { transition:none; }
+
+@media(max-width:700px) {
+  .qf-label, .lz-label { font-size:16px; }
+  .cr-token-label { display:none; }
+}
+
+/* ── Editorial reading layer (第五轮) ─────────────────────────────────────
+   Higher contrast than the earlier rounds: solid ink blocks, heavy display
+   type, a live readout, an index and a leader line into the scene. */
+.ceremony-editorial { --ink-block:#1d211a; }
+.ceremony-editorial :is(.ceremony-caption,.ceremony-register) { display:none; }
+.ceremony-editorial .ceremony-tools { bottom:84px; }
+.ceremony-editorial .ceremony-tools > span { display:none; }
+.ceremony-editorial .ceremony-brand strong { font-weight:800; letter-spacing:.01em; }
+/* Section block */
+.ed-caption { position:absolute; left:4%; bottom:150px; width:330px; }
+.ed-tag { display:flex; align-items:center; gap:10px; margin-bottom:8px; font-size:9px; letter-spacing:.2em; color:#8a8d78; }
+.ed-tag b { padding:3px 7px; background:var(--ink-block); color:#f3f0e7; font-weight:600; letter-spacing:.18em; }
+.ed-block { position:relative; width:268px; height:118px; overflow:hidden; background:var(--ink-block); color:#f4f1e8; box-shadow:0 18px 40px #1d211a2e; }
+.ed-block strong { position:absolute; left:20px; top:12px; font-family:'DM Sans',sans-serif; font-weight:800; font-size:66px; line-height:1; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+.ed-block i { position:absolute; right:12px; top:8px; font-style:normal; font-size:13px; color:#f4f1e880; }
+.ed-block small { position:absolute; left:22px; bottom:13px; font-size:8px; letter-spacing:.22em; color:#c9c3b2; }
+.ed-block small::before { content:''; display:inline-block; width:14px; height:2px; margin:0 8px 2px 0; background:var(--gold); vertical-align:middle; }
+.ed-wipe { position:absolute; inset:-2px -30px; background:#f4f1e8; transform-origin:100% 50%; transform:skewX(-14deg) scaleX(0); animation:ed-wipe .62s cubic-bezier(.7,0,.2,1) both; pointer-events:none; }
+@keyframes ed-wipe { 0% { transform:skewX(-14deg) scaleX(1); transform-origin:0 50%; } 100% { transform:skewX(-14deg) scaleX(0); transform-origin:100% 50%; } }
+.ed-title h1 { margin:22px 0 8px; font-family:'Noto Sans SC',sans-serif; font-size:31px; font-weight:650; letter-spacing:.04em; color:#1d211a; animation:ed-rise .55s .12s cubic-bezier(.2,.8,.2,1) both; }
+.ed-title p { margin:0; font-size:11px; color:#7f836f; animation:ed-rise .55s .2s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes ed-rise { from { opacity:0; transform:translateY(10px); filter:blur(4px); } }
+.ceremony .ed-access { display:flex; align-items:center; gap:14px; margin-top:20px; padding:0 16px; height:42px; border:0; border-radius:0; background:var(--ink-block); color:#f4f1e8; cursor:pointer; transition:background .3s ease, gap .3s ease; }
+.ed-access span { font-size:11px; font-weight:600; letter-spacing:.14em; }
+.ed-access small { font-size:10px; color:#bdb6a2; }
+.ed-access svg { margin-left:auto; color:var(--gold); }
+.ceremony .ed-access:hover { background:#2f3826; gap:20px; }
+/* Readout */
+.ed-readout { position:absolute; right:4%; top:205px; text-align:right; pointer-events:none !important; }
+.ed-readout span { display:block; font-size:8px; letter-spacing:.22em; color:#8a8d78; }
+.ed-readout b { display:block; margin-top:6px; font-family:'DM Sans',sans-serif; font-weight:300; font-size:52px; line-height:1.05; letter-spacing:-.01em; color:#1d211a; white-space:pre; animation:ed-rise .5s cubic-bezier(.2,.8,.2,1) both; }
+.ed-readout small { display:inline-block; margin-top:8px; padding:3px 8px; font-size:8px; letter-spacing:.2em; color:#f4f1e8; background:var(--ink-block); }
+.ceremony-lorenz .ed-readout b { font-size:34px; }
+/* Index */
+.ed-index { position:absolute; right:4%; bottom:118px; width:178px; padding:6px 0; background:#efede7d9; display:flex; flex-direction:column; gap:3px; }
+.ceremony .ed-index button { position:relative; display:grid; grid-template-columns:52px 24px 1fr; align-items:center; height:28px; padding:0 10px; border:0; border-radius:0; background:transparent; color:#8a8d78; text-align:left; cursor:pointer; overflow:hidden; transition:color .3s ease; }
+.ed-index b { font-family:'DM Sans',sans-serif; font-weight:800; font-size:12px; letter-spacing:.06em; position:relative; z-index:1; }
+.ed-index span { font-size:9px; letter-spacing:.1em; position:relative; z-index:1; }
+.ed-index small { font-size:10px; position:relative; z-index:1; }
+.ed-index i { position:absolute; inset:0; background:var(--ink-block); transform:scaleX(0); transform-origin:0 50%; transition:transform .45s cubic-bezier(.7,0,.2,1); }
+.ed-index button::after { content:''; position:absolute; left:10px; right:10px; bottom:0; height:1px; background:#c9c4b4; }
+.ceremony .ed-index button[aria-pressed="true"] { color:#f4f1e8; }
+.ed-index button[aria-pressed="true"] i { transform:scaleX(1); }
+.ed-index button[aria-pressed="true"] span { color:var(--gold); }
+.ceremony .ed-index button:not([aria-pressed="true"]):hover { color:#1d211a; }
+/* Tagline */
+.ed-line { position:absolute; left:50%; bottom:40px; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:4px; pointer-events:none !important; white-space:nowrap; }
+.ed-line b { font-family:'Noto Sans SC',sans-serif; font-size:12px; font-weight:550; letter-spacing:.12em; color:#2f3826; }
+.ed-line span { font-size:7px; letter-spacing:.26em; color:#9a9c87; }
+/* Ghost code behind the scene */
+.ed-ghost { position:absolute; inset:0; display:flex; align-items:center; justify-content:flex-end; padding-right:6%; overflow:hidden; pointer-events:none; }
+.ed-ghost span { font-family:'DM Sans',sans-serif; font-weight:900; font-size:min(30vw,520px); line-height:.8; letter-spacing:-.04em; color:#1d211a; opacity:.035; animation:ed-ghost .9s cubic-bezier(.16,1,.3,1) both; }
+@keyframes ed-ghost { 0% { opacity:0; transform:translateX(18%) skewX(-12deg); filter:blur(18px); } 40% { opacity:.08; } 100% { opacity:.035; transform:none; filter:blur(0); } }
+/* Callout */
+.ed-callout { position:absolute; inset:0; pointer-events:none !important; opacity:0; transition:opacity .4s ease; }
+.ed-callout[data-active="true"] { opacity:1; transition-delay:.25s; }
+.ed-callout svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.ed-callout polyline { fill:none; stroke:#1d211a; stroke-width:1; }
+.ed-callout circle { fill:#f4f1e8; stroke:#1d211a; stroke-width:1.2; }
+.ed-callout-tag { position:absolute; left:0; top:0; display:grid; grid-template-columns:auto auto; column-gap:10px; align-items:baseline; padding:6px 10px 6px 0; animation:ed-tag-in .45s .1s ease both; }
+.ed-callout-tag b { padding:4px 8px; background:var(--ink-block); color:#f4f1e8; font-family:'DM Sans',sans-serif; font-weight:800; font-size:13px; letter-spacing:.06em; }
+.ed-callout-tag span { font-size:12px; font-weight:600; color:#1d211a; }
+.ed-callout-tag small { grid-column:1 / -1; margin-top:5px; font-family:'IBM Plex Mono',monospace; font-size:8px; letter-spacing:.14em; color:#8a8d78; }
+@keyframes ed-tag-in { from { opacity:0; } }
+/* Opening and departure for the layer */
+.ceremony-editorial[data-phase="intro"] :is(.ed-caption,.ed-index,.ed-readout,.ed-line) { animation:ceremony-fade .9s 2.4s ease backwards; }
+.ceremony-editorial[data-phase="intro"] .ed-ghost { animation:ceremony-fade 1.2s 2s ease backwards; }
+.ceremony-editorial[data-phase="intro"] .ed-callout { opacity:0 !important; }
+.ceremony-editorial[data-phase="leaving"] .ed-ghost { opacity:0; transition:opacity .5s ease; }
+@media(max-width:900px) { .ed-index { display:none; } }
+@media(max-width:700px) {
+  .ed-caption { bottom:132px; width:auto; right:4%; }
+  .ed-block { width:210px; height:92px; } .ed-block strong { font-size:50px; }
+  .ed-title h1 { font-size:24px; margin-top:16px; }
+  .ed-readout { display:none; }
+  .ed-line { display:none; } .ed-callout { display:none; }
+}
+@media(max-height:620px) { .ed-line, .ed-readout { display:none; } }
+
+/* ── Scene contrast pass (第五轮) ────────────────────────────────────────
+   Ink against paper, fine line textures, and a shallow depth of field. */
+/* 量子涨落: wave packets as fine interference rings; far packets go soft. */
+.qf-cloud { background:repeating-radial-gradient(circle,#1d211a66 0 1px,transparent 1px 6px);
+  -webkit-mask:radial-gradient(circle closest-side,#000 0%,#000 30%,transparent 100%); mask:radial-gradient(circle closest-side,#000 0%,#000 30%,transparent 100%); }
+.qf-cloud > i { border-color:#1d211a70; }
+.qf-ghost { opacity:.7; }
+.qf-orbit:not([data-current="true"]) .qf-hit { filter:blur(calc((1 - cos(var(--t))) * 1.5px)); }
+.qf-ticks { inset:-22px; background:repeating-conic-gradient(#f4f1e8 0deg .9deg,#1d211a .9deg 6deg);
+  -webkit-mask:radial-gradient(circle closest-side,transparent 86%,#000 87%,#000 99%,transparent 100%); mask:radial-gradient(circle closest-side,transparent 86%,#000 87%,#000 99%,transparent 100%); }
+.qf-label b { color:#f4f1e8; background:#1d211a; padding:2px 6px; margin-right:8px; }
+/* 分形与群: heavier parent outline, far standards go soft. */
+.fg-parent { stroke:#1d211a !important; stroke-width:3 !important; }
+.fg-anchor:not([data-current="true"]) .fg-token { filter:blur(calc((1 - sin(var(--ang)) * var(--fg-f)) * .9px)); }
+.fg-code { background:#1d211a; color:#f4f1e8; border-color:#1d211a; }
+.fg-code b { color:var(--gold); }
+/* 晶带轴: an ink goniometer band, darker atoms, section chips on the axes. */
+.cr-band { position:absolute; left:-362px; top:-362px; width:724px; height:724px; border-radius:50%; pointer-events:none;
+  background:repeating-conic-gradient(#f4f1e8 0deg .6deg,#1d211a .6deg 3deg);
+  -webkit-mask:radial-gradient(circle closest-side,transparent 95.4%,#000 95.6%,#000 99.6%,transparent 100%); mask:radial-gradient(circle closest-side,transparent 95.4%,#000 95.6%,#000 99.6%,transparent 100%); }
+.cr-atom b { background:radial-gradient(circle at 35% 30%,#5d6650,#14170f 72%); opacity:.86; }
+.cr-token-label { color:#4a5639; }
+.cr-token-label b { padding:2px 6px; background:#1d211a; color:#f4f1e8; font-family:'DM Sans',sans-serif; font-weight:800; }
+.ceremony-crystal[data-phase="intro"] .cr-band { animation:ceremony-fade .8s 1.2s ease both; }
+.ceremony-crystal[data-phase="leaving"] .cr-band { opacity:0; transition:opacity .5s ease; }
+
+/* ── 制图详图 / 光圈对焦 · editorial redesign ──────────────────────────── */
+/* 制图详图: a plotted plate — ink frame and title block, square station pads
+   with section chips, a pen carriage running on a rail to the chosen station,
+   and an elevation that rises as a section card. */
+.ceremony-drafting .c3-world { --c-pitch:-50deg; --c-yaw:-12deg; --c-dolly:-300px; --ox:1130px; --oy:640px; }
+.ceremony-drafting .ceremony-atmosphere { background:linear-gradient(180deg,#efede7c8,transparent 18%,transparent 84%,#efede7d8),linear-gradient(90deg,#efede7f0,#efede790 26%,transparent 40%); }
+.dr3-paper { fill:#f6f4ee; stroke:#1d211a; stroke-width:6; }
+.ceremony-drafting .d-draw { stroke:#1d211a; stroke-width:1.6; }
+.ceremony-drafting .dr-fine { stroke:#5d6650; stroke-width:.9; }
+.ceremony-drafting .dr-text { fill:#4a5639; font-family:'IBM Plex Mono',monospace; font-size:13px; }
+.dr3-title-block { fill:#1d211a; }
+.dr3-title-text { fill:#f4f1e8; font-family:'DM Sans',sans-serif; font-weight:800; font-size:20px; letter-spacing:.08em; }
+.dr3-marker { stroke:#a68b58; stroke-width:2.2; stroke-dasharray:none; }
+.ceremony .dr3-station { border-radius:0; }
+.dr3-station { opacity:.75; filter:none; background:#f6f4eef2; box-shadow:0 0 0 1.5px #1d211a; }
+.dr3-station[data-current="true"] { background:#1d211a; box-shadow:0 0 0 1.5px #1d211a, 0 0 0 10px #a68b5833; }
+.dr3-station[data-current="true"] .ceremony-emblem { filter:invert(1) brightness(1.08); }
+.dr3-chip { position:absolute; left:50%; top:calc(100% + 12px); transform:translateX(-50%); display:flex; gap:6px; align-items:baseline; white-space:nowrap; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#4a5639; }
+.dr3-chip b { padding:2px 6px; background:#1d211a; color:#f4f1e8; font-family:'DM Sans',sans-serif; font-weight:800; font-size:14px; letter-spacing:.05em; }
+.dr3-station[data-current="true"] .dr3-chip b { background:var(--gold); }
+.dr3-rail { position:absolute; left:60px; right:60px; height:0; border-top:2px solid #1d211a; pointer-events:none; }
+.dr3-rail::before, .dr3-rail::after { content:''; position:absolute; top:-9px; width:2px; height:16px; background:#1d211a; }
+.dr3-rail::before { left:0; } .dr3-rail::after { right:0; }
+.dr3-carriage { position:absolute; left:0; width:0; height:0; transform:translateX(var(--x)); transition:transform .9s cubic-bezier(.7,0,.2,1); pointer-events:none; }
+.dr3-carriage b { position:absolute; left:-34px; top:-15px; width:68px; height:28px; background:#1d211a; box-shadow:0 8px 18px #1d211a33; }
+.dr3-carriage b::after { content:''; position:absolute; left:33px; bottom:28px; width:2px; height:78px; background:linear-gradient(#a68b5800,#a68b58); }
+.dr3-carriage span { position:absolute; left:42px; top:-11px; white-space:nowrap; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:.08em; color:#1d211a; }
+.dr3-plate { border:0; border-radius:0; background:linear-gradient(160deg,#fbf9f3,#ece7db); box-shadow:0 30px 70px #1d211a33, inset 0 0 0 1px #fffdf6; }
+.ceremony .dr3-plate { border-radius:0; }
+.dr3-plate-head { position:absolute; left:0; right:0; top:0; height:54px; display:flex; align-items:center; gap:12px; padding:0 18px; background:#1d211a; color:#f4f1e8; text-align:left; }
+.dr3-plate-head b { font-family:'DM Sans',sans-serif; font-weight:800; font-size:28px; letter-spacing:.02em; }
+.dr3-plate-head small { font-size:9px; letter-spacing:.2em; color:#c9c3b2; }
+.dr3-plate-head i { margin-left:auto; font-style:normal; color:#f4f1e880; }
+.dr3-plate-label { left:20px; top:66px; font-size:9px; color:#8a8d78; }
+.dr3-plate-emblem { top:54%; width:220px; height:220px; }
+.dr3-plate-scale { color:#4a5639; font-family:'IBM Plex Mono',monospace; }
+.dr3-tick { background:#1d211a; }
+.dr3-projection path { stroke:#1d211a; stroke-width:1.6; }
+.ceremony-drafting[data-phase="intro"] :is(.dr3-rail,.dr3-carriage) { animation:ceremony-fade .7s 1.6s ease both; }
+.ceremony-drafting[data-phase="leaving"] :is(.dr3-rail,.dr3-carriage,.dr3-chip) { opacity:0; transition:opacity .4s ease; }
+
+/* 光圈对焦: a black anodized lens — graphite barrel, an engraved white focus
+   scale on a black ring, dark striated blades, the logo on a paper disc. */
+.ceremony-aperture .c3-world { --c-pitch:-10deg; --c-yaw:-24deg; --c-dolly:-80px; --ox:1120px; --oy:540px; }
+.ap3-shell { border:2px solid #2b3127; background:none; }
+.ap3-shell:nth-of-type(3n) { border-color:#4a5040; }
+.ap3-shell:first-of-type { border-width:4px; border-color:#14170f; }
+.ap3-step { border:1.5px solid #5d6650; }
+.ap3-back { background:radial-gradient(circle,#3a3f34,#1d211a 70%,#14170f); }
+.ap3-bezel { stroke:#1d211a; stroke-width:58; }
+.ap3-rim { stroke:#1d211a; stroke-width:2; }
+.ap-tick { stroke:#f4f1e8; stroke-width:1.2; }
+.ap-major { stroke:#f4f1e8; stroke-width:2.4; }
+.ap-number { fill:#f4f1e8; font-family:'DM Sans',sans-serif; font-weight:800; font-size:22px; letter-spacing:.06em; }
+.ap-number[data-current="true"] { fill:var(--gold); }
+.ap-blade path:first-child { fill:#2b3127; stroke:#14170f; stroke-width:1.2; }
+.ap-blade-line { stroke:#4a5040; stroke-width:1; }
+.ceremony .ap3-center { background:radial-gradient(circle,#fbf9f3 0%,#f1ede2 56%,#e4dfd1 70%,transparent 71%); }
+.ap3-center .ceremony-emblem { transform:scale(.72); }
+.ap3-orbit-line { border:1.5px solid #1d211a55; }
+.ap3-index { background:var(--gold); box-shadow:0 0 0 7px #a68b5840; }
+.ap3-sat { background:#f6f4ee; border:1.5px solid #1d211a; box-shadow:0 14px 28px #1d211a22; opacity:.85; }
+.ap3-sat[data-current="true"] { background:#1d211a; border-color:var(--gold); opacity:1; }
+.ap3-sat[data-current="true"] .ceremony-emblem { filter:invert(1) brightness(1.08); }
+.ap3-sat > .ap3-label { display:flex; gap:6px; align-items:baseline; color:#2f3826; font-size:13px; letter-spacing:.06em; }
+.ap3-sat > .ap3-label b { padding:2px 6px; background:#1d211a; color:#f4f1e8; font-family:'DM Sans',sans-serif; font-weight:800; font-size:14px; }
+.ap3-sat[data-current="true"] > .ap3-label b { background:var(--gold); }
+.ceremony-aperture .ceremony-atmosphere { background:linear-gradient(90deg,#efede7f0,#efede790 26%,transparent 42%),linear-gradient(180deg,#efede7c0,transparent 20%,transparent 82%,#efede7d0); }
+
+/* The ribbon opening runs longer, so the reading layer waits for it. */
+.ceremony.ceremony-editorial.ceremony-mobius[data-phase="intro"] :is(.ed-caption,.ed-index,.ed-readout,.ed-line,.ed-ghost) { animation-delay:3s; }
+@media(max-width:700px) { .mb-card { left:825px; top:150px; } }
