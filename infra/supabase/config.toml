@@ -1,0 +1,9 @@
+project_id = "reinlab-research"
+[db]
+port = 54322
+major_version = 16
+[api]
+port = 54321
+schemas = ["public"]
+[studio]
+enabled = false

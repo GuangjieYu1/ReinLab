@@ -1,0 +1,32 @@
+import { beforeAll, afterAll, it, expect } from 'vitest';
+import pg from 'pg';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, writeFile, rm, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { applyMigrations } from '../src/db/migrate';
+
+const base = process.env.TEST_DATABASE_URL ?? 'postgres://postgres@127.0.0.1:55432/reinlab_test';
+const bootstrap = new pg.Pool({connectionString:base});
+const name = 'reinlab_migration_'+randomUUID().replaceAll('-','');
+const url = new URL(base); url.pathname='/'+name;
+const isolated = new pg.Pool({connectionString:url.toString()});
+let dir: string;
+beforeAll(async()=>{await bootstrap.query(`create database "${name}"`);dir=await mkdtemp(path.join(tmpdir(),'reinlab-real-migration-'));},30000);
+afterAll(async()=>{await isolated.end();await bootstrap.query(`drop database if exists "${name}" with (force)`);await bootstrap.end();if(dir)await rm(dir,{recursive:true,force:true});});
+it('迁移原子回滚、幂等、并发与篡改拒绝',async()=>{
+  await writeFile(path.join(dir,'0001_probe.sql'),'create table sample(id integer primary key);');
+  await writeFile(path.join(dir,'0002_failure.sql'),'create table rollback_probe(id integer); select reinlab_missing_function();');
+  await expect(applyMigrations(isolated,dir)).rejects.toMatchObject({code:'42883'});
+  expect((await isolated.query("select to_regclass('rollback_probe') name")).rows[0].name).toBeNull();
+  expect((await isolated.query('select name from reinlab_meta.migration')).rows.map(r=>r.name)).toEqual(['0001_probe.sql']);
+  await unlink(path.join(dir,'0002_failure.sql'));
+  await writeFile(path.join(dir,'0002_effect.sql'),'insert into sample values(1);');
+  const results=await Promise.all([applyMigrations(isolated,dir),applyMigrations(isolated,dir)]);
+  expect(results.flat()).toEqual(['0002_effect.sql']);
+  expect((await isolated.query('select * from sample')).rows).toEqual([{id:1}]);
+  expect(await applyMigrations(isolated,dir)).toEqual([]);
+  await writeFile(path.join(dir,'0001_probe.sql'),'drop table sample;');
+  await expect(applyMigrations(isolated,dir)).rejects.toThrow('MIGRATION_CHANGED');
+  expect((await isolated.query('select count(*)::int n from sample')).rows[0].n).toBe(1);
+});

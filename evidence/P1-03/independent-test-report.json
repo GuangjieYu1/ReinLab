@@ -1,0 +1,1163 @@
+{
+  "task": "P1-03",
+  "role": "independent-test",
+  "date": "2026-10-18T18:18:32.437Z",
+  "status": "passed",
+  "summary": {
+    "checks": 140,
+    "passed": 140,
+    "failed": 0,
+    "independentDatabaseCases": 133,
+    "foreignKeyAttackCases": 45
+  },
+  "cases": [
+    {
+      "id": "app-role-unprivileged",
+      "pass": true,
+      "observed": {
+        "rolsuper": false,
+        "rolbypassrls": false,
+        "rolcreaterole": false,
+        "rolcreatedb": false,
+        "rolinherit": false
+      }
+    },
+    {
+      "id": "app-owns-no-public-tables",
+      "pass": true,
+      "owned": 0
+    },
+    {
+      "id": "no-context-read-account",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-dossier",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-thread",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-run",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-event",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-artifact",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-gate",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-approval",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-memory_item",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-promotion",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-delegation",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-credential",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "no-context-read-account_machine",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "force-rls-account",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-dossier",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-role_def",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-thread",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-run",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-event",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-artifact",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-gate",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-approval",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-memory_item",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-promotion",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-delegation",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-credential",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "force-rls-account_machine",
+      "pass": true,
+      "observed": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    },
+    {
+      "id": "cross-account-read-account",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-dossier",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-thread",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-run",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-event",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-artifact",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-gate",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-approval",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-memory_item",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-promotion",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-delegation",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-credential",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-read-account_machine",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "foreign-key-account_machine_account_id_fkey",
+      "pass": true,
+      "sql": "insert into account_machine(account_id,state) values($1,$2)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-approval_account_id_fkey",
+      "pass": true,
+      "sql": "insert into approval(account_id,run_id,kind,title,effects,risk) values($1,$2,$3,$4,$5,$6)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-approval_account_id_run_id_fkey",
+      "pass": true,
+      "sql": "insert into approval(account_id,run_id,kind,title,effects,risk) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-approval_run_id_fkey",
+      "pass": true,
+      "sql": "insert into approval(account_id,run_id,kind,title,effects,risk) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-artifact_account_id_dossier_id_fkey",
+      "pass": true,
+      "sql": "insert into artifact(account_id,dossier_id,run_id,kind,path,sha256) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-artifact_account_id_dossier_id_run_id_fkey",
+      "pass": true,
+      "sql": "insert into artifact(account_id,dossier_id,run_id,kind,path,sha256) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-artifact_account_id_dossier_id_supersedes_fkey",
+      "pass": true,
+      "sql": "insert into artifact(account_id,dossier_id,run_id,kind,path,sha256,supersedes) values($1,$2,$3,$4,$5,$6,$7)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-artifact_account_id_fkey",
+      "pass": true,
+      "sql": "insert into artifact(account_id,dossier_id,run_id,kind,path,sha256) values($1,$2,$3,$4,$5,$6)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-artifact_run_id_fkey",
+      "pass": true,
+      "sql": "insert into artifact(account_id,dossier_id,run_id,kind,path,sha256) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-artifact_supersedes_fkey",
+      "pass": true,
+      "sql": "insert into artifact(account_id,dossier_id,run_id,kind,path,sha256,supersedes) values($1,$2,$3,$4,$5,$6,$7)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-credential_account_id_fkey",
+      "pass": true,
+      "sql": "insert into credential(account_id,kind,provider,fingerprint,vault_secret_id) values($1,$2,$3,$4,$5)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-delegation_account_id_fkey",
+      "pass": true,
+      "sql": "insert into delegation(account_id,from_dossier,from_run,to_dossier,to_run,to_bench,request,budget_cny,state) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-delegation_account_id_from_dossier_fkey",
+      "pass": true,
+      "sql": "insert into delegation(account_id,from_dossier,from_run,to_dossier,to_run,to_bench,request,budget_cny,state) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-delegation_account_id_from_dossier_from_run_fkey",
+      "pass": true,
+      "sql": "insert into delegation(account_id,from_dossier,from_run,to_dossier,to_run,to_bench,request,budget_cny,state) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-delegation_account_id_to_dossier_fkey",
+      "pass": true,
+      "sql": "insert into delegation(account_id,from_dossier,from_run,to_dossier,to_run,to_bench,request,budget_cny,state) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-delegation_account_id_to_dossier_to_run_fkey",
+      "pass": true,
+      "sql": "insert into delegation(account_id,from_dossier,from_run,to_dossier,to_run,to_bench,request,budget_cny,state) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-delegation_account_id_to_run_fkey",
+      "pass": true,
+      "sql": "insert into delegation(account_id,from_dossier,from_run,to_dossier,to_run,to_bench,request,budget_cny,state) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-dossier_account_id_fkey",
+      "pass": true,
+      "sql": "insert into dossier(account_id,bench,title,workspace_path) values($1,$2,$3,$4)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-dossier_account_id_fkey1",
+      "pass": true,
+      "sql": "insert into dossier(account_id,bench,title,workspace_path) values($1,$2,$3,$4)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-event_account_id_dossier_id_fkey",
+      "pass": true,
+      "sql": "insert into event(account_id,dossier_id,run_id,kind) values($1,$2,$3,$4)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-event_account_id_dossier_id_run_id_fkey",
+      "pass": true,
+      "sql": "insert into event(account_id,dossier_id,run_id,kind) values($1,$2,$3,$4)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-event_account_id_fkey",
+      "pass": true,
+      "sql": "insert into event(account_id,dossier_id,run_id,kind) values($1,$2,$3,$4)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-event_role_id_fkey",
+      "pass": true,
+      "sql": "insert into event(account_id,dossier_id,run_id,kind,role_id) values($1,$2,$3,$4,$5)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-event_run_id_fkey",
+      "pass": true,
+      "sql": "insert into event(account_id,dossier_id,run_id,kind) values($1,$2,$3,$4)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-gate_account_id_dossier_id_fkey",
+      "pass": true,
+      "sql": "insert into gate(account_id,dossier_id,subject,state) values($1,$2,$3,$4)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-gate_account_id_fkey",
+      "pass": true,
+      "sql": "insert into gate(account_id,dossier_id,subject,state) values($1,$2,$3,$4)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-memory_item_account_id_dossier_id_fkey",
+      "pass": true,
+      "sql": "insert into memory_item(account_id,dossier_id,thread_id,layer,key,value) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-memory_item_account_id_dossier_id_thread_id_fkey",
+      "pass": true,
+      "sql": "insert into memory_item(account_id,dossier_id,thread_id,layer,key,value) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-memory_item_account_id_fkey",
+      "pass": true,
+      "sql": "insert into memory_item(account_id,dossier_id,thread_id,layer,key,value) values($1,$2,$3,$4,$5,$6)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-memory_item_account_id_supersedes_fkey",
+      "pass": true,
+      "sql": "insert into memory_item(account_id,dossier_id,thread_id,layer,key,value,supersedes) values($1,$2,$3,$4,$5,$6,$7)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-memory_item_account_id_thread_id_fkey",
+      "pass": true,
+      "sql": "insert into memory_item(account_id,dossier_id,thread_id,layer,key,value) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-memory_item_supersedes_fkey",
+      "pass": true,
+      "sql": "insert into memory_item(account_id,dossier_id,thread_id,layer,key,value,supersedes) values($1,$2,$3,$4,$5,$6,$7)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-promotion_account_id_fkey",
+      "pass": true,
+      "sql": "insert into promotion(account_id,from_run,target_layer,items,reason,expires_at) values($1,$2,$3,$4,$5,$6)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-promotion_account_id_from_run_fkey",
+      "pass": true,
+      "sql": "insert into promotion(account_id,from_run,target_layer,items,reason,expires_at) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-promotion_from_run_fkey",
+      "pass": true,
+      "sql": "insert into promotion(account_id,from_run,target_layer,items,reason,expires_at) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-run_account_id_dossier_id_fkey",
+      "pass": true,
+      "sql": "insert into run(account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,$4,$5,$6,$7)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-run_account_id_fkey",
+      "pass": true,
+      "sql": "insert into run(account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,$4,$5,$6,$7)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-run_account_id_parent_run_id_fkey",
+      "pass": true,
+      "sql": "insert into run(account_id,dossier_id,role_id,mode,request_id,state,budget_cny,parent_run_id) values($1,$2,$3,$4,$5,$6,$7,$8)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-run_dossier_id_fkey",
+      "pass": true,
+      "sql": "insert into run(account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,$4,$5,$6,$7)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-run_parent_run_id_fkey",
+      "pass": true,
+      "sql": "insert into run(account_id,dossier_id,role_id,mode,request_id,state,budget_cny,parent_run_id) values($1,$2,$3,$4,$5,$6,$7,$8)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-run_role_id_fkey",
+      "pass": true,
+      "sql": "insert into run(account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,$4,$5,$6,$7)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-thread_account_id_dossier_id_fkey",
+      "pass": true,
+      "sql": "insert into thread(account_id,dossier_id,role_id) values($1,$2,$3)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-thread_account_id_fkey",
+      "pass": true,
+      "sql": "insert into thread(account_id,dossier_id,role_id) values($1,$2,$3)",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "foreign-key-thread_dossier_id_fkey",
+      "pass": true,
+      "sql": "insert into thread(account_id,dossier_id,role_id) values($1,$2,$3)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "foreign-key-thread_role_id_fkey",
+      "pass": true,
+      "sql": "insert into thread(account_id,dossier_id,role_id) values($1,$2,$3)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "event-other-dossier-run",
+      "pass": true,
+      "sql": "insert into event(account_id,dossier_id,run_id,kind) values($1,$2,$3,$4)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "artifact-other-dossier-run",
+      "pass": true,
+      "sql": "insert into artifact(account_id,dossier_id,run_id,kind,path,sha256) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "artifact-other-dossier-supersedes",
+      "pass": true,
+      "sql": "insert into artifact(account_id,dossier_id,run_id,kind,path,sha256,supersedes) values($1,$2,$3,$4,$5,$6,$7)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "memory-other-dossier-thread",
+      "pass": true,
+      "sql": "insert into memory_item(account_id,dossier_id,thread_id,layer,key,value) values($1,$2,$3,$4,$5,$6)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "delegation-other-source-run",
+      "pass": true,
+      "sql": "insert into delegation(account_id,from_dossier,from_run,to_dossier,to_run,to_bench,request,budget_cny,state) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "delegation-other-target-run",
+      "pass": true,
+      "sql": "insert into delegation(account_id,from_dossier,from_run,to_dossier,to_run,to_bench,request,budget_cny,state) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "event-authorized-append",
+      "pass": true,
+      "sql": "insert into event(account_id,dossier_id,run_id,kind) values($1,$2,$3,$4)",
+      "expected": "ok",
+      "actual": "ok",
+      "rows": 1
+    },
+    {
+      "id": "denied-update-event-set-payload=payload",
+      "pass": true,
+      "sql": "update event set payload=payload",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-delete-from-event",
+      "pass": true,
+      "sql": "delete from event",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-truncate-event",
+      "pass": true,
+      "sql": "truncate event",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-update-role_def-set-steps=steps",
+      "pass": true,
+      "sql": "update role_def set steps=steps",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-insert-into-role_def(id,bench,prompt_ref,model_tier,tool_grants,read_scope,write_targets)-values('attack','research','x','cheap','{}','{}','[]')",
+      "pass": true,
+      "sql": "insert into role_def(id,bench,prompt_ref,model_tier,tool_grants,read_scope,write_targets) values('attack','research','x','cheap','{}','{}','[]')",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-delete-from-role_def",
+      "pass": true,
+      "sql": "delete from role_def",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-truncate-role_def",
+      "pass": true,
+      "sql": "truncate role_def",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-set-role-postgres",
+      "pass": true,
+      "sql": "set role postgres",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-alter-role-reinlab_app-superuser",
+      "pass": true,
+      "sql": "alter role reinlab_app superuser",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-create-schema-independent_escape",
+      "pass": true,
+      "sql": "create schema independent_escape",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-alter-table-event-disable",
+      "pass": true,
+      "sql": "alter table event disable row level security",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "denied-select-*-from-reinlab_meta.migration",
+      "pass": true,
+      "sql": "select * from reinlab_meta.migration",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "cross-account-update-account",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-dossier",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-thread",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-run",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-artifact",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-gate",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-approval",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-memory_item",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-promotion",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-delegation",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-credential",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "cross-account-update-account_machine",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "row-security-off-does-not-bypass",
+      "pass": true,
+      "sql": "set local row_security=off; select * from dossier",
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "role-def-readonly-seeds",
+      "pass": true,
+      "roles": 10
+    },
+    {
+      "id": "transaction-context-cleared",
+      "pass": true
+    },
+    {
+      "id": "migration-actual-failure",
+      "pass": true,
+      "code": "42883"
+    },
+    {
+      "id": "migration-dml-rollback",
+      "pass": true,
+      "rows": []
+    },
+    {
+      "id": "migration-ddl-rollback",
+      "pass": true,
+      "table": null
+    },
+    {
+      "id": "failed-migration-not-recorded",
+      "pass": true,
+      "recorded": [
+        "0001_initial.sql"
+      ]
+    },
+    {
+      "id": "four-concurrent-migrations-exactly-once",
+      "pass": true,
+      "results": [
+        [
+          "0002_once.sql"
+        ],
+        [],
+        [],
+        []
+      ],
+      "rows": [
+        {
+          "id": 2
+        }
+      ]
+    },
+    {
+      "id": "migration-repeated-noop",
+      "pass": true,
+      "applied": []
+    },
+    {
+      "id": "migration-applied-content-changed-denied",
+      "pass": true,
+      "error": "MIGRATION_CHANGED: 已应用迁移发生变化：0001_initial.sql"
+    },
+    {
+      "id": "migration-tamper-does-not-run",
+      "pass": true,
+      "rows": [
+        {
+          "id": 2
+        }
+      ]
+    },
+    {
+      "id": "same-account-run-request-unique",
+      "pass": true,
+      "expected": "23505",
+      "actual": "23505"
+    },
+    {
+      "id": "same-account-event-dedupe-unique",
+      "pass": true,
+      "expected": "23505",
+      "actual": "23505"
+    },
+    {
+      "id": "other-account-reuses-run-request",
+      "pass": true,
+      "rows": 1
+    },
+    {
+      "id": "other-account-reuses-event-dedupe",
+      "pass": true,
+      "rows": 1
+    }
+  ],
+  "foreignKeys": [
+    {
+      "tab": "account_machine",
+      "conname": "account_machine_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "approval",
+      "conname": "approval_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "approval",
+      "conname": "approval_account_id_run_id_fkey",
+      "definition": "FOREIGN KEY (account_id, run_id) REFERENCES run(account_id, id)"
+    },
+    {
+      "tab": "approval",
+      "conname": "approval_run_id_fkey",
+      "definition": "FOREIGN KEY (run_id) REFERENCES run(id)"
+    },
+    {
+      "tab": "artifact",
+      "conname": "artifact_account_id_dossier_id_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id) REFERENCES dossier(account_id, id)"
+    },
+    {
+      "tab": "artifact",
+      "conname": "artifact_account_id_dossier_id_run_id_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id, run_id) REFERENCES run(account_id, dossier_id, id)"
+    },
+    {
+      "tab": "artifact",
+      "conname": "artifact_account_id_dossier_id_supersedes_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id, supersedes) REFERENCES artifact(account_id, dossier_id, id)"
+    },
+    {
+      "tab": "artifact",
+      "conname": "artifact_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "artifact",
+      "conname": "artifact_run_id_fkey",
+      "definition": "FOREIGN KEY (run_id) REFERENCES run(id)"
+    },
+    {
+      "tab": "artifact",
+      "conname": "artifact_supersedes_fkey",
+      "definition": "FOREIGN KEY (supersedes) REFERENCES artifact(id)"
+    },
+    {
+      "tab": "credential",
+      "conname": "credential_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "delegation",
+      "conname": "delegation_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "delegation",
+      "conname": "delegation_account_id_from_dossier_fkey",
+      "definition": "FOREIGN KEY (account_id, from_dossier) REFERENCES dossier(account_id, id)"
+    },
+    {
+      "tab": "delegation",
+      "conname": "delegation_account_id_from_dossier_from_run_fkey",
+      "definition": "FOREIGN KEY (account_id, from_dossier, from_run) REFERENCES run(account_id, dossier_id, id)"
+    },
+    {
+      "tab": "delegation",
+      "conname": "delegation_account_id_to_dossier_fkey",
+      "definition": "FOREIGN KEY (account_id, to_dossier) REFERENCES dossier(account_id, id)"
+    },
+    {
+      "tab": "delegation",
+      "conname": "delegation_account_id_to_dossier_to_run_fkey",
+      "definition": "FOREIGN KEY (account_id, to_dossier, to_run) REFERENCES run(account_id, dossier_id, id)"
+    },
+    {
+      "tab": "delegation",
+      "conname": "delegation_account_id_to_run_fkey",
+      "definition": "FOREIGN KEY (account_id, to_run) REFERENCES run(account_id, id)"
+    },
+    {
+      "tab": "dossier",
+      "conname": "dossier_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "dossier",
+      "conname": "dossier_account_id_fkey1",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "event",
+      "conname": "event_account_id_dossier_id_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id) REFERENCES dossier(account_id, id)"
+    },
+    {
+      "tab": "event",
+      "conname": "event_account_id_dossier_id_run_id_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id, run_id) REFERENCES run(account_id, dossier_id, id)"
+    },
+    {
+      "tab": "event",
+      "conname": "event_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "event",
+      "conname": "event_role_id_fkey",
+      "definition": "FOREIGN KEY (role_id) REFERENCES role_def(id)"
+    },
+    {
+      "tab": "event",
+      "conname": "event_run_id_fkey",
+      "definition": "FOREIGN KEY (run_id) REFERENCES run(id)"
+    },
+    {
+      "tab": "gate",
+      "conname": "gate_account_id_dossier_id_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id) REFERENCES dossier(account_id, id)"
+    },
+    {
+      "tab": "gate",
+      "conname": "gate_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "memory_item",
+      "conname": "memory_item_account_id_dossier_id_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id) REFERENCES dossier(account_id, id)"
+    },
+    {
+      "tab": "memory_item",
+      "conname": "memory_item_account_id_dossier_id_thread_id_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id, thread_id) REFERENCES thread(account_id, dossier_id, id)"
+    },
+    {
+      "tab": "memory_item",
+      "conname": "memory_item_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "memory_item",
+      "conname": "memory_item_account_id_supersedes_fkey",
+      "definition": "FOREIGN KEY (account_id, supersedes) REFERENCES memory_item(account_id, id)"
+    },
+    {
+      "tab": "memory_item",
+      "conname": "memory_item_account_id_thread_id_fkey",
+      "definition": "FOREIGN KEY (account_id, thread_id) REFERENCES thread(account_id, id)"
+    },
+    {
+      "tab": "memory_item",
+      "conname": "memory_item_supersedes_fkey",
+      "definition": "FOREIGN KEY (supersedes) REFERENCES memory_item(id)"
+    },
+    {
+      "tab": "promotion",
+      "conname": "promotion_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "promotion",
+      "conname": "promotion_account_id_from_run_fkey",
+      "definition": "FOREIGN KEY (account_id, from_run) REFERENCES run(account_id, id)"
+    },
+    {
+      "tab": "promotion",
+      "conname": "promotion_from_run_fkey",
+      "definition": "FOREIGN KEY (from_run) REFERENCES run(id)"
+    },
+    {
+      "tab": "run",
+      "conname": "run_account_id_dossier_id_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id) REFERENCES dossier(account_id, id)"
+    },
+    {
+      "tab": "run",
+      "conname": "run_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "run",
+      "conname": "run_account_id_parent_run_id_fkey",
+      "definition": "FOREIGN KEY (account_id, parent_run_id) REFERENCES run(account_id, id)"
+    },
+    {
+      "tab": "run",
+      "conname": "run_dossier_id_fkey",
+      "definition": "FOREIGN KEY (dossier_id) REFERENCES dossier(id)"
+    },
+    {
+      "tab": "run",
+      "conname": "run_parent_run_id_fkey",
+      "definition": "FOREIGN KEY (parent_run_id) REFERENCES run(id)"
+    },
+    {
+      "tab": "run",
+      "conname": "run_role_id_fkey",
+      "definition": "FOREIGN KEY (role_id) REFERENCES role_def(id)"
+    },
+    {
+      "tab": "thread",
+      "conname": "thread_account_id_dossier_id_fkey",
+      "definition": "FOREIGN KEY (account_id, dossier_id) REFERENCES dossier(account_id, id)"
+    },
+    {
+      "tab": "thread",
+      "conname": "thread_account_id_fkey",
+      "definition": "FOREIGN KEY (account_id) REFERENCES account(id)"
+    },
+    {
+      "tab": "thread",
+      "conname": "thread_dossier_id_fkey",
+      "definition": "FOREIGN KEY (dossier_id) REFERENCES dossier(id)"
+    },
+    {
+      "tab": "thread",
+      "conname": "thread_role_id_fkey",
+      "definition": "FOREIGN KEY (role_id) REFERENCES role_def(id)"
+    }
+  ],
+  "cleanup": "All newly inserted independent application fixtures and malicious writes were rolled back. Admin connection only inspected catalogs/existing fixture IDs. Independent migration probes used a disposable database and temporary SQL directory, both deleted in finally; no repository migration edited.",
+  "limits": [
+    "Local pgvector/Postgres16 only; not Supabase Auth/Vault/Storage or staging validation",
+    "Tenant identity GUC is set by trusted application code; SQL application role is not the HTTP end-user identity"
+  ],
+  "snapshot": {
+    "sha256": {
+      "infra/supabase/migrations/202610190001_foundation.sql": "bea6bb32c23396bcf8c606085d05df176388896c2199dd923b9d0ac35e75197f",
+      "infra/supabase/migrations/202610190002_roles.sql": "7295b49dd4b255bb986e95203949937537b576677b7567e79f2926e975b2309a",
+      "services/control/src/db/migrate.ts": "9e4819665846989d683db6a046b7d0a80039ebcc34527d9556fe90a0bfca9b6d"
+    }
+  },
+  "checks": [
+    {
+      "id": "lint",
+      "command": "pnpm lint",
+      "pass": true,
+      "exitCode": 0
+    },
+    {
+      "id": "control-strict-tsc",
+      "command": "pnpm exec tsc -p services/control/tsconfig.json",
+      "pass": true,
+      "exitCode": 0
+    },
+    {
+      "id": "contracts-strict-tsc",
+      "command": "pnpm exec tsc -p packages/contracts/tsconfig.json",
+      "pass": true,
+      "exitCode": 0
+    },
+    {
+      "id": "developer-db-migration-tests",
+      "command": "pnpm exec vitest run services/control/test/database.test.ts services/control/test/migrate.test.ts",
+      "pass": true,
+      "passedTests": 91,
+      "passedFiles": 2
+    },
+    {
+      "id": "original-frontend-tests",
+      "command": "pnpm exec vitest run src",
+      "pass": true,
+      "passedTests": 162,
+      "passedFiles": 20
+    },
+    {
+      "id": "mock-build",
+      "command": "VITE_BACKEND=mock pnpm build",
+      "pass": true,
+      "exitCode": 0
+    },
+    {
+      "id": "frontend-baseline",
+      "pass": true,
+      "files": 250,
+      "mismatches": []
+    }
+  ]
+}

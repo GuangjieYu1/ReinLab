@@ -6,6 +6,17 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg16
+        env:
+          POSTGRES_DB: reinlab_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d reinlab_test"
+          --health-interval 2s --health-timeout 2s --health-retries 30
     env:
       VITE_BACKEND: mock
     steps:
@@ -21,6 +32,8 @@ jobs:
         run: pnpm test --reporter=json --outputFile=test-report.json
       - name: 共享契约类型检查
         run: pnpm exec tsc -p packages/contracts/tsconfig.json
+      - name: 控制面类型检查
+        run: pnpm exec tsc -p services/control/tsconfig.json
       - name: mock 构建
         run: pnpm build
       - uses: actions/upload-artifact@v4

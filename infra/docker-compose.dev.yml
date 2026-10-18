@@ -1,0 +1,15 @@
+services:
+  db:
+    image: pgvector/pgvector:0.8.2-pg16
+    ports:
+      - '127.0.0.1:55432:5432'
+    environment:
+      POSTGRES_DB: reinlab_test
+      POSTGRES_USER: postgres
+      # 仅回环端口的可丢弃测试数据库；业务隔离仍强制使用非特权应用角色与RLS。
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d reinlab_test']
+      interval: 2s
+      timeout: 2s
+      retries: 30
