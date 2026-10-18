@@ -94,8 +94,7 @@ export function checkWorkspace(root: string): string[] {
       else if (e.name === 'package.json') out.push(...checkManifest(relative, JSON.parse(fs.readFileSync(full, 'utf8'))));
     }
   }
-  for (const sub of ['src', 'packages', 'services', 'plugins']) walk(path.join(root, sub));
-  out.push(...checkManifest('package.json', JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))));
+  walk(root);
   return out;
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
