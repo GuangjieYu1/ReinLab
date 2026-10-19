@@ -8,8 +8,8 @@
 | Q-002 | X8 与 SEC-4 的人工 danger 例外冲突 | 本批所有入口拒绝 danger，不开放删除档案；遵循红线与最小权限 | 用户已确认 |
 | Q-003 | 同账户不同档案隔离不能只靠账户 RLS / project 目录 | 数据库补复合租户外键；应用校验档案范围；执行文件与工具权限必须在接入时实测，不把目录当沙盒 | 用户已确认；执行隔离待 SPIKE |
 | Q-004 | account 自身无 account_id，role_def 是全局表 | account 按 id 隔离；role_def 全局只读、启用 RLS 且不给应用写权限；业务表强制 RLS | 用户已确认 |
-| Q-005 | 当前未定位既有无头回归脚本 | 先保存现有 Vitest / build 结果与研究台基线；继续寻找原脚本；未找到前不声称原脚本已通过 | 待提供脚本入口；不阻塞底座 |
-| Q-006 | Fly、Supabase staging 项目不存在 | 用户明确答复“没有”。继续本地真实数据库与容器验证、交付部署步骤；P1-08 云端三分钟可用不可判完成，不擅自开通付费账户 | 外部条件缺失，云验收待配置 |
+| Q-005 | 当前未定位既有无头回归脚本 | 先保存现有 Vitest / build 结果与研究台基线；继续寻找原脚本；未找到前不声称原脚本已通过 | 审查方说明历史入口/tmp/rl-prof/*.mjs；待整理到e2e/legacy，不声称已复跑 |
+| Q-006 | Fly、Supabase staging 项目不存在 | 用户明确答复“没有”。继续本地真实数据库与容器验证、交付部署步骤；P1-08 云端三分钟可用不可判完成，不擅自开通付费账户 | 外部条件缺失，云验收待补验；用户明确不阻塞P1-10本地开发 |
 | Q-007 | 旧 WORKBENCH_SPEC 的 50%/80% 暂停与现行 80%提醒/100%停止不同 | live 遵循现行实现规格，mock 保留旧表现；同一视图从数据源取得状态 | 用户已确认 |
 | Q-008 | 技术选型要求本地 Supabase CLI，目录示例又要求 compose Postgres | 迁移须兼容 Supabase；本地集成优先 Supabase Postgres 镜像，CLI 配置保留，不能降低 RLS 校验 | 推荐执行，随环境记录 |
 | Q-009 | RunToken、运行确认字段、artifactRef、升级 items 未给完整 schema | 使用账户/档案/运行/会话/角色绑定令牌；明确 read/write 授权（无 danger）、只读引用与期限。启动绑定 estimateId+confirmed:true；artifactRef 复用带版本 Ref；升级每项必须有依据。结构与权限分开，schema 合法不等于已授权 | 推荐执行；P1-02 起落地 |
@@ -42,8 +42,20 @@
 | Q-030 | Docker Desktop 4.18.0构建/拉取/新建容器请求返回内部backend.sock设置服务超时，既有PG仍可用 | 不重启共享Docker以免中断其他项目；保留Engine错误与真实原生运行时探针，改用独立GitHub runner构建验证镜像/root新卷/OCR工具；云三分钟SLA仍待真实Fly。没有实际CI结果前不标通过 | 本机环境阻塞；独立Linux CI已通过7项真实容器检查 |
 | Q-031 | 快照需要Storage专用身份而现有变量只有通用service_role | 增加STORAGE_SERVICE_TOKEN，限定JWT角色reinlab_snapshot_writer；Supabase存在时迁移创建私有桶与限桶RLS，拒通用管理员key。JWT由Storage验签，不能把本地协议fixture当云授权证明 | 推荐执行；P1-08，云权限待验 |
 
-| Q-032 | 2.0.150公开runtime.prompt硬编码research且严格拒绝agent；规格default_agent回退也无效 | 保留runtime请求收据，候选为角色独立project覆写research定义，真实二进制已验证配置分别加载；旧session.prompt可选agent但不替代runtime。方案需用户/Claude确认后才进入P1-10，不改上游 | SPIKE-1已验证限制；待确认别名方案 |
+| Q-032 | 2.0.150公开runtime.prompt硬编码research且严格拒绝agent；规格default_agent回退也无效 | 保留runtime收据，采用/data/roles/<dossierId>/<roleId>非git project覆写research；最终*deny、路径规则、taskdeny。角色prompt与权限必须经实际模型HTTP和工具攻击测试，不用旧session.prompt替代runtime；不改上游 | 用户/Claude中期审查已批准附条件；P1-10首PR仅角色边界，待审查方确认后续 |
 | Q-033 | 说明文件会按类型向上聚合并加入全局/显式instructions，不能仅凭文件名推断隔离 | 采用角色过滤后的project AGENTS.md；全局仅公共安全规则，控制project/Git根和额外instructions，后续实际注入与工具越权实测 | SPIKE-2源码结论；执行隔离待后续 |
 
 | Q-034 | OpenMAIC已有单场景scene-content接口，但其content是html/widgetType，无课程content.type；部署还校验Origin | 采用直连OpenMaicAnimProvider，单outline+allOutlines=[outline]+临时stageId，取content.html；保留Origin/认证校验，正式适配再做引用/HTML/费用门禁。真实simulation已生成，服务内部用量/费用未返则null | SPIKE-3真实验证通过；后续适配待实现 |
 | Q-035 | 规格未给动画CDN白名单细目 | 本次样本只含jsDelivr固定KaTeX0.16.9脚本URL，人工逐个核对；生产白名单应固定所需域名/路径/版本并验证重定向与资源，不能放开任意外部脚本。截图不替代安全测试 | 推荐执行；生产HTML验证待P2后续 |
+
+2026-10-19 中期审查后补充（按用户指示推荐继续，未新增外部付费/凭据操作）：
+
+| 编号 | 问题 | 推荐与理由 | 状态 |
+|---|---|---|---|
+| Q-036 | 原生write/edit/patch/apply_patch/multiedit统一用edit权限，单放write会连带暴露编辑别名 | edit按相对角色project的write_targets收紧；可信全局插件逐tool_grants再检查实际工具名。首PR只支持受控单文件write/edit，其余多文件patch失败关闭，后续正式工具再扩展 | 已实现；原生先read再强制未授权edit负例通过 |
+| Q-037 | runtime.parts.subtask是显式用户委派路径，会绕过agent的task权限检查 | 首PR桥接只接受sessionID/requestID/message，拒绝parts、agent、model、directory等额外输入；内部delegation=true下仍须验证taskdeny | 已实现并测试；丰富输入后续另审 |
+| Q-038 | 自动说明文件读取与配置引用展开不经过工具read权限，且可能运行中被换链 | 管理role目录只允许三个受控普通单链接文件；配置全文拒绝{file:/{env:，创建/提交/每次模型与工具前校验。AGENTS按角色过滤后由调用方写入，本PR不代替完整记忆服务 | 配置注入和运行中跨role泄漏红灯已保留并修复；宿主恶意同UID任意竞态不冒充OS隔离 |
+| Q-039 | approve模式将external_directory视作risky，配置allow仍会等待filesystem授权 | 控制面只给新会话当前dossier只读及实际编辑所需write_targets精确写路径，scope固定session；保留路径read/edit规则，不切full/不关闭sandbox/不自动回答pending | 原生正向读写及注入宽grant后越权拒绝均通过 |
+| Q-040 | sandbox开启时上游跳过project-controlled插件，最初fixture漏掉部署的全局注册 | 复现现有account-entrypoint的可信全局插件注册；roleproject不注册插件，桥接创建/提交前核验全局精确URL，缺失失败关闭。用hardlink、read后edit别名及实际hook日志验证，不凭配置判断生效 | 初始假证明已纠正，红灯/失败观察保留；sandbox保持开启 |
+| Q-041 | SDK默认禁用请求timeout，内核不响应会一直等待 | 每SDK请求默认10秒deadline，可安全配置100–30000ms；稳定OS_UNAVAILABLE，prompt结果未知时查原编号收据，绝不自动重新提交 | 真实HTTP stall、0自动重试及原requestID通过 |
+| Q-042 | canonical路径不能识别硬链接数据别名，FIFO等特殊文件可挂住检查 | 数据读写及管理文件拒绝多硬链接；元数据打开O_NONBLOCK，拒绝FIFO/socket/device。只证明当前文件链接/类型边界，不声称审计已复制内容的历史来源 | 独立原生hardlink与特殊文件回归通过 |

@@ -1,0 +1,32 @@
+{
+  "node": "v22.23.3",
+  "allTests": {
+    "passed": 714,
+    "failed": 0,
+    "pending": 0,
+    "report": "all-test-report.json"
+  },
+  "roleTests": {
+    "passed": 34,
+    "failed": 0,
+    "report": "test-report.json"
+  },
+  "nativeCoreTests": {
+    "passed": 9,
+    "failed": 0,
+    "report": "native-test-report.json"
+  },
+  "independentAttackTests": {
+    "passed": 9,
+    "failed": 0,
+    "report": "independent-test.json"
+  },
+  "independentReview": "passed; scope limited to first role-boundary PR",
+  "lint": "passed",
+  "controlTypes": "passed",
+  "contractsTypes": "passed",
+  "mockBuild": "passed",
+  "bridgeLineCoverage": "62/62 (100%); two TypeScript bridge modules only",
+  "coverage": "coverage/coverage-summary.json",
+  "scope": "未完成整个P1-10，未接前端live/真实模型/费用/业务账本/云验收"
+}
