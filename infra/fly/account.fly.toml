@@ -1,0 +1,5 @@
+app = "reinlab-accounts"
+primary_region = "nrt"
+[build]
+  dockerfile = "infra/fly/account.Dockerfile"
+# Intentionally no http_service/services: provisioner creates private Machines with per-account volumes.

@@ -41,3 +41,20 @@ jobs:
         with:
           name: research-test-report
           path: test-report.json
+  account-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 构建真实账户镜像
+        run: docker build -f infra/fly/account.Dockerfile -t reinlab-account:p1-08 .
+      - name: 真实容器、root新卷、认证、工具与重启验证
+        run: node services/account-runtime/verify-container.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: account-container-test-report
+          path: container-test-report.json

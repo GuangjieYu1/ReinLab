@@ -1,0 +1,22 @@
+{
+  "capturedAt": "2026-10-19T08:21:00.823976+00:00",
+  "algorithm": "SHA-256",
+  "files": {
+    "services/control/src/provisioner/index.ts": "fab0f24ff294dae170c9494fff68de2bb58270880dd33b57501de730e7eda055",
+    "services/control/src/provisioner/runtime.ts": "6bc8a49dc71f029ada09b410e4452f40f2f10dbecac328914c9d1640fc8dddb9",
+    "services/control/src/provisioner/fly.ts": "1b963f2f196ff66f1813b3d96b20aaeb0e2e4c284ad42a517cc93e54653eb21f",
+    "services/control/src/provisioner/lifecycle.ts": "f13a07918c8cb33a4f27dc682226d085dc80c17cae24c3a71613d28f547f095c",
+    "infra/fly/account.Dockerfile": "b91bef99ad62c030c7d783b58dec5b01d919304ae6ba4d44db3484a1c5abe3ae",
+    "infra/fly/account-entrypoint.mjs": "c9a0819c84394f6dc1394860643aa8f5c8a464563754c435fee487ad2a92948b",
+    "infra/fly/account-health.mjs": "d534e003414baf9daf91c71b0c49bdd1d9cff01c94533a3eb1bb585c0110901c",
+    "infra/fly/account.fly.toml": "bea7de26e9ac33c42e2e523969f974eea84494e6bcdc75ba8ae7bf3cbd44ac27",
+    "services/control/test/provisioner.test.ts": "9d2ae8bf637045664271581509f2489786df6abbb5ac97665e67386baff16fac",
+    "services/control/test/lifecycle.test.ts": "14c90f41799d1fed53e0628e333d6e37823135117e2b7e72bd481b3698b01681",
+    "services/control/test/independent-provisioner.test.ts": "b076a3390cbcf1dfbb7fe9b0feac89f9f89fa47e1283915f4f9cd0de362edc17",
+    "services/control/test/independent-lifecycle.test.ts": "0f6ef83aa5aa99f22f87a59d1bfe916c45506e8f947853b0798ef5115a021cbf",
+    "infra/supabase/migrations/202610190013_account_provisioning.sql": "4ac253068e6a88fe488499f40362fc82c65bae71947fa89315ea1d29546fd195",
+    "infra/supabase/migrations/202610190014_machine_lease.sql": "cfe0c31f5fe1d957b96245093983b36749b5463c1a5ff392ff58638b0feb4cae",
+    "infra/supabase/migrations/202610190015_snapshot_storage.sql": "56bf9374dd268bdec81da608ffa3896239cfe66a65f326c68ad68fc76b2dbfdc",
+    "infra/supabase/migrations/202610190016_machine_operations.sql": "5c96e5a40435082ba3ddf368d2f8bef0482b8f044e63e866b7cdff9e75b777b2"
+  }
+}
