@@ -8,6 +8,7 @@ import { AccountProfile, Dossier, DossierDetail } from '@reinlab/contracts';
 import { createApp } from '../src/api/app';
 import { applyMigrations } from '../src/db/migrate';
 import { assertApplicationRole } from '../src/db/database';
+import { scrub } from '../src/ledger';
 
 const admin=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL??'postgres://postgres@127.0.0.1:55432/reinlab_test'});
 const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL_APP??'postgres://reinlab_app@127.0.0.1:55432/reinlab_test',max:4});
@@ -73,18 +74,26 @@ describe('控制面 API',()=>{
     const envSecret=randomBytes(48).toString('base64url'),applicationName='reinlab_native_'+randomUUID().replaceAll('-','');
     const dbUrl=new URL(process.env.TEST_DATABASE_URL_APP??'postgres://reinlab_app@127.0.0.1:55432/reinlab_test');dbUrl.searchParams.set('application_name',applicationName);
     const jwt=await token(A,{},new TextEncoder().encode(envSecret));
-    const child=spawn(process.execPath,['--import','tsx','services/control/src/main.ts'],{env:{...process.env,PORT:'0',DATABASE_URL_APP:dbUrl.toString(),SUPABASE_URL:issuer.replace(/\/auth\/v1$/,''),SUPABASE_JWT_SECRET:envSecret},stdio:['ignore','pipe','ignore']});
+    const child=spawn(process.execPath,['--import','tsx','services/control/src/main.ts'],{env:{...process.env,PORT:'0',DATABASE_URL_APP:dbUrl.toString(),SUPABASE_URL:issuer.replace(/\/auth\/v1$/,''),SUPABASE_JWT_SECRET:envSecret},stdio:['ignore','pipe','pipe']});
+    let stderr='',phase='startup';
+    const sanitizeStderr=(text:string)=>String(scrub(text.split(envSecret).join('[REDACTED]').split(jwt).join('[REDACTED]').split(dbUrl.toString()).join('[REDACTED_DB]')));
+    child.stderr.on('data',chunk=>{stderr=(stderr+String(chunk)).slice(-24000);});
     try {
       const port=await new Promise<number>((resolve,reject)=>{
         const timer=setTimeout(()=>reject(new Error('CONTROL_START_TIMEOUT')),10000);
         child.once('exit',()=>{clearTimeout(timer);reject(new Error('CONTROL_EARLY_EXIT'));});
         child.stdout.on('data',chunk=>{for(const line of String(chunk).trim().split('\n')){try{const value=JSON.parse(line);if(value.code==='CONTROL_READY'){clearTimeout(timer);resolve(value.port);}}catch{}}});
       });
+      phase='initial-request';
       const r=await fetch(`http://127.0.0.1:${port}/v1/me`,{headers:headers(jwt)});
       expect(r.status).toBe(200);expect((await r.json()).id).toBe(A);
       const terminated=await admin.query("select pg_terminate_backend(pid) stopped from pg_stat_activity where application_name=$1 and usename='reinlab_app' and state='idle'",[applicationName]);
       expect(terminated.rowCount).toBeGreaterThan(0);expect(terminated.rows.every(row=>row.stopped)).toBe(true);
+      phase='immediate-idle-recovery';
       const recovered=await fetch(`http://127.0.0.1:${port}/v1/me`,{headers:headers(jwt)});expect(recovered.status).toBe(200);expect((await recovered.json()).id).toBe(A);
+    } catch(error) {
+      console.error(JSON.stringify({code:'CONTROL_NATIVE_TEST_FAILED',phase,stderr:sanitizeStderr(stderr).slice(-12000),exitCode:child.exitCode,signal:child.signalCode}));
+      throw error;
     } finally { if(child.exitCode===null&&child.signalCode===null){const exit=new Promise<void>(resolve=>child.once('exit',()=>resolve()));child.kill('SIGTERM');await exit;} }
   },15000);
   it('已借出连接异步断开不会杀进程，坏连接被丢弃并可恢复',async()=>{
