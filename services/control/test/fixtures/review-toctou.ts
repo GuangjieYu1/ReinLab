@@ -1,0 +1,33 @@
+import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {unlinkSync,symlinkSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {prepareRoleProject} from '../../src/bridge/openscience/role-project';
+import {RoleRuntime} from '../../src/bridge/openscience/role-runtime';
+import {startNativeRoleServer,startRoleProvider} from './role-provider';
+const root=await mkdtemp(join(tmpdir(),'reinlab-role-review-'));
+let provider:any,server:any;
+try {
+ provider=await startRoleProvider();
+ const pluginFile=join(root,'review-plugin.mjs'),hookLog=join(root,'review-hooks.log');
+ await writeFile(pluginFile,`import {ReinLabPlugin} from ${JSON.stringify(pathToFileURL(resolve('plugins/reinlab-os-plugin/index.js')).href)};import {appendFileSync} from 'node:fs';export const ReviewPlugin=async(ctx)=>{const hooks=await ReinLabPlugin(ctx);return Object.fromEntries(Object.entries(hooks).map(([name,fn])=>[name,async(...args)=>{appendFileSync(${JSON.stringify(hookLog)},name+'\\n');try{return await fn(...args);}catch(error){appendFileSync(${JSON.stringify(hookLog)},'rejected:'+name+'\\n');throw error;}}]));};`);
+ server=await startNativeRoleServer(root,provider.url,pathToFileURL(pluginFile).href);
+ const prepare=(id:string,memory:string)=>prepareRoleProject({root,dossierId:'11111111-1111-4111-8111-111111111111',role:{id,prompt:'Review '+id,toolGrants:{read:{risk:'read',permission:'allow'}},writeTargets:[],steps:8},model:'role-fixture/fixture',memory,pluginUrl:pathToFileURL(pluginFile).href});
+ const alpha=await prepare('alpha','own memory'),beta=await prepare('beta','REVIEW_CROSS_ROLE_TOCTOU_SECRET');
+ await writeFile(join(alpha.dossierDirectory,'allowed.txt'),'allowed');
+ const runtime=new RoleRuntime({baseUrl:server.baseUrl,token:server.token,project:alpha});
+ const {sessionID}=await runtime.createSession('review-tamper');
+ provider.plans.set('review-tamper',[{name:'read',arguments:{filePath:join(alpha.dossierDirectory,'allowed.txt')}}]);
+ const originalPush=provider.requests.push.bind(provider.requests);let changed=false;
+ provider.requests.push=(body:any)=>{const result=originalPush(body);if(!changed&&JSON.stringify(body.messages).includes('review-tamper')){changed=true;unlinkSync(join(alpha.directory,'AGENTS.md'));symlinkSync(join(beta.directory,'AGENTS.md'),join(alpha.directory,'AGENTS.md'));}return result;};
+ await runtime.prompt({sessionID,requestID:'review-toctou',message:'review-tamper'});
+ const deadline=Date.now()+15000;
+ while(Date.now()<deadline&&provider.requests.length<3)await new Promise(r=>setTimeout(r,100));
+ const evidence={nativeVersion:server.version,changed,requests:provider.requests.length,leaked:provider.requests.some((body:any)=>JSON.stringify(body.messages).includes('REVIEW_CROSS_ROLE_TOCTOU_SECRET')),hookLog:await readFile(hookLog,'utf8').catch(()=>''),systemSummaries:provider.requests.map((body:any,index:number)=>{const text=JSON.stringify(body.messages.filter((m:any)=>m.role==='system'));return {requestIndex:index+1,titleGeneration:text.includes('You are a title generator'),ownMemory:text.includes('own memory'),crossRoleSentinel:text.includes('REVIEW_CROSS_ROLE_TOCTOU_SECRET')};})};
+ console.log(JSON.stringify(evidence,null,2));
+ await writeFile(resolve('evidence/P1-10/review-toctou.json'),JSON.stringify(evidence,null,2)+'\n');
+ if(!evidence.changed||!evidence.systemSummaries.some((s:any)=>s.ownMemory))throw new Error('Review TOCTOU: first authorized model round and tamper were not exercised');
+ if(evidence.leaked)throw new Error('Review TOCTOU: cross-role AGENTS sentinel leaked into actual model HTTP');
+ if(!evidence.hookLog.includes('rejected:experimental.chat.system.transform'))throw new Error('Review TOCTOU: no provider-boundary hook rejection was observed');
+} finally {if(server)await server.close();if(provider)await provider.close();await rm(root,{recursive:true,force:true});}

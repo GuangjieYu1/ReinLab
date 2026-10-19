@@ -1,0 +1,12 @@
+{
+  "services/control/src/bridge/openscience/role-project.ts": "ce1f6b3b971cde76eb71f609d3bafa73ce90ab8f793893e6bc73473754294ae2",
+  "services/control/src/bridge/openscience/role-runtime.ts": "f484ac503362194dfb9f19d6427269a18614dbd20fde8cb080bb58ec9e1961cb",
+  "plugins/reinlab-os-plugin/index.js": "e6da7c2be26b6c4db8b73d78d57849e255fc5f51479f345c21353a0c21d8492a",
+  "services/control/test/fixtures/role-provider.ts": "52db6c8cca66d940a5c3fbfcdff2886fbcf6bbaf1af3dfcdb171b2c62ba5aa63",
+  "services/control/test/fixtures/review-toctou.ts": "f7b11f1ea2dbd836bd860343507b1c28941ca0752931f21e437a3b6e52aac6d0",
+  "services/control/test/role-project.test.ts": "b53fc168965eee91a753e2d66d72f158b4a901c0ec7e7012bc38f6dadcd8c35e",
+  "services/control/test/role-runtime.test.ts": "85efd62848426a5ae616ed57be3adec1024aa03575b8e001eb2e8cdd61158bec",
+  "services/control/test/independent-role.test.ts": "4641cadd35385bde39c7f894a6c45e3d048e3712fd2ddc4e96e33db87c9d6509",
+  "services/control/test/role-system-race.test.ts": "13a4277e2be0e28d7ad0749f9126c0b769962bb466d7e4992327dea902594425",
+  "services/control/test/role-special-file.test.ts": "f5e7c8d68b2de95dc9be2a37f536eff65f775a483733e6ae97ba0de846a14aa9"
+}
