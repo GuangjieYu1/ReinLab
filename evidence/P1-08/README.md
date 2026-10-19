@@ -26,3 +26,5 @@ node services/account-runtime/verify-container.mjs
 运维入口及可信身份前提见docs/tasks/P1-08-lifecycle.md。派发层P1-10必须拒绝机器非ready/有效租约；本批不提交模型。注册函数并非公开Webhook认证，夜间CLI并非已经部署的调度器。真正部署后须配置已验证Auth事件和每日任务、提供Storage专用JWT及Vault，测试云端越权与故障后再验收P1-08。
 
 参考：Fly官方Machines/Volumes API https://fly.io/docs/machines/api/machines-resource/ 、https://fly.io/docs/machines/api/volumes-resource/ ；Supabase官方Vault https://supabase.com/docs/guides/database/vault 。上游2.0.150 serve/network/host-guard/global/identity源码只读核对。
+
+CI首轮：Linux镜像构建成功（image sha256:18809d98ecd8478cfb73799d7c1017271371792cd1e48a240fb403cfbbbf7f2d），真实健康通过，但验证脚本的/proc UID正则在模板字符串中丢失反斜线，后续断言失败；container-first-failed.json保留。改用String.raw保留正则后重新实跑，不跳过降权断言。
