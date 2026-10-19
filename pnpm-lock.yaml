@@ -94,7 +94,17 @@ importers:
         specifier: 3.25.76
         version: 3.25.76
 
-  plugins/reinlab-os-plugin: {}
+  plugins/reinlab-os-plugin:
+    dependencies:
+      '@synsci/plugin':
+        specifier: 2.0.150
+        version: 2.0.150
+
+  services/account-runtime:
+    dependencies:
+      '@synsci/openscience':
+        specifier: 2.0.150
+        version: 2.0.150
 
   services/control:
     dependencies:
@@ -104,6 +114,9 @@ importers:
       '@reinlab/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@synsci/sdk':
+        specifier: 2.0.150
+        version: 2.0.150
       hono:
         specifier: 4.13.13
         version: 4.13.13
@@ -637,6 +650,77 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
+  '@synsci/openscience-darwin-arm64@2.0.150':
+    resolution: {integrity: sha512-QBDTNkyvKhUecstoMa1ADZRSDwivwwFGeqzt7benm/ka+Jhj8zbgS9sLeUrHpS6lLO6cetQhIrge5ujlEVBUEg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@synsci/openscience-darwin-x64-baseline@2.0.150':
+    resolution: {integrity: sha512-fS5BVrZl//uEmNcJLOpuskTCUQH8Au/UdeJn1xCCGx08SgzKSxElb2wNJpHkxZZYPBOpKFzcl5gc+pmDZJbODw==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@synsci/openscience-darwin-x64@2.0.150':
+    resolution: {integrity: sha512-gKYJXI1mGSVbfD9XJ8+CHTN3930jhiEEOf0zMAwdTL/8ojYdlrGXyYhBKoBXF0ZAyKYm0D619AEapZ/NLaqe+g==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@synsci/openscience-linux-arm64-musl@2.0.150':
+    resolution: {integrity: sha512-+nFa8JBmJss8/zl7Udn/CzbVeto9kqgY/34hVQXrHnkzPGwbrI6vIoqjaYJu3+zsS3OE+tNL5BcsCZpMNArFqw==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@synsci/openscience-linux-arm64@2.0.150':
+    resolution: {integrity: sha512-GcnkM2NUzZx8DFHY8oKsXZmJLDYyKCpr4PFcPv4mmQJ2Rp4k08QkhLZGIysqXQSKxRzPiU1/P1FaNRP7z/Ulow==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@synsci/openscience-linux-x64-baseline-musl@2.0.150':
+    resolution: {integrity: sha512-rbcpUxyzz+k2rc0ahTmsS9r8uk/EIN95wIZjKLqs4KfueTkvwVt99o3z0V8vx7motNtYh+XTwejzt5aWc6s3Pg==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@synsci/openscience-linux-x64-baseline@2.0.150':
+    resolution: {integrity: sha512-6N8drEXmMD0MtV3XuqLWszZG95bQJfyD2XYF8efdpyIj58qaUZv58T73xK9FouNFLgHq3TDq4V3lu7w8OqrhFQ==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@synsci/openscience-linux-x64-musl@2.0.150':
+    resolution: {integrity: sha512-jK8JhDMdhqdHQ0Ha4RUiIN/ylIAGZx3kpoqSngWN5keDKq10fXscxjl7NVpOlzKV8MZaDKSPngQddOoCCGou3g==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@synsci/openscience-linux-x64@2.0.150':
+    resolution: {integrity: sha512-uq7mK1IHvhiEtkxZFwH1NWzyUSHw/YlKtMZSgDQl0Lc0o9EnSRODYzQaXIFzSS6xBnjP5IsAmTMTVhOrXsKC1Q==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@synsci/openscience-windows-x64-baseline@2.0.150':
+    resolution: {integrity: sha512-+NMan9z6nXbzXLMyQv4DCvgTNSiSxbV3py3hkqIbx7FZcXPqH2DpHYcZFmx+HwhxGaKgG6cTDgzdhxjihLJfBw==}
+    cpu: [x64]
+    os: [win32]
+
+  '@synsci/openscience-windows-x64@2.0.150':
+    resolution: {integrity: sha512-mUWV8ekEYkG+V2AK4YQ9zobS0fqpJ/BoovLnOstuIyu4jsApQVbuu/IhiYyvJ7nD1JHnjsMf+Fmy1ng/+NOtQA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@synsci/openscience@2.0.150':
+    resolution: {integrity: sha512-DFu9nf3HLLd8S2EFVkf6RpLpgjVJ3lvLtkhL0qwzgISnglC7ogNJULWQzx4l87praAgclXLvlYTmbNpgIFAVCg==}
+    hasBin: true
+
+  '@synsci/plugin@2.0.150':
+    resolution: {integrity: sha512-voimRyvDQED7gAV2ZfzGHSsMpj4alrPuzKPKGb9R++VpT197X2W8D54IgEzPhOHO9UeHo8ZU0pVOSUCwIL/2yg==}
+
+  '@synsci/sdk@2.0.150':
+    resolution: {integrity: sha512-hpEwaNpYEHxq2yNq5s/6CyewRmfzlfNg/F3w9T/vwiaeRjQ0ZWMf+tMPGV5xHyr2KC5oQtKoowLlZffMw0RmSA==}
 
   '@trapezedev/gradle-parse@7.1.10':
     resolution: {integrity: sha512-muL6ptcxnqrgrYushL78pLF5GGJSWoo/kk8pb7mQ+Og8eef6zY6XI9iwhVS9bo8yCpuh6EZfq9odKWkGPVB4BQ==}
@@ -1946,6 +2030,9 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zod@4.1.8:
+    resolution: {integrity: sha512-5R1P+WwQqmmMIEACyzSvo4JXHY5WiAFHRMg+zBZKgKS+Q1viRa0C1hmUKtHltoIFKtIdki3pRxkmpP74jnNYHQ==}
+
 snapshots:
 
   '@babel/code-frame@7.29.7':
@@ -2469,6 +2556,60 @@ snapshots:
     optional: true
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@synsci/openscience-darwin-arm64@2.0.150':
+    optional: true
+
+  '@synsci/openscience-darwin-x64-baseline@2.0.150':
+    optional: true
+
+  '@synsci/openscience-darwin-x64@2.0.150':
+    optional: true
+
+  '@synsci/openscience-linux-arm64-musl@2.0.150':
+    optional: true
+
+  '@synsci/openscience-linux-arm64@2.0.150':
+    optional: true
+
+  '@synsci/openscience-linux-x64-baseline-musl@2.0.150':
+    optional: true
+
+  '@synsci/openscience-linux-x64-baseline@2.0.150':
+    optional: true
+
+  '@synsci/openscience-linux-x64-musl@2.0.150':
+    optional: true
+
+  '@synsci/openscience-linux-x64@2.0.150':
+    optional: true
+
+  '@synsci/openscience-windows-x64-baseline@2.0.150':
+    optional: true
+
+  '@synsci/openscience-windows-x64@2.0.150':
+    optional: true
+
+  '@synsci/openscience@2.0.150':
+    optionalDependencies:
+      '@synsci/openscience-darwin-arm64': 2.0.150
+      '@synsci/openscience-darwin-x64': 2.0.150
+      '@synsci/openscience-darwin-x64-baseline': 2.0.150
+      '@synsci/openscience-linux-arm64': 2.0.150
+      '@synsci/openscience-linux-arm64-musl': 2.0.150
+      '@synsci/openscience-linux-x64': 2.0.150
+      '@synsci/openscience-linux-x64-baseline': 2.0.150
+      '@synsci/openscience-linux-x64-baseline-musl': 2.0.150
+      '@synsci/openscience-linux-x64-musl': 2.0.150
+      '@synsci/openscience-windows-x64': 2.0.150
+      '@synsci/openscience-windows-x64-baseline': 2.0.150
+
+  '@synsci/plugin@2.0.150':
+    dependencies:
+      '@synsci/sdk': 2.0.150
+      zod: 4.1.8
+
+  '@synsci/sdk@2.0.150': {}
 
   '@trapezedev/gradle-parse@7.1.10': {}
 
@@ -3751,3 +3892,5 @@ snapshots:
       fd-slicer: 1.1.0
 
   zod@3.25.76: {}
+
+  zod@4.1.8: {}

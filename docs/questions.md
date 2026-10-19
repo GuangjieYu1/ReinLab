@@ -35,3 +35,9 @@
 外部凭据仅使用安全环境配置，不写入本文件、账本或证据。
 
 2026-10-19 补充：用户询问无头回归含义，已解释后台浏览器自动操作；目前没有可确认的既有脚本入口。找到 `/Users/guangjieyu/Documents/OpenMAIC`，先只读核实单场景生成，不读取其 `.env*` 或模型密钥。
+
+| Q-028 | OpenScience 2.0.150固定仅loopback绑定且拒绝Fly域名Host，与§7私网直连不符 | 自有IPv6代理在4096接Fly私网，转127.0.0.1:4096固定loopback Host，每请求验证账户Bearer且拒Origin；保持上游防护。Fly无公网services；不改上游 | 推荐执行；P1-08 |
+| Q-029 | P1-08要求注册创建、快照与滚动升级，但Auth/Vault/Storage/Hatchet项目尚无 | 本批提供可信provisioner入口、加密与故障恢复、运维CLI和真实容器验证；注册事件/夜间快照调度在后续长流程接入。没有Vault时失败关闭，云SLA/真实Vault必须待环境补验，不用明文替代 | 外部条件缺失；明确未完成云验收 |
+
+| Q-030 | Docker Desktop 4.18.0构建/拉取/新建容器请求返回内部backend.sock设置服务超时，既有PG仍可用 | 不重启共享Docker以免中断其他项目；保留Engine错误与真实原生运行时探针，改用独立GitHub runner构建验证镜像/root新卷/OCR工具；云三分钟SLA仍待真实Fly。没有实际CI结果前不标通过 | 本机环境阻塞；独立CI验证中 |
+| Q-031 | 快照需要Storage专用身份而现有变量只有通用service_role | 增加STORAGE_SERVICE_TOKEN，限定JWT角色reinlab_snapshot_writer；Supabase存在时迁移创建私有桶与限桶RLS，拒通用管理员key。JWT由Storage验签，不能把本地协议fixture当云授权证明 | 推荐执行；P1-08，云权限待验 |

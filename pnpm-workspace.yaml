@@ -3,5 +3,7 @@ packages:
   - services/*
   - plugins/*
 allowBuilds:
+  '@synsci/openscience': set this to true or false
   esbuild@0.25.12: true
   sharp@0.32.6: true
+  "@synsci/openscience@2.0.150": true
