@@ -16,6 +16,8 @@ export const Mode = z.enum(['read', 'swarm', 'auto']);
 export type Mode = z.infer<typeof Mode>;
 export const GateState = z.enum(['locked', 'ready', 'running', 'review', 'discuss', 'approved']);
 export type GateState = z.infer<typeof GateState>;
+export const GateTransition=z.object({action:z.enum(['start','discuss','approve']),expectedState:GateState,expectedRevision:count}).strict();
+export type GateTransition=z.infer<typeof GateTransition>;
 export const RunState = z.enum(['queued', 'running', 'waiting', 'paused_budget', 'completed', 'failed', 'cancelled', 'interrupted']);
 export const CredentialKind = z.enum(['api_key', 'subscription_oauth', 'external_runtime', 'self_hosted']);
 export const Citation = z.object({ source: text, locator: text, quote: z.string().max(400).optional(), verifiedBy: text.optional() }).strict();
@@ -129,5 +131,5 @@ export const AccountProfile = z.object({ id, displayName: z.string().nullable(),
 }).strict();
 export type AccountProfile = z.infer<typeof AccountProfile>;
 export const RunSummary = z.object({ id, mode: Mode, state: RunState, budgetCny: money, spentCny: money }).strict();
-export const DossierDetail = z.object({ dossier: Dossier, gates: z.array(z.object({ id, subject: text, state: GateState }).strict()), activeRuns: z.array(RunSummary), budget: z.object({ allocatedCny: money, spentCny: money }).strict() }).strict();
+export const DossierDetail = z.object({ dossier: Dossier, gates: z.array(z.object({ id, subject: text, state: GateState, revision: count }).strict()), activeRuns: z.array(RunSummary), budget: z.object({ allocatedCny: money, spentCny: money }).strict() }).strict();
 export type DossierDetail = z.infer<typeof DossierDetail>;

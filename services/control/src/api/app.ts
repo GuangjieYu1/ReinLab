@@ -9,6 +9,7 @@ import { createVerifier, type JwtConfig } from './auth';
 import { mutate, type ApiEnv } from './context';
 import { ApiFailure, denied } from './errors';
 import { registerLedger } from './ledger';
+import { registerGates } from './gates';
 
 export async function createApp(options:{pool:pg.Pool;auth:JwtConfig}) {
   const database=new Database(options.pool);
@@ -45,12 +46,13 @@ export async function createApp(options:{pool:pg.Pool;auth:JwtConfig}) {
     const id=c.req.param('id');if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))throw denied();
     const dossier=await client.query('select id,bench,title,created_at as "createdAt",archived_at as "archivedAt" from dossier where account_id=$1 and id=$2',[c.get('accountId'),id]);
     if(!dossier.rowCount)throw denied();
-    const gates=await client.query('select id,subject,state from gate where dossier_id=$1',[id]);
+    const gates=await client.query('select id,subject,state,revision from gate where dossier_id=$1',[id]);
     const runs=await client.query('select id,mode,state,budget_cny as "budgetCny",spent_cny as "spentCny" from run where dossier_id=$1 order by created_at',[id]);
     const budget=await client.query('select coalesce(sum(budget_cny),0) as allocated,coalesce(sum(spent_cny),0) as spent from run where dossier_id=$1',[id]);
     return c.json(DossierDetail.parse(JSON.parse(JSON.stringify({dossier:dossier.rows[0],gates:gates.rows,activeRuns:runs.rows.filter(r=>!['completed','failed','cancelled'].includes(r.state)).map(r=>({...r,budgetCny:Number(r.budgetCny),spentCny:Number(r.spentCny)})),budget:{allocatedCny:Number(budget.rows[0].allocated),spentCny:Number(budget.rows[0].spent)}}))));
   }));
   registerLedger(app,database);
+  registerGates(app,database);
   app.notFound(c=>c.json({code:'NOT_FOUND',message:'接口不存在。'},404));
   app.onError((error,c)=>{
     if(error instanceof ApiFailure)return c.json({code:error.code,message:error.message},error.status);

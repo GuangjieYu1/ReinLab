@@ -1,0 +1,313 @@
+{
+  "task": "P1-06",
+  "role": "independent-test",
+  "status": "passed",
+  "summary": {
+    "independentCases": 62,
+    "passed": 62,
+    "failed": 0
+  },
+  "cases": [
+    {
+      "id": "initial-only-first-ready",
+      "pass": true
+    },
+    {
+      "id": "chain-replay-preserves-id",
+      "pass": true
+    },
+    {
+      "id": "chain-replay-no-event",
+      "pass": true
+    },
+    {
+      "id": "chain-prefix",
+      "pass": true,
+      "expected": "GATE_CHAIN_CONFLICT",
+      "actual": "GATE_CHAIN_CONFLICT"
+    },
+    {
+      "id": "chain-suffix",
+      "pass": true,
+      "expected": "GATE_CHAIN_CONFLICT",
+      "actual": "GATE_CHAIN_CONFLICT"
+    },
+    {
+      "id": "chain-reverse",
+      "pass": true,
+      "expected": "GATE_CHAIN_CONFLICT",
+      "actual": "GATE_CHAIN_CONFLICT"
+    },
+    {
+      "id": "chain-new-tail",
+      "pass": true,
+      "expected": "GATE_CHAIN_CONFLICT",
+      "actual": "GATE_CHAIN_CONFLICT"
+    },
+    {
+      "id": "chain-new-head",
+      "pass": true,
+      "expected": "GATE_CHAIN_CONFLICT",
+      "actual": "GATE_CHAIN_CONFLICT"
+    },
+    {
+      "id": "chain-conflicts-no-partial-write",
+      "pass": true
+    },
+    {
+      "id": "invalid-chain-trimduplicate",
+      "pass": true
+    },
+    {
+      "id": "invalid-chain-empty",
+      "pass": true
+    },
+    {
+      "id": "invalid-chain-blank",
+      "pass": true
+    },
+    {
+      "id": "invalid-chain-33-stages",
+      "pass": true
+    },
+    {
+      "id": "predecessor-not-approved-cannot-unlock",
+      "pass": true,
+      "expected": "GATE_LOCKED",
+      "actual": "GATE_LOCKED"
+    },
+    {
+      "id": "system-cannot-start",
+      "pass": true,
+      "expected": "SCOPE_DENIED",
+      "actual": "SCOPE_DENIED"
+    },
+    {
+      "id": "cross-account-initialize",
+      "pass": true,
+      "expected": "RLS_DENIED",
+      "actual": "RLS_DENIED"
+    },
+    {
+      "id": "spoof-account-service-context",
+      "pass": true,
+      "expected": "RLS_DENIED",
+      "actual": "RLS_DENIED"
+    },
+    {
+      "id": "HTTP-forged-actor",
+      "pass": true
+    },
+    {
+      "id": "HTTP-forged-target",
+      "pass": true
+    },
+    {
+      "id": "HTTP-forged-scope",
+      "pass": true
+    },
+    {
+      "id": "HTTP-forged-operation",
+      "pass": true
+    },
+    {
+      "id": "HTTP-system-submit-forbidden",
+      "pass": true
+    },
+    {
+      "id": "HTTP-cross-account",
+      "pass": true
+    },
+    {
+      "id": "HTTP-wrong-dossier-subject",
+      "pass": true
+    },
+    {
+      "id": "HTTP-no-JWT",
+      "pass": true
+    },
+    {
+      "id": "internal-system-route-locked",
+      "pass": true
+    },
+    {
+      "id": "user-manual-start",
+      "pass": true
+    },
+    {
+      "id": "user-cannot-submit",
+      "pass": true,
+      "expected": "SCOPE_DENIED",
+      "actual": "SCOPE_DENIED"
+    },
+    {
+      "id": "review-artifact-none",
+      "pass": true,
+      "expected": "REVIEW_EVIDENCE_REQUIRED",
+      "actual": "REVIEW_EVIDENCE_REQUIRED"
+    },
+    {
+      "id": "review-artifact-unknown",
+      "pass": true,
+      "expected": "REVIEW_EVIDENCE_REQUIRED",
+      "actual": "REVIEW_EVIDENCE_REQUIRED"
+    },
+    {
+      "id": "review-artifact-other-dossier",
+      "pass": true,
+      "expected": "REVIEW_EVIDENCE_REQUIRED",
+      "actual": "REVIEW_EVIDENCE_REQUIRED"
+    },
+    {
+      "id": "review-artifact-other-account",
+      "pass": true,
+      "expected": "REVIEW_EVIDENCE_REQUIRED",
+      "actual": "REVIEW_EVIDENCE_REQUIRED"
+    },
+    {
+      "id": "real-same-dossier-artifact-review",
+      "pass": true
+    },
+    {
+      "id": "system-cannot-approve",
+      "pass": true,
+      "expected": "SCOPE_DENIED",
+      "actual": "SCOPE_DENIED"
+    },
+    {
+      "id": "discussion-no-successor-unlock",
+      "pass": true
+    },
+    {
+      "id": "resubmit-new-revision-and-artifact",
+      "pass": true
+    },
+    {
+      "id": "old-review-revision-cannot-approve",
+      "pass": true
+    },
+    {
+      "id": "approval-ready-only-no-auto-run",
+      "pass": true
+    },
+    {
+      "id": "old-key-replay-does-not-regress-state",
+      "pass": true,
+      "comparison": "deep semantic equality, not JSON key order"
+    },
+    {
+      "id": "four-distinct-keys-one-transition",
+      "pass": true
+    },
+    {
+      "id": "new-pool-app-persistent-receipt",
+      "pass": true
+    },
+    {
+      "id": "concurrency-single-ledger-event",
+      "pass": true
+    },
+    {
+      "id": "four-same-key-one-response",
+      "pass": true,
+      "statuses": [
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    {
+      "id": "same-key-content-conflict",
+      "pass": true
+    },
+    {
+      "id": "detail-current-revision",
+      "pass": true
+    },
+    {
+      "id": "event-unlock-actual-SQL-error-500",
+      "pass": true
+    },
+    {
+      "id": "event-unlock-both-gate-state-revisions-rollback",
+      "pass": true
+    },
+    {
+      "id": "event-unlock-all-ledger-events-rollback",
+      "pass": true
+    },
+    {
+      "id": "event-unlock-receipt-rollback",
+      "pass": true
+    },
+    {
+      "id": "event-unlock-same-key-retry-success",
+      "pass": true
+    },
+    {
+      "id": "receipt-actual-SQL-error-500",
+      "pass": true
+    },
+    {
+      "id": "receipt-both-gate-state-revisions-rollback",
+      "pass": true
+    },
+    {
+      "id": "receipt-all-ledger-events-rollback",
+      "pass": true
+    },
+    {
+      "id": "receipt-receipt-rollback",
+      "pass": true
+    },
+    {
+      "id": "receipt-same-key-retry-success",
+      "pass": true
+    },
+    {
+      "id": "DB-predecessor-other-dossier",
+      "pass": true,
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "DB-predecessor-other-account",
+      "pass": true,
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "DB-review-other-dossier",
+      "pass": true,
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "DB-review-other-account",
+      "pass": true,
+      "expected": "23503",
+      "actual": "23503"
+    },
+    {
+      "id": "DB-self-predecessor",
+      "pass": true,
+      "expected": "23514",
+      "actual": "23514"
+    },
+    {
+      "id": "DB-negative-revision",
+      "pass": true,
+      "expected": "23514",
+      "actual": "23514"
+    },
+    {
+      "id": "DB-one-successor-only",
+      "pass": true,
+      "expected": "23505",
+      "actual": "23505"
+    }
+  ],
+  "cleanup": "Own random A/B fixtures only; exact account-ID-scoped deletion; HTTP server and PG pools closed; implementation/migrations/frontend unchanged.",
+  "testHarnessNote": "Initial replay comparisons used JSON.stringify and incorrectly treated PostgreSQL jsonb object-key ordering as a content change. Repeated all 3 affected scenarios with isDeepStrictEqual; no implementation change."
+}
