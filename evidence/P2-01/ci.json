@@ -1,0 +1,21 @@
+{
+  "commit": "9bcded2da7660d0e7fdc1bab3deea3ed0f0bffa3",
+  "runId": 39228020915,
+  "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39228020915",
+  "check": "success",
+  "account-image": "success",
+  "artifacts": [
+    {
+      "id": 12176660117,
+      "name": "account-container-test-report",
+      "digest": "sha256:7f80c94ad7e5f66a2b0459ce2f1ac587f29a3305d4c60e998c29dd7390ff9f75",
+      "report": "ci-container-test-report.json"
+    },
+    {
+      "id": 12176125485,
+      "name": "research-test-report",
+      "digest": "sha256:98e3be831058d9cef2297d1e33de6351e7d0daff9e84e7781b56a9531d0b7a07",
+      "report": "ci-test-report.json"
+    }
+  ]
+}

@@ -18,3 +18,5 @@ node tooling/spikes/openmaic-viewer.mjs # 本地回环隔离测试页
 可靠性修复：wx原子占位、提交前意图/未知结果、HTML独占保存及failed-to-save。claim-red.json/save-red.json保留修复前红灯；离线CLI故障测试使用模拟fetch且输出仅临时目录，不替代真实API/模型验证。完整原始HTTP JSON未保存，响应形状依据处理观察与源码契约，独立测试对此保留界限。
 
 最终本地复核：本任务21/21、全仓657/657，失败0；独立评审通过。类型、边界、mock构建均通过。250份前端与原目录318份已保存文件清单全部未变（baseline-check.json）。lint-first-failed.json记录独立数值测试最初使用node:vm遭边界拒绝，已改标准输入Node子进程测试，不放宽规则。
+
+独立Linux CI：run39228020915（代码提交9bcded2da7660d0e7fdc1bab3deea3ed0f0bffa3），check/account-image均success。下载artifact并校验ZIP SHA256后保存ci-test-report.json（657通过/0失败）、ci-container-test-report.json（7通过/0失败）；ID/摘要见ci.json。后续收口提交仅增加本批送审文档与CI证据，不改变实现。
