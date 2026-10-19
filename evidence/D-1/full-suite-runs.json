@@ -10,6 +10,66 @@
       "pending": 0,
       "success": true,
       "report": "node22-baseline.json"
+    },
+    {
+      "name": "node24-baseline",
+      "node": "v24.14.1",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "node24-baseline.json"
+    },
+    {
+      "name": "node22-streak-1",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "node22-streak-1.json"
+    },
+    {
+      "name": "node22-streak-2",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "node22-streak-2.json"
+    },
+    {
+      "name": "node22-streak-3",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "node22-streak-3.json"
+    },
+    {
+      "name": "node22-streak-4",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "node22-streak-4.json"
+    },
+    {
+      "name": "node22-streak-5",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "node22-streak-5.json"
     }
   ],
   "sourceHashes": {

@@ -17,3 +17,5 @@ pnpm exec tsc -p services/control/tsconfig.json
 独立边界测试22项包括重借上限、连接/监听器释放、业务和COMMIT不重放、非断连不重借，及真实JWT/PG/RLS换连接后的A/B和空上下文隔离。独立测试/评审见independent-test.md/json和review.md。版本基线与Node22连续五轮JSON、节点版本和退出码见full-suite-runs.json；原红灯不删除。没有为测试降低权限、跳过断言或重复外部业务副作用。
 
 主仓库中期审查原样收录design/reviews/BATCH1_REVIEW.md，原目录未跟踪文件及其他用户改动均未改。原文审查日期2026-10-20与本轮客户端2026-10-19有一天差异，保留原文，不推测或改写。
+
+最终结果：Node22.23.3与Node24.14.1各一次全量680/680，另Node22连续5次每次680/680，七轮全部exit0/0失败/0跳过，源码摘要与最终代码逐项一致。initial-*保留资源断言补强之前的七轮历史，不替代最终矩阵。相关62项、独立22项和独立评审通过，lint/控制面及契约类型通过。

@@ -1,0 +1,8 @@
+{
+  "lint": "passed",
+  "controlTypes": "passed",
+  "contractsTypes": "passed",
+  "mockBuild": "passed",
+  "finalMatrix": "7/7 runs; each 680 passed, 0 failed, 0 pending",
+  "reviewFileSha256": "48d08172c9fdc67edbe183671fdc00f0ac950b5a06e3819f653f863cf908cfe3"
+}
