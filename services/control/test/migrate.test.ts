@@ -13,7 +13,7 @@ const url = new URL(base); url.pathname='/'+name;
 const isolated = new pg.Pool({connectionString:url.toString()});
 let dir: string;
 beforeAll(async()=>{await bootstrap.query(`create database "${name}"`);dir=await mkdtemp(path.join(tmpdir(),'reinlab-real-migration-'));},30000);
-afterAll(async()=>{await isolated.end();await bootstrap.query(`drop database if exists "${name}" with (force)`);await bootstrap.end();if(dir)await rm(dir,{recursive:true,force:true});});
+afterAll(async()=>{await isolated.end();await bootstrap.query(`drop database if exists "${name}"`);await bootstrap.end();if(dir)await rm(dir,{recursive:true,force:true});});
 it('迁移原子回滚、幂等、并发与篡改拒绝',async()=>{
   await writeFile(path.join(dir,'0001_probe.sql'),'create table sample(id integer primary key);');
   await writeFile(path.join(dir,'0002_failure.sql'),'create table rollback_probe(id integer); select reinlab_missing_function();');

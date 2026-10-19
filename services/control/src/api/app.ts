@@ -10,8 +10,11 @@ import { mutate, type ApiEnv } from './context';
 import { ApiFailure, denied } from './errors';
 import { registerLedger } from './ledger';
 import { registerGates } from './gates';
+import { registerBudget } from './budget';
+import { pricingFromEnvironment,type PricingService } from '../budget/pricing';
+import { monthlyBudgetSnapshot,currentPeriod } from '../budget';
 
-export async function createApp(options:{pool:pg.Pool;auth:JwtConfig}) {
+export async function createApp(options:{pool:pg.Pool;auth:JwtConfig;pricing?:PricingService}) {
   const database=new Database(options.pool);
   await database.assertSafeRole();
   const verify=createVerifier(options.auth);
@@ -31,7 +34,7 @@ export async function createApp(options:{pool:pg.Pool;auth:JwtConfig}) {
     const account=await client.query('select id,display_name,monthly_budget_cny from account where id=$1',[c.get('accountId')]);
     if(!account.rowCount)throw new ApiFailure('ACCOUNT_NOT_READY',404,'账户尚未完成初始化。');
     const machine=await client.query('select state,os_version as "osVersion",last_health_at as "lastHealthAt" from account_machine where account_id=$1',[c.get('accountId')]);
-    return c.json(AccountProfile.parse(JSON.parse(JSON.stringify({id:account.rows[0].id,displayName:account.rows[0].display_name,monthlyBudgetCny:Number(account.rows[0].monthly_budget_cny),machine:machine.rows[0]??null}))));
+    return c.json(AccountProfile.parse(JSON.parse(JSON.stringify({id:account.rows[0].id,displayName:account.rows[0].display_name,monthlyBudgetCny:Number(account.rows[0].monthly_budget_cny),budget:await monthlyBudgetSnapshot(client),machine:machine.rows[0]??null}))));
   }));
   app.get('/v1/dossiers',async c=>database.withAccount(c.get('accountId'),async client=>{
     const result=await client.query('select id,bench,title,created_at as "createdAt",archived_at as "archivedAt" from dossier where account_id=$1 order by created_at,id',[c.get('accountId')]);
@@ -48,11 +51,12 @@ export async function createApp(options:{pool:pg.Pool;auth:JwtConfig}) {
     if(!dossier.rowCount)throw denied();
     const gates=await client.query('select id,subject,state,revision from gate where dossier_id=$1',[id]);
     const runs=await client.query('select id,mode,state,budget_cny as "budgetCny",spent_cny as "spentCny" from run where dossier_id=$1 order by created_at',[id]);
-    const budget=await client.query('select coalesce(sum(budget_cny),0) as allocated,coalesce(sum(spent_cny),0) as spent from run where dossier_id=$1',[id]);
+    const budget=await client.query('select coalesce(sum(a.amount_cny),0) as allocated,coalesce(sum(a.spent_cny),0) as spent from budget_allocation a where a.dossier_id=$1 and a.period=$2 and(a.parent_id is null or not exists(select 1 from budget_allocation p where p.id=a.parent_id and p.dossier_id=$1))',[id,currentPeriod()]);
     return c.json(DossierDetail.parse(JSON.parse(JSON.stringify({dossier:dossier.rows[0],gates:gates.rows,activeRuns:runs.rows.filter(r=>!['completed','failed','cancelled'].includes(r.state)).map(r=>({...r,budgetCny:Number(r.budgetCny),spentCny:Number(r.spentCny)})),budget:{allocatedCny:Number(budget.rows[0].allocated),spentCny:Number(budget.rows[0].spent)}}))));
   }));
   registerLedger(app,database);
   registerGates(app,database);
+  registerBudget(app,database,options.pricing??pricingFromEnvironment());
   app.notFound(c=>c.json({code:'NOT_FOUND',message:'接口不存在。'},404));
   app.onError((error,c)=>{
     if(error instanceof ApiFailure)return c.json({code:error.code,message:error.message},error.status);

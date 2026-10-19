@@ -1,0 +1,18 @@
+{
+  "capturedAtUtc": "2026-10-19T06:20:22.332545+00:00",
+  "note": "Captured after initial failing runs; exact test execution snapshot not atomic. Final verification will recapture.",
+  "files": {
+    "services/control/src/budget/index.ts": "d935871e8577baf68bfa277ae798a38a38a959120943bb00220d96fe6cc6fdcd",
+    "services/control/src/budget/money.ts": "87dd7cfad810e1e1e290bc737dd883f37f63c670fc7d494737dd024bebf048a9",
+    "services/control/src/budget/pricing.ts": "159e43ad49cd12da7dd599d820eee91710b3b80bb2270075700a6a15cb9d6661",
+    "services/control/src/api/budget.ts": "e361f269b2903e96b62bbdba253c56d87545298ef9a375b9b4458a7ce5716356",
+    "services/control/src/api/app.ts": "94e327c51d1634d0949bb657df70cc54040afceac0f3c34ba7afd35026dcac1a",
+    "packages/contracts/src/index.ts": "ce5f72939f04a34dfb7c98757f984e3f18e63dfebfcd120a85e88718870c9c78",
+    "services/control/test/budget.test.ts": "0847c0487061cfd113628f344c5c27a5544bc41fec7937f89f96f72daa3cae90",
+    "services/control/test/independent-budget.test.ts": "35f98ac9cf1f1c2db31a546fd390ae8394b28e20406b76ec15d13e2676b6fa8b",
+    "infra/supabase/migrations/202610190006_budget.sql": "759ce7d7889044fb1886da7a704ccfad6ec2099c73a9bc322645fc6e839425bb",
+    "infra/supabase/migrations/202610190007_budget_constraints.sql": "41684ca05f2048ba0b55bfcd7e50a61c31e712599f1691d50f0583ff313be7cd",
+    "infra/supabase/migrations/202610190008_delegation_budget_precision.sql": "b0ef16c5122970ef9ce3cb0412e04ef78c9b11cfd189c3017ddfa8b71fcf0535",
+    "infra/supabase/migrations/202610190009_usage_counter_precision.sql": "85db0c6bcc3d7e00aaf89e136966ea3f59c94d75cd1c0b393a1b86eb1c6270e0"
+  }
+}
