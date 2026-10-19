@@ -1,0 +1,39 @@
+{
+  "sandbox": "allow-scripts",
+  "referrerPolicy": "no-referrer",
+  "sampleSha256": "9e0055ea44a640c0eec6bb16cab58e16e9725c66fac8707a55692d609303cc43",
+  "observedWith": "Codex in-app browser accessibility tree and screenshot",
+  "checks": [
+    {
+      "name": "初始",
+      "x": "0.000",
+      "fx": "9.000",
+      "gradient": "-6.000",
+      "iteration": 0
+    },
+    {
+      "name": "学习率0.10单步",
+      "x": "0.600",
+      "fx": "5.760",
+      "gradient": "-4.800",
+      "iteration": 1
+    },
+    {
+      "name": "快速收敛预设",
+      "eta": "0.45",
+      "x": "2.700",
+      "fx": "0.090",
+      "running": true
+    },
+    {
+      "name": "重置",
+      "x": "0.000",
+      "fx": "9.000",
+      "gradient": "-6.000",
+      "iteration": 0,
+      "state": "就绪"
+    }
+  ],
+  "screenshot": "interactive-step.png",
+  "boundary": "隔离测试页实际交互，不是ReinLab前端接入或完整T-SEC验收"
+}

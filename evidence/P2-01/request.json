@@ -1,0 +1,70 @@
+{
+  "outline": {
+    "id": "spike-6af73d47-5d7a-4c0d-bfed-ea3fa7077ae2",
+    "type": "interactive",
+    "title": "一维梯度下降：学习率与收敛",
+    "description": "独立互动场景，展示f(x)=(x-3)^2和更新x←x−2η(x−3)，滑块调学习率，支持单步、开始/暂停、重置。只用原生Canvas和内联JS，不使用外部资源。",
+    "keyPoints": [
+      "梯度为2(x-3)",
+      "学习率影响收敛与振荡",
+      "最小值在x=3"
+    ],
+    "teachingObjective": "观察学习率变化对迭代轨迹的影响",
+    "order": 1,
+    "widgetType": "simulation",
+    "widgetOutline": {
+      "concept": "一维梯度下降",
+      "keyVariables": [
+        "初始x",
+        "学习率η"
+      ],
+      "interactions": [
+        "调节学习率",
+        "单步迭代",
+        "开始与暂停",
+        "重置"
+      ]
+    }
+  },
+  "allOutlines": [
+    {
+      "id": "spike-6af73d47-5d7a-4c0d-bfed-ea3fa7077ae2",
+      "type": "interactive",
+      "title": "一维梯度下降：学习率与收敛",
+      "description": "独立互动场景，展示f(x)=(x-3)^2和更新x←x−2η(x−3)，滑块调学习率，支持单步、开始/暂停、重置。只用原生Canvas和内联JS，不使用外部资源。",
+      "keyPoints": [
+        "梯度为2(x-3)",
+        "学习率影响收敛与振荡",
+        "最小值在x=3"
+      ],
+      "teachingObjective": "观察学习率变化对迭代轨迹的影响",
+      "order": 1,
+      "widgetType": "simulation",
+      "widgetOutline": {
+        "concept": "一维梯度下降",
+        "keyVariables": [
+          "初始x",
+          "学习率η"
+        ],
+        "interactions": [
+          "调节学习率",
+          "单步迭代",
+          "开始与暂停",
+          "重置"
+        ]
+      }
+    }
+  ],
+  "stageId": "27ceeba0-f8c0-4c35-9fe3-88f12e4abcf6",
+  "stageInfo": {
+    "name": "研究台SPIKE单场景验证"
+  },
+  "pdfImages": [],
+  "imageMapping": {},
+  "languageDirective": "全部可见文案使用简体中文。只生成这一个场景，不生成课程。使用内联脚本和样式、原生Canvas，不加载外部脚本，不用表单，不访问window.top。",
+  "requirements": {
+    "requirement": "一个完整HTML互动仿真，按钮和滑块必须可操作；不要外部网络、不要读取父文档/存储。",
+    "webSearch": false,
+    "interactiveMode": true
+  }
+}

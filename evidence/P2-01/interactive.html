@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>一维梯度下降</title>
+<style>
+  :root{
+    --bg:#0b1220;
+    --panel:#131c31;
+    --line:#22304d;
+    --text:#e2e8f0;
+    --muted:#94a3b8;
+    --sky:#38bdf8;
+    --amber:#fbbf24;
+    --pink:#f472b6;
+    --violet:#a78bfa;
+    --green:#4ade80;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  #experiment{
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+    min-height:100dvh;
+  }
+
+  /* ---------- 画布区域 ---------- */
+  .stage{
+    order:1;
+    flex:1 1 auto;
+    display:flex;
+    flex-direction:column;
+    min-height:320px;
+    min-width:0;
+  }
+  .hud{
+    flex:0 0 auto;
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px 8px;
+    padding:8px 10px;
+    background:linear-gradient(180deg,#101a2e,#0d1526);
+    border-bottom:1px solid var(--line);
+  }
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    background:#16223a;
+    border:1px solid #223050;
+    border-radius:999px;
+    padding:3px 10px;
+    font-size:12px;
+    line-height:1.5;
+    white-space:nowrap;
+  }
+  .chip .k{color:#93a4bd;}
+  .chip .v{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#eef4ff;font-weight:700;}
+  .chip.status{font-weight:700;}
+  .chip.status.idle{color:#94a3b8;border-color:#2b3a57;}
+  .chip.status.running{color:#7dd3fc;border-color:#0ea5e9;background:#102a3f;}
+  .chip.status.paused{color:#fbbf24;border-color:#b45309;background:#2a2110;}
+  .chip.status.converged{color:#4ade80;border-color:#16a34a;background:#0f2a1c;}
+  .chip.status.diverged{color:#f87171;border-color:#b91c1c;background:#2c1216;}
+  .chip.status.maxiter{color:#c084fc;border-color:#7c3aed;background:#221436;}
+
+  .canvas-wrap{
+    position:relative;
+    flex:1 1 auto;
+    min-height:280px;
+  }
+  canvas{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    display:block;
+    touch-action:manipulation;
+  }
+
+  /* ---------- 控制面板 ---------- */
+  .panel{
+    order:2;
+    flex:0 0 auto;
+    max-height:46vh;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    background:var(--panel);
+    border-top:1px solid var(--line);
+    padding:14px 16px 24px;
+  }
+  .panel h1{
+    font-size:16px;
+    margin:0 0 4px;
+    font-weight:700;
+    letter-spacing:.02em;
+  }
+  .panel .sub{
+    font-size:12px;
+    color:#8fa3bf;
+    margin:0 0 16px;
+    line-height:1.6;
+  }
+  .panel .sub code{
+    font-family:ui-monospace,Menlo,monospace;
+    color:#b9d4f5;
+    background:#1a2540;
+    padding:1px 5px;
+    border-radius:5px;
+  }
+  .field{margin-bottom:14px;}
+  .field-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:2px;
+    font-size:13px;
+  }
+  .field-head label{color:#c3d0e2;font-weight:600;}
+  .field-head output{
+    font-family:ui-monospace,Menlo,monospace;
+    color:var(--sky);
+    font-weight:700;
+    font-size:14px;
+  }
+
+  input[type=range]{
+    -webkit-appearance:none;
+    appearance:none;
+    width:100%;
+    height:34px;
+    background:transparent;
+    touch-action:manipulation;
+    margin:0;
+    display:block;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:8px;border-radius:4px;background:#1e2b47;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:26px;height:26px;border-radius:50%;
+    background:var(--sky);
+    border:3px solid #0b1220;
+    margin-top:-9px;
+    cursor:pointer;
+    box-shadow:0 0 0 1px #38bdf8, 0 2px 6px rgba(0,0,0,.5);
+  }
+  input[type=range]::-moz-range-track{
+    height:8px;border-radius:4px;background:#1e2b47;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:22px;height:22px;border-radius:50%;
+    background:var(--sky);border:3px solid #0b1220;cursor:pointer;
+  }
+  input[type=range]:focus-visible{outline:2px solid var(--sky);outline-offset:4px;border-radius:8px;}
+
+  .btn-row{
+    display:grid;
+    grid-template-columns:1fr 1.35fr 1fr;
+    gap:8px;
+    margin:16px 0 4px;
+  }
+  .btn{
+    min-height:46px;
+    padding:0 14px;
+    border-radius:12px;
+    background:#1c2942;
+    color:#dbe6f5;
+    border:1px solid #2b3d61;
+    font-size:14px;
+    font-weight:600;
+    font-family:inherit;
+    cursor:pointer;
+    touch-action:manipulation;
+    transition:background .15s ease, transform .08s ease, border-color .15s ease, opacity .15s ease;
+  }
+  .btn:hover{background:#233350;}
+  .btn:active{transform:scale(.97);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn:focus-visible{outline:2px solid var(--sky);outline-offset:2px;}
+  .btn.primary{
+    background:linear-gradient(180deg,#2563eb,#1d4ed8);
+    border-color:#3b82f6;
+    color:#fff;
+    box-shadow:0 4px 14px rgba(37,99,235,.28);
+  }
+  .btn.primary:hover{background:linear-gradient(180deg,#3b82f6,#2563eb);}
+  .btn.primary.running{
+    background:linear-gradient(180deg,#d97706,#b45309);
+    border-color:#f59e0b;
+    box-shadow:0 4px 14px rgba(217,119,6,.3);
+  }
+  .btn.primary.running:hover{background:linear-gradient(180deg,#f59e0b,#d97706);}
+
+  .presets-title{
+    font-size:12px;
+    color:#8fa3bf;
+    font-weight:700;
+    letter-spacing:.06em;
+    margin:18px 0 8px;
+  }
+  .preset-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+  }
+  .btn.preset{
+    min-height:44px;
+    font-size:13px;
+    font-weight:500;
+    background:#151f34;
+    border-color:#26334f;
+    color:#c7d6ea;
+  }
+  .btn.preset:hover{background:#1c2a44;border-color:#37507a;}
+
+  .hint{
+    font-size:11px;
+    color:#6b7f9c;
+    margin-top:16px;
+    line-height:1.7;
+  }
+
+  /* ---------- 桌面端：左右布局 ---------- */
+  @media (min-width:820px){
+    #experiment{
+      flex-direction:row;
+      height:100vh;
+      height:100dvh;
+      overflow:hidden;
+    }
+    .panel{
+      order:0;
+      width:350px;
+      max-height:100%;
+      height:100%;
+      border-top:none;
+      border-right:1px solid var(--line);
+      padding:20px 20px 28px;
+      overflow-y:auto;
+    }
+    .stage{
+      order:1;
+      min-height:0;
+      height:100%;
+    }
+    .canvas-wrap{min-height:0;}
+  }
+
+  @keyframes pulse-highlight{
+    0%,100%{outline-color:rgba(139,92,246,.8);}
+    50%{outline-color:rgba(139,92,246,.35);}
+  }
+  @keyframes fadeIn{
+    from{opacity:0;transform:translateY(10px);}
+    to{opacity:1;transform:translateY(0);}
+  }
+</style>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const katexOptions = {
+        delimiters: [
+            {left: '\\[', right: '\\]', display: true},
+            {left: '\\(', right: '\\)', display: false},
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$', display: false}
+        ],
+        throwOnError: false,
+        strict: false,
+        trust: true
+    };
+
+    let renderTimeout;
+    function safeRender() {
+        if (renderTimeout) clearTimeout(renderTimeout);
+        renderTimeout = setTimeout(() => {
+            renderMathInElement(document.body, katexOptions);
+        }, 100);
+    }
+
+    renderMathInElement(document.body, katexOptions);
+
+    const observer = new MutationObserver((mutations) => {
+        let shouldRender = false;
+        mutations.forEach((mutation) => {
+            if (mutation.target &&
+                mutation.target.className &&
+                typeof mutation.target.className === 'string' &&
+                mutation.target.className.includes('katex')) {
+                return;
+            }
+            shouldRender = true;
+        });
+
+        if (shouldRender) {
+            safeRender();
+        }
+    });
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
+
+    setInterval(() => {
+        const text = document.body.innerText;
+        if (text.includes('\\(') || text.includes('$$')) {
+            safeRender();
+        }
+    }, 2000);
+});
+</script>
+</head>
+<body>
+<div id="experiment">
+
+  <div class="stage">
+    <div class="hud" id="hud">
+      <div class="chip"><span class="k">x</span><span class="v" id="hud-x">0.000</span></div>
+      <div class="chip"><span class="k">f(x)</span><span class="v" id="hud-f">9.000</span></div>
+      <div class="chip"><span class="k">f′(x)</span><span class="v" id="hud-g">-6.000</span></div>
+      <div class="chip"><span class="k">迭代</span><span class="v" id="hud-n">0</span></div>
+      <div class="chip status idle" id="hud-status">就绪</div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="canvas" aria-label="梯度下降可视化画布"></canvas>
+    </div>
+  </div>
+
+  <div class="panel" id="controls">
+    <h1>一维梯度下降</h1>
+    <p class="sub">
+      <code>f(x) = (x − 3)²</code>，梯度 <code>f′(x) = 2(x − 3)</code><br>
+      更新式：<code>x ← x − η · 2(x − 3)</code>
+    </p>
+
+    <div class="field">
+      <div class="field-head">
+        <label for="initialX-slider">初始 x</label>
+        <output id="initialX-display">0.0</output>
+      </div>
+      <input id="initialX-slider" type="range" min="-2" max="8" step="0.1" value="0"
+             aria-label="初始 x" data-var="initialX">
+    </div>
+
+    <div class="field">
+      <div class="field-head">
+        <label for="learningRate-slider">学习率 η</label>
+        <output id="learningRate-display">0.10</output>
+      </div>
+      <input id="learningRate-slider" type="range" min="0.01" max="1.2" step="0.01" value="0.1"
+             aria-label="学习率 η" data-var="learningRate">
+    </div>
+
+    <div class="btn-row">
+      <button id="step-btn" class="btn" type="button" aria-label="单步执行一次梯度下降">单步</button>
+      <button id="main-btn" class="btn primary" type="button" aria-label="开始或暂停">开始</button>
+      <button id="reset-btn" class="btn" type="button" aria-label="重置模拟">重置</button>
+    </div>
+
+    <div class="presets-title">预设场景</div>
+    <div class="preset-grid">
+      <button class="btn preset" type="button" data-preset="0">平稳收敛</button>
+      <button class="btn preset" type="button" data-preset="1">快速收敛</button>
+      <button class="btn preset" type="button" data-preset="2">来回振荡</button>
+      <button class="btn preset" type="button" data-preset="3">发散</button>
+    </div>
+
+    <p class="hint">
+      快捷键：<b>空格</b> 开始/暂停 · <b>S</b> 单步 · <b>R</b> 重置<br>
+      图中：蓝色曲线为 f(x)，琥珀色直线为当前切线，粉色圆点为当前 x，空心圆为下一步位置。<br>
+      η 满足 0 &lt; η &lt; 1 时收敛；η 接近 1 时来回振荡；η &gt; 1 时发散。
+    </p>
+  </div>
+
+</div>
+
+<script type="application/json" id="widget-config">
+{
+  "type": "simulation",
+  "concept": "gradient_descent_1d",
+  "description": "用 f(x)=(x-3)² 演示一维梯度下降：更新式 x ← x − 2η(x−3)，学习率 η 决定收敛速度、振荡或发散。",
+  "variables": [
+    { "name": "initialX", "label": "初始 x", "min": -2, "max": 8, "default": 0, "unit": "" },
+    { "name": "learningRate", "label": "学习率 η", "min": 0.01, "max": 1.2, "default": 0.1, "unit": "" }
+  ],
+  "presets": [
+    { "name": "平稳收敛", "variables": { "initialX": 0, "learningRate": 0.05 } },
+    { "name": "快速收敛", "variables": { "initialX": 0, "learningRate": 0.45 } },
+    { "name": "来回振荡", "variables": { "initialX": 0, "learningRate": 0.9 } },
+    { "name": "发散", "variables": { "initialX": 0, "learningRate": 1.1 } }
+  ]
+}
+</script>
+
+<script>
+/* =========================================================
+   基础常量与数学
+   ========================================================= */
+var X_MIN = -2, X_MAX = 8, Y_MIN = -3, Y_MAX = 26;
+var MAX_ITER = 120;
+var STEP_MS = 300;
+
+function f(x){ var d = x - 3; return d * d; }
+function df(x){ return 2 * (x - 3); }
+function round(v, d){
+  var p = Math.pow(10, d);
+  return Math.round(v * p) / p;
+}
+
+/* =========================================================
+   状态
+   ========================================================= */
+var state = {
+  x0: 0,
+  eta: 0.1,
+  x: 0,
+  iter: 0,
+  running: false,
+  ended: false,
+  endReason: '',
+  history: []
+};
+var anim = { x: 0, acc: 0 };
+
+/* =========================================================
+   状态发布（平台采集）
+   ========================================================= */
+function publishState(observation) {
+  var root = document.getElementById('experiment');
+  if (!root) throw new Error('Missing interaction scope');
+  try {
+    var raw = JSON.stringify(observation);
+    if (typeof raw !== 'string' || new TextEncoder().encode(raw).length > 32768)
+      throw new Error('Invalid state publication');
+    var node = root.querySelector('script[data-maic-observation]');
+    if (!node) {
+      node = document.createElement('script');
+      node.type = 'application/json';
+      node.setAttribute('data-maic-observation', '');
+      root.appendChild(node);
+    }
+    node.textContent = raw;
+  } catch (error) {
+    root.querySelectorAll('script[data-maic-observation]').forEach(function(n){ n.remove(); });
+    throw error;
+  }
+}
+
+var PHASE_CN = {
+  idle: '就绪',
+  running: '运行中',
+  paused: '已暂停',
+  converged: '已收敛',
+  diverged: '已发散',
+  maxiter: '已达最大迭代次数'
+};
+
+function currentPhase(){
+  if (state.ended) return state.endReason;
+  if (state.running) return 'running';
+  if (state.iter > 0) return 'paused';
+  return 'idle';
+}
+
+function publish(){
+  var phase = currentPhase();
+  var xv = round(state.x, 6);
+  var fv = round(f(state.x), 6);
+  var gv = round(df(state.x), 6);
+  var summary = 'x = ' + fmt(state.x, 3) +
+    '，f(x) = ' + fmt(f(state.x), 3) +
+    '，梯度 = ' + fmt(df(state.x), 3) +
+    '，已迭代 ' + state.iter + ' 次，学习率 η = ' + state.eta.toFixed(2) +
+    '，状态：' + (PHASE_CN[phase] || phase) + '。';
+
+  publishState({
+    summary: summary,
+    state: {
+      x: isFinite(xv) ? xv : null,
+      initialX: state.x0,
+      learningRate: state.eta,
+      iterations: state.iter,
+      objective: isFinite(fv) ? fv : null,
+      gradient: isFinite(gv) ? gv : null,
+      distanceToMinimum: isFinite(xv) ? Math.abs(round(xv - 3, 6)) : null,
+      minimumX: 3,
+      phase: phase,
+      phaseLabel: PHASE_CN[phase] || phase,
+      updateRule: 'x ← x − η · 2(x − 3)'
+    }
+  });
+}
+
+/* =========================================================
+   画布与坐标
+   ========================================================= */
+var canvas = document.getElementById('canvas');
+var ctx = canvas.getContext('2d');
+var W = 320, H = 320, DPR = 1;
+var G = { padL: 44, padR: 18, padT: 16, padB: 34, plotW: 200, plotH: 200 };
+
+function mx(x){ return G.padL + (x - X_MIN) / (X_MAX - X_MIN) * G.plotW; }
+function my(y){ return G.padT + (Y_MAX - y) / (Y_MAX - Y_MIN) * G.plotH; }
+function clampPx(px){ return Math.max(G.padL, Math.min(G.padL + G.plotW, px)); }
+function clampPy(py){ return Math.max(G.padT + 2, Math.min(G.padT + G.plotH - 2, py)); }
+
+function resize(){
+  var rect = canvas.getBoundingClientRect();
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(240, Math.round(rect.width || 320));
+  H = Math.max(200, Math.round(rect.height || 320));
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+
+/* =========================================================
+   绘制
+   ========================================================= */
+function drawArrow(x1, y1, x2, y2, color){
+  if (Math.abs(x2 - x1) < 2) return;
+  var head = 8;
+  var ang = Math.atan2(y2 - y1, x2 - x1);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - head * Math.cos(ang - 0.42), y2 - head * Math.sin(ang - 0.42));
+  ctx.lineTo(x2 - head * Math.cos(ang + 0.42), y2 - head * Math.sin(ang + 0.42));
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function draw(){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#0b1220';
+  ctx.fillRect(0, 0, W, H);
+
+  G.padL = W < 400 ? 36 : 46;
+  G.padR = W < 400 ? 12 : 20;
+  G.padT = 16;
+  G.padB = 34;
+  G.plotW = Math.max(40, W - G.padL - G.padR);
+  G.plotH = Math.max(40, H - G.padT - G.padB);
+
+  var y0 = my(0);
+  var plotRight = G.padL + G.plotW;
+  var plotBottom = G.padT + G.plotH;
+  var xStep = G.plotW < 300 ? 2 : 1;
+
+  /* ---- 网格 ---- */
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#152037';
+  ctx.beginPath();
+  for (var gx = Math.ceil(X_MIN); gx <= X_MAX; gx += xStep){
+    var gpx = Math.round(mx(gx)) + 0.5;
+    ctx.moveTo(gpx, G.padT);
+    ctx.lineTo(gpx, plotBottom);
+  }
+  for (var gy = 0; gy <= 25; gy += 5){
+    var gpy = Math.round(my(gy)) + 0.5;
+    ctx.moveTo(G.padL, gpy);
+    ctx.lineTo(plotRight, gpy);
+  }
+  ctx.stroke();
+
+  /* ---- 坐标轴 ---- */
+  ctx.strokeStyle = '#3b4f74';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(G.padL, y0);
+  ctx.lineTo(plotRight, y0);
+  ctx.moveTo(G.padL, G.padT);
+  ctx.lineTo(G.padL, plotBottom);
+  ctx.stroke();
+
+  /* ---- 刻度标签 ---- */
+  ctx.fillStyle = '#64748b';
+  ctx.font = '11px ui-monospace, Menlo, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (var tx = Math.ceil(X_MIN); tx <= X_MAX; tx += xStep){
+    ctx.fillText(String(tx), mx(tx), y0 + 7);
+  }
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (var ty = 5; ty <= 25; ty += 5){
+    ctx.fillText(String(ty), G.padL - 5, my(ty));
+  }
+
+  /* ---- 最小值参考线 x* = 3 ---- */
+  ctx.save();
+  ctx.setLineDash([5, 5]);
+  ctx.strokeStyle = 'rgba(74,222,128,0.32)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(mx(3), G.padT);
+  ctx.lineTo(mx(3), plotBottom);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(74,222,128,0.85)';
+  ctx.font = '11px ui-monospace, Menlo, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('x* = 3', mx(3), G.padT);
+
+  /* ---- 绘图区裁剪 ---- */
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(G.padL + 1, G.padT, G.plotW - 2, G.plotH);
+  ctx.clip();
+
+  /* ---- 抛物线 ---- */
+  ctx.save();
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = 'rgba(56,189,248,0.5)';
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  var N = 220;
+  for (var i = 0; i <= N; i++){
+    var px0 = mx(X_MIN + (X_MAX - X_MIN) * i / N);
+    var py0 = my(f(X_MIN + (X_MAX - X_MIN) * i / N));
+    if (i === 0) ctx.moveTo(px0, py0); else ctx.lineTo(px0, py0);
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  /* ---- 当前点位置（对动画值做域裁剪） ---- */
+  var rawX = anim.x;
+  var cx = Math.max(X_MIN, Math.min(X_MAX, rawX));
+  var fx = f(cx);
+  var slope = df(cx);
+  var curPx = clampPx(mx(cx));
+  var curPy = clampPy(my(fx));
+
+  /* ---- 切线 ---- */
+  ctx.save();
+  ctx.strokeStyle = 'rgba(251,191,36,0.92)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(mx(cx - 1.6), my(fx + slope * (-1.6)));
+  ctx.lineTo(mx(cx + 1.6), my(fx + slope * (1.6)));
+  ctx.stroke();
+  ctx.restore();
+
+  /* ---- 历史轨迹刻度（在 x 轴上） ---- */
+  ctx.strokeStyle = 'rgba(244,114,182,0.32)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (var h = 0; h < state.history.length; h++){
+    var hx = Math.max(X_MIN, Math.min(X_MAX, state.history[h]));
+    var hpx = Math.round(mx(hx)) + 0.5;
+    ctx.moveTo(hpx, y0);
+    ctx.lineTo(hpx, y0 - 6);
+  }
+  ctx.stroke();
+
+  /* ---- 下一步位置（空心圆） ---- */
+  var nextX = cx - state.eta * slope;
+  var nextCx = Math.max(X_MIN, Math.min(X_MAX, nextX));
+  var nextF = f(nextCx);
+  var nextPx = clampPx(mx(nextCx));
+  var nextPy = clampPy(my(nextF));
+
+  if (!state.ended && Math.abs(nextX - cx) > 1e-6){
+    ctx.save();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = 'rgba(244,114,182,0.28)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(nextPx, nextPy);
+    ctx.lineTo(nextPx, y0);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(244,114,182,0.65)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(nextPx, nextPy, 6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    /* 沿 x 轴方向的步进箭头 */
+    drawArrow(curPx, y0 - 18, nextPx, y0 - 18, 'rgba(167,139,250,0.9)');
+  }
+
+  /* ---- 当前点到 x 轴的虚线 ---- */
+  ctx.save();
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = 'rgba(244,114,182,0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(curPx, curPy);
+  ctx.lineTo(curPx, y0);
+  ctx.stroke();
+  ctx.restore();
+
+  /* ---- 当前点 ---- */
+  ctx.save();
+  ctx.shadowColor = 'rgba(244,114,182,0.9)';
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = '#f472b6';
+  ctx.beginPath();
+  ctx.arc(curPx, curPy, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(curPx, curPy, 8, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore(); /* 结束裁剪 */
+
+  /* ---- 结束提示横幅 ---- */
+  if (state.ended){
+    var msg, col, bg;
+    if (state.endReason === 'converged'){
+      msg = '✓ 已收敛：x ≈ 3.000';
+      col = '#4ade80'; bg = 'rgba(15,42,28,0.94)';
+    } else if (state.endReason === 'diverged'){
+      msg = '✗ 已发散：学习率过大';
+      col = '#f87171'; bg = 'rgba(44,18,22,0.94)';
+    } else {
+      msg = '⏹ 已达最大迭代次数';
+      col = '#c084fc'; bg = 'rgba(34,20,54,0.94)';
+    }
+    ctx.font = 'bold 13px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    var tw = ctx.measureText(msg).width;
+    var bw = tw + 26;
+    var bh = 30;
+    var bx = G.padL + (G.plotW - bw) / 2;
+    var by = G.padT + 26;
+
+    ctx.fillStyle = bg;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.5;
+    if (ctx.roundRect){
+      ctx.beginPath();
+      ctx.roundRect(bx, by, bw, bh, 10);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeRect(bx, by, bw, bh);
+    }
+    ctx.fillStyle = col;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(msg, bx + bw / 2, by + bh / 2 + 1);
+  }
+}
+
+/* =========================================================
+   HUD
+   ========================================================= */
+function fmt(v, d){
+  if (!isFinite(v)) return '∞';
+  if (Math.abs(v) >= 1e5) return v.toExponential(1);
+  return v.toFixed(d);
+}
+
+var hudKey = '';
+function updateHUD(){
+  var phase = currentPhase();
+  var key = state.x + '|' + state.iter + '|' + phase + '|' + state.eta + '|' + state.x0;
+  if (key === hudKey) return;
+  hudKey = key;
+
+  document.getElementById('hud-x').textContent = fmt(state.x, 3);
+  document.getElementById('hud-f').textContent = fmt(f(state.x), 3);
+  document.getElementById('hud-g').textContent = fmt(df(state.x), 3);
+  document.getElementById('hud-n').textContent = String(state.iter);
+
+  var s = document.getElementById('hud-status');
+  s.textContent = PHASE_CN[phase] || phase;
+  s.className = 'chip status ' + phase;
+}
+
+/* =========================================================
+   按钮/标签
+   ========================================================= */
+function updateButtons(){
+  var mainBtn = document.getElementById('main-btn');
+  var stepBtn = document.getElementById('step-btn');
+
+  if (state.ended) mainBtn.textContent = '重新开始';
+  else if (state.running) mainBtn.textContent = '暂停';
+  else if (state.iter > 0) mainBtn.textContent = '继续';
+  else mainBtn.textContent = '开始';
+
+  mainBtn.classList.toggle('running', state.running);
+  stepBtn.disabled = state.running;
+}
+
+function updateSliderLabels(){
+  document.getElementById('initialX-display').textContent = state.x0.toFixed(1);
+  document.getElementById('learningRate-display').textContent = state.eta.toFixed(2);
+}
+
+/* =========================================================
+   核心动作
+   ========================================================= */
+function resetSimulation(){
+  state.x = state.x0;
+  state.iter = 0;
+  state.running = false;
+  state.ended = false;
+  state.endReason = '';
+  state.history = [];
+  anim.x = state.x;
+  anim.acc = 0;
+  updateButtons();
+  updateHUD();
+  publish();
+}
+
+function checkEnd(){
+  var d = Math.abs(state.x - 3);
+  if (!isFinite(state.x) || d > 40){
+    state.ended = true;
+    state.endReason = 'diverged';
+  } else if (d < 1e-3){
+    state.ended = true;
+    state.endReason = 'converged';
+  } else if (state.iter >= MAX_ITER){
+    state.ended = true;
+    state.endReason = 'maxiter';
+  }
+  if (state.ended){
+    state.running = false;
+    updateButtons();
+  }
+}
+
+function stepOnce(){
+  if (state.ended) return;
+  var g = df(state.x);
+  state.history.push(state.x);
+  if (state.history.length > 200) state.history.shift();
+  state.x = state.x - state.eta * g;
+  state.iter += 1;
+  checkEnd();
+  updateHUD();
+  publish();
+}
+
+function startRun(){
+  if (state.ended) resetSimulation();
+  state.running = true;
+  anim.acc = 0;
+  updateButtons();
+  updateHUD();
+  publish();
+}
+
+function mainAction(){
+  if (state.ended){
+    resetSimulation();
+    startRun();
+  } else if (state.running){
+    state.running = false;
+    updateButtons();
+    updateHUD();
+    publish();
+  } else {
+    startRun();
+  }
+}
+
+function stepAction(){
+  if (state.running) return;
+  if (state.ended) resetSimulation();
+  stepOnce();
+  updateButtons();
+}
+
+/* =========================================================
+   预设
+   ========================================================= */
+var PRESETS = [
+  { name: '平稳收敛', x0: 0, eta: 0.05 },
+  { name: '快速收敛', x0: 0, eta: 0.45 },
+  { name: '来回振荡', x0: 0, eta: 0.9 },
+  { name: '发散',     x0: 0, eta: 1.1 }
+];
+
+/* =========================================================
+   事件绑定
+   ========================================================= */
+var initialXSlider = document.getElementById('initialX-slider');
+var lrSlider = document.getElementById('learningRate-slider');
+
+initialXSlider.addEventListener('input', function(){
+  var v = parseFloat(initialXSlider.value);
+  if (!isFinite(v)) return;
+  state.x0 = v;
+  updateSliderLabels();
+  resetSimulation();
+});
+
+lrSlider.addEventListener('input', function(){
+  var v = parseFloat(lrSlider.value);
+  if (!isFinite(v)) return;
+  state.eta = v;
+  updateSliderLabels();
+  if (state.ended){
+    resetSimulation();
+  } else {
+    updateHUD();
+    publish();
+  }
+});
+
+document.getElementById('main-btn').addEventListener('click', function(){
+  mainAction();
+  this.blur();
+});
+
+document.getElementById('step-btn').addEventListener('click', function(){
+  stepAction();
+  this.blur();
+});
+
+document.getElementById('reset-btn').addEventListener('click', function(){
+  state.x0 = parseFloat(initialXSlider.value);
+  state.eta = parseFloat(lrSlider.value);
+  updateSliderLabels();
+  resetSimulation();
+  this.blur();
+});
+
+var presetBtns = document.querySelectorAll('[data-preset]');
+for (var pi = 0; pi < presetBtns.length; pi++){
+  (function(btn){
+    btn.addEventListener('click', function(){
+      var p = PRESETS[parseInt(btn.getAttribute('data-preset'), 10)];
+      if (!p) return;
+      state.x0 = p.x0;
+      state.eta = p.eta;
+      initialXSlider.value = String(p.x0);
+      lrSlider.value = String(p.eta);
+      updateSliderLabels();
+      resetSimulation();
+      startRun();
+      btn.blur();
+    });
+  })(presetBtns[pi]);
+}
+
+document.addEventListener('keydown', function(e){
+  var tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
+  if (e.code === 'Space'){
+    if (tag === 'BUTTON') return; /* 交给按钮原生行为 */
+    e.preventDefault();
+    mainAction();
+  } else if (e.key === 'r' || e.key === 'R'){
+    e.preventDefault();
+    state.x0 = parseFloat(initialXSlider.value);
+    state.eta = parseFloat(lrSlider.value);
+    updateSliderLabels();
+    resetSimulation();
+  } else if (e.key === 's' || e.key === 'S'){
+    e.preventDefault();
+    stepAction();
+  }
+});
+
+/* =========================================================
+   自适应尺寸
+   ========================================================= */
+var wrapEl = document.querySelector('.canvas-wrap');
+if (window.ResizeObserver){
+  new ResizeObserver(function(){ resize(); }).observe(wrapEl);
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){
+  setTimeout(resize, 120);
+});
+
+/* =========================================================
+   动画主循环
+   ========================================================= */
+var lastT = 0;
+function loop(t){
+  if (!lastT) lastT = t;
+  var dt = Math.min(t - lastT, 120);
+  lastT = t;
+
+  if (state.running && !state.ended){
+    anim.acc += dt;
+    var guard = 0;
+    while (anim.acc >= STEP_MS && !state.ended && guard < 8){
+      anim.acc -= STEP_MS;
+      guard++;
+      stepOnce();
+    }
+    if (state.ended){
+      anim.acc = 0;
+      updateButtons();
+    }
+  }
+
+  var diff = state.x - anim.x;
+  if (Math.abs(diff) > 1e-4){
+    anim.x += diff * Math.min(1, dt / 90);
+    if (Math.abs(state.x - anim.x) < 1e-3) anim.x = state.x;
+  } else {
+    anim.x = state.x;
+  }
+
+  draw();
+  updateHUD();
+  requestAnimationFrame(loop);
+}
+
+/* =========================================================
+   初始化
+   ========================================================= */
+(function init(){
+  state.x0 = parseFloat(initialXSlider.value);
+  state.eta = parseFloat(lrSlider.value);
+  updateSliderLabels();
+  resize();
+  resetSimulation();
+  requestAnimationFrame(function(t){
+    lastT = t;
+    requestAnimationFrame(loop);
+  });
+})();
+
+/* =========================================================
+   Widget 动作消息监听
+   ========================================================= */
+window.addEventListener('message', function(event) {
+  var data = event.data || {};
+  var type = data.type;
+  var target = data.target;
+  var newState = data.state;
+  var content = data.content;
+
+  switch (type) {
+    case 'SET_WIDGET_STATE':
+      if (newState) {
+        Object.keys(newState).forEach(function(key){
+          var slider = document.getElementById(key + '-slider') ||
+                       document.querySelector('[data-var="' + key + '"]');
+          if (slider) {
+            slider.value = newState[key];
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        });
+      }
+      break;
+
+    case 'HIGHLIGHT_ELEMENT':
+      var highlightEl = document.querySelector(target);
+      if (highlightEl) {
+        highlightEl.style.outline = '3px solid rgba(139, 92, 246, 0.8)';
+        highlightEl.style.outlineOffset = '4px';
+        highlightEl.style.animation = 'pulse-highlight 2s infinite';
+        setTimeout(function(){
+          highlightEl.style.outline = '';
+          highlightEl.style.animation = '';
+        }, 3000);
+      }
+      break;
+
+    case 'ANNOTATE_ELEMENT':
+      var annotateEl = document.querySelector(target);
+      if (annotateEl && content) {
+        var rect = annotateEl.getBoundingClientRect();
+        var tooltip = document.createElement('div');
+        tooltip.className = 'teacher-annotation';
+        tooltip.style.cssText = 'position:fixed; top:' + Math.max(8, rect.top - 44) +
+          'px; left:' + Math.max(8, rect.left) + 'px; background:rgba(139,92,246,0.95);' +
+          ' color:white; padding:8px 12px; border-radius:8px; font-size:14px;' +
+          ' z-index:1000; animation:fadeIn 0.3s; max-width:80vw;';
+        tooltip.textContent = content;
+        document.body.appendChild(tooltip);
+        setTimeout(function(){ tooltip.remove(); }, 4000);
+      }
+      break;
+
+    case 'REVEAL_ELEMENT':
+      var revealEl = document.querySelector(target);
+      if (revealEl) {
+        revealEl.style.display = '';
+        revealEl.style.opacity = '1';
+      }
+      break;
+  }
+});
+</script>
+</body>
+</html>

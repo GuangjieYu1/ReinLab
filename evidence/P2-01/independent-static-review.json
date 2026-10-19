@@ -1,0 +1,111 @@
+{
+  "scope": "独立静态复核；没有调用服务、模型、UI或读取任何.env/凭据",
+  "files": [
+    {
+      "path": "app/api/generate/scene-content/route.ts",
+      "matches": [
+        {
+          "kind": "reference",
+          "actualSha256": "0021a2be912e06611296795a0f3aeb5320035011586e00011124e0cb8beaa8be",
+          "manifestMatches": true
+        },
+        {
+          "kind": "deployment",
+          "actualSha256": "0021a2be912e06611296795a0f3aeb5320035011586e00011124e0cb8beaa8be",
+          "manifestMatches": true
+        }
+      ],
+      "bothDirectoriesMatch": true
+    },
+    {
+      "path": "packages/@openmaic/generation/src/scene-generator.ts",
+      "matches": [
+        {
+          "kind": "reference",
+          "actualSha256": "c6c10cf1b989b3d85311a514da4b1ef7507a6939c51f593e65ae3420c412e7e0",
+          "manifestMatches": true
+        },
+        {
+          "kind": "deployment",
+          "actualSha256": "c6c10cf1b989b3d85311a514da4b1ef7507a6939c51f593e65ae3420c412e7e0",
+          "manifestMatches": true
+        }
+      ],
+      "bothDirectoriesMatch": true
+    },
+    {
+      "path": "packages/@openmaic/generation/src/scene-types.ts",
+      "matches": [
+        {
+          "kind": "reference",
+          "actualSha256": "becd6fb5b2bec21a186381b0ab4adc4165e385bef3e98c415fbfbc9c94af6348",
+          "manifestMatches": true
+        },
+        {
+          "kind": "deployment",
+          "actualSha256": "becd6fb5b2bec21a186381b0ab4adc4165e385bef3e98c415fbfbc9c94af6348",
+          "manifestMatches": true
+        }
+      ],
+      "bothDirectoriesMatch": true
+    },
+    {
+      "path": "packages/@openmaic/generation/src/outline-types.ts",
+      "matches": [
+        {
+          "kind": "reference",
+          "actualSha256": "51a50c3954ba3ac2f27868d1fa5aace9b409ebcaafb140b2592fc105d9835f45",
+          "manifestMatches": true
+        },
+        {
+          "kind": "deployment",
+          "actualSha256": "51a50c3954ba3ac2f27868d1fa5aace9b409ebcaafb140b2592fc105d9835f45",
+          "manifestMatches": true
+        }
+      ],
+      "bothDirectoriesMatch": true
+    },
+    {
+      "path": "lib/server/resolve-model.ts",
+      "matches": [
+        {
+          "kind": "reference",
+          "actualSha256": "6efde8693783053d719bf48b25f40520b53b9f525343dcf3233ae564039381cc",
+          "manifestMatches": true
+        },
+        {
+          "kind": "deployment",
+          "actualSha256": "6efde8693783053d719bf48b25f40520b53b9f525343dcf3233ae564039381cc",
+          "manifestMatches": true
+        }
+      ],
+      "bothDirectoriesMatch": true
+    },
+    {
+      "path": "lib/server/api-response.ts",
+      "matches": [
+        {
+          "kind": "reference",
+          "actualSha256": "be5c6e9eba5499ebff059ff8c01eb37a399aaa5a5681c2415ac94f17c9d70bd6",
+          "manifestMatches": true
+        },
+        {
+          "kind": "deployment",
+          "actualSha256": "be5c6e9eba5499ebff059ff8c01eb37a399aaa5a5681c2415ac94f17c9d70bd6",
+          "manifestMatches": true
+        }
+      ],
+      "bothDirectoriesMatch": true
+    }
+  ],
+  "html": {
+    "bytes": 32426,
+    "sha256": "9e0055ea44a640c0eec6bb16cab58e16e9725c66fac8707a55692d609303cc43",
+    "matchesLiveReport": true,
+    "externalScriptUrls": [
+      "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js",
+      "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+    ]
+  },
+  "limits": "仅对指定文件和保存样本复核；非生产HTMLValidator或T-SEC，构建摘要不证明源码提交归属"
+}
