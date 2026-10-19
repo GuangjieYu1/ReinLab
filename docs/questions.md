@@ -44,3 +44,6 @@
 
 | Q-032 | 2.0.150公开runtime.prompt硬编码research且严格拒绝agent；规格default_agent回退也无效 | 保留runtime请求收据，候选为角色独立project覆写research定义，真实二进制已验证配置分别加载；旧session.prompt可选agent但不替代runtime。方案需用户/Claude确认后才进入P1-10，不改上游 | SPIKE-1已验证限制；待确认别名方案 |
 | Q-033 | 说明文件会按类型向上聚合并加入全局/显式instructions，不能仅凭文件名推断隔离 | 采用角色过滤后的project AGENTS.md；全局仅公共安全规则，控制project/Git根和额外instructions，后续实际注入与工具越权实测 | SPIKE-2源码结论；执行隔离待后续 |
+
+| Q-034 | OpenMAIC已有单场景scene-content接口，但其content是html/widgetType，无课程content.type；部署还校验Origin | 采用直连OpenMaicAnimProvider，单outline+allOutlines=[outline]+临时stageId，取content.html；保留Origin/认证校验，正式适配再做引用/HTML/费用门禁。真实simulation已生成，服务内部用量/费用未返则null | SPIKE-3真实验证通过；后续适配待实现 |
+| Q-035 | 规格未给动画CDN白名单细目 | 本次样本只含jsDelivr固定KaTeX0.16.9脚本URL，人工逐个核对；生产白名单应固定所需域名/路径/版本并验证重定向与资源，不能放开任意外部脚本。截图不替代安全测试 | 推荐执行；生产HTML验证待P2后续 |

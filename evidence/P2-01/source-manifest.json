@@ -1,0 +1,66 @@
+{
+  "reference": {
+    "root": "/Users/guangjieyu/Documents/OpenMAIC",
+    "packageVersion": "1.1.0",
+    "files": [
+      {
+        "path": "app/api/generate/scene-content/route.ts",
+        "sha256": "0021a2be912e06611296795a0f3aeb5320035011586e00011124e0cb8beaa8be"
+      },
+      {
+        "path": "packages/@openmaic/generation/src/scene-generator.ts",
+        "sha256": "c6c10cf1b989b3d85311a514da4b1ef7507a6939c51f593e65ae3420c412e7e0"
+      },
+      {
+        "path": "packages/@openmaic/generation/src/scene-types.ts",
+        "sha256": "becd6fb5b2bec21a186381b0ab4adc4165e385bef3e98c415fbfbc9c94af6348"
+      },
+      {
+        "path": "packages/@openmaic/generation/src/outline-types.ts",
+        "sha256": "51a50c3954ba3ac2f27868d1fa5aace9b409ebcaafb140b2592fc105d9835f45"
+      },
+      {
+        "path": "lib/server/resolve-model.ts",
+        "sha256": "6efde8693783053d719bf48b25f40520b53b9f525343dcf3233ae564039381cc"
+      },
+      {
+        "path": "lib/server/api-response.ts",
+        "sha256": "be5c6e9eba5499ebff059ff8c01eb37a399aaa5a5681c2415ac94f17c9d70bd6"
+      }
+    ],
+    "generationPackageVersion": "0.3.13",
+    "gitCommit": "21d83ec51b908a4b169ee2be7498a29da213c74d"
+  },
+  "deployment": {
+    "root": "/Users/guangjieyu/Documents/Codex/2026-09-26/new-chat/outputs/OpenMAIC",
+    "packageVersion": "1.1.0",
+    "files": [
+      {
+        "path": "app/api/generate/scene-content/route.ts",
+        "sha256": "0021a2be912e06611296795a0f3aeb5320035011586e00011124e0cb8beaa8be"
+      },
+      {
+        "path": "packages/@openmaic/generation/src/scene-generator.ts",
+        "sha256": "c6c10cf1b989b3d85311a514da4b1ef7507a6939c51f593e65ae3420c412e7e0"
+      },
+      {
+        "path": "packages/@openmaic/generation/src/scene-types.ts",
+        "sha256": "becd6fb5b2bec21a186381b0ab4adc4165e385bef3e98c415fbfbc9c94af6348"
+      },
+      {
+        "path": "packages/@openmaic/generation/src/outline-types.ts",
+        "sha256": "51a50c3954ba3ac2f27868d1fa5aace9b409ebcaafb140b2592fc105d9835f45"
+      },
+      {
+        "path": "lib/server/resolve-model.ts",
+        "sha256": "6efde8693783053d719bf48b25f40520b53b9f525343dcf3233ae564039381cc"
+      },
+      {
+        "path": "lib/server/api-response.ts",
+        "sha256": "be5c6e9eba5499ebff059ff8c01eb37a399aaa5a5681c2415ac94f17c9d70bd6"
+      }
+    ],
+    "generationPackageVersion": "0.3.13",
+    "gitCommit": "d8e425b5e94c98206ce083dd006e032a7e524bca"
+  }
+}
