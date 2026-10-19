@@ -44,3 +44,9 @@ VITE_BACKEND=mock pnpm build
 每个原生fixture独立临时HOME/XDG/config/data/cache、随机端口、环境白名单，只启锁定npm二进制、回环fixture provider和可信自有插件；停止自己的进程组并清理临时目录。默认插件、自动更新、模型目录抓取、Claude注入、LSP下载均关闭。真实模型请求数0，实际模型费用0；fixture的usage不进入live费用账本。
 
 本PR是后端契约/隔离集成测试，不是ReinLab业务T-E2E；未接业务账本和UI，不伪造ledger-export或界面截图。安全边界按受控role目录和已授权工具定义，不把同UID恶意宿主进程的任意并发换文件、所有内核工具或已复制文件的来源审计称为已验。完整记忆read_scope、其他翻译层、真实模型费用、Fly/Supabase云端都留在后续明确范围，云状态继续待补验。
+
+## CI
+
+实现提交 `df7a3bcd745904eb427d3ba94498c51ffa20d966` 的 [Research foundation #35](https://github.com/GuangjieYu1/ReinLab/actions/runs/39277895313) 已返回 completed/success。下载产物的全量测试为714/714，真实Linux账户容器检查为7/7，报告分别为ci-test-report.json、ci-container-test-report.json。ci.json保存run、head、artifact编号及下载ZIP摘要校验记录；临时签名下载地址未留存。单job状态查询曾滞后于工作流最终结果，该差异也已记录。
+
+D-1最终提交4400385的CI #39238145035亦已成功。本次追加仅补证据，十个实现/测试文件摘要重新核对全部一致；最终证据提交的CI另在同一PR核对，不将前一提交的状态冒充后一提交。
