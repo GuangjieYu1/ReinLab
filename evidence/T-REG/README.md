@@ -1,6 +1,6 @@
 # T-REG：17个前端mock场景
 
-完整17/17通过、0失败、0控制台/页面错误、0warning，report.json原样保存。19个基线文件与用户主仓库逐字节一致，source-hashes.json与integrity.json记录摘要。Playwright1.64.1固定为开发依赖，只新增e2e:legacy命令，前端/场景没有修改；独立测试和评审通过，见independent-test.md与review.md。
+完整17/17通过、0失败、0控制台/页面错误、0warning，report.json原样保存。19个基线文件与用户主仓库逐字节一致，source-hashes.json与independent-integrity.json记录摘要。Playwright1.64.1固定为开发依赖，只新增e2e:legacy命令，前端/场景没有修改；独立测试和评审通过，见independent-test.md与review.md。
 
 复验：
 ```sh
