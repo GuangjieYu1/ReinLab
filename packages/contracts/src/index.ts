@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const text = z.string().trim().min(1);
-const count = z.number().finite().int().nonnegative();
+const count = z.number().finite().int().nonnegative().safe();
 const money = z.number().finite().nonnegative();
 const timestamp = z.string().datetime({ offset: true });
 const id = z.string().uuid();
@@ -101,7 +101,16 @@ export const ToolResult = z.object({ title: text, output: text, metadata: z.reco
 export const DossierCreate = z.object({ bench: z.literal('research').default('research'), title: text.max(200) }).strict();
 export const EstimateRequest = z.object({ dossierId: id, mode: Mode, size: count.positive().max(32).optional(), modelTier: z.enum(['cheap', 'mid', 'strong']).optional() }).strict();
 export const RunCreate = z.object({ dossierId: id, mode: Mode, roleId: text, budget: Budget.extend({ cny: money.positive() }), estimateId: id, confirmed: z.literal(true), input: z.record(Json) }).strict();
-export const BudgetAppend = z.object({ cny: money.positive() }).strict();
+export const BudgetAppend = z.object({ cny: money.optional(), quotaRuns: count.positive().optional(), gpuMinutes: money.positive().optional() }).strict().refine(v=>(v.cny??0)>0||(v.quotaRuns??0)>0||(v.gpuMinutes??0)>0,'至少追加一种预算');
+export const CnyAmount=z.string().regex(/^\d+\.\d{6}$/);
+export const BudgetEstimate=z.object({id,expiresAt:timestamp,model:text,modelTier:z.enum(['cheap','mid','strong']),estimatedCny:CnyAmount,quotaRuns:count.nullable(),gpuMinutes:money.nullable(),defaultBudgetCny:CnyAmount.nullable(),usdCnyRate:CnyAmount,catalogSha256:z.string().regex(/^[a-f0-9]{64}$/),inputTokens:count,outputTokens:count,assumptions:z.record(Json)}).strict();
+export const QueuedRun=z.object({id,dossierId:id,mode:Mode,state:z.literal('queued'),budgetCny:CnyAmount,spentCny:CnyAmount,quotaRuns:count,gpuSeconds:count}).strict();
+export const RunBudgetState=z.object({id,state:RunState,budgetCny:CnyAmount,spentCny:CnyAmount}).strict();
+export const MonthlyBudget=z.object({period:z.string().regex(/^\d{4}-\d{2}-01$/),monthlyLimitCny:CnyAmount,allocatedCny:CnyAmount,spentKnownCny:CnyAmount,availableCny:CnyAmount,unpricedCount:count,quotaRuns:count,gpuSeconds:count}).strict();
+export type BudgetEstimate=z.infer<typeof BudgetEstimate>;
+export type QueuedRun=z.infer<typeof QueuedRun>;
+export type RunBudgetState=z.infer<typeof RunBudgetState>;
+export type MonthlyBudget=z.infer<typeof MonthlyBudget>;
 export const ApiError = z.object({ code: text, message: text, details: Json.optional() }).strict();
 export type ApiError = z.infer<typeof ApiError>;
 export type RunState = z.infer<typeof RunState>;
@@ -127,6 +136,7 @@ export const Bench = z.enum(['research','curriculum','engineering','creative','a
 export const Dossier = z.object({ id, bench: Bench, title: text, createdAt: timestamp, archivedAt: timestamp.nullable().optional() }).strict();
 export type Dossier = z.infer<typeof Dossier>;
 export const AccountProfile = z.object({ id, displayName: z.string().nullable(), monthlyBudgetCny: money,
+  budget: MonthlyBudget.optional(),
   machine: z.object({ state: text, osVersion: z.string().nullable(), lastHealthAt: timestamp.nullable() }).strict().nullable(),
 }).strict();
 export type AccountProfile = z.infer<typeof AccountProfile>;

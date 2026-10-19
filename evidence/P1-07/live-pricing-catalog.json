@@ -1,0 +1,9 @@
+{
+  "source": "https://models.dev/api.json",
+  "retrievedAt": "2026-10-19T05:53:55.085432+00:00",
+  "sha256": "1d367cb6508fb3eae561d41c31a2f07fbbc3061e674121a692aeb9b54e37d332",
+  "providerCount": 232,
+  "modelCount": 9056,
+  "nonzeroPriceModelCount": 7923,
+  "scope": "Public real catalog retrieval/format check only; no model invocation, route recommendation, billing reconciliation, or verified live FX rate."
+}
