@@ -15,3 +15,5 @@ REINLAB_URL=http://127.0.0.1:5181 E2E_OUT=/tmp/reinlab-t-reg pnpm e2e:legacy
 运行原始输出共134张截图（350,943,303字节），全部保存在本机归档 `/Users/guangjieyu/.codex/backups/reinlab-research-20261020/T-REG/full-run`，未修改图像。为避免将重复过程截图350MB全部写入Git，本目录保留每场景最后一张，共17张；screenshots-manifest.json列出全部134张的SHA256、大小及实际归档位置。原始report仍完整列出全部截图，不宣称它们全已入库；复跑会重建完整截图集。
 
 Q-005已关闭。以后每次送审仍须重新附T-REG报告，不用本次结果替代未来回归。
+
+补充：原样runner存在三处变量导入，初次全仓lint拒绝，红灯lint-loader-red.json保留。现仅在完整SHA与审查基线相同的该runner允许变量导入；字面量SDK仍校验，任何变化的runner与生产源码仍拒绝。Q-043与lint-loader-report.json记录回归，原19文件没有改变。
