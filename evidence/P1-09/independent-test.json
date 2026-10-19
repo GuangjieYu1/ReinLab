@@ -1,0 +1,231 @@
+{
+  "independent": true,
+  "scope": "P1-09 SPIKE-1/2 only; no P1-10 implementation",
+  "testedAt": "2026-10-19T08:43:08.496Z",
+  "node": "v22.23.3",
+  "sourceRoot": "/Users/guangjieyu/Documents/DeepSeekPlugin/OpenScience",
+  "sourceCommit": "539bff49900b302e3e96df8c50e1668fbd02228e",
+  "sourceStatus": "",
+  "sources": [
+    {
+      "path": "backend/cli/src/server/routes/runtime.ts",
+      "sha256": "b3e359acd09e91abe5070c46bd8c56c554414cc3aae7b4bab1a45fb7aa20c0c7",
+      "actualSha256": "b3e359acd09e91abe5070c46bd8c56c554414cc3aae7b4bab1a45fb7aa20c0c7",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/src/runtime/runs.ts",
+      "sha256": "f0308d8cffbda4e2b9d2641232352b018d17991fcb8743086ab664e9419cd3db",
+      "actualSha256": "f0308d8cffbda4e2b9d2641232352b018d17991fcb8743086ab664e9419cd3db",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/src/session/index.ts",
+      "sha256": "9db45fa6e57dbd9103cf2edd5b8b8b449442a356d1ecac99f492b2485cfdf617",
+      "actualSha256": "9db45fa6e57dbd9103cf2edd5b8b8b449442a356d1ecac99f492b2485cfdf617",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/src/session/prompt-input.ts",
+      "sha256": "9fccddebd55391d9820a2270ac47912fb5d5879ea86ba7652da4c7358261d2f8",
+      "actualSha256": "9fccddebd55391d9820a2270ac47912fb5d5879ea86ba7652da4c7358261d2f8",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/src/session/prompt.ts",
+      "sha256": "d9bbdb62ece282c4705907984d7832c72ca52c8ef2c1c7328ba5e737ef54d492",
+      "actualSha256": "d9bbdb62ece282c4705907984d7832c72ca52c8ef2c1c7328ba5e737ef54d492",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/src/agent/agent.ts",
+      "sha256": "b040e09a0f19cc24377a6eb35ca29310f18739e2e519c587b9698f281f49f14e",
+      "actualSha256": "b040e09a0f19cc24377a6eb35ca29310f18739e2e519c587b9698f281f49f14e",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/src/session/instruction.ts",
+      "sha256": "40075f69445d4d87f2a66b62b209050bba8366ca0236a1ca704aca03ac2e51af",
+      "actualSha256": "40075f69445d4d87f2a66b62b209050bba8366ca0236a1ca704aca03ac2e51af",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/src/util/filesystem.ts",
+      "sha256": "c03a333896e0389a1dc10c79a6c8729fbf0c314a2ad966f858e5afe499f973ac",
+      "actualSha256": "c03a333896e0389a1dc10c79a6c8729fbf0c314a2ad966f858e5afe499f973ac",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/src/project/project.ts",
+      "sha256": "0c4920a416d0ee5b76ffe618be282f714a670e77c4afc57ff5a2e514d133067f",
+      "actualSha256": "0c4920a416d0ee5b76ffe618be282f714a670e77c4afc57ff5a2e514d133067f",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/src/flag/flag.ts",
+      "sha256": "5c9a3d02ac2faff670ebf234c08be03f965f06aab5b5bfef0056d04f45e4b455",
+      "actualSha256": "5c9a3d02ac2faff670ebf234c08be03f965f06aab5b5bfef0056d04f45e4b455",
+      "matches": true
+    },
+    {
+      "path": "backend/cli/test/session/instruction.test.ts",
+      "sha256": "069e9b5e5a767ecb5a9b5c7b5e1e81deb34f28940dbc8288186a3d8121b75c42",
+      "actualSha256": "069e9b5e5a767ecb5a9b5c7b5e1e81deb34f28940dbc8288186a3d8121b75c42",
+      "matches": true
+    }
+  ],
+  "additionalSource": {
+    "path": "backend/cli/src/config/config.ts",
+    "sha256": "5d4c7da864596a7d436cdf9d9ca4c28f270c18dfe1b6360354aa4510c3dc2046"
+  },
+  "reviewed": [
+    {
+      "path": "docs/tasks/P1-09.md",
+      "sha256": "ac396621173137d22f2ca9a2dcb0d79ab069d56f8630008de9d8be192663eb73"
+    },
+    {
+      "path": "docs/spikes/SPIKE-1.md",
+      "sha256": "6acf4bf0af161ac6801405a88599a01994907dae9ce4782a6a1d2ee474d17e85"
+    },
+    {
+      "path": "docs/spikes/SPIKE-2.md",
+      "sha256": "8b76a79b30e331cdf8bfc6640083ca76860dfbf43c63266392cdb6db1aac2da2"
+    },
+    {
+      "path": "tooling/spikes/openscience-probe.mjs",
+      "sha256": "5242f395607a8d177610d816a4f9029a4265a59e7f98ecae08ccf46029325e03"
+    },
+    {
+      "path": "tooling/spikes/spikes.test.ts",
+      "sha256": "edc8c6ed3cd59f427ee4658ac47dce56ed83f59282c6a4db162f4ecda89031c4"
+    },
+    {
+      "path": "infra/fly/account-entrypoint.mjs",
+      "sha256": "9c0102853a53a24352b30296b5822e4e64ebbbcaeb1c106630bbb41b65415e44"
+    },
+    {
+      "path": "services/control/node_modules/@synsci/sdk/dist/src/v2/gen/types.gen.d.ts",
+      "sha256": "e19eb235c9508e65035d4fb892a754a54cf4c09e4b99f267eba7a213fbc40fb9"
+    },
+    {
+      "path": "tooling/spikes/verify-upstream.mjs",
+      "sha256": "619626948aeb4e28eec4d6b6bdf44a8761b5db9804ffcf21e0670fb76f0e7d6f"
+    },
+    {
+      "path": "evidence/P1-09/source-excerpts.json",
+      "sha256": "57502f049966f2ef3e1bcaad0b6a8f71347448a7d8d1239d578d1d52404ac1a0"
+    }
+  ],
+  "installedPackages": {
+    "openscience": "2.0.150",
+    "sdk": "2.0.150",
+    "plugin": "2.0.150"
+  },
+  "runs": [
+    {
+      "command": "node tooling/spikes/openscience-probe.mjs --require-runtime-agent",
+      "exitCode": 1,
+      "expectedExit": true,
+      "passed": 9,
+      "failed": 0,
+      "modelCalls": 0
+    },
+    {
+      "command": "node tooling/spikes/openscience-probe.mjs",
+      "exitCode": 0,
+      "passed": 9,
+      "failed": 0,
+      "modelCalls": 0
+    },
+    {
+      "command": "OPENSCIENCE_SOURCE=<read-only checkout> pnpm exec vitest run tooling/spikes/spikes.test.ts",
+      "exitCode": 0,
+      "passed": 5,
+      "failed": 0,
+      "durationMs": 573
+    },
+    {
+      "command": "pnpm exec vitest run tooling/spikes/spikes.test.ts (portable excerpt revision; no OPENSCIENCE_SOURCE)",
+      "exitCode": 0,
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "command": "node tooling/spikes/verify-upstream.mjs <read-only checkout>",
+      "exitCode": 0,
+      "checked": 11,
+      "changed": 0
+    },
+    {
+      "command": "pnpm exec vitest run tooling/spikes/spikes.test.ts (final 6-test revision)",
+      "exitCode": 0,
+      "passed": 6,
+      "failed": 0,
+      "durationMs": 711
+    }
+  ],
+  "observations": [
+    "Runtime agent field rejected with HTTP400; session.create extra agent unbound; legacy noReply saved rl-spike user message; agent mention kept research and generated task hint; legacy default_agent resolved rl-spike; project A/B /agent responses each contained the configured research prompt.",
+    "Runtime Input strict pick excludes agent; route explicitly uses research; installed SDK SessionCreateData and RuntimePromptData exclude agent while SessionPromptData includes agent/noReply.",
+    "Instruction selection is filename-first AGENTS.md,CLAUDE.md,CONTEXT.md; findUp includes every ancestor match through Instance.worktree; first existing global path wins; configured local patterns and remote URLs follow.",
+    "Native package version verified from npm package metadata and account-entrypoint server.ready version gate; no upstream TypeScript or tests executed.",
+    "Final SPIKE-2 explicitly limits DISABLE_PROJECT_CONFIG to systemPaths startup default search; resolve has no equivalent flag check and may still add directory instructions."
+  ],
+  "findings": [
+    {
+      "severity": "scope-clarification",
+      "path": "docs/spikes/SPIKE-2.md",
+      "detail": "SOURCE_COUNT=64 caps initial system/systemPaths sources, but resolve() additional deeper-directory instructions has no SOURCE_COUNT cap. Qualify the statement as initial system-source count.",
+      "resolution": "Resolved: document now separates system 64-source/1MiB from resolve independent 1MiB per call."
+    },
+    {
+      "severity": "test-description",
+      "path": "tooling/spikes/spikes.test.ts",
+      "detail": "Five tests are artifact/source textual guards. The priority test does not execute selection, check global first-existing break, or behaviorally test the ancestor boundary. Do not describe these tests as runtime instruction injection verification.",
+      "resolution": "Resolved: test name explicitly describes textual guards, not injection execution."
+    },
+    {
+      "severity": "portability",
+      "path": "tooling/spikes/spikes.test.ts",
+      "detail": "Default source root is an absolute developer path. OPENSCIENCE_SOURCE works here; parent is handling CI portability.",
+      "resolution": "Resolved: tests use committed excerpts; explicit read-only verifier checks source root separately."
+    }
+  ],
+  "limits": [
+    "Zero model calls is supported by all successful legacy requests using noReply, invalid runtime requests, user-only messages, and source early-return before loop; no provider-network trace was collected.",
+    "No actual generated response, final system prompt, permission enforcement, tool-file isolation, cross-role/dossier security isolation, or alias execution was verified.",
+    "Only own randomized temporary account/project files were used; upstream source read-only; no user .env or credential file was read.",
+    "Candidate research alias remains awaiting user/Claude confirmation; P1-10 not entered."
+  ],
+  "verdict": "Final 6-test suite passed, installed runtime/SDK/plugin all exactly 2.0.150. Native 9-check API/config evidence and 11-source/4-excerpt verification remain applicable because probe and upstream inputs were unchanged. No blocking findings; model generation, prompt injection and security isolation remain unverified.",
+  "excerptChecks": [
+    {
+      "path": "backend/cli/src/server/routes/runtime.ts",
+      "startLine": 118,
+      "textPresent": true,
+      "lineMatches": true,
+      "hashMatches": true
+    },
+    {
+      "path": "backend/cli/src/session/instruction.ts",
+      "startLine": 15,
+      "textPresent": true,
+      "lineMatches": true,
+      "hashMatches": true
+    },
+    {
+      "path": "backend/cli/src/session/instruction.ts",
+      "startLine": 187,
+      "textPresent": true,
+      "lineMatches": true,
+      "hashMatches": true
+    },
+    {
+      "path": "backend/cli/src/session/instruction.ts",
+      "startLine": 231,
+      "textPresent": true,
+      "lineMatches": true,
+      "hashMatches": true
+    }
+  ]
+}
