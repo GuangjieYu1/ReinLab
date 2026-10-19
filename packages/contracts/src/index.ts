@@ -29,6 +29,7 @@ export const LedgerEvent = z.object({
   seq: z.number().int().positive().safe(), at: timestamp, dossierId: id, runId: id.nullable(), roleId: text.nullable(),
   kind: z.enum(['message', 'tool', 'approval', 'card', 'artifact', 'cost', 'gate', 'swarm', 'study', 'delegation', 'memory', 'error']),
   action: text.nullable(), risk: Risk.nullable(), costCny: money.nullable(), payload: z.record(Json),
+  inputRef: z.string().nullable().optional(), outputRef: z.string().nullable().optional(), quota: count.nullable().optional(), gpuSeconds: count.nullable().optional(), credentialKind: CredentialKind.nullable().optional(),
 }).strict();
 export type LedgerEvent = z.infer<typeof LedgerEvent>;
 export const Card = z.discriminatedUnion('kind', [
