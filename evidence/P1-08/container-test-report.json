@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "image": "reinlab-account:p1-08",
+  "checks": [
+    "real-linux-runtime-health",
+    "root-owned-volume-init-and-drop-uid",
+    "ocr-pdf-scientific-tools",
+    "private-proxy-auth-and-origin",
+    "slow-12MiB-backup-integrity",
+    "restart-persistence-new-runtime",
+    "stable-log-no-credentials"
+  ],
+  "passed": 7,
+  "failed": 0,
+  "modelCalls": 0,
+  "boundary": "真实Linux镜像和root-owned持久卷；不代表Fly/Supabase云验收"
+}

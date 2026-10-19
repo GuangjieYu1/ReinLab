@@ -28,3 +28,5 @@ node services/account-runtime/verify-container.mjs
 参考：Fly官方Machines/Volumes API https://fly.io/docs/machines/api/machines-resource/ 、https://fly.io/docs/machines/api/volumes-resource/ ；Supabase官方Vault https://supabase.com/docs/guides/database/vault 。上游2.0.150 serve/network/host-guard/global/identity源码只读核对。
 
 CI首轮：Linux镜像构建成功（image sha256:18809d98ecd8478cfb73799d7c1017271371792cd1e48a240fb403cfbbbf7f2d），真实健康通过，但验证脚本的/proc UID正则在模板字符串中丢失反斜线，后续断言失败；container-first-failed.json保留。改用String.raw保留正则后重新实跑，不跳过降权断言。
+
+最终独立Linux CI通过：run39223214941，commit1f110a68faaa516160fed265fe43833b1629d2a5，check及account-image均success，容器7/7检查通过，真实root新卷/降权/OCR科学工具/12MiB慢读/重启全部验证。报告container-test-report.json及ci.json已下载入库。本机DockerIPC问题仍存在，云DoD仍待实际项目，不据CI冒充云部署。
