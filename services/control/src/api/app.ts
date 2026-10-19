@@ -8,6 +8,7 @@ import { Database } from '../db/database';
 import { createVerifier, type JwtConfig } from './auth';
 import { mutate, type ApiEnv } from './context';
 import { ApiFailure, denied } from './errors';
+import { registerLedger } from './ledger';
 
 export async function createApp(options:{pool:pg.Pool;auth:JwtConfig}) {
   const database=new Database(options.pool);
@@ -49,6 +50,7 @@ export async function createApp(options:{pool:pg.Pool;auth:JwtConfig}) {
     const budget=await client.query('select coalesce(sum(budget_cny),0) as allocated,coalesce(sum(spent_cny),0) as spent from run where dossier_id=$1',[id]);
     return c.json(DossierDetail.parse(JSON.parse(JSON.stringify({dossier:dossier.rows[0],gates:gates.rows,activeRuns:runs.rows.filter(r=>!['completed','failed','cancelled'].includes(r.state)).map(r=>({...r,budgetCny:Number(r.budgetCny),spentCny:Number(r.spentCny)})),budget:{allocatedCny:Number(budget.rows[0].allocated),spentCny:Number(budget.rows[0].spent)}}))));
   }));
+  registerLedger(app,database);
   app.notFound(c=>c.json({code:'NOT_FOUND',message:'接口不存在。'},404));
   app.onError((error,c)=>{
     if(error instanceof ApiFailure)return c.json({code:error.code,message:error.message},error.status);
