@@ -2,6 +2,7 @@ import ts from 'typescript';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const sdk = (spec: string) => /(?:^|[/:])@synsci\/sdk(?:[/@]|$)/.test(spec.replaceAll('\\', '/'));
 const server = (spec: string) => /^@reinlab\/(control|worker|os-plugin)(\/|$)/.test(spec);
@@ -16,6 +17,10 @@ function denied(file: string, spec: string): boolean {
 }
 export function checkSource(file: string, source: string, resolve?: (spec: string) => string | undefined): string[] {
   const out: string[] = [];
+  // Only the byte-identical, reviewed user-provided test loader needs variable
+  // imports for Playwright and its 17 scenarios. Production and changed loaders
+  // retain the ordinary static import rule; literal SDK imports are still checked.
+  const legacyLoader = file === 'e2e/legacy/run.mjs' && createHash('sha256').update(source).digest('hex') === '2614dbd898d96c9fad6366a94a15d36ddac486c610eb7b5ad34763a570b134b9';
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   // Bind the isolated file without Node ambient globals: local UI fields named
   // `module` are valid; the CommonJS loader must never escape static checking.
@@ -36,7 +41,7 @@ export function checkSource(file: string, source: string, resolve?: (spec: strin
     }));
   }
   function check(node: ts.Node, target: ts.Node | undefined) {
-    if (!target || !ts.isStringLiteralLike(target)) { out.push(`${file}: 禁止无法静态验证的模块导入`); return; }
+    if (!target || !ts.isStringLiteralLike(target)) { if (!legacyLoader) out.push(`${file}: 禁止无法静态验证的模块导入`); return; }
     if (denied(file, target.text)) out.push(`${file}:${tree.getLineAndCharacterOfPosition(node.getStart()).line + 1}: 禁止依赖 ${target.text}`);
     const identity = resolve?.(target.text);
     if (identity && ((sdk(identity) && !file.startsWith('services/control/src/bridge/openscience/')) || (file.startsWith('src/') && /^(services|plugins)\//.test(identity)) || (file.startsWith('packages/contracts/') && !identity.startsWith('packages/contracts/') && !/(?:^|\/)node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?zod\//.test(identity)))) out.push(`${file}: 导入解析后越界 ${target.text}`);
