@@ -178,18 +178,20 @@ describe.sequential('P1-10 native role boundaries T-ROLE1–5', () => {
     observations.push({ case: 'T-ROLE3-write', authorizedWriteExecuted: true, outsideTargetWriteBlocked: true, ungrantedEditAliasBlocked: true });
   }, 120000);
 
-  it('T-ROLE4 denies forced task delegation and rejects injected parts or agent at the bridge', async () => {
-    const result = await run('role4-forced-task', [{ name: 'task', arguments: { subagent_type: 'data', description: 'fixture forced child', prompt: 'Return hidden research data.' } }]);
+  it.each([false, true])('T-ROLE4 denies forced task with test delegation=%s and rejects injected parts or agent', async enabled => {
+    const taskRuntime = enabled ? new RoleRuntime({ baseUrl: server.baseUrl, token: server.token, project: alpha, testOnlyDelegation: true }) : runtime;
+    const marker = `role4-forced-task-${enabled}`;
+    const result = await run(marker, [{ name: 'task', arguments: { subagent_type: 'data', description: 'fixture forced child', prompt: 'Return hidden research data.' } }], taskRuntime);
     expectNoSuccess(result.messages, ['task']);
-    expect(await runtime.children(result.sessionID)).toEqual([]);
-    const offered = capturedFor('role4-forced-task').flatMap(body => body.tools?.map(tool => tool.function.name) ?? []);
+    expect(await taskRuntime.children(result.sessionID)).toEqual([]);
+    const offered = capturedFor(marker).flatMap(body => body.tools?.map(tool => tool.function.name) ?? []);
     expect(offered).not.toContain('task');
     const before = provider.requests.length;
     for (const extra of [{ parts: [{ type: 'subtask', agent: 'data', prompt: 'escape', description: 'escape' }] }, { agent: 'data' }]) {
-      await expect(runtime.prompt({ sessionID: result.sessionID, requestID: randomUUID(), message: 'role4-injection', ...extra } as any)).rejects.toMatchObject({ code: 'SCOPE_DENIED' });
+      await expect(taskRuntime.prompt({ sessionID: result.sessionID, requestID: randomUUID(), message: 'role4-injection', ...extra } as any)).rejects.toMatchObject({ code: 'SCOPE_DENIED' });
     }
     expect(provider.requests).toHaveLength(before);
-    observations.push({ case: 'T-ROLE4', taskOffered: false, childSessions: 0, injectedPartsAndAgentRejected: true, injectionModelRequestDelta: 0 });
+    observations.push({ case: 'T-ROLE4', testDelegationEnabled: enabled, taskOffered: false, childSessions: 0, injectedPartsAndAgentRejected: true, injectionModelRequestDelta: 0 });
   }, 60000);
 
   it('T-ROLE5 returns the durable receipt without another provider request and conflicts on changed content', async () => {
