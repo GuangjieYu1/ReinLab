@@ -59,3 +59,5 @@
 | Q-040 | sandbox开启时上游跳过project-controlled插件，最初fixture漏掉部署的全局注册 | 复现现有account-entrypoint的可信全局插件注册；roleproject不注册插件，桥接创建/提交前核验全局精确URL，缺失失败关闭。用hardlink、read后edit别名及实际hook日志验证，不凭配置判断生效 | 初始假证明已纠正，红灯/失败观察保留；sandbox保持开启 |
 | Q-041 | SDK默认禁用请求timeout，内核不响应会一直等待 | 每SDK请求默认10秒deadline，可安全配置100–30000ms；稳定OS_UNAVAILABLE，prompt结果未知时查原编号收据，绝不自动重新提交 | 真实HTTP stall、0自动重试及原requestID通过 |
 | Q-042 | canonical路径不能识别硬链接数据别名，FIFO等特殊文件可挂住检查 | 数据读写及管理文件拒绝多硬链接；元数据打开O_NONBLOCK，拒绝FIFO/socket/device。只证明当前文件链接/类型边界，不声称审计已复制内容的历史来源 | 独立原生hardlink与特殊文件回归通过 |
+
+2026-10-20 第三批：Q-005 已关闭。用户提供主仓库 e2e/legacy 的17场景，19文件原样入库，mock全17/17通过，证据evidence/T-REG；后续送审必附新报告。三份第三批/延期权威说明已原样收录design/，新本地与模型决定按下一任务执行。

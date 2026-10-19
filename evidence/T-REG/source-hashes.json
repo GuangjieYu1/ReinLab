@@ -1,0 +1,21 @@
+{
+  "e2e/legacy/run.mjs": "2614dbd898d96c9fad6366a94a15d36ddac486c610eb7b5ad34763a570b134b9",
+  "e2e/legacy/README.md": "5dbaa23d15ffd926b15a94010c8e2922972bbb1eead28fa2d858d688c7d74e1a",
+  "e2e/legacy/scenarios/08-eng-test.mjs": "f25c5a0680420db992f2d562cfb6be930197b2bb563071811c6f0e8a40c5696e",
+  "e2e/legacy/scenarios/13-crtv-world.mjs": "2842ed492ad8cba157314a02747b5322d9ec146562247daa657d85120f6a58ec",
+  "e2e/legacy/scenarios/05-course.mjs": "d3ede842fbae4eb79a63a9aa4757b5978f801cc6b31105107922c55ce8268bf0",
+  "e2e/legacy/scenarios/16-entry-rsch.mjs": "5b03150d90c0388a75e890bc430411893c1af5f04fdada80d55e4a4c61f25be5",
+  "e2e/legacy/scenarios/01-data.mjs": "1e3e511a2a15231fd4ed72e063b5ee163bb6e2a44c317cf9bae2b64d0110d8af",
+  "e2e/legacy/scenarios/11-rsch-swarm.mjs": "a79a7f7019ccc3f9e0e08c243086db1d076b928f7f5229805cec019c244e72c2",
+  "e2e/legacy/scenarios/09-eng-onto.mjs": "10e22ee746f2e8e627b5891e9081584f3a1c0fa2192838f95e997919a2f41a8b",
+  "e2e/legacy/scenarios/17-entry-engr.mjs": "093183bf2270f782cceb9c56b897cdeaaf7d672b329f8c4cb6f7a11ca7c9ff92",
+  "e2e/legacy/scenarios/14-crtv-novel.mjs": "bc84488f701c19175ab79e3ecb07f1cdc4247e534e68988e36091de2785df5ba",
+  "e2e/legacy/scenarios/10-rsch-read.mjs": "166a7e87d554714fd7748a4e615f789cae28f964b63d888c82574d6fa6f9c537",
+  "e2e/legacy/scenarios/15-crtv-film.mjs": "3326ba5dcdab06a11adea6f06834130867ec70d525129bf9c5baea2dc65e5b0a",
+  "e2e/legacy/scenarios/12-rsch-self.mjs": "04c560732dace7db2cea68c30c9d91808aad02ae63833652c3735e507b521b3c",
+  "e2e/legacy/scenarios/06-eng-req.mjs": "0904ccb8c598e882bfad4fe310f4bd8862d8d1342ea72bf32938394bf57eab7c",
+  "e2e/legacy/scenarios/03-graph.mjs": "2679d368e2d6e3e56ad4a57a27afc6931ac90d3ca226356171cbd3cdaecb4625",
+  "e2e/legacy/scenarios/04-explore.mjs": "6381354c6c65e96a7b4df5368ef5fe2f37b363bcee221e7ec3058edc0d57286a",
+  "e2e/legacy/scenarios/02-automation.mjs": "f247d7a43a31f2c9d12645d7021bfc60bb402336ffd390481266b38fdca5ff7d",
+  "e2e/legacy/scenarios/07-eng-dev.mjs": "822f85868c3eb856c2de52ac9c55487f0393c51cb07da5f3fc9c64d257784174"
+}
