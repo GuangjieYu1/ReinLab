@@ -1,7 +1,7 @@
 import { z } from "zod";
 import path from "node:path";
 import { constants } from "node:fs";
-import { mkdir, lstat, realpath, open, readdir } from "node:fs/promises";
+import { mkdir, lstat, realpath, open, readdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 const Action = z.enum(["allow", "ask", "deny"]);
 const Role = z
@@ -105,6 +105,7 @@ async function managed(file: string, text: string) {
     const h = await open(file, "wx", 0o600);
     try {
       await h.writeFile(text);
+      await h.sync();
     } finally {
       await h.close();
     }
@@ -163,13 +164,26 @@ export async function assertRoleProject(project: RoleProject): Promise<void> {
     throw scopeDenied();
   }
 }
-export async function prepareRoleProject(raw: unknown): Promise<RoleProject> {
+export const RoleProjectRequest = Options.omit({ root: true, pluginUrl: true });
+export type RoleOptions = z.infer<typeof Options>;
+function canonicalRole(value: unknown): string {
+  if (Array.isArray(value)) return "[" + value.map(canonicalRole).join(",") + "]";
+  if (value && typeof value === "object") return "{" + Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => JSON.stringify(key) + ":" + canonicalRole(item)).join(",") + "}";
+  return JSON.stringify(value);
+}
+export function roleDefinitionHash(raw: unknown) { return digest(canonicalRole(Options.parse(raw))); }
+export function versionRoleOptions(raw: unknown): RoleOptions {
   try {
     const input = Options.parse(raw);
-    if (!path.isAbsolute(input.root)) throw scopeDenied();
-    await plainDirectory(input.root);
-    const root = await realpath(input.root);
-    await noGit(root);
+    return { ...input, role: { ...input.role, id: input.role.id.slice(0, 28) + "--" + roleDefinitionHash(input).slice(0, 32) } };
+  } catch { throw scopeDenied(); }
+}
+/** Pure content contract shared by the controller and the account's fixed store. */
+export function planRoleProject(raw: unknown) {
+  try {
+    const input = Options.parse(raw);
+    if (!path.isAbsolute(input.root) || path.resolve(input.root) !== input.root) throw scopeDenied();
+    const root = input.root;
     const plugin = new URL(input.pluginUrl);
     if (plugin.protocol !== "file:" || plugin.search || plugin.hash)
       throw scopeDenied();
@@ -196,20 +210,16 @@ export async function prepareRoleProject(raw: unknown): Promise<RoleProject> {
       )
         throw scopeDenied();
     }
-    const dossiers = await directory(root, "dossiers"),
-      dossierDirectory = await directory(dossiers, input.dossierId);
-    const roles = await directory(root, "roles"),
-      roleDossier = await directory(roles, input.dossierId),
-      dir = await directory(roleDossier, input.role.id);
-    await noGit(dir);
-    await onlyManaged(dir);
+
+    const dossierDirectory = path.join(root, "dossiers", input.dossierId);
+    const dir = path.join(root, "roles", input.dossierId, input.role.id);
     const permission: Record<string, string | Record<string, string>> = {
       "*": "deny",
     };
     const tools: Record<string, { risk: string; permission: string }> = {};
     const editors = ["edit", "write", "patch", "apply_patch", "multiedit"];
     let editAction = "deny";
-    for (const [name, grant] of Object.entries(input.role.toolGrants)) {
+    for (const [name, grant] of Object.entries(input.role.toolGrants).sort(([a], [b]) => a.localeCompare(b))) {
       const action =
         grant.risk === "danger" || name === "task" ? "deny" : grant.permission;
       tools[name] = { ...grant, permission: action };
@@ -283,32 +293,52 @@ export async function prepareRoleProject(raw: unknown): Promise<RoleProject> {
       "AGENTS.md": memory,
       ".role-policy.json": policy,
     };
-    for (const [name, text] of Object.entries(content))
-      await managed(path.join(dir, name), text);
-    const project = Object.freeze({
-      directory: dir,
-      dossierDirectory,
-      roleId: input.role.id,
-    });
-    issued.set(project, {
-      root,
-      pluginUrl: input.pluginUrl,
-      grants: [
-        { path: dossierDirectory, access: "read" },
-        ...(editAction === "deny"
-          ? []
-          : input.role.writeTargets.map((t) => ({
-              path: path.resolve(dossierDirectory, t),
-              access: "write" as const,
-            }))),
-      ],
-      files: Object.fromEntries(
-        Object.entries(content).map(([name, text]) => [name, digest(text)]),
-      ),
-    });
+
+    const project = Object.freeze({ directory: dir, dossierDirectory, roleId: input.role.id });
+    if (Object.values(content).some(text => Buffer.byteLength(text) > 262144)) throw scopeDenied();
+    return { input, project, files: content, hashes: Object.fromEntries(Object.entries(content).map(([name, text]) => [name, digest(text)])), grants: [{ path: dossierDirectory, access: "read" as const }, ...(editAction === "deny" ? [] : input.role.writeTargets.map(t => ({ path: path.resolve(dossierDirectory, t), access: "write" as const })))], pluginUrl: input.pluginUrl };
+  } catch { throw scopeDenied(); }
+}
+export async function prepareRoleProject(raw: unknown): Promise<RoleProject> {
+  try {
+    // Validate all content before touching the store. The host plan and remote
+    // receipt use exactly these bytes; no server-selected replacement policy.
+    const parsed = planRoleProject(raw);
+    await plainDirectory(parsed.input.root);
+    const root = await realpath(parsed.input.root);
+    await noGit(root);
+    const plan = planRoleProject({ ...parsed.input, root });
+    const { input, project } = plan;
+    const dossiers = await directory(root, "dossiers");
+    await directory(dossiers, input.dossierId);
+    const roles = await directory(root, "roles");
+    const parent = await directory(roles, input.dossierId);
+    let exists = false;
+    try { await plainDirectory(project.directory); exists = true; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (!exists) {
+      const staging = await mkdtemp(path.join(parent, "." + input.role.id + "-"));
+      try {
+        for (const [name, text] of Object.entries(plan.files)) await managed(path.join(staging, name), text);
+        try { await rename(staging, project.directory); }
+        catch (error) { if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error; }
+      } finally { await rm(staging, { recursive: true, force: true }); }
+    }
+    issued.set(project, { root, pluginUrl: plan.pluginUrl, grants: plan.grants, files: plan.hashes });
     await assertRoleProject(project);
     return project;
-  } catch {
-    throw scopeDenied();
-  }
+  } catch { throw scopeDenied(); }
+}
+
+/** Called only behind the account entrypoint's existing authentication guard. */
+export async function prepareAccountRole(raw: unknown, fixed: { root: string; pluginUrl: string; accountId: string }) {
+  try {
+    const input = RoleProjectRequest.parse(raw);
+    const accountId = z.string().uuid().parse(fixed.accountId);
+    const options = { ...input, root: fixed.root, pluginUrl: fixed.pluginUrl };
+    const project = await prepareRoleProject(options);
+    const plan = planRoleProject(options);
+    await assertRoleProject(project);
+    return { schemaVersion: 1 as const, accountId, ...project, hashes: plan.hashes, pluginUrl: plan.pluginUrl };
+  } catch { throw scopeDenied(); }
 }

@@ -63,6 +63,9 @@ it("入口配置与子进程强制禁用自动升级并保留模型和插件", a
       autoupdate: false,
       plugin: ["file:///opt/reinlab/plugin/index.js"],
       model: "deepseek/deepseek-v4-flash",
+      small_model: "deepseek/deepseek-v4-flash",
+      enabled_providers: ["deepseek"],
+      agent: { title: { disable: true } },
     });
     expect(observed.autoUpdate).toBe("1");
   } finally {

@@ -7,10 +7,11 @@ COPY services/control/package.json services/control/package.json
 COPY services/worker/package.json services/worker/package.json
 COPY services/account-runtime/package.json services/account-runtime/package.json
 COPY plugins/reinlab-os-plugin/package.json plugins/reinlab-os-plugin/package.json
-RUN npm install -g pnpm@11.5.2 --no-audit --no-fund && pnpm install --frozen-lockfile --prod --filter @reinlab/account-runtime && mkdir -p /opt/os && ln -s /workspace/services/account-runtime/node_modules /opt/os/node_modules
+RUN npm install -g pnpm@11.5.2 --no-audit --no-fund && pnpm install --frozen-lockfile --prod --filter @reinlab/account-runtime && mkdir -p /opt/os /opt/reinlab /services/control && ln -s /workspace/services/account-runtime/node_modules /opt/os/node_modules && ln -s /workspace/services/account-runtime/node_modules /opt/reinlab/node_modules && ln -s /workspace/services/account-runtime/node_modules /services/control/node_modules
 COPY plugins/reinlab-os-plugin/index.js /opt/reinlab/plugin/index.js
 RUN echo '{"type":"module"}' > /opt/reinlab/plugin/package.json
 COPY infra/fly/account-entrypoint.mjs infra/fly/account-health.mjs /opt/reinlab/
+COPY services/control/src/bridge/openscience/role-project.ts /services/control/src/bridge/openscience/role-project.ts
 RUN mkdir -p /data && chown node:node /data
 USER root
 WORKDIR /data

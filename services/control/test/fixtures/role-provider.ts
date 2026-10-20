@@ -5,12 +5,14 @@ import { mkdir,writeFile } from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import { join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { accountGlobalConfiguration } from '../../../../infra/fly/account-entrypoint.mjs';
 
 export interface FixtureCall { name: string; arguments: Record<string, unknown> }
 export interface CapturedRequest { messages: Array<Record<string, any>>; tools?: Array<{ function: { name: string } }>; [key: string]: any }
 export async function startRoleProvider() {
   const requests: CapturedRequest[] = [];
   const plans = new Map<string, FixtureCall[]>();
+  const delays = new Map<string, Promise<void>>();
   let observerHits = 0;
   const server = createServer(async (req, res) => {
     if (req.url === '/observer') { observerHits++; res.end('observer'); return; }
@@ -21,6 +23,8 @@ export async function startRoleProvider() {
     requests.push(body);
     const lastUser = body.messages.findLastIndex(message => message.role === 'user');
     const user = JSON.stringify(body.messages[lastUser]);
+    const paused = [...delays].find(([marker]) => user.includes(marker));
+    if (paused) { await paused[1]; if (res.destroyed) return; }
     const plan = [...plans].find(([marker]) => user.includes(marker))?.[1] ?? [];
     const hasToolReply = body.messages.slice(lastUser + 1).some(message => message.role === 'tool');
     const calls = hasToolReply ? [] : plan;
@@ -38,7 +42,7 @@ export async function startRoleProvider() {
     }
   });
   const url = await listen(server);
-  return { requests, plans, url, get observerHits() { return observerHits; }, close: () => close(server) };
+  return { requests, plans, delays, url, get observerHits() { return observerHits; }, close: () => close(server) };
 }
 async function listen(server: Server) {
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -51,7 +55,7 @@ export async function startNativeRoleServer(root: string, providerURL: string,tr
   for (const dir of ['home', 'config', 'data', 'cache', 'state']) await mkdir(join(isolated, dir), { recursive: true });
   const token = randomBytes(32).toString('base64url');
   const config = {
-    plugin:[trustedPluginUrl],
+    ...accountGlobalConfiguration({pluginUrl:trustedPluginUrl,model:'role-fixture/fixture'}),
     provider: { 'role-fixture': { npm: '@ai-sdk/openai-compatible', env: [], options: { baseURL: `${providerURL}/v1`, apiKey: 'fixture-not-a-secret' }, models: { fixture: { name: 'Fixture', tool_call: true, limit: { context: 32768, output: 1024 } } } } },
     enabled_providers: ['role-fixture'], model: 'role-fixture/fixture', small_model: 'role-fixture/fixture', autoupdate: false,
   };

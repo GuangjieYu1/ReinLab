@@ -71,3 +71,25 @@
 | Q-046 | CLI提供的postgres连接执行既有ALTER ROLE NOBYPASSRLS迁移真实返回42501；PG17本地角色并非超级用户 | 初始化仅在CLI的loopback端口使用supabase_admin（已实测为superuser）；旧迁移保持摘要不变，运行时仅给reinlab_app/reinlab_provisioner各自凭据并检查无超级用户/绕过RLS/角色成员/表所有权。管理凭据只在本地setup文件，不进HTTP进程 | 推荐执行；本地首次迁移已通过 |
 | Q-047 | CLI2.121.0真实Auth签发ES256，而现有可选JWT_SECRET使控制面限定HS256，真实登录返回401 | 本地运行时不下发JWT_SECRET，沿既有JWKS验签路径验证ES256及issuer/audience/role/时限；初始化仅用CLI旧JWT密钥签发专用Storage JWT，不把管理员签名密钥留在HTTP进程 | 推荐执行；真实红灯见P1-08-local/integration-attempt-1 |
 | Q-048 | 独立Colima重启后首次CLI start泛型失败而稍后成功；同tag反复build又实测导致旧containerd镜像metadata消失 | 不猜首次失败根因；仅CLI基础设施start对两类启动失败最多3次有界恢复，业务/模型不在重试闭包。镜像按全部COPY内容生成tag并固定不可变ID，存在pin或旧容器时不重build/替换基线。数据盘扩20GiB仅涉及本任务profile，保卷；本地真实9/9及重复启动通过 | 推荐执行；云仍补验 |
+| Q-049 | 容器/data不在控制面宿主FS，且同一逻辑角色的记忆/提示词更新不能覆盖旧收据绑定的AGENTS | 单一受管角色规划源复制到账户镜像，现有认证代理只提供固定根/插件的窄准备操作；控制面核对预期路径与三文件摘要后才取得远端能力。角色physicalId用logicalId前28字+--+规范输入SHA256前32字，完整摘要也存DB；旧内容目录不覆盖。保持/data/roles在档案外、非git、默认deny及taskdeny。Node22锁定镜像通过原生类型擦除执行该TS模块，zod作为账户明确生产依赖 | 推荐执行；原生与远端合同测试后才标通过 |
+| Q-050 | 原生fixture实测一次最小角色请求另触发title模型调用，不能仅按主研究请求数证明无重复或核对费用 | 全局明确禁用辅助title agent，控制面创建时提供研究运行标题；保留真实研究模型调用。全局默认/小模型与enabled provider也锁到安全配置路由（本阶段DeepSeek），不隐式调用其他提供方。原生fixture复用同一账户配置函数，核对所有provider请求数，避免只在测试里关闭标题掩盖live费用 | 推荐执行；fixture-request-inspection保留原先2请求的观察 |
+
+## Q-051 P1-10提交与观察的启动边界
+- 背景：Hatchet明确延后P1-13，P1-10需要真实提交/持久观察，不能靠观察器重发模型。
+- 推荐并采用：新增独立可信RunBridge，由用户明确创建后的控制面提交入口调用；run独占session，先保存身份与send intent，HTTP不确定结果只能读snapshot取原收据。观察器仅持read-only端口；重启只恢复已绑定active观察，绝不提交queued任务。P1-13再把admission接入Hatchet，不改幂等语义。
+- 状态：实现中，不代表已验证。
+
+## Q-052 问题卡答案的请求字段
+- 背景：§6只列decision/scope，但SDK question决定必须有answers二维数组。
+- 推荐并采用：仅question approve允许bounded answers:string[][]，permission拒绝该字段；question reject不带answers。scope只once/session，权限绝不project/always。先确认真实snapshot pending，再保存决定意图；结果未知不自动重发。
+- 状态：实现中。
+
+## Q-053 实际费用与原生币种/价格窗口
+- 背景：只读DeepSeek后台确认账户以CNY计价；官方原生CNY价与USD价×7.2不是完全一致。官方还存在peak/offpeak，不能凭models.dev静态USD价格冒充本次账单。
+- 推荐并采用：实际step费用用官方原生币种价目、明确价格窗口；固定FX7.2每次记录，CNY标conversionApplied=false，USD才换算。价格有效区间/币种未配置或实际用量/来源无效记null并暂停，不猜免费。定价与后台对账是两件事，未核对前providerInvoiceReconciled=false。
+- 当前窗口不从节假日日历猜测；冒烟前以只读后台及官方规则确认的短区间固定下来，绑定时持久化。跨区间用量标未知等待核对。长期窗口同步由后续对账任务完善。
+
+## Q-054 P1-10最小真实冒烟的执行上限
+- 背景：研究种子角色默认48步，P1-11工具预算钩子尚未实现；本批只允许一次真实模型回合且≤¥1。
+- 推荐并采用：运行输入可提出更紧的limits.maxSteps（1～种子steps），只能收紧不扩权；冒烟取1步，仍使用真实研究角色提示词/模型/账户容器与原生用量。禁用辅助title agent，模型默认与small_model统一DeepSeek且仅此provider启用。真实执行前按实际上下文与模型输出上限核对≤¥1；无法保证则不提交并保留待验。
+- 不改变role_def授权、requestID、生产模型、不引入桩。P1-11再接完整逐工具预授权。
