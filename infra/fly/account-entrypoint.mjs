@@ -7,6 +7,7 @@ import {createInterface} from 'node:readline';
 export async function startAccount({root='/data',executable='/opt/os/node_modules/.bin/openscience',pluginUrl='file:///opt/reinlab/plugin/index.js',environment=process.env}={}){
 const fail=code=>{console.error(JSON.stringify({code}));process.exit(1);};
 const env=environment,token=env.OPENSCIENCE_AUTH_TOKEN;
+if(env.REINLAB_ACCOUNT_DRIVER!==undefined&&!['fly','docker'].includes(env.REINLAB_ACCOUNT_DRIVER))fail('ACCOUNT_CONFIG_MISSING');
 if(!token||!/^[A-Za-z0-9_-]{43}$/.test(token)||!/^[A-Za-z0-9_-]{43}$/.test(env.REINLAB_CONTAINER_SECRET??'')||!(/^[a-f0-9-]{36}$/.test(env.REINLAB_ACCOUNT_ID??'')))fail('ACCOUNT_CONFIG_MISSING');
 umask(0o077);
 // A fresh Fly volume is root-owned; initialize only managed directories, then drop all privilege.
@@ -15,9 +16,9 @@ if(getuid?.()===0){
  setgroups([]);setgid(1000);setuid(1000);
 }
 for(const dir of [root+'/dossiers',root+'/os-data',root+'/os-config']){await mkdir(dir,{recursive:true,mode:0o700});if(!(await lstat(dir)).isDirectory())fail('ACCOUNT_PATH_UNSAFE');await chmod(dir,0o700);}
-await writeFile(root+'/os-config/openscience.json',JSON.stringify({plugin:[pluginUrl],...(env.OPENSCIENCE_DEFAULT_MODEL?{model:env.OPENSCIENCE_DEFAULT_MODEL}:{})}),{mode:0o600});
+await writeFile(root+'/os-config/openscience.json',JSON.stringify({autoupdate:false,plugin:[pluginUrl],...(env.OPENSCIENCE_DEFAULT_MODEL?{model:env.OPENSCIENCE_DEFAULT_MODEL}:{})}),{mode:0o600});
 // Upstream remains loopback-only. Our IPv6 listener cannot collide with its IPv4 listener.
-const child=spawn(executable,['serve','--port','4096','--format','json'],{stdio:['ignore','pipe','pipe'],cwd:root,detached:true,env:{...env,HOME:root,XDG_CACHE_HOME:root+'/cache',XDG_DATA_HOME:root,OPENSCIENCE_DATA_DIR:root+'/os-data',OPENSCIENCE_CONFIG_DIR:root+'/os-config'}});
+const child=spawn(executable,['serve','--port','4096','--format','json'],{stdio:['ignore','pipe','pipe'],cwd:root,detached:true,env:{...env,OPENSCIENCE_DISABLE_AUTOUPDATE:'1',HOME:root,XDG_CACHE_HOME:root+'/cache',XDG_DATA_HOME:root,OPENSCIENCE_DATA_DIR:root+'/os-data',OPENSCIENCE_CONFIG_DIR:root+'/os-config'}});
 let stopping=false,ready=false;
 const authorized=value=>{const b=Buffer.from(value??''),expected=Buffer.from('Bearer '+token);return b.length===expected.length&&timingSafeEqual(b,expected);};
 const proxy=createServer((req,res)=>{
@@ -42,7 +43,7 @@ child.stderr.resume(); // No upstream logs: prompts, errors and credentials must
 createInterface({input:child.stdout}).on('line',line=>{if(line.length>4096)return;let value;try{value=JSON.parse(line);}catch{return;}
   if(value.type!=='server.ready')return;
   if(value.schemaVersion!==1||value.version!=='2.0.150'||!['http://127.0.0.1:4096','http://localhost:4096'].includes(value.url)){console.error(JSON.stringify({code:'ACCOUNT_READY_INVALID'}));stop();return;}
-  const health=request({host:'127.0.0.1',port:4096,path:'/global/health',headers:{authorization:'Bearer '+token}},res=>{res.resume();if(res.statusCode!==200){console.error(JSON.stringify({code:'ACCOUNT_LOOPBACK_UNHEALTHY'}));stop();return;}ready=true;proxy.listen({host:'::',port:4096,ipv6Only:true},()=>console.log(JSON.stringify({type:'account.ready',schemaVersion:1,version:'2.0.150'})));});health.on('error',()=>{console.error(JSON.stringify({code:'ACCOUNT_LOOPBACK_FAILED'}));stop();});health.setTimeout(5000,()=>{health.destroy();stop();});health.end();
+  const health=request({host:'127.0.0.1',port:4096,path:'/global/health',headers:{authorization:'Bearer '+token}},res=>{res.resume();if(res.statusCode!==200){console.error(JSON.stringify({code:'ACCOUNT_LOOPBACK_UNHEALTHY'}));stop();return;}ready=true;proxy.listen(env.REINLAB_ACCOUNT_DRIVER==='docker'?{host:'0.0.0.0',port:4097}:{host:'::',port:4096,ipv6Only:true},()=>console.log(JSON.stringify({type:'account.ready',schemaVersion:1,version:'2.0.150'})));});health.on('error',()=>{console.error(JSON.stringify({code:'ACCOUNT_LOOPBACK_FAILED'}));stop();});health.setTimeout(5000,()=>{health.destroy();stop();});health.end();
 });
 proxy.on('upgrade',(_req,socket)=>socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'));
 proxy.on('error',()=>{console.error(JSON.stringify({code:'ACCOUNT_PROXY_ERROR'}));stop();});

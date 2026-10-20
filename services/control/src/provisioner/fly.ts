@@ -4,11 +4,8 @@ const machine=z.object({id:z.string().regex(/^[a-f0-9]{10,32}$/),name:z.string()
 const volume=z.object({id:z.string().regex(/^vol_[a-zA-Z0-9]+$/),name:z.string(),region:z.string(),attached_machine_id:z.string().nullable().optional()}).passthrough();
 export type FlyMachine=z.infer<typeof machine>;
 export type FlyVolume=z.infer<typeof volume>;
-export interface Machines {
-  listMachines():Promise<FlyMachine[]>;listVolumes():Promise<FlyVolume[]>;
-  createVolume(name:string):Promise<FlyVolume>;createMachine(plan:unknown):Promise<FlyMachine>;
-  start(id:string):Promise<void>;update(id:string,config:unknown):Promise<void>;
-}
+export type {Machines} from './driver';
+import type {Machines} from './driver';
 export class FlyMachines implements Machines {
   constructor(readonly app:string,private token:string,private transport:typeof fetch=fetch){if(!/^[a-z0-9][a-z0-9-]{1,62}$/.test(app)||!token)throw new Error('FLY_CONFIG_REQUIRED');}
   private async call(path:string,method='GET',body?:unknown):Promise<unknown>{

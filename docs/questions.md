@@ -63,3 +63,11 @@
 2026-10-20 第三批：Q-005 已关闭。用户提供主仓库 e2e/legacy 的17场景，19文件原样入库，mock全17/17通过，证据evidence/T-REG；后续送审必附新报告。三份第三批/延期权威说明已原样收录design/，新本地与模型决定按下一任务执行。
 
 | Q-043 | 原样T-REG runner的三处变量动态导入被全仓lint拒绝，不能为变绿修改用户场景 | 仅对已审查runner的精确SHA-256允许变量导入，仍检查字面量SDK导入；任何字节变化和其他源码继续严格拒绝。用真实runner+变更runner+生产动态加载负例验证，不全局跳过e2e/测试目录 | 推荐执行；T-REG lint补验通过 |
+
+2026-10-20 用户决定生效：Q-021、Q-025关闭，三档路由均deepseek/deepseek-v4-flash、汇率7.2；每轮输入10000/输出3000 token与2倍余量。Q-006/Q-012/Q-029及P1-08三分钟SLA状态统一「云端补验」，本批改验完整本地CLI栈与Docker驱动。多模态项「待多模态模型」，GPU仅提议、不执行。
+
+| Q-044 | 共享DockerDesktop容器列表超时，且SupabaseCLI2.121.0实测拒绝原配置db.major_version=16 | 使用独立Colima reinlab、显式Unix socket且不激活默认context；本地完整CLI改PG17，保留现PG16和CI回归，迁移须两边真实验证。CLI状态/启动输出只在内存解析，凭据写保护文件 | 推荐执行；PG17全套真实验收进行中 |
+| Q-045 | DeepSeek官方现说明旧deepseek-v4-flash已转由V4.1-Flash提供服务，且CNY与USD原生价目并非严格按7.2换算相等 | 保留用户指定路由名，费用记录请求/实际模型、原生计费币种、当次7.2汇率及价目来源；按账户真实计费币种核对，避免把CNY价误当USD再换算；缺失用量/价格保持null | 推荐；真实冒烟前核实账单币种与价目 |
+| Q-046 | CLI提供的postgres连接执行既有ALTER ROLE NOBYPASSRLS迁移真实返回42501；PG17本地角色并非超级用户 | 初始化仅在CLI的loopback端口使用supabase_admin（已实测为superuser）；旧迁移保持摘要不变，运行时仅给reinlab_app/reinlab_provisioner各自凭据并检查无超级用户/绕过RLS/角色成员/表所有权。管理凭据只在本地setup文件，不进HTTP进程 | 推荐执行；本地首次迁移已通过 |
+| Q-047 | CLI2.121.0真实Auth签发ES256，而现有可选JWT_SECRET使控制面限定HS256，真实登录返回401 | 本地运行时不下发JWT_SECRET，沿既有JWKS验签路径验证ES256及issuer/audience/role/时限；初始化仅用CLI旧JWT密钥签发专用Storage JWT，不把管理员签名密钥留在HTTP进程 | 推荐执行；真实红灯见P1-08-local/integration-attempt-1 |
+| Q-048 | 独立Colima重启后首次CLI start泛型失败而稍后成功；同tag反复build又实测导致旧containerd镜像metadata消失 | 不猜首次失败根因；仅CLI基础设施start对两类启动失败最多3次有界恢复，业务/模型不在重试闭包。镜像按全部COPY内容生成tag并固定不可变ID，存在pin或旧容器时不重build/替换基线。数据盘扩20GiB仅涉及本任务profile，保卷；本地真实9/9及重复启动通过 | 推荐执行；云仍补验 |

@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-20T01:39:18.962Z",
+  "realInfrastructure": true,
+  "modelRequests": 0,
+  "passed": 2,
+  "failed": 1,
+  "completed": false,
+  "results": [
+    {
+      "name": "real_auth_registration_and_login",
+      "passed": true
+    },
+    {
+      "name": "auth_trigger_queue_and_two_real_account_containers",
+      "passed": true
+    },
+    {
+      "name": "real_auth_jwt_control_api_and_cross_account_rls",
+      "passed": false,
+      "code": "ERR_ASSERTION"
+    }
+  ]
+}

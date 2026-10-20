@@ -1,0 +1,18 @@
+{
+  "scope": "authorized-read-only-container-to-host-health",
+  "container": "rl-e301c34958544f83b3077b578bcfe779",
+  "execUser": 1000,
+  "colimaVersion": "0.10.3",
+  "extraHosts": ["host.docker.internal:host-gateway"],
+  "hostEntryAddress": "192.168.5.2",
+  "hostLimaInternalAddress": "192.168.5.2",
+  "hostDockerInternalAddress": "192.168.5.2",
+  "url": "http://host.docker.internal:3001/health",
+  "healthStatus": 200,
+  "responseBodyRead": false,
+  "environmentFieldsRead": false,
+  "credentialsRead": false,
+  "lifecycleOperations": false,
+  "driverChanges": false,
+  "passed": true
+}
