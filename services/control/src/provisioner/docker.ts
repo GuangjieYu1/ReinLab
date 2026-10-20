@@ -1,0 +1,437 @@
+import { request } from "node:http";
+import { z } from "zod";
+import { ApiFailure } from "../api/errors";
+import { OS_VERSION, Tokens } from "./runtime";
+import type {
+  AccountDriver,
+  AccountMachine,
+  AccountVolume,
+  PlanInput,
+} from "./driver";
+const owner = "io.reinlab.managed",
+  account = "io.reinlab.account";
+const conflict = () =>
+  new ApiFailure(
+    "PROVISIONING_CONFLICT",
+    409,
+    "本地账户资源身份或隔离配置不符。",
+  );
+const unavailable = () =>
+  new ApiFailure(
+    "PROVISIONER_UNAVAILABLE",
+    503,
+    "本地账户容器服务暂时不可用。",
+  );
+const imagePattern =
+  /^[a-z0-9]+(?:[._-][a-z0-9]+)*:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
+export function dockerPlan(i: PlanInput) {
+  z.string().uuid().parse(i.accountId);
+  Tokens.parse(i.tokens);
+  if (!imagePattern.test(i.image) || i.image.endsWith(":latest"))
+    throw Error("ACCOUNT_IMAGE_INVALID");
+  if (i.controlUrl !== "http://host.docker.internal:3001/")
+    throw Error("CONTROL_PRIVATE_URL_REQUIRED");
+  if (i.volumeId !== "rl_" + i.accountId.replaceAll("-", "")) throw conflict();
+  return {
+    name: "rl-" + i.accountId.replaceAll("-", ""),
+    region: "local",
+    config: {
+      image: i.image,
+      auto_destroy: false,
+      restart: { policy: "always" },
+      guest: { cpu_kind: "shared", cpus: 1, memory_mb: 2048 },
+      mounts: [{ volume: i.volumeId, path: "/data" }],
+      metadata: {
+        reinlab_account_id: i.accountId,
+        reinlab_os_version: OS_VERSION,
+      },
+      env: {
+        OPENSCIENCE_AUTH_TOKEN: i.tokens.auth,
+        OPENSCIENCE_DATA_DIR: "/data/os-data",
+        OPENSCIENCE_CONFIG_DIR: "/data/os-config",
+        REINLAB_CONTROL_URL: i.controlUrl,
+        REINLAB_ACCOUNT_ID: i.accountId,
+        REINLAB_CONTAINER_SECRET: i.tokens.container,
+        REINLAB_ACCOUNT_DRIVER: "docker",
+      },
+    },
+  };
+}
+type Json = Record<string, any>;
+export type EngineTransport = (
+  path: string,
+  method: string,
+  body?: unknown,
+) => Promise<unknown>;
+/** Docker Engine protocol only, never invokes a shell or exposes provider errors. */
+export class DockerMachines implements AccountDriver {
+  readonly kind = "docker" as const;
+  readonly region = "local";
+  private transport: EngineTransport;
+  constructor(host: string, transport?: EngineTransport) {
+    if (
+      !/^unix:\/\/\/[^\0\r\n]+$/.test(host) ||
+      host.includes("?") ||
+      host.includes("#") ||
+      host.slice(7).split("/").includes("..")
+    )
+      throw new ApiFailure(
+        "PROVISIONER_CONFIG_MISSING",
+        503,
+        "Docker 必须配置受控本地 Unix socket。",
+      );
+    const socketPath = host.slice(7);
+    this.transport =
+      transport ??
+      ((path, method, body) =>
+        new Promise((resolve, reject) => {
+          const req = request(
+            {
+              socketPath,
+              path: "/v1.41" + path,
+              method,
+              headers: { "content-type": "application/json" },
+            },
+            (res) => {
+              let raw = "";
+              res.setEncoding("utf8");
+              res.on("data", (chunk) => {
+                raw += chunk;
+                if (raw.length > 4 * 1024 * 1024) {
+                  req.destroy();
+                  reject(unavailable());
+                }
+              });
+              res.on("end", () => {
+                try {
+                  if (
+                    !res.statusCode ||
+                    res.statusCode < 200 ||
+                    res.statusCode >= 300
+                  )
+                    throw Error();
+                  resolve(raw ? JSON.parse(raw) : {});
+                } catch {
+                  reject(unavailable());
+                }
+              });
+              res.on("error", () => reject(unavailable()));
+            },
+          );
+          const timer = setTimeout(() => req.destroy(), 15000);
+          req.on("close", () => clearTimeout(timer));
+          req.on("error", () => reject(unavailable()));
+          req.end(body === undefined ? undefined : JSON.stringify(body));
+        }));
+  }
+  private async call(
+    path: string,
+    method = "GET",
+    body?: unknown,
+  ): Promise<Json> {
+    try {
+      return (await this.transport(path, method, body)) as Json;
+    } catch {
+      throw unavailable();
+    }
+  }
+  plan = dockerPlan;
+  validateDeployment(input: Omit<PlanInput, "volumeId">) {
+    this.plan({
+      ...input,
+      volumeId: "rl_" + input.accountId.replaceAll("-", ""),
+    });
+  }
+  validateImage(image: string) {
+    if (!imagePattern.test(image) || image.endsWith(":latest"))
+      throw Error("ACCOUNT_IMAGE_INVALID");
+  }
+  private id(id: string) {
+    if (!/^rl-[a-f0-9]{32}$/.test(id)) throw conflict();
+    return id;
+  }
+  private immutableId(raw: Json) {
+    if (!/^[a-f0-9]{64}$/.test(raw.Id)) throw conflict();
+    return raw.Id as string;
+  }
+  private labels(id: string) {
+    z.string().uuid().parse(id);
+    return { [owner]: "true", [account]: id };
+  }
+  private async normalized(raw: Json): Promise<AccountMachine> {
+    const name = String(raw.Name ?? "").replace(/^\//, "");
+    this.id(name);
+    const c = raw.Config ?? {},
+      h = raw.HostConfig ?? {},
+      labels = c.Labels ?? {},
+      id = labels[account];
+    if (
+      labels[owner] !== "true" ||
+      !z.string().uuid().safeParse(id).success ||
+      name !== "rl-" + id.replaceAll("-", "")
+    )
+      throw conflict();
+    const mounts = raw.Mounts ?? [],
+      port = h.PortBindings?.["4097/tcp"];
+    if (
+      h.Privileged !== false ||
+      h.NetworkMode !== "bridge" ||
+      h.PidMode ||
+      h.IpcMode === "host" ||
+      h.ReadonlyRootfs === true ||
+      h.RestartPolicy?.Name !== "always" ||
+      h.Memory !== 2147483648 ||
+      h.NanoCpus !== 1000000000 ||
+      h.CapAdd?.length ||
+      h.Devices?.length ||
+      h.DeviceRequests?.length ||
+      (h.Runtime && h.Runtime !== "runc") ||
+      h.Dns?.length ||
+      h.DnsSearch?.length ||
+      h.DnsOptions?.length ||
+      Object.keys(h.Sysctls ?? {}).length ||
+      JSON.stringify(h.ExtraHosts) !==
+        JSON.stringify(["host.docker.internal:host-gateway"]) ||
+      Object.keys(raw.NetworkSettings?.Networks ?? {}).some(
+        (k) => k !== "bridge",
+      ) ||
+      h.SecurityOpt?.length !== 1 ||
+      h.SecurityOpt?.includes("seccomp=unconfined") ||
+      !h.SecurityOpt?.some(
+        (v: string) =>
+          v === "no-new-privileges:true" || v === "no-new-privileges",
+      ) ||
+      (c.User && c.User !== "root") ||
+      JSON.stringify(c.Entrypoint) !==
+        JSON.stringify(["node", "/opt/reinlab/account-entrypoint.mjs"]) ||
+      (c.Cmd != null && (!Array.isArray(c.Cmd) || c.Cmd.length !== 0)) ||
+      Object.keys(h.Tmpfs ?? {}).length ||
+      h.Mounts?.length ||
+      h.UtsMode ||
+      h.UsernsMode ||
+      h.PublishAllPorts === true ||
+      h.VolumesFrom?.length ||
+      !Array.isArray(mounts) ||
+      mounts.length !== 1 ||
+      mounts[0].Type !== "volume" ||
+      mounts[0].Name !== "rl_" + id.replaceAll("-", "") ||
+      mounts[0].Destination !== "/data" ||
+      mounts[0].RW !== true ||
+      Object.keys(h.PortBindings ?? {}).length !== 1 ||
+      !Array.isArray(port) ||
+      port.length !== 1 ||
+      port[0].HostIp !== "127.0.0.1" ||
+      Object.keys(c.ExposedPorts ?? {}).some((k) => k !== "4097/tcp")
+    )
+      throw conflict();
+    const env: Record<string, string> = {};
+    for (const pair of c.Env ?? []) {
+      if (typeof pair !== "string" || !pair.includes("=")) throw conflict();
+      const at = pair.indexOf("=");
+      if (pair.slice(0, at) in env) throw conflict();
+      env[pair.slice(0, at)] = pair.slice(at + 1);
+    }
+    this.validateImage(c.Image);
+    if (!/^sha256:[a-f0-9]{64}$/.test(raw.Image)) throw conflict();
+    const image = await this.call("/images/" + raw.Image + "/json");
+    const baseEnv: Record<string, string> = {};
+    for (const pair of image.Config?.Env ?? []) {
+      if (typeof pair !== "string" || !pair.includes("=")) throw conflict();
+      const at = pair.indexOf("=");
+      baseEnv[pair.slice(0, at)] = pair.slice(at + 1);
+    }
+    const expected = this.plan({
+      accountId: id,
+      volumeId: "rl_" + id.replaceAll("-", ""),
+      image: c.Image,
+      controlUrl: env.REINLAB_CONTROL_URL,
+      tokens: {
+        auth: env.OPENSCIENCE_AUTH_TOKEN,
+        container: env.REINLAB_CONTAINER_SECRET,
+      },
+    }).config.env;
+    const merged = { ...baseEnv, ...expected };
+    if (
+      Object.keys(env).length !== Object.keys(merged).length ||
+      Object.entries(merged).some(([key, value]) => env[key] !== value)
+    )
+      throw conflict();
+    return {
+      id: name,
+      name,
+      region: "local",
+      state: raw.State?.Running ? "started" : "stopped",
+      config: {
+        image: c.Image,
+        auto_destroy: false,
+        restart: { policy: "always" },
+        metadata: { reinlab_account_id: id, reinlab_os_version: OS_VERSION },
+        mounts: [{ volume: mounts[0].Name, path: "/data" }],
+        env,
+      },
+    };
+  }
+  async listMachines() {
+    const rows = await this.call("/containers/json?all=true");
+    if (!Array.isArray(rows)) throw unavailable();
+    const candidates = rows.filter(
+      (r: Json) =>
+        r.Labels?.[owner] === "true" ||
+        r.Names?.some((n: string) => /^\/rl-[a-f0-9]{32}$/.test(n)),
+    );
+    return Promise.all(
+      candidates.map(async (r: Json) => {
+        if (!/^[a-f0-9]{64}$/.test(r.Id)) throw conflict();
+        return this.normalized(
+          await this.call("/containers/" + r.Id + "/json"),
+        );
+      }),
+    );
+  }
+  async listVolumes(): Promise<AccountVolume[]> {
+    const rows = (await this.call("/volumes")).Volumes;
+    const containers = await this.call("/containers/json?all=true");
+    if (!Array.isArray(containers)) throw unavailable();
+    if (rows !== null && !Array.isArray(rows)) throw unavailable();
+    return (rows ?? [])
+      .filter(
+        (v: Json) =>
+          v.Labels?.[owner] === "true" || /^rl_[a-f0-9]{32}$/.test(v.Name),
+      )
+      .map((v: Json) => {
+        const id = v.Labels?.[account];
+        if (
+          v.Labels?.[owner] !== "true" ||
+          !z.string().uuid().safeParse(id).success ||
+          v.Name !== "rl_" + id.replaceAll("-", "") ||
+          v.Driver !== "local" ||
+          Object.keys(v.Options ?? {}).length
+        )
+          throw conflict();
+        for (const c of containers) {
+          if (
+            c.Mounts?.some((m: Json) => m.Name === v.Name) &&
+            (c.Labels?.[owner] !== "true" ||
+              c.Labels?.[account] !== id ||
+              !c.Names?.includes("/rl-" + id.replaceAll("-", "")))
+          )
+            throw conflict();
+        }
+        return { id: v.Name, name: v.Name, region: "local" };
+      });
+  }
+  async createVolume(name: string) {
+    if (!/^rl_[a-f0-9]{32}$/.test(name)) throw conflict();
+    const hex = name.slice(3),
+      id =
+        hex.slice(0, 8) +
+        "-" +
+        hex.slice(8, 12) +
+        "-" +
+        hex.slice(12, 16) +
+        "-" +
+        hex.slice(16, 20) +
+        "-" +
+        hex.slice(20);
+    await this.call("/volumes/create", "POST", {
+      Name: name,
+      Driver: "local",
+      Labels: this.labels(id),
+    });
+    const matches = (await this.listVolumes()).filter((v) => v.name === name);
+    if (matches.length !== 1) throw conflict();
+    return matches[0];
+  }
+  private body(plan: ReturnType<typeof dockerPlan>) {
+    const c = plan.config;
+    return {
+      Image: c.image,
+      Env: Object.entries(c.env).map(([k, v]) => k + "=" + v),
+      Labels: this.labels(c.metadata.reinlab_account_id),
+      ExposedPorts: { "4097/tcp": {} },
+      HostConfig: {
+        Binds: [c.mounts[0].volume + ":/data"],
+        PortBindings: { "4097/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }] },
+        RestartPolicy: { Name: "always" },
+        Privileged: false,
+        NetworkMode: "bridge",
+        Memory: 2147483648,
+        NanoCpus: 1000000000,
+        ExtraHosts: ["host.docker.internal:host-gateway"],
+        SecurityOpt: ["no-new-privileges:true"],
+      },
+    };
+  }
+  async createMachine(input: unknown) {
+    const p = input as ReturnType<typeof dockerPlan>;
+    const env = p.config.env;
+    const plan = this.plan({
+      accountId: env.REINLAB_ACCOUNT_ID,
+      volumeId: p.config.mounts[0].volume,
+      image: p.config.image,
+      controlUrl: env.REINLAB_CONTROL_URL,
+      tokens: {
+        auth: env.OPENSCIENCE_AUTH_TOKEN,
+        container: env.REINLAB_CONTAINER_SECRET,
+      },
+    });
+    await this.call(
+      "/containers/create?name=" + plan.name,
+      "POST",
+      this.body(plan),
+    );
+    await this.start(plan.name);
+    return this.normalized(
+      await this.call("/containers/" + plan.name + "/json"),
+    );
+  }
+  async start(id: string) {
+    this.id(id);
+    const raw = await this.call("/containers/" + id + "/json");
+    await this.normalized(raw);
+    await this.call("/containers/" + this.immutableId(raw) + "/start", "POST");
+  }
+  async endpoint(id: string, _app: string) {
+    this.id(id);
+    const raw = await this.call("/containers/" + id + "/json");
+    await this.normalized(raw);
+    const ports = raw.NetworkSettings?.Ports?.["4097/tcp"];
+    if (
+      !Array.isArray(ports) ||
+      ports.length !== 1 ||
+      ports[0].HostIp !== "127.0.0.1" ||
+      !/^\d{1,5}$/.test(ports[0].HostPort) ||
+      Number(ports[0].HostPort) < 1 ||
+      Number(ports[0].HostPort) > 65535
+    )
+      throw conflict();
+    return "http://127.0.0.1:" + ports[0].HostPort;
+  }
+  async update(id: string, input: unknown) {
+    this.id(id);
+    const raw = await this.call("/containers/" + id + "/json");
+    const old = await this.normalized(raw),
+      c = input as Json,
+      env = c.env;
+    this.validateImage(c.image);
+    if (
+      JSON.stringify({ ...c, image: old.config.image }) !==
+      JSON.stringify(old.config)
+    )
+      throw conflict();
+    const plan = this.plan({
+      accountId: env.REINLAB_ACCOUNT_ID,
+      volumeId: c.mounts[0].volume,
+      image: c.image,
+      controlUrl: env.REINLAB_CONTROL_URL,
+      tokens: {
+        auth: env.OPENSCIENCE_AUTH_TOKEN,
+        container: env.REINLAB_CONTAINER_SECRET,
+      },
+    });
+    const resourceId = this.immutableId(raw);
+    await this.call("/containers/" + resourceId + "/stop?t=10", "POST");
+    await this.call("/containers/" + resourceId, "DELETE");
+    await this.createMachine(plan);
+  }
+}

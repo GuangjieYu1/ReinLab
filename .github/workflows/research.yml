@@ -34,6 +34,8 @@ jobs:
         run: pnpm exec tsc -p packages/contracts/tsconfig.json
       - name: 控制面类型检查
         run: pnpm exec tsc -p services/control/tsconfig.json
+      - name: 本地编排类型检查
+        run: pnpm exec tsc --noEmit --strict --skipLibCheck --esModuleInterop --moduleResolution bundler --module ESNext --target ES2022 --lib ES2022,DOM --types node tooling/local/up.ts
       - name: mock 构建
         run: pnpm build
       - uses: actions/upload-artifact@v4
@@ -58,3 +60,26 @@ jobs:
         with:
           name: account-container-test-report
           path: container-test-report.json
+  local-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: 完整本地Supabase与真实账户镜像
+        run: pnpm local:up
+      - name: Auth、Vault、Storage与账户容器真实集成
+        run: pnpm local:verify
+        env:
+          REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-integration
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-infrastructure-test-report
+          path: ${{ runner.temp }}/local-integration/*.json

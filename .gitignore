@@ -14,3 +14,8 @@ previews/
 ios/App/build/
 ios/App/DerivedData/
 ios/App/output/
+
+# Supabase CLI local state can include development credentials.
+infra/supabase/.temp/
+infra/supabase/.branches/
+.local/

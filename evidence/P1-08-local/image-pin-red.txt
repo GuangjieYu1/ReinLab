@@ -1,0 +1,24 @@
+
+ RUN  v4.1.11 /Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab
+
+ ❯ tooling/local/image.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tooling/local/image.test.ts [ tooling/local/image.test.ts ]
+Error: Cannot find module './image' imported from /Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/tooling/local/image.test.ts
+ ❯ tooling/local/image.test.ts:2:1
+      1| import {it,expect} from 'vitest';
+      2| import {decideLocalImage,ensureLocalAccountImage,type ImageObservation…
+       | ^
+      3| import {mkdtemp,rm,lstat,readFile} from 'node:fs/promises';
+      4| import {tmpdir} from 'node:os';
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  09:54:40
+   Duration  103ms (transform 22ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+

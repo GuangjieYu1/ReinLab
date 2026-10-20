@@ -4,24 +4,32 @@ import {z} from 'zod';
 import {Database} from '../db/database';
 import {ApiFailure} from '../api/errors';
 import {appendEvent} from '../ledger';
-import {AccountProvisioner,SupabaseKeyVault,type KeyVault} from './index';
-import {FlyMachines,type Machines} from './fly';
-import {decryptBundle,machinePlan,type Tokens} from './runtime';
+import {AccountProvisioner,SupabaseKeyVault,environmentDriver,type KeyVault} from './index';
+import {driverFor,type Machines,type AccountDriver} from './driver';
+import {decryptBundle,type Tokens} from './runtime';
 const uuid=z.string().uuid();
-const imageSchema=z.string().regex(/^registry\.fly\.io\/[a-z0-9-]+(?::[a-zA-Z0-9._-]+|@sha256:[a-f0-9]{64})$/);
+async function duplicateSnapshot(response:Response){
+ if(response.status===409){await response.body?.cancel();return true;}
+ if(response.status!==400||!response.headers.get('content-type')?.startsWith('application/json')||!response.body){await response.body?.cancel();return false;}
+ const reader=response.body.getReader();let bytes=0;const chunks:Uint8Array[]=[];
+ try{while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;if(bytes>4096){await reader.cancel();return false;}chunks.push(part.value);}
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')).code==='KeyAlreadyExists';
+ }catch{return false;}finally{reader.releaseLock();}
+}
 const fail=(code:string,status:400|401|403|404|409|413|500|503=503)=>new ApiFailure(code,status,'账户生命周期操作未完成，请查看运维状态。');
 type Config={app:string;storageUrl:string;storageToken:string;controlUrl:string};
 type MachineRow={fly_machine_id:string|null;fly_volume_id:string|null;runtime_id:string|null;state:string};
 /** Trusted service API only. accountId must come from a verified Auth event / authenticated operations job.
  * This module does not authenticate public webhooks and MUST NOT be mounted as a public accountId endpoint. */
 export class AccountLifecycle {
- private storage:URL;
- constructor(private db:Database,private fly:Machines,private vault:KeyVault,private config:Config,private transport:typeof fetch=fetch){
+ private storage:URL;private driver:AccountDriver;
+ constructor(private db:Database,machines:Machines,private vault:KeyVault,private config:Config,private transport:typeof fetch=fetch){
+  this.driver=driverFor(machines);
   if(!/^[a-z0-9][a-z0-9-]{1,62}$/.test(config.app)||!config.storageToken||config.storageToken.startsWith('sb_secret_')||/\s/.test(config.storageToken))throw fail('LIFECYCLE_CONFIG_MISSING');
-  try{this.storage=new URL(config.storageUrl);if(this.storage.protocol!=='https:'||!this.storage.hostname.endsWith('.supabase.co')||this.storage.username||this.storage.password||this.storage.pathname!=='/'||this.storage.search||this.storage.hash)throw Error();
+  try{this.storage=new URL(config.storageUrl);if(!((this.storage.protocol==='https:'&&this.storage.hostname.endsWith('.supabase.co'))||(this.driver.kind==='docker'&&this.storage.protocol==='http:'&&this.storage.hostname==='127.0.0.1'&&/^\d+$/.test(this.storage.port)))||this.storage.username||this.storage.password||this.storage.pathname!=='/'||this.storage.search||this.storage.hash)throw Error();
    // Enforce the dedicated Storage identity; Storage verifies the JWT signature.
    const parts=config.storageToken.split('.');if(parts.length!==3||parts.some(p=>!p||!/^[A-Za-z0-9_-]+$/.test(p))||JSON.parse(Buffer.from(parts[1],'base64url').toString()).role!=='reinlab_snapshot_writer')throw Error();
-   const control=new URL(config.controlUrl);if(control.protocol!=='http:'||!control.hostname.endsWith('.internal')||control.username||control.password||control.pathname!=='/'||control.search||control.hash)throw Error();
+   const control=new URL(config.controlUrl);if(!((this.driver.kind==='fly'&&control.protocol==='http:'&&control.hostname.endsWith('.internal'))||(this.driver.kind==='docker'&&config.controlUrl==='http://host.docker.internal:3001/'))||control.username||control.password||control.pathname!=='/'||control.search||control.hash)throw Error();
   }catch{throw fail('LIFECYCLE_CONFIG_MISSING');}
  }
  async registered(event:{source:'supabase-auth';accountId:string},provisioner:Pick<AccountProvisioner,'ensure'>){if(event.source!=='supabase-auth')throw fail('AUTH_INVALID',401);uuid.parse(event.accountId);return provisioner.ensure(event.accountId);}
@@ -36,17 +44,17 @@ export class AccountLifecycle {
  async reconcileRuntime(id:string,runtimeId:string){uuid.parse(id);if(!/^[a-zA-Z0-9_.:-]{1,128}$/.test(runtimeId))throw fail('INVALID_INPUT',400);return this.db.withAccount(id,async c=>{await c.query('select pg_advisory_xact_lock(hashtextextended($1,0))',['ledger:'+id]);await c.query('select account_id from account_machine where account_id=$1 for update',[id]);const row=await this.machine(c,id);if(row.runtime_id!==runtimeId){await this.interrupt(c,id,'runtime_restart','runtime:'+runtimeId);await c.query('update account_machine set runtime_id=$2,last_health_at=now(),updated_at=now() where account_id=$1',[id,runtimeId]);}return {code:'RUNTIME_RECONCILED'};});}
  private async claim(id:string,lease:string){await this.db.withAccount(id,async c=>{await this.machine(c,id);if(!(await c.query("update account_machine set lease_id=$2,lease_until=now()+interval '200 seconds' where account_id=$1 and (lease_id is null or lease_until<now()) returning account_id",[id,lease])).rowCount)throw fail('PROVISIONING_BUSY',409);});}
  private async release(id:string,lease:string){await this.db.withAccount(id,c=>c.query('update account_machine set lease_id=null,lease_until=null where account_id=$1 and lease_id=$2',[id,lease]));}
- async upgrade(id:string,image:string,mode:'wait'|'interrupt',operationId:string){uuid.parse(id);uuid.parse(operationId);imageSchema.parse(image);if(!['wait','interrupt'].includes(mode))throw fail('INVALID_INPUT',400);const lease=randomUUID();await this.claim(id,lease);
+ async upgrade(id:string,image:string,mode:'wait'|'interrupt',operationId:string){uuid.parse(id);uuid.parse(operationId);this.driver.validateImage(image);if(!['wait','interrupt'].includes(mode))throw fail('INVALID_INPUT',400);const lease=randomUUID();await this.claim(id,lease);
   try{
    const requestHash=createHash('sha256').update(JSON.stringify({image,mode})).digest('hex');
    const operation=(await this.db.withAccount(id,c=>c.query('select request_hash,state from account_machine_operation where account_id=$1 and operation_id=$2',[id,operationId]))).rows[0];
    if(operation&&operation.request_hash!==requestHash)throw fail('DEDUPE_CONFLICT',409);
    if(operation?.state==='applied')return {code:'UPDATE_REQUESTED'};
    const {row,tokens}=await this.db.withAccount(id,async c=>({row:await this.machine(c,id),tokens:await this.tokens(c,id)}));
-   const [machines,volumes]=await Promise.all([this.fly.listMachines(),this.fly.listVolumes()]);
-   const expectedEnv=machinePlan({accountId:id,volumeId:row.fly_volume_id!,image,controlUrl:this.config.controlUrl,tokens}).config.env;
+   const [machines,volumes]=await Promise.all([this.driver.listMachines(),this.driver.listVolumes()]);
+   const expectedEnv=this.driver.plan({accountId:id,volumeId:row.fly_volume_id!,image,controlUrl:this.config.controlUrl,tokens}).config.env;
    const matches=machines.filter(m=>m.id===row.fly_machine_id||m.config.metadata?.reinlab_account_id===id),m=matches[0],v=volumes.find(v=>v.id===row.fly_volume_id);
-   if(matches.length!==1||!m||m.config.auto_destroy!==false||(m.config.restart as {policy?:string}|undefined)?.policy!=='always'||Object.entries(expectedEnv).some(([k,v])=>(m.config.env as Record<string,string>|undefined)?.[k]!==v)||m.id!==row.fly_machine_id||m.region!=='nrt'||m.config.metadata?.reinlab_account_id!==id||m.config.mounts?.length!==1||m.config.mounts[0].volume!==row.fly_volume_id||m.config.mounts[0].path!=='/data'||(m.config.services!==undefined&&(!Array.isArray(m.config.services)||m.config.services.length!==0))||!v||v.region!=='nrt'||v.name!=='rl_'+id.replaceAll('-','')||(v.attached_machine_id&&v.attached_machine_id!==m.id))throw fail('PROVISIONING_CONFLICT',409);
+   if(matches.length!==1||!m||m.config.auto_destroy!==false||(m.config.restart as {policy?:string}|undefined)?.policy!=='always'||Object.entries(expectedEnv).some(([k,v])=>(m.config.env as Record<string,string>|undefined)?.[k]!==v)||m.id!==row.fly_machine_id||m.region!==this.driver.region||m.config.metadata?.reinlab_account_id!==id||m.config.mounts?.length!==1||m.config.mounts[0].volume!==row.fly_volume_id||m.config.mounts[0].path!=='/data'||(m.config.services!==undefined&&(!Array.isArray(m.config.services)||m.config.services.length!==0))||!v||v.region!==this.driver.region||v.name!=='rl_'+id.replaceAll('-','')||(v.attached_machine_id&&v.attached_machine_id!==m.id))throw fail('PROVISIONING_CONFLICT',409);
    if(operation){if(m.config.image!==image)throw fail('PROVISIONING_INDETERMINATE',409);await this.db.withAccount(id,c=>c.query("update account_machine_operation set state='applied' where account_id=$1 and operation_id=$2",[id,operationId]));return {code:'UPDATE_REQUESTED'};}
    await this.db.withAccount(id,async c=>{
     await c.query('select pg_advisory_xact_lock(hashtextextended($1,0))',['ledger:'+id]);
@@ -58,7 +66,7 @@ export class AccountLifecycle {
     await this.interrupt(c,id,'image_upgrade','upgrade:'+operationId);
     await c.query("update account_machine set state='starting',phase=$3,image=$4,updated_at=now() where account_id=$1 and lease_id=$2",[id,lease,'upgrade_pending:'+operationId,image]);
    });
-   try{await this.fly.update(m.id,{...m.config,image});}catch{await this.db.withAccount(id,c=>c.query("update account_machine_operation set state='indeterminate' where account_id=$1 and operation_id=$2 and state='pending'",[id,operationId]));throw fail('PROVISIONING_INDETERMINATE',409);}
+   try{await this.driver.update(m.id,{...m.config,image});}catch{await this.db.withAccount(id,c=>c.query("update account_machine_operation set state='indeterminate' where account_id=$1 and operation_id=$2 and state='pending'",[id,operationId]));throw fail('PROVISIONING_INDETERMINATE',409);}
    await this.db.withAccount(id,c=>c.query("update account_machine_operation set state='applied' where account_id=$1 and operation_id=$2",[id,operationId]));return {code:'UPDATE_REQUESTED'};
   }catch(error){if(error instanceof ApiFailure)throw error;throw fail('LIFECYCLE_UNAVAILABLE');}finally{await this.release(id,lease);}
  }
@@ -68,17 +76,17 @@ export class AccountLifecycle {
   try{
    const source=await this.db.withAccount(id,async c=>{
     const fenced=await c.query('select account_id from account_machine where account_id=$1 and lease_id=$2 and lease_until>now() for update',[id,lease]);if(!fenced.rowCount)throw fail('PROVISIONING_LEASE_LOST',409);
-    const m=await this.machine(c,id);if(m.state!=='ready'||!/^[a-f0-9]{10,32}$/.test(m.fly_machine_id!))throw fail('ACCOUNT_MACHINE_UNAVAILABLE');
+    const m=await this.machine(c,id);if(m.state!=='ready')throw fail('ACCOUNT_MACHINE_UNAVAILABLE');
     if((await c.query("select id from run where account_id=$1 and state='running' limit 1",[id])).rowCount)throw fail('ACTIVE_RUNS',409);
     return {machine:m.fly_machine_id!,tokens:await this.tokens(c,id)};
    });
    const signal=AbortSignal.timeout(120000);
-   const response=await this.transport(`http://${source.machine}.vm.${this.config.app}.internal:4096/reinlab/backup`,{headers:{authorization:'Bearer '+source.tokens.auth},redirect:'error',signal});
+   const response=await this.transport((await this.driver.endpoint(source.machine,this.config.app))+'/reinlab/backup',{headers:{authorization:'Bearer '+source.tokens.auth},redirect:'error',signal});
    if(!response.ok||!response.body||!response.headers.get('content-type')?.startsWith('application/x-tar')){await response.body?.cancel();throw fail('SNAPSHOT_UNAVAILABLE');}
    const target=new URL('/storage/v1/object/dossier-snapshots/'+id+'/'+date+'.tar',this.storage);
    const result=await this.transport(target,{method:'POST',headers:{authorization:'Bearer '+this.config.storageToken,'content-type':'application/x-tar','x-upsert':'false'},body:response.body,duplex:'half',redirect:'error',signal} as RequestInit & {duplex:'half'});
-   await result.body?.cancel();if(result.status===409)return {code:'SNAPSHOT_EXISTS'};if(!result.ok)throw fail('SNAPSHOT_UNAVAILABLE');return {code:'SNAPSHOT_STORED'};
+   if(!result.ok){if(await duplicateSnapshot(result))return {code:'SNAPSHOT_EXISTS'};throw fail('SNAPSHOT_UNAVAILABLE');}await result.body?.cancel();return {code:'SNAPSHOT_STORED'};
   }catch(error){if(error instanceof ApiFailure)throw error;throw fail('SNAPSHOT_UNAVAILABLE');}finally{await this.release(id,lease);}
  }
 }
-export function lifecycleFromEnvironment(db:Database){const {FLY_API_TOKEN,FLY_APP_ACCOUNTS,SUPABASE_URL,STORAGE_SERVICE_TOKEN,REINLAB_CONTROL_URL}=process.env;if(!FLY_API_TOKEN||!FLY_APP_ACCOUNTS||!SUPABASE_URL||!STORAGE_SERVICE_TOKEN||!REINLAB_CONTROL_URL)throw fail('LIFECYCLE_CONFIG_MISSING');return new AccountLifecycle(db,new FlyMachines(FLY_APP_ACCOUNTS,FLY_API_TOKEN),new SupabaseKeyVault(),{app:FLY_APP_ACCOUNTS,storageUrl:SUPABASE_URL,storageToken:STORAGE_SERVICE_TOKEN,controlUrl:REINLAB_CONTROL_URL});}
+export function lifecycleFromEnvironment(db:Database){const {SUPABASE_URL,STORAGE_SERVICE_TOKEN,REINLAB_CONTROL_URL}=process.env;if(!SUPABASE_URL||!STORAGE_SERVICE_TOKEN||!REINLAB_CONTROL_URL)throw fail('LIFECYCLE_CONFIG_MISSING');return new AccountLifecycle(db,environmentDriver(),new SupabaseKeyVault(),{app:process.env.FLY_APP_ACCOUNTS??'reinlab-local',storageUrl:SUPABASE_URL,storageToken:STORAGE_SERVICE_TOKEN,controlUrl:REINLAB_CONTROL_URL});}

@@ -7,3 +7,4 @@ allowBuilds:
   esbuild@0.25.12: true
   sharp@0.32.6: true
   "@synsci/openscience@2.0.150": true
+  "supabase@2.121.0": true

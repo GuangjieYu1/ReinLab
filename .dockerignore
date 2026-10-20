@@ -4,3 +4,6 @@ node_modules
 .env*
 evidence
 *.log
+infra/supabase/.temp
+infra/supabase/.branches
+.local
