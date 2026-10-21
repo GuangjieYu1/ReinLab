@@ -1,3 +1,5 @@
+> **第二次授权已消费：禁止再执行真实smoke CLI。** 第二次真实1/1成功、专用key核账¥0.002766/误差0%，见[报告](real-smoke-second-authorization/README.md)、[CSV](real-smoke-second-authorization/cost-reconcile.csv)、[账本](real-smoke-second-authorization/ledger.jsonl)。两次marker保留；第一次仍unknown/unpriced。最新代码36f854d无新增生产改动，最新CI在PR描述。下一步仅Claude关闭审查及用户凭据轮换处理，不进入P1-11。
+
 > **最新停止点：第二次计划等待明确授权，普通复验禁止运行真实CLI。** B-6/B-7/B-8修复及1347/1347双版本回归见[thinking-fix](thinking-fix/README.md)，第二次使用独立固定目录，详见[计划](thinking-fix/SECOND_SMOKE_PLAN.md)。第一次旧marker不删除，旧入口仍拒绝再发。
 
 > **本次真实授权已消费：禁止再执行smoke-local.ts。** 北京时间2026-10-22 02:31唯一真实转发返回400，usage未知、hold unpriced，临时配置清理成功；P1-10保持未关闭。最新证据见[真实执行](real-smoke-execution/README.md)。普通fixture回归不会读取真实key。

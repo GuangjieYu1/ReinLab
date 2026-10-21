@@ -1,3 +1,5 @@
+> **最新：第二次授权的真实冒烟与专用key核账均成功。** 真实转发1，回复“链路已通”，run completed、usage已知、hold settled；费用¥0.002766，后台与账本误差0%。见[第二次真实证据](real-smoke-second-authorization/README.md)。第一次unknown费用与两次marker均保留。待Claude关闭审查，未进入P1-11；工具自动读取敏感弹窗事件已如实记录Q-067，不宣称全程无凭据暴露。最新CI终态见PR #16。
+
 > **最新：B-6/B-7/B-8已修复并提交，第二次真实冒烟尚未执行。** Node22/24各1347/1347、独立安全35/35；[第二次计划](thinking-fix/SECOND_SMOKE_PLAN.md)等待用户重新明确授权。第一次失败和unknown费用仍保留，P1-10未关闭，未进入P1-11。最新证据索引：[thinking-fix](thinking-fix/README.md)。下文第一次失败状态为历史记录。
 
 > **2026-10-22 最新状态：P1-10保持未关闭。** 已获用户确认并执行唯一一次真实转发，但DeepSeek返回400，usage未知、预算unpriced，未重试。临时配置清理完成。见[真实失败与账本证据](real-smoke-execution/README.md)。此前“未执行/等待确认/TODO”的文字是过程快照，由本状态及下方最新记录取代。未进入P1-11。
