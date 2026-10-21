@@ -70,7 +70,7 @@ function validate(value: unknown) {
     "reasoning_effort",
   ]);
   if (
-    value.model !== "deepseek-v4-flash" ||
+    !["deepseek-v4-flash", "deepseek-flash"].includes(value.model) ||
     !Number.isInteger(value.max_tokens) ||
     value.max_tokens < 1 ||
     value.max_tokens > 1024 ||

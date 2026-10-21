@@ -45,6 +45,7 @@ async function fixture(
       fixtureOriginal: true,
     }),
     requests: Array<{ path: string; method: string; body: any }> = [];
+  let configured: any;
   const server = createServer(async (req, res) => {
     let raw = "";
     for await (const chunk of req) raw += chunk;
@@ -64,7 +65,10 @@ async function fixture(
       res.end(
         JSON.stringify(
           req.method === "GET"
-            ? { content: original, path: "/fixture/config.json" }
+            ? {
+                content: configured ? JSON.stringify(configured) : original,
+                path: "/fixture/config.json",
+              }
             : { plugin: [pluginUrl] },
         ),
       );
@@ -75,11 +79,39 @@ async function fixture(
         res.writeHead(503).end("{}");
         return;
       }
+      if (req.method === "PATCH") configured = JSON.parse(raw);
       res.end(JSON.stringify({ plugin: [pluginUrl] }));
       return;
     }
     if (path === "/provider") {
-      res.end(JSON.stringify({ all: [], default: {}, connected }));
+      res.end(
+        JSON.stringify(
+          configured
+            ? {
+                all: [
+                  {
+                    id: "deepseek",
+                    models: {
+                      "deepseek-v4-flash": {
+                        status: "active",
+                        api: {
+                          id: configured.provider.deepseek.models[
+                            "deepseek-v4-flash"
+                          ].id,
+                          url: configured.provider.deepseek.options.baseURL,
+                        },
+                        limit: { context: 1048576, output: 1024 },
+                        capabilities: { reasoning: false },
+                      },
+                    },
+                  },
+                ],
+                default: {},
+                connected: ["deepseek"],
+              }
+            : { all: [], default: {}, connected },
+        ),
+      );
       return;
     }
     if (path === "/auth/deepseek") {
@@ -134,6 +166,7 @@ it("real SDK configures only temporary deepseek auth, real context/output limits
     "http://host.docker.internal:43210/v1",
   );
   expect(config.provider.deepseek.models["deepseek-v4-flash"]).toMatchObject({
+    id: "deepseek-flash",
     reasoning: false,
     limit: { context: 1048576, output: 1024 },
   });

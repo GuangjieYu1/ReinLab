@@ -93,3 +93,37 @@
 - 背景：研究种子角色默认48步，P1-11工具预算钩子尚未实现；本批只允许一次真实模型回合且≤¥1。
 - 推荐并采用：运行输入可提出更紧的limits.maxSteps（1～种子steps），只能收紧不扩权；冒烟取1步，仍使用真实研究角色提示词/模型/账户容器与原生用量。禁用辅助title agent，模型默认与small_model统一DeepSeek且仅此provider启用。真实执行前按实际上下文与模型输出上限核对≤¥1；无法保证则不提交并保留待验。
 - 不改变role_def授权、requestID、生产模型、不引入桩。P1-11再接完整逐工具预授权。
+
+## Q-055 第三批补充Harness清单的初始来源
+- 主仓库ADDENDUM/HARNESS均已读取，实际benches/research.bench.yaml和prompts/目录尚不存在；HARNESS中的YAML是节选示例，不能当完整已审查角色表。
+- 推荐并采用：从已审查role_def迁移10个角色及提示词到研究台清单/提示词资源，保持现有ID与权限上限；入口角色映射、模型位置、write_targets、阶段和默认预算均显式声明。工具risk由独立通用注册契约提供，未实现的P1-11能力标planned，不能假称可执行。现role_def保留历史FK/兼容，不再作为研究台运行授权来源。
+- T-HAR-1/2/5/10本批完成；版本升级收件箱、完整门禁钩子、卡片生成/回放等按HARNESS落地顺序留后段，不假称完成T-HAR-4/6/8/9。
+
+## Q-056 网关与旧SPIKE-3接入方式变更
+- 用户补充决定：模型key以后仅在LiteLLM网关，运行使用临时预算key；本批只预留费用来源gateway_callback接口，不部署/伪装网关。本轮真实冒烟仍遵循已授权受保护DeepSeek配置与≤¥1限制，并标清direct_provider_usage。
+- SPIKE-3原结论保留为当时源码/接口事实；未来P2-07**接入方式将变更**：课堂引擎内使用@openmaic/generation，AICallFn连网关，不再以站点scene-content作为正式接入。当前不实现课堂引擎、不改现有前端跳转。
+
+## Q-057 Harness权限放宽审批的持久化
+- 原approval表run_id必填且kind没有harness，档案偏好调整可能尚无run。
+- 推荐并采用：本批新增租户隔离harness_proposal存放精确patch/原有效摘要/用户决定收据；账户/档案身份+CAS有效摘要核对后才应用。未经批准，含放宽的patch不改变有效配置，只生成审批卡；批准后写harness.loosen账本。纯函数或调用者布尔approved不能构成授权。
+
+## Q-058 前端基线更新与第18个场景
+- 用户明确批准仅src/、e2e/legacy/、package.json的scripts段同步主仓库现成基线，逐文件哈希；旧17任一失败停止，不改场景。
+- 实际新增5个看板文件、更新AutomationStudio；scripts源5key本已与分支相同，保留分支后端脚本和所有依赖。18/18已通过，源/目标逐字节一致，主仓库哈希未变。证据evidence/T-REG/baseline-refresh，初始缺看板失败保留evidence/T-REG/live。
+
+## Q-059 P1-10账户内恢复范围
+- Hatchet全局持久调度到P1-13才实现。应用DB角色不具跨租户扫描权限，不能为了自动恢复放宽RLS。
+- 本批选择：已认证账户请求/SSE或明确用户重放时恢复该账户已accepted会话的观察；发送结果未知仅查询原snapshot/收据。无人访问时的全局主动恢复仍待P1-13，不作已完成声明。观察器最多3次连接，外层不无限重启它。
+
+## Q-060 Harness记忆注入最小规则
+- 当前角色scope有layers/current/own/explicit，完整检索和引文授权由P1-15实现。
+- 推荐并采用：新run无本人旧thread，L1不读；自动注入仅role允许的L2当前档案且无thread、L3/L4账户全局且无dossier/thread，排除revoked/被supersedes。若显式memoryRefs UUID[]（含空数组）则仅取该集合与上述范围交集，绝不扩权。assigned-citations无已核验分配引用时本批memory为空并保留待办，不猜path或任意ID授权。
+
+## Q-061 无效问题答复的纠正
+- 决定意图一旦发送必须不可变，不因400就解开sent围栏。
+- 本批API在保存新意图之前先只读fresh snapshot验证答案；无效答案400不保存intent，可更正后提交。真正dispatch之前再次fresh核验；结果未知不自动重发。历史replied不等于ReinLab用户批准，无控制面intent时原pending只会expired。
+
+## Q-062 / B-1 DeepSeek 旧目录别名不可用
+- 原生2.0.150在连接后过滤 catalog 的 deprecated 模型；官方价格页确认旧 deepseek-v4-flash 与当前 deepseek-flash 均服务于 DeepSeek-V4.1-Flash-1017。保持三档产品路由 deepseek/deepseek-v4-flash，通过 SDK 模型配置 id=deepseek-flash 映射 API 名；不改上游，也不把旧目录行伪标 active/beta。内核实际发送 API 名与产品路由分别留证。
+- 临时冒烟配置完成后，先读真实 provider 列表核对 alias、API id、可用状态、1024输出上限/非思考，再核对受信 raw config 的本地临时端点；未生效即清理临时 auth/config，禁止开始 prompt。guard 两个等价 API 名共用一个不可回退 marker，不能增加请求次数。
+- 已保留的前置失败只接受了本地内核请求，真实提供方转发0、usage空；不修改该失败运行，不重发其 requestID。之后唯一真实冒烟必须按用户最新要求，先确认新计划再执行。

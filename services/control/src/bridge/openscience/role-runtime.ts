@@ -369,6 +369,9 @@ export class RoleRuntime {
                     options: { baseURL: origin + "/v1" },
                     models: {
                       "deepseek-v4-flash": {
+                        // Keep the product route; resolve its deprecated catalog
+                        // alias to the same model's current official API name.
+                        id: "deepseek-flash",
                         reasoning: false,
                         limit: { context: 1048576, output: 1024 },
                       },
@@ -380,6 +383,33 @@ export class RoleRuntime {
             options,
           ),
         );
+        const ready = await this.call((options) =>
+          this.client.provider.list(
+            { directory: this.options.project.directory },
+            options,
+          ),
+        );
+        const model = ready.all.find((provider) => provider.id === "deepseek")
+          ?.models["deepseek-v4-flash"];
+        // provider.list intentionally redacts endpoint URLs; verify the trusted
+        // new account's raw JSON config separately, without returning it.
+        const applied = await this.call((options) =>
+          this.client.global.configRawGet(options),
+        );
+        const appliedConfig = JSON.parse(applied.content);
+        if (
+          appliedConfig.provider?.deepseek?.options?.baseURL !==
+            origin + "/v1" ||
+          !ready.connected.includes("deepseek") ||
+          !model ||
+          model.status === "deprecated" ||
+          model.status === "alpha" ||
+          model.api.id !== "deepseek-flash" ||
+          model.limit.output !== 1024 ||
+          model.limit.context !== 1048576 ||
+          model.capabilities.reasoning !== false
+        )
+          throw unavailable();
       } catch {
         try {
           await cleanup();

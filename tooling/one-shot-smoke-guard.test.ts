@@ -55,38 +55,49 @@ async function fixture(
     });
   return { root, token, markerPath, options, guard, url, post, transport };
 }
-it("forwards one real-shaped request to the fixed URL, preserves response and persists private marker", async () => {
-  const transport = vi.fn(async (url, init) => {
-    expect(String(url)).toBe("https://api.deepseek.com/chat/completions");
-    expect(init?.redirect).toBe("error");
-    expect(new Headers(init?.headers).get("authorization")).toBe(
-      "Bearer fixture_upstream_credential",
-    );
-    return new Response("fixture bytes", {
-      status: 201,
-      headers: { "content-type": "application/json" },
+it.each(["deepseek-v4-flash", "deepseek-flash"])(
+  "forwards one %s request with a shared alias marker and fixed upstream",
+  async (model) => {
+    const transport = vi.fn(async (url, init) => {
+      expect(String(url)).toBe("https://api.deepseek.com/chat/completions");
+      expect(init?.redirect).toBe("error");
+      expect(new Headers(init?.headers).get("authorization")).toBe(
+        "Bearer fixture_upstream_credential",
+      );
+      return new Response("fixture bytes", {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    const f = await fixture(transport);
+    const response = await f.post({ ...body(), model });
+    expect(response.status).toBe(201);
+    expect(await response.text()).toBe("fixture bytes");
+    expect((await stat(f.markerPath)).mode & 0o777).toBe(0o600);
+    expect(f.guard.status()).toMatchObject({
+      forwardCount: 1,
+      priceBound: "0.500000",
+      status: "completed",
     });
-  }) as typeof fetch;
-  const f = await fixture(transport);
-  const response = await f.post();
-  expect(response.status).toBe(201);
-  expect(await response.text()).toBe("fixture bytes");
-  expect((await stat(f.markerPath)).mode & 0o777).toBe(0o600);
-  expect(f.guard.status()).toMatchObject({
-    forwardCount: 1,
-    priceBound: "0.500000",
-    status: "completed",
-  });
-  expect(Object.keys(f.guard.status()).sort()).toEqual([
-    "bytes",
-    "forwardCount",
-    "priceBound",
-    "status",
-  ]);
-  expect(JSON.stringify(f.guard.status())).not.toContain("credential");
-  expect((await f.post()).status).toBe(409);
-  expect(transport).toHaveBeenCalledTimes(1);
-});
+    expect(Object.keys(f.guard.status()).sort()).toEqual([
+      "bytes",
+      "forwardCount",
+      "priceBound",
+      "status",
+    ]);
+    expect(JSON.stringify(f.guard.status())).not.toContain("credential");
+    expect(
+      (
+        await f.post({
+          ...body(),
+          model:
+            model === "deepseek-flash" ? "deepseek-v4-flash" : "deepseek-flash",
+        })
+      ).status,
+    ).toBe(409);
+    expect(transport).toHaveBeenCalledTimes(1);
+  },
+);
 it("concurrent requests and a restarted guard share the same irreversible marker", async () => {
   const f = await fixture();
   const responses = await Promise.all([f.post(), f.post(), f.post()]);
