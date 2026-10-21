@@ -1,6 +1,7 @@
 import { beforeAll, expect, it } from "vitest";
 import { loadBenchBundle, loadToolRegistry } from "../src/harness/manifest";
 import { initialEffective, planBenchPatch } from "../src/harness/resolver";
+import { fixtureBenchWithTunables } from "./fixtures/bench-tunable";
 let base: ReturnType<typeof initialEffective>,
   registry: Awaited<ReturnType<typeof loadToolRegistry>>;
 beforeAll(async () => {
@@ -20,9 +21,13 @@ it("independent nonbudget preference cannot preserve an over-cap effective mode 
   ).toThrow();
 });
 it("independent mixed tightening and expansion still requires approval without mutating base", () => {
-  const before = base.digest;
+  const declared = fixtureBenchWithTunables(base, [
+    ...base.manifest.tunable,
+    "roles.*.write_targets",
+  ]);
+  const before = declared.digest;
   const p = planBenchPatch(
-    base,
+    declared,
     {
       roles: {
         "research-read": {
@@ -35,7 +40,7 @@ it("independent mixed tightening and expansion still requires approval without m
     300,
   );
   expect(p.requiresApproval).toBe(true);
-  expect(base.digest).toBe(before);
+  expect(declared.digest).toBe(before);
   expect(base.manifest.roles["research-read"].tools.literature).toBe("allow");
 });
 it("independent boolean approval is rejected and dangerous tasks cannot become ask", () => {

@@ -8,6 +8,7 @@ import {
   RoleProjectRequest,
 } from "../src/bridge/openscience/role-project";
 import { canonical } from "../src/api/context";
+import { fixtureBenchWithTunables } from "./fixtures/bench-tunable";
 let registry: Awaited<ReturnType<typeof loadToolRegistry>>;
 let effective: ReturnType<typeof initialEffective>;
 const options = () => ({
@@ -51,7 +52,10 @@ it("materializes all ten actual research roles without role_def", () => {
 });
 it("routes models only through effective slot tiers and appends only own notes", () => {
   const candidate = planBenchPatch(
-    effective,
+    fixtureBenchWithTunables(effective, [
+      ...effective.manifest.tunable,
+      "roles.*.dossier_note",
+    ]),
     {
       model_slots: { strong: "cheap" },
       roles: {

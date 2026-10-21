@@ -1,13 +1,20 @@
 import { beforeAll, expect, it } from "vitest";
 import { loadBenchBundle, loadToolRegistry } from "../src/harness/manifest";
 import { initialEffective, planBenchPatch } from "../src/harness/resolver";
+import { fixtureBenchWithTunables } from "./fixtures/bench-tunable";
 let base: ReturnType<typeof initialEffective>,
+  configurable: ReturnType<typeof initialEffective>,
   registry: Awaited<ReturnType<typeof loadToolRegistry>>;
 beforeAll(async () => {
   registry = await loadToolRegistry();
   base = initialEffective(
     await loadBenchBundle({ benchId: "research", registry }),
   );
+  configurable = fixtureBenchWithTunables(base, [
+    ...base.manifest.tunable,
+    "roles.*.write_targets",
+    "roles.*.dossier_note",
+  ]);
 });
 it("T-HAR-2 tightening is planned directly; loosening preserves base and requires user approval", () => {
   const tight = planBenchPatch(
@@ -38,7 +45,7 @@ it("T-HAR-2 tightening is planned directly; loosening preserves base and require
 it("new registered tools require approval, subset writes tighten and expansion requires approval", () => {
   expect(
     planBenchPatch(
-      base,
+      configurable,
       { roles: { "research-read": { tools: { read: "ask" } } } },
       registry,
       300,
@@ -46,7 +53,7 @@ it("new registered tools require approval, subset writes tighten and expansion r
   ).toBe(true);
   expect(
     planBenchPatch(
-      base,
+      configurable,
       { roles: { "research-read": { write_targets: ["read/layers/"] } } },
       registry,
       300,
@@ -54,7 +61,7 @@ it("new registered tools require approval, subset writes tighten and expansion r
   ).toBe(false);
   expect(
     planBenchPatch(
-      base,
+      configurable,
       { roles: { "research-read": { write_targets: ["new-notes/"] } } },
       registry,
       300,
@@ -72,9 +79,9 @@ it("approval cannot cross floors or mutate gates/prompts; model/budget changes s
     { budget: { default_cny: 301 } },
     { roles: { "research-read": { tools: { unknown_capability: "allow" } } } },
   ])
-    expect(() => planBenchPatch(base, patch, registry, 300)).toThrow();
+    expect(() => planBenchPatch(configurable, patch, registry, 300)).toThrow();
   const changed = planBenchPatch(
-    base,
+    configurable,
     {
       model_slots: { strong: "mid" },
       budget: { default_cny: 4 },

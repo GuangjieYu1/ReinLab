@@ -146,3 +146,37 @@ it("run estimate and confirmed admission bind manifest version/effective hash, c
     ).status,
   ).toBe(409);
 });
+it("unlisted tuning fields return HTTP400 and create no proposal, override, ledger or idempotency receipt", async () => {
+  const created = await post("/v1/dossiers", {
+    bench: "research",
+    title: "tunable reject",
+  });
+  expect(created.status).toBe(201);
+  const dossier = (await created.json()).id;
+  const count = () =>
+    db.withAccount(
+      a,
+      async (c) =>
+        (
+          await c.query(
+            `select (select count(*) from harness_proposal where dossier_id=$1)::int proposals,(select count(*) from dossier_override where dossier_id=$1)::int overrides,(select count(*) from event where dossier_id=$1)::int events,(select count(*) from http_request)::int receipts`,
+            [dossier],
+          )
+        ).rows[0],
+    );
+  const before = await count(),
+    digest = (await harness.effective(a, dossier)).digest;
+  for (const update of [
+    { write_targets: [] },
+    { memory: { read: [] } },
+    { dossier_note: "unlisted" },
+  ]) {
+    const response = await post("/v1/dossiers/" + dossier + "/harness/patch", {
+      roles: { "research-read": update },
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "FIELD_NOT_TUNABLE" });
+    expect(await count()).toEqual(before);
+    expect((await harness.effective(a, dossier)).digest).toBe(digest);
+  }
+});

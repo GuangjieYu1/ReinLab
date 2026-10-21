@@ -127,3 +127,7 @@
 - 原生2.0.150在连接后过滤 catalog 的 deprecated 模型；官方价格页确认旧 deepseek-v4-flash 与当前 deepseek-flash 均服务于 DeepSeek-V4.1-Flash-1017。保持三档产品路由 deepseek/deepseek-v4-flash，通过 SDK 模型配置 id=deepseek-flash 映射 API 名；不改上游，也不把旧目录行伪标 active/beta。内核实际发送 API 名与产品路由分别留证。
 - 临时冒烟配置完成后，先读真实 provider 列表核对 alias、API id、可用状态、1024输出上限/非思考，再核对受信 raw config 的本地临时端点；未生效即清理临时 auth/config，禁止开始 prompt。guard 两个等价 API 名共用一个不可回退 marker，不能增加请求次数。
 - 已保留的前置失败只接受了本地内核请求，真实提供方转发0、usage空；不修改该失败运行，不重发其 requestID。之后唯一真实冒烟必须按用户最新要求，先确认新计划再执行。
+
+## Q-063 / B-2、B-3 清单可调字段与目录声明
+- resolver现逐字段执行tunable白名单，未列入字段（即使为空或同值）400拒绝；研究台原tunable不扩容。可调整目录/记忆/附加说明的通用能力仅在专门声明这些字段的清单中可用，审批不能跳过白名单。
+- B-3处理选择：layout表示初始目录骨架，不是写权限白名单；write_targets可声明本档案内的其他纯相对子目录，仍须工具授权与路径校验，实际写入时才按授权建立。当前read/layers/、findings/、experiments/属于这种目录。初始化骨架物化与相应业务工具未在本批实现，不把允许路径称为磁盘目录已存在；后段必须按目录合同物化。维持已发布1.0.0内容及摘要不可变，不为文档观察静默改清单。

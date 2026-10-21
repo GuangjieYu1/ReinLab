@@ -67,6 +67,46 @@ function covered(target: string, allowed: string) {
     target === allowed || (allowed.endsWith("/") && target.startsWith(allowed))
   );
 }
+function assertTunable(manifest: BenchManifest, patch: BenchPatch) {
+  const patterns = manifest.tunable.flatMap((rule) => {
+    const [path, suffix, ...extra] = rule.split(":");
+    if (extra.length || (suffix !== undefined && suffix !== "tighten_only"))
+      return [];
+    const parts = path.split(".");
+    return parts.every(
+      (part) => part === "*" || /^[a-z][a-z0-9_-]*$/.test(part),
+    )
+      ? [parts]
+      : [];
+  });
+  const visit = (value: unknown, path: string[]) => {
+    if (
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Object.keys(value).length
+    ) {
+      for (const [key, child] of Object.entries(value))
+        visit(child, [...path, key]);
+      return;
+    }
+    // A terminal wildcard grants the declared subtree (budget.* includes
+    // budget.by_mode.read); other wildcards match exactly one path segment.
+    const allowed = patterns.some(
+      (pattern) =>
+        path.length >= pattern.length &&
+        pattern.every((part, index) => part === "*" || part === path[index]) &&
+        (pattern.length === path.length || pattern.at(-1) === "*"),
+    );
+    if (!allowed)
+      throw new ApiFailure(
+        "FIELD_NOT_TUNABLE",
+        400,
+        "该工作台未开放此微调字段。",
+      );
+  };
+  for (const [key, value] of Object.entries(patch)) visit(value, [key]);
+}
 /** Produces a proposal only. Approval authority exists exclusively in HarnessStore. */
 export function planBenchPatch(
   base: EffectiveBench,
@@ -77,6 +117,7 @@ export function planBenchPatch(
   const parsed = benchPatchFor(base.manifest).safeParse(raw);
   if (!parsed.success)
     throw new ApiFailure("INVALID_INPUT", 400, "工作台微调字段无效。");
+  assertTunable(base.manifest, parsed.data);
   const patch: BenchPatch = parsed.data,
     candidate = structuredClone(base),
     changes: ConfigChange[] = [];
