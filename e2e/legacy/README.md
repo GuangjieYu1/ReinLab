@@ -11,7 +11,7 @@
 
 ```bash
 npm run dev                       # 另开终端，先起前端（默认 http://127.0.0.1:5173）
-node e2e/legacy/run.mjs           # 跑全部 17 个场景
+node e2e/legacy/run.mjs           # 跑全部 18 个场景
 node e2e/legacy/run.mjs au cu     # 只跑指定场景
 node e2e/legacy/run.mjs --list    # 列出场景
 ```
@@ -56,6 +56,7 @@ node e2e/legacy/run.mjs --list    # 列出场景
 | vf | 创作台：分镜 → 机位 → 一致性 → 成片 |
 | trip | 入口转场（研究台）：继续工作 → 工作台 → 返回 |
 | trip-en | 入口转场（工程台）：同上 |
+| live | 自动化台看板：告警、调参与审批、接入 GitHub 项目、模拟、拒绝交易（2026-10-20 新增） |
 
 ## 已知局限
 

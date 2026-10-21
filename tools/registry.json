@@ -1,0 +1,147 @@
+{
+  "schema": "reinlab.tools/v1",
+  "tools": {
+    "apply_patch": {
+      "risk": "write",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    },
+    "bash": {
+      "risk": "danger",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    },
+    "card_answer": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "card_approval": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "edit": {
+      "risk": "write",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    },
+    "finding_record": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "literature": {
+      "risk": "read",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "memory_propose": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "memory_read": {
+      "risk": "read",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "multiedit": {
+      "risk": "write",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    },
+    "patch": {
+      "risk": "write",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    },
+    "plan_propose": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "read": {
+      "risk": "read",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    },
+    "read_layer_write": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "read_quiz_write": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "swarm_ask": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "swarm_board": {
+      "risk": "read",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "swarm_broadcast": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "swarm_claim": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "swarm_deliver": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "swarm_handoff": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "swarm_help": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "swarm_refute": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "task": {
+      "risk": "danger",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    },
+    "todowrite": {
+      "risk": "write",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    },
+    "verdict_record": {
+      "risk": "write",
+      "availability": "planned",
+      "description": "Migrated reviewed role contract; implementation remains deferred to P1-11."
+    },
+    "webfetch": {
+      "risk": "read",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    },
+    "write": {
+      "risk": "write",
+      "availability": "native",
+      "description": "OpenScience native capability; role whitelist and harness safety floor still apply."
+    }
+  },
+  "mcp": {},
+  "delegations": []
+}
