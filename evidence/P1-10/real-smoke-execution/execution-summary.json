@@ -1,0 +1,20 @@
+{
+  "approvedBy": "用户在本聊天明确确认按计划执行一次",
+  "windowCst": "2026-10-22 02:00–08:50",
+  "implementationCommit": "38f2e2ea02e8ec1f045fb78762a63e6d626e9bf6",
+  "uniqueRealForwardCount": 1,
+  "requestBytes": 10771,
+  "runId": "c0b2c91f-05b7-4c1f-9338-5b56142a1ed4",
+  "providerRequestId": "f5eb5243-3c51-444e-9760-dd17da8fe0c5",
+  "httpStatus": 400,
+  "runState": "failed",
+  "usageKnown": false,
+  "holdState": "unpriced",
+  "temporaryConfigurationCleaned": true,
+  "markerPreserved": true,
+  "noSecondModelRequest": true,
+  "p110Closed": false,
+  "priorPreflight": "../real-smoke-confirmed/real-smoke.json",
+  "priorPreflightForwardCount": 0,
+  "priorPreflightCause": "专用Colima VM状态残留，Docker及业务数据库不可达；db.assertSafeRole连接被拒，未读取模型凭据。重启同一专用profile，保留数据卷后local:up成功、迁移0。"
+}

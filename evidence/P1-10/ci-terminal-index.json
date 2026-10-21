@@ -128,5 +128,89 @@
       ],
       "allReportedJobsSuccessful": true
     }
-  ]
+  ],
+  "preSmokeHead": "38f2e2ea02e8ec1f045fb78762a63e6d626e9bf6",
+  "preSmokeHeadRuns": [
+    {
+      "id": 39651273335,
+      "event": "pull_request",
+      "headSha": "38f2e2ea02e8ec1f045fb78762a63e6d626e9bf6",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39651273335"
+    },
+    {
+      "id": 39651265098,
+      "event": "push",
+      "headSha": "38f2e2ea02e8ec1f045fb78762a63e6d626e9bf6",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39651265098"
+    },
+    {
+      "id": 39584656056,
+      "event": "pull_request",
+      "headSha": "ed91225450874773f86f4b7f52f0eaa3d38a1209",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39584656056"
+    },
+    {
+      "id": 39584604498,
+      "event": "push",
+      "headSha": "ed91225450874773f86f4b7f52f0eaa3d38a1209",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39584604498"
+    }
+  ],
+  "preSmokeHeadJobs": [
+    {
+      "id": 39651273335,
+      "jobs": [
+        {
+          "id": 119399920264,
+          "name": "local-stack",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 119399920388,
+          "name": "check",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 119399920795,
+          "name": "account-image",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 39651265098,
+      "jobs": [
+        {
+          "id": 119399890061,
+          "name": "local-stack",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 119399890386,
+          "name": "check",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 119399890523,
+          "name": "account-image",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "finalEvidenceHead": "见PR #16描述；本文件不自引用其所在提交触发的CI"
 }

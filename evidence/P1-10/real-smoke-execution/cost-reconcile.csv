@@ -1,0 +1,2 @@
+run_id,currency,window,fx,provider_forward_count,usage_known,ledger_cost_cny,provider_invoice_cost_cny,error_percent,reconciled,reason
+c0b2c91f-05b7-4c1f-9338-5b56142a1ed4,CNY,offpeak,7.2,1,false,,,,false,HTTP_400_provider_usage_missing_hourly_bill_not_attributable

@@ -1,0 +1,14 @@
+{
+  "realInfrastructure": true,
+  "realModel": true,
+  "startedAt": "2026-10-21T18:28:06.041Z",
+  "budgetCny": 1,
+  "completed": false,
+  "providerInvoiceReconciled": false,
+  "failureStage": "plan",
+  "code": "SMOKE_CHECK_FAILED",
+  "finishedAt": "2026-10-21T18:28:06.048Z",
+  "guard": null,
+  "cleanupFailures": [],
+  "temporaryConfigurationCleaned": true
+}

@@ -1,10 +1,12 @@
+> **2026-10-22 最新状态：P1-10保持未关闭。** 已获用户确认并执行唯一一次真实转发，但DeepSeek返回400，usage未知、预算unpriced，未重试。临时配置清理完成。见[真实失败与账本证据](real-smoke-execution/README.md)。此前“未执行/等待确认/TODO”的文字是过程快照，由本状态及下方最新记录取代。未进入P1-11。
+
 # P1-10 第三批送审草稿
 
 **P1-10保持未关闭，当前等待用户确认 [唯一真实冒烟计划](interim/SMOKE_PLAN.md)。** B-1与B-2已修复并分别提交；真实请求与后台账单核对完成后才正式送Claude，不进入P1-11。
 
 首个角色PR的完整原始README已按字节保存在 [README-role-first-pr.md](README-role-first-pr.md)；旧714/714与旧ci.json只属于该历史范围，不作为本轮最终结果。操作与复验见 [HANDOFF.md](HANDOFF.md)。红灯、修复及历史失败均保留。
 
-## 已具备的最终本地结果
+## ed91225 时点的本地结果（历史基线）
 
 | 检查 | 结果 | 证据 |
 | --- | --- | --- |
@@ -44,7 +46,7 @@
 - **T-HAR-5：** 同版本内容/prompt/registry摘要不可改；bench_version与effective只追加、租户约束，run_harness固定版本/有效摘要/确认model_route；运行不回读当前role_def授权。见 [store](harness/independent-store-review.md)、[RunDefinition](run-definition-review.md)。
 - **T-HAR-10：** actualresearch10角色materialize生成合法project；克隆真实bench仅为两角色添加测试read allow，loader→effective→materialize→原生project，五类核心边界保持。独立原生4/4见 [materialize review](harness/independent-materialize-review.md)、[native](harness/independent-native.json)。
 
-## 尚未完成 / TODO（送审前必须如实填写）
+## 执行前 TODO 快照（历史，当前状态见文首与末节）
 
 1. **TODO 真实模型：** root将在代码安全扫描/提交后执行唯一一次≤¥1真实DeepSeek冒烟；目前护栏49绿不是实跑。补真实Auth/API→原生→事件→账本→费用报告、实际模型名与次数、临时配置清理结果。不得因未知/失败重发；marker或已保存RUN_KEY存在即禁止再次尝试。
 2. **TODO 后台账单：** 只读DeepSeek账单与本次usage/原币种/价格窗口/FX核对。没有实际核对前providerInvoiceReconciled必须false；不能把wallet估算差值或fixture价当账单证明。
@@ -66,3 +68,11 @@
 上表1256结果为ed91225已通过基线，不冒充中期修复后最终全量；修复后的结果在interim/归档并将在确认计划前更新。CI历史/本轮已核终态在[ci-terminal-index.json](ci-terminal-index.json)，最新head以PR描述为准。
 
 中期修复后最终回归：**Node22与Node24各1284/1284，0失败、0跳过**，详见[interim/regression](interim/regression/README.md)。真实SDK请求也已在两版本上通过单次守卫到达本机fixture，均1/1；此链不读取真实key/不调用DeepSeek。未改变任何timeout、断言、RLS、沙盒或引用校验。
+
+## 2026-10-22 用户确认后的唯一真实执行
+
+真实冒烟 **0通过/1失败**，provider forward=1；HTTP400（reasoning_content），用量未知，不按免费结算，不再发第二次。报告、事件JSONL和对账状态见[real-smoke-execution](real-smoke-execution/README.md)。前置零转发基础设施失败也原样保留，不冒充已发送或成功。
+
+B-1/B-2修复与两版本1284/1284、T-REG18/18既有结果保持；本轮只补文档/原始证据，无生产实现改动。最终提交的CI终态见PR #16描述；P1-10因真实冒烟及对账未通过仍不可关闭。
+
+后台已等5分钟后只读导出核对，但只有小时聚合且存在其他调用，本次400又无usage，**未对平**；金额/误差率留空，见[billing-readonly.json](real-smoke-execution/billing-readonly.json)。
