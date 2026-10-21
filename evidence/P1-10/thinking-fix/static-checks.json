@@ -1,0 +1,10 @@
+{
+  "node": "22.23.3",
+  "dependencyBoundaries": "passed",
+  "contractsTsc": "passed",
+  "controlTsc": "passed",
+  "localUpAndRealSmokeCliTsc": "passed",
+  "mockBuild": "passed",
+  "warning": "既有大于500kB chunk警告，无构建错误",
+  "realModelRequests": 0
+}

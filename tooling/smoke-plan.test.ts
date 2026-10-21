@@ -1,5 +1,12 @@
 import { expect, it } from "vitest";
-import { smokePlan } from "./local/smoke-plan";
+import { smokePlan, smokeAuthorization } from "./local/smoke-plan";
+it("keeps the first consumed marker location unchanged and isolates the second explicit authorization", () => {
+  expect(smokeAuthorization(undefined)).toEqual({ id: "first-authorization", label: "第一次授权", directory: "p110-one-shot" });
+  expect(smokeAuthorization("second-authorization")).toEqual({ id: "second-authorization", label: "第二次授权", directory: "p110-second-authorization" });
+});
+it.each(["", "first-authorization", "third-authorization", "../new-marker", null, {}, 2])("rejects arbitrary authorization or marker selector %j", (selector) => {
+  expect(() => smokeAuthorization(selector)).toThrow("SMOKE_AUTHORIZATION_INVALID");
+});
 const now = Date.parse("2026-10-21T10:10:00.000Z");
 const valid = {
   currency: "CNY",

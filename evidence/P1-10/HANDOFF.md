@@ -1,3 +1,5 @@
+> **最新停止点：第二次计划等待明确授权，普通复验禁止运行真实CLI。** B-6/B-7/B-8修复及1347/1347双版本回归见[thinking-fix](thinking-fix/README.md)，第二次使用独立固定目录，详见[计划](thinking-fix/SECOND_SMOKE_PLAN.md)。第一次旧marker不删除，旧入口仍拒绝再发。
+
 > **本次真实授权已消费：禁止再执行smoke-local.ts。** 北京时间2026-10-22 02:31唯一真实转发返回400，usage未知、hold unpriced，临时配置清理成功；P1-10保持未关闭。最新证据见[真实执行](real-smoke-execution/README.md)。普通fixture回归不会读取真实key。
 
 # P1-10 本批操作与复验（未关闭）

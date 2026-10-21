@@ -1,0 +1,22 @@
+{
+  "node22": {
+    "node": "22.23.3",
+    "pnpm": "11.5.2",
+    "passed": 1347,
+    "failed": 0,
+    "skipped": 0,
+    "success": true,
+    "evidenceOut": null,
+    "startTimeUnixMs": 1792609011187
+  },
+  "node24": {
+    "node": "24.14.1",
+    "pnpm": "11.5.2",
+    "passed": 1347,
+    "failed": 0,
+    "skipped": 0,
+    "success": true,
+    "evidenceOut": null,
+    "startTimeUnixMs": 1792609101337
+  }
+}

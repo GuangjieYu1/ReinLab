@@ -141,3 +141,9 @@
 - 官方文档称思考默认打开，须显式thinking.type=disabled关闭。只读上游transform仅对API id匹配deepseek-v[4-9]注入disabled；B-1改成deepseek-flash可能绕过此分支。当前只有源码推断与真实400，尚无原始wire请求存档，不把推断写成已证根因。
 - 推荐后续先用原生fixture截获实际wire字段，再通过SDK模型options显式关闭思考并核验，保持产品路由/上游源码不变。guard目前允许省略thinking，不能把能力reasoning:false当成线上关闭证明；应一起收紧其验证。此涉及安全守卫改动，应按用户约定独立安全评审。**本轮只取证送审，不改行为，不再真实重跑。** P1-10暂不关闭，需审查方确定修复范围；第二次真实验证必须取得新的明确授权，不能绕marker。
 - 后台已在延迟5分钟后导出，只有小时聚合、缺request_id且存在其他调用；未能单独归因本次费用，对账仍false。原始导出留仓库外0600，入库无其他调用金额/token/key标识。
+
+## Q-066 B-6/B-7/B-8与第二次授权（用户/审查已确定范围）
+- 追加审查确认Q-065根因：API别名绕过上游thinking自动注入。按B-6在SDK模型options显式disabled并核raw config；B-7守卫必须收到disabled，缺失也拒绝；B-8 fixture按本次非思考合同拒绝缺失/非disabled，原生截获实际出站体核对。未改上游。
+- 独立安全子agent仅评审B-7及相关配置/第二次固定目录边界，35/35，无P1/P2；其余改动作者自行复核。普通回归不读真实key/不发真实请求。
+- 用户已更换ReinLab专用key，位置/变量不变。该说明只确认凭据就绪，不构成第二次真实发送授权；本轮停在SECOND_SMOKE_PLAN.md计划后。未来按该key单独核账，第一次unknown/unpriced及已消费marker不回退。
+- 第二次固定目录p110-second-authorization与新幂等键/内核requestID隔离；默认入口仍使用原p110-one-shot，禁止任意第三次selector。新目录/marker/admission只在未来明确授权执行时创建，证据须写明第二次授权。

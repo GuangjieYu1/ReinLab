@@ -12,7 +12,7 @@ import { readPrivateEnv, writePrivateEnv } from "../../../tooling/local/config";
 import { localPaths } from "../../../tooling/local/paths";
 import { authenticateVerificationUser } from "../../../tooling/local/verification-auth";
 import { quietCommand } from "../../../tooling/local/process";
-import { smokePlan } from "../../../tooling/local/smoke-plan";
+import { smokePlan, smokeAuthorization } from "../../../tooling/local/smoke-plan";
 import {
   startOneShotSmokeGuard,
   type OneShotSmokeGuard,
@@ -27,8 +27,8 @@ import { HarnessStore } from "../src/harness/store";
 import { materializeHarnessRole } from "../src/harness/materialize";
 
 // Explicit CLI only. No real-model path is imported by a test or a CI job.
-const paths = localPaths(),
-  privateDirectory = join(paths.state, "p110-one-shot"),
+const paths = localPaths();
+let privateDirectory = join(paths.state, "p110-one-shot"),
   marker = join(privateDirectory, "model-forwarded.marker");
 let pool: pg.Pool | undefined,
   pipeline: RuntimePipeline | undefined,
@@ -114,9 +114,13 @@ async function captureEvidence() {
 
 try {
   assert.notEqual(process.env.NODE_ENV, "test");
-  const [currency, window, validFrom, validUntil, ...extra] =
+  const [currency, window, validFrom, validUntil, authorization, ...extra] =
     process.argv.slice(2);
   assert.equal(extra.length, 0);
+  const attempt = smokeAuthorization(authorization);
+  privateDirectory = join(paths.state, attempt.directory);
+  marker = join(privateDirectory, "model-forwarded.marker");
+  report.authorization = { id: attempt.id, label: attempt.label };
   const plan = smokePlan(
     { currency, window, validFrom, validUntil },
     Date.now(),

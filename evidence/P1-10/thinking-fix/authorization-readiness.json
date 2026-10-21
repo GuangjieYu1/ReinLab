@@ -1,0 +1,12 @@
+{
+  "firstMarkerExists": true,
+  "firstMarkerSha256": "7d13a075d40470eefa4321c7e4272d0ffaa704bad59b2cdc0094171ae39c6184",
+  "secondStateExists": false,
+  "secondMarkerExists": false,
+  "secondAdmissionExists": false,
+  "dedicatedCredentialFilePresent": true,
+  "credentialMode0600": true,
+  "credentialContentsRead": false,
+  "secondAuthorizationReceived": false,
+  "realModelRequestsThisRound": 0
+}

@@ -1,4 +1,12 @@
 import { DEEPSEEK_PRICING_VERSION } from "../../services/control/src/bridge/openscience/deepseek-pricing";
+/** Fixed operator-selected attempts; this selector is not user authorization. */
+export function smokeAuthorization(selector: unknown) {
+  if (selector === undefined)
+    return Object.freeze({ id: "first-authorization", label: "第一次授权", directory: "p110-one-shot" });
+  if (selector === "second-authorization")
+    return Object.freeze({ id: "second-authorization", label: "第二次授权", directory: "p110-second-authorization" });
+  throw new Error("SMOKE_AUTHORIZATION_INVALID");
+}
 /** The operator verifies currency/time window. This parser never infers holidays. */
 export function smokePlan(input: unknown, now: number) {
   const invalid = () => new Error("SMOKE_PLAN_INVALID");
