@@ -168,6 +168,7 @@ it("real SDK configures only temporary deepseek auth, real context/output limits
   expect(config.provider.deepseek.models["deepseek-v4-flash"]).toMatchObject({
     id: "deepseek-flash",
     reasoning: false,
+    options: { thinking: { type: "disabled" } },
     limit: { context: 1048576, output: 1024 },
   });
   expect(JSON.stringify(config)).not.toContain(f.token);

@@ -144,9 +144,11 @@ it("new empty native account configures a usable DeepSeek smoke model before any
     report.state = run.state;
     report.providerCalls = provider.requests.length;
     report.sentModels = provider.requests.map((r) => r.model);
+    report.outboundRequests = provider.requests;
     expect(run.state).toBe("completed");
     expect(provider.requests).toHaveLength(1);
     expect(provider.requests[0].model).toBe("deepseek-flash");
+    expect(provider.requests[0].thinking).toEqual({ type: "disabled" });
     report.guard = guard.status();
     expect(guard.status()).toMatchObject({
       forwardCount: 1,

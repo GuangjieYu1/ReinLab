@@ -1,0 +1,1091 @@
+{
+  "fixtureOnly": true,
+  "realModelRequests": 0,
+  "realKeyReads": 0,
+  "nativeVersion": "2.0.150",
+  "before": {
+    "connected": [],
+    "all": [
+      {
+        "id": "deepseek",
+        "models": [
+          {
+            "id": "deepseek-v4-flash-vision-exp",
+            "api": {
+              "id": "deepseek-v4-flash-vision-exp",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          },
+          {
+            "id": "deepseek-flash",
+            "api": {
+              "id": "deepseek-flash",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "api": {
+              "id": "deepseek-v4-pro",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          },
+          {
+            "id": "deepseek-v4-flash",
+            "api": {
+              "id": "deepseek-v4-flash",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "connected": [
+      "deepseek"
+    ],
+    "all": [
+      {
+        "id": "deepseek",
+        "models": [
+          {
+            "id": "deepseek-flash",
+            "api": {
+              "id": "deepseek-flash",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "api": {
+              "id": "deepseek-v4-pro",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          },
+          {
+            "id": "deepseek-v4-flash",
+            "api": {
+              "id": "deepseek-flash",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1048576,
+              "output": 1024
+            },
+            "reasoning": false
+          }
+        ]
+      }
+    ]
+  },
+  "state": "completed",
+  "providerCalls": 1,
+  "sentModels": [
+    "deepseek-flash"
+  ],
+  "outboundRequests": [
+    {
+      "model": "deepseek-flash",
+      "max_tokens": 1024,
+      "messages": [
+        {
+          "role": "system",
+          "content": "Reply fixture text only.\nYou are powered by the model named deepseek-flash. The exact model ID is deepseek/deepseek-flash\nHere is some useful information about the environment you are running in:\n<env>\n  Project: Untitled project\n  Project ID: prj_3748da78a759440eb9ef1e57ff9caee6\n  Session ID: ses_ea031a49fffehh5Hgsd16ARqSU\n  Project files: /private/var/folders/xg/hy4yqc8x2m3dm9ddst9fxssh0000gp/T/reinlab-smoke-native-1jD4Yh/roles/0c52a076-1d66-41b9-9cd0-e76f6123409c/smoke-read (durable and shared across this project)\n  Tool working directory: /private/var/folders/xg/hy4yqc8x2m3dm9ddst9fxssh0000gp/T/reinlab-smoke-native-1jD4Yh/roles/0c52a076-1d66-41b9-9cd0-e76f6123409c/smoke-read (project directory; durable and shared across this project)\n  Results: immutable project-wide deliverables saved with the artifact tool\n  Access mode: Approve for me. Routine work in the project is automatically approved inside the sandbox; boundary actions still require approval.\n  Connected project folders:\n    - /private/var/folders/xg/hy4yqc8x2m3dm9ddst9fxssh0000gp/T/reinlab-smoke-native-1jD4Yh/dossiers/0c52a076-1d66-41b9-9cd0-e76f6123409c (read only, session scope)\n  Is directory a git repo: no\n  Platform: darwin\n  Today's date: Thu Oct 22 2026\n  Knowledge cutoff: 2025-05 (per the model catalog), about 17 months before today. Models, libraries, methods and results released since are not in your training: look up the current generation before pinning a model, version, baseline or protocol, and read \"latest\" in a dated source as of its date.\n  Image generation: unavailable (needs Ace or the user's own Gemini or OpenAI key in Customize → Models). When a schematic, diagram or illustration is asked for, say so and ask which route to connect; do not draw it with TikZ, SVG or matplotlib in its place, and do not call generate_image. Plots of data are unaffected and still come from matplotlib.\n  Compute: 10 CPUs, 16 GiB\n</env>\nAn OpenScience project is a durable research context that may aggregate multiple connected folders and files. This session uses the project directory as its default tool working directory; its files are shared and remain when the session is deleted. Results are immutable deliverables shared project-wide; a normal workspace file is not a Result until artifact save_file returns its Result ID and version.\nUse the project directory by default for local work. Preserve existing files and treat changes as durable project changes. Reuse the selected folder's existing layout. Do not create an extra \"OpenScience Research\" root or mirror an attached project into Project files. Inspect a referenced plan subfolder without treating it as a new working location; keep outputs in the selected Working folder and existing project layout unless the user requests another location. Do not create a new project subfolder for an ordinary answer. Promote a file to Results only when the user requests a durable deliverable or a Result-only contract requires it.\nThe physical paths above are routing information. Use the human project name in conversation, not UUID directory components. Do not expose scratch, managed-project, or connected-folder paths in a generic greeting. Mention a path only when the user asks about location or when it is needed to complete their request.\nInstructions from: /private/var/folders/xg/hy4yqc8x2m3dm9ddst9fxssh0000gp/T/reinlab-smoke-native-1jD4Yh/roles/0c52a076-1d66-41b9-9cd0-e76f6123409c/smoke-read/AGENTS.md\n# ReinLab / smoke-read\n\n\n\nResearch effort: NORMAL. Stay focused and use additional branches only when they materially help.\nAutomatic delegation is off. Work in the lead conversation unless the user explicitly attached an agent. A worker needs a clean boundary, a self-contained brief with a definition of done, and its findings integrated in the lead response. Verifying the lead's own output (compiling, reading a rendered file, checking a number or a reference) is never a worker's job.\nIndependence: balanced. Choose safe, reversible options yourself. Use the question tool with reason consequential only when ambiguity materially changes scope or outcome, and put one recommended option first with its impact. Apply this posture to the lead and workers. It never overrides the permission mode."
+        },
+        {
+          "role": "user",
+          "content": "Reply fixture text only."
+        },
+        {
+          "role": "assistant",
+          "content": "CRITICAL - MAXIMUM STEPS REACHED\n\nThe maximum number of steps allowed for this task has been reached. Tools are disabled until next user input. Respond with text only.\n\nSTRICT REQUIREMENTS:\n1. Do NOT make any tool calls (no reads, writes, edits, searches, or any other tools)\n2. MUST provide a text response summarizing work done so far\n3. This constraint overrides ALL other instructions, including any user requests for edits or tool use\n\nResponse must include:\n- Statement that maximum steps for this agent have been reached\n- Summary of what has been accomplished so far\n- List of any remaining tasks that were not completed\n- Recommendations for what should be done next\n\nAny attempt to use tools is a critical violation. Respond with text ONLY."
+        }
+      ],
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    }
+  ],
+  "catalogReads": [
+    {
+      "connected": [],
+      "deepseek": {
+        "deepseek-v4-flash-vision-exp": {
+          "id": "deepseek-v4-flash-vision-exp",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4 Flash Vision Exp",
+          "family": "deepseek-flash",
+          "api": {
+            "id": "deepseek-v4-flash-vision-exp",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "deprecated",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "variants": {
+            "low": {},
+            "high": {},
+            "max": {}
+          }
+        },
+        "deepseek-flash": {
+          "id": "deepseek-flash",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4.1 Flash",
+          "family": "deepseek-flash",
+          "api": {
+            "id": "deepseek-flash",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "variants": {}
+        },
+        "deepseek-v4-pro": {
+          "id": "deepseek-v4-pro",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4 Pro",
+          "family": "deepseek-thinking",
+          "api": {
+            "id": "deepseek-v4-pro",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.435,
+            "output": 0.87,
+            "cache": {
+              "read": 0.003625,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": false,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-08-12",
+          "variants": {
+            "low": {},
+            "high": {},
+            "max": {}
+          }
+        },
+        "deepseek-v4-flash": {
+          "id": "deepseek-v4-flash",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4 Flash",
+          "family": "deepseek-flash",
+          "api": {
+            "id": "deepseek-v4-flash",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "deprecated",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "variants": {
+            "low": {},
+            "high": {},
+            "max": {}
+          }
+        }
+      }
+    },
+    {
+      "connected": [],
+      "deepseek": {
+        "deepseek-v4-flash-vision-exp": {
+          "id": "deepseek-v4-flash-vision-exp",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4 Flash Vision Exp",
+          "family": "deepseek-flash",
+          "api": {
+            "id": "deepseek-v4-flash-vision-exp",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "deprecated",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "variants": {
+            "low": {},
+            "high": {},
+            "max": {}
+          }
+        },
+        "deepseek-flash": {
+          "id": "deepseek-flash",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4.1 Flash",
+          "family": "deepseek-flash",
+          "api": {
+            "id": "deepseek-flash",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "variants": {}
+        },
+        "deepseek-v4-pro": {
+          "id": "deepseek-v4-pro",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4 Pro",
+          "family": "deepseek-thinking",
+          "api": {
+            "id": "deepseek-v4-pro",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.435,
+            "output": 0.87,
+            "cache": {
+              "read": 0.003625,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": false,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-08-12",
+          "variants": {
+            "low": {},
+            "high": {},
+            "max": {}
+          }
+        },
+        "deepseek-v4-flash": {
+          "id": "deepseek-v4-flash",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4 Flash",
+          "family": "deepseek-flash",
+          "api": {
+            "id": "deepseek-v4-flash",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "deprecated",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "variants": {
+            "low": {},
+            "high": {},
+            "max": {}
+          }
+        }
+      }
+    },
+    {
+      "connected": [
+        "deepseek"
+      ],
+      "deepseek": {
+        "deepseek-flash": {
+          "id": "deepseek-flash",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4.1 Flash",
+          "family": "deepseek-flash",
+          "api": {
+            "id": "deepseek-flash",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "variants": {}
+        },
+        "deepseek-v4-pro": {
+          "id": "deepseek-v4-pro",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4 Pro",
+          "family": "deepseek-thinking",
+          "api": {
+            "id": "deepseek-v4-pro",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.435,
+            "output": 0.87,
+            "cache": {
+              "read": 0.003625,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": false,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-08-12",
+          "variants": {
+            "low": {},
+            "high": {},
+            "max": {}
+          }
+        },
+        "deepseek-v4-flash": {
+          "id": "deepseek-v4-flash",
+          "api": {
+            "id": "deepseek-flash",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "name": "deepseek-v4-flash",
+          "providerID": "deepseek",
+          "capabilities": {
+            "temperature": true,
+            "reasoning": false,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "options": {},
+          "limit": {
+            "context": 1048576,
+            "output": 1024
+          },
+          "headers": {},
+          "family": "deepseek-flash",
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "variants": {}
+        }
+      }
+    },
+    {
+      "connected": [
+        "deepseek"
+      ],
+      "deepseek": {
+        "deepseek-flash": {
+          "id": "deepseek-flash",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4.1 Flash",
+          "family": "deepseek-flash",
+          "api": {
+            "id": "deepseek-flash",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "variants": {}
+        },
+        "deepseek-v4-pro": {
+          "id": "deepseek-v4-pro",
+          "providerID": "deepseek",
+          "name": "DeepSeek V4 Pro",
+          "family": "deepseek-thinking",
+          "api": {
+            "id": "deepseek-v4-pro",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "headers": {},
+          "options": {},
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "cost": {
+            "input": 0.435,
+            "output": 0.87,
+            "cache": {
+              "read": 0.003625,
+              "write": 0
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 393216
+          },
+          "capabilities": {
+            "temperature": true,
+            "reasoning": true,
+            "attachment": false,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "release_date": "2026-08-12",
+          "variants": {
+            "low": {},
+            "high": {},
+            "max": {}
+          }
+        },
+        "deepseek-v4-flash": {
+          "id": "deepseek-v4-flash",
+          "api": {
+            "id": "deepseek-flash",
+            "npm": "@ai-sdk/deepseek"
+          },
+          "status": "active",
+          "name": "deepseek-v4-flash",
+          "providerID": "deepseek",
+          "capabilities": {
+            "temperature": true,
+            "reasoning": false,
+            "attachment": true,
+            "toolcall": true,
+            "input": {
+              "text": true,
+              "audio": false,
+              "image": true,
+              "video": false,
+              "pdf": false
+            },
+            "output": {
+              "text": true,
+              "audio": false,
+              "image": false,
+              "video": false,
+              "pdf": false
+            },
+            "interleaved": {
+              "field": "reasoning_content"
+            }
+          },
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache": {
+              "read": 0.003,
+              "write": 0
+            }
+          },
+          "options": {},
+          "limit": {
+            "context": 1048576,
+            "output": 1024
+          },
+          "headers": {},
+          "family": "deepseek-flash",
+          "release_date": "2026-09-10",
+          "knowledge": "2025-05",
+          "reasoningOptions": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "variants": {}
+        }
+      }
+    }
+  ]
+}

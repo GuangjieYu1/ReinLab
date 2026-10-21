@@ -373,6 +373,9 @@ export class RoleRuntime {
                         // alias to the same model's current official API name.
                         id: "deepseek-flash",
                         reasoning: false,
+                        // The current API alias does not match the upstream
+                        // legacy-id heuristic. Set the wire option explicitly.
+                        options: { thinking: { type: "disabled" } },
                         limit: { context: 1048576, output: 1024 },
                       },
                     },
@@ -400,6 +403,8 @@ export class RoleRuntime {
         if (
           appliedConfig.provider?.deepseek?.options?.baseURL !==
             origin + "/v1" ||
+          appliedConfig.provider?.deepseek?.models?.["deepseek-v4-flash"]
+            ?.options?.thinking?.type !== "disabled" ||
           !ready.connected.includes("deepseek") ||
           !model ||
           model.status === "deprecated" ||
