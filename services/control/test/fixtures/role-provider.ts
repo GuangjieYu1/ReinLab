@@ -35,6 +35,25 @@ export async function startRoleProvider() {
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw) as CapturedRequest;
     requests.push(body);
+    // DeepSeek smoke uses a non-thinking protocol. Do not let the fixture
+    // silently succeed when the real API would default to thinking and reject
+    // the assistant history without reasoning_content.
+    if (
+      ["deepseek-v4-flash", "deepseek-flash"].includes(body.model) &&
+      body.thinking?.type !== "disabled"
+    ) {
+      res.writeHead(400, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          error: {
+            message: "The `reasoning_content` in the thinking mode must be passed back to the API. (request_id: fixture-thinking-disabled-required)",
+            type: "invalid_request_error",
+            param: null,
+            code: "invalid_request_error",
+          },
+        }),
+      );
+      return;
+    }
     const lastUser = body.messages.findLastIndex(
       (message) => message.role === "user",
     );
