@@ -1,3 +1,4 @@
+import {testEvidenceDirectory} from './fixtures/test-evidence';
 import {afterAll,beforeAll,describe,expect,it} from 'vitest';
 import {link,mkdir,mkdtemp,readFile,realpath,rename,rm,symlink,unlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -19,7 +20,7 @@ describe.sequential('P1-10 independent adversarial boundaries',()=>{
  beforeAll(async()=>{root=await realpath(await mkdtemp(join(tmpdir(),'reinlab-independent-role-')));provider=await startRoleProvider();server=await startNativeRoleServer(root,provider.url);expect(server.version).toBe('2.0.150');},60000);
  afterAll(async()=>{
   if(server)await server.close();if(provider)await provider.close();
-  const evidence=resolve('evidence/P1-10');await mkdir(evidence,{recursive:true});
+  const evidence=await testEvidenceDirectory('independent-role');await mkdir(evidence,{recursive:true});
   await writeFile(join(evidence,'independent-test.json'),JSON.stringify({schemaVersion:1,historicalRedFindings:[{case:'hardlink-read-before-trusted-global-plugin',observed:'read completed; cross-dossier fixture sentinel reached model HTTP'},{case:'ungranted-edit-after-read-before-trusted-global-plugin',observed:'edit completed despite only read/write grant'},{case:'prompt-stall-before-deadline',observed:'still pending after 800ms, expected OS_UNAVAILABLE/503'}],timestamp:new Date().toISOString(),nativeVersion:server?.version,nodeVersion:process.version,nativeBinary:server?.binary,provider:'test-only loopback fixture',realModelValidated:false,realModelRequests:0,realModelCost:0,providerRequests:provider?.requests.length??0,observerRequests:provider?.observerHits??0,observations},null,2)+'\n');
   if(root)await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});
  });

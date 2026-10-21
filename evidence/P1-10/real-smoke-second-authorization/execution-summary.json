@@ -1,0 +1,20 @@
+{
+  "authorization": "第二次授权",
+  "requestCount": 1,
+  "reply": "链路已通",
+  "runId": "5c142780-4a9d-4ac5-8b97-7e35c49a3b6f",
+  "requestId": "bf56136d-ba39-4486-944e-26cd76e7bd12",
+  "newRequestIdVerified": true,
+  "state": "completed",
+  "usageKnown": true,
+  "ledgerCostCny": "0.002766",
+  "budgetState": "settled",
+  "temporaryConfigurationCleaned": true,
+  "cleanupFailures": [],
+  "providerInvoiceReconciled": true,
+  "firstUnknownPreserved": true,
+  "noAdditionalRequest": true,
+  "providerInvoiceCostCny": "0.002766",
+  "errorPercent": "0",
+  "originalRawReportKept": true
+}

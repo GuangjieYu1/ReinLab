@@ -12,6 +12,8 @@ import GraphFace from './graph/GraphFace';
 import Art from './graph/Art';
 import { buildFromText, DEF, execOrder, MODELS, MODEL_KIND, WORKFLOWS, type GNode, type ModelKind, type Output, type Workflow } from './graph/graphModel';
 import { installed, useGraphRunner } from './graph/useGraphRunner';
+import LiveFace, { liveSections } from './live/LiveFace';
+import { useLive } from './live/useLive';
 import '../engineering/dev.css';
 import './automation.css';
 
@@ -19,9 +21,10 @@ import './automation.css';
 // 01 编排：例程书（指令 / 触发 / 工具权限 / 产出与预算 / 版本）+ AI 的解读与预演；一句话新建例程。
 // 02 节点：照 ComfyUI + ComfyUI-Workspace-Manager 的节点图与工作区；节点图可以发布为工具，例程用 @工具名 调用。
 // 03 运行：近 14 天运行矩阵 + 逐步记录；写入停在「等你确认」。
-// 04 维护：维护 Agent 走完 诊断 → 修复 → 沙盒重放 → 人审上线。全部为前端示例。
+// 04 维护：维护 Agent 走完 诊断 → 修复 → 沙盒重放 → 人审上线。
+// 05 看板：常驻自动化的实时面板 + 旋钮 + 维护 Agent；接入 GitHub 项目 / 一句话想法（design/AUTOMATION_LIVE.md）。全部为前端示例。
 
-type Face = 'compose' | 'graph' | 'runs' | 'maintain';
+type Face = 'compose' | 'graph' | 'live' | 'runs' | 'maintain';
 type IncState = { stage: number; approved: boolean | null };
 const clock = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 let seq = 0; const uid = () => `a${++seq}`;
@@ -37,6 +40,9 @@ const GVIEWS: ExplorerViewDef[] = [
   { id: 'flows', label: '工作流', icon: <svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="6" /><rect x="14" y="14" width="7" height="6" /><path d="M10 7h4v7" /></svg> },
   { id: 'models', label: '模型', icon: <svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" /></svg> },
   { id: 'gallery', label: '画廊', icon: <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" /><path d="M3 16l5-5 4 4 3-3 6 6" /><circle cx="16" cy="9" r="1.5" /></svg> },
+];
+const LVIEWS: ExplorerViewDef[] = [
+  { id: 'board', label: '看板', icon: <svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" /><rect x="13" y="4" width="8" height="7" /><rect x="3" y="13" width="8" height="7" /><path d="M13 18l3-3 2 2 3-4" /></svg> },
 ];
 const CONNECTORS: [string, string, string][] = [['arXiv RSS', '6 个分类', 'on'], ['~/Inbox', '本地文件夹 · 只读', 'on'], ['研究档案', 'R—014 · 读写', 'on'], ['runs 表', 'PostgreSQL · 只读账号', 'on'], ['创作台事件', 'creative.*', 'on'], ['相册', '每次询问', 'ask'], ['邮箱', '未连接', 'off'], ['GitHub', '未连接', 'off']];
 
@@ -70,6 +76,7 @@ export default function AutomationStudio({ file, reduced, chrome }: BenchProps) 
     compose: [{ id: uid(), kind: 'agent', at: clock(), text: <p>我是例程助手。每条例程就是一段话：写清楚做什么、什么时候做、哪些事要先问你。我会把指令拆成步骤给你看，说不清的地方用橙色虚线标出来。想新建一条，直接用一句话告诉我。</p> }],
     graph: [{ id: uid(), kind: 'agent', at: clock(), text: <p>我是节点助手。这里照 ComfyUI 搭节点图：双击空白处搜索加节点，从输出插槽拖线到同色的输入。搭好的图可以「发布为工具」，例程里写 @工具名 就能调用。也可以直接说「搭一张……」。</p> }],
     runs: [{ id: uid(), kind: 'agent', at: clock(), text: <p>这里是每次运行的完整记录：Agent 每一步想了什么、调了哪个工具、输入输出是什么。要写入的步骤会停下来等你确认。</p> }],
+    live: [{ id: uid(), kind: 'agent', at: clock(), text: <p>这里是常驻自动化的看板：每块面板背后是一个一直在跑的脚本。点开可以拖旋钮、看清单和日志，也可以直接跟我说「阈值调到 …」。想接新东西，把 GitHub 链接或一句话想法发给我。所有常驻自动化只观察和告警，不做对外动作。</p> }],
     maintain: [{ id: uid(), kind: 'agent', at: clock(), text: <p>我是维护 Agent。有 {INCIDENTS.length} 个故障待处理。我会按「诊断 → 修复 → 沙盒重放 → 人审上线」走，最后一步只有你能批准。</p> }],
   }));
   const timers = useRef<number[]>([]);
@@ -79,6 +86,10 @@ export default function AutomationStudio({ file, reduced, chrome }: BenchProps) 
   const push = (e: DockDraft, f: Face = faceRef.current) => { const id = e.id ?? uid(); setEv(m => ({ ...m, [f]: [...m[f], { ...e, id } as DockEvent] })); return id; };
   const patch = (id: string, p: Partial<DockEvent>) => setEv(m => Object.fromEntries(Object.entries(m).map(([k, l]) => [k, l.map(e => e.id === id ? { ...e, ...p } as DockEvent : e)])) as Record<Face, DockEvent[]>);
   const say = (text: ReactNode, f?: Face) => push({ kind: 'agent', text, at: clock() }, f);
+  const settle = (id: string, ok: boolean) => setEv(m => Object.fromEntries(Object.entries(m).map(([k, l]) => [k, l.map(e => e.id === id && e.kind === 'approval' ? { ...e, state: ok ? 'approved' : 'rejected' } : e)])) as Record<Face, DockEvent[]>);
+  const lv = useLive(face === 'live', { push: e => push(e, 'live'), say: t => say(t, 'live'), patch, settle, later, reduced });
+  const lvAlerts = lv.units.filter(u => u.state === 'alert').length;
+  const lvUnit = lv.units.find(u => u.id === lv.sel);
 
   const r = routines.find(x => x.id === sel) ?? routines[0];
   const upd = (id: string, f: (r: Routine) => Routine) => setRoutines(l => l.map(x => x.id === id ? f(x) : x));
@@ -258,6 +269,7 @@ export default function AutomationStudio({ file, reduced, chrome }: BenchProps) 
   /* ———— 助手对话 ———— */
   const send = (text: string) => {
     const f = faceRef.current; push({ kind: 'user', text, at: clock() }, f);
+    if (f === 'live') { later(350, () => lv.send(text)); return; }
     if (f === 'compose') {
       if (newMode || /^(每天|每周|每当|每月|当|帮我|以后)/.test(text)) return createDraft(text);
       if (/^(加一句|补充|另外|再加)/.test(text)) { const s = text.replace(/^(加一句|补充|另外|再加)[:：，,]?/, '').replace(/[。.]?$/, '。'); upd(r.id, x => ({ ...x, instruction: x.instruction + s })); markDirty(r.id); return say(<p>加到指令末尾了，右边的解读多了一步。记得保存。</p>); }
@@ -317,14 +329,23 @@ export default function AutomationStudio({ file, reduced, chrome }: BenchProps) 
       </li>; })}</ul> }))
     : [{ id: 'gal', title: `${g.name} · 输出`, count: g.outputs.length, grow: true, body: g.outputs.length ? <div className="gm-gallery">{g.outputs.map(o => <button key={o.id} onClick={() => setLightbox(o)}><Art seed={o.seed} w={o.w} h={o.h} theme={o.theme} stamp={false} /><small>{o.seed}</small></button>)}</div> : <p className="au-none">还没有输出，排队运行一次</p> }];
 
-  const plan = face === 'graph' ? { stages: ['搭图', '检查模型', '排队运行', '发布为工具'], current: missingOf(g).length ? 1 : !g.outputs.length ? 2 : 3 }
+  const plan = face === 'live' ? (lv.sel === '__onboard' && lv.onboard ? { stages: ['侦查', '适配', '沙盒试跑', '你批准上线'], current: Math.min(lv.onboard.stage, 3) }
+      : lvUnit ? { stages: ['采集', '计算', '面板', '告警'], current: lvUnit.state === 'alert' ? 3 : 2 } : { stages: ['看板总览', '点开一个', '调参 / 对话'], current: 0 })
+    : face === 'graph' ? { stages: ['搭图', '检查模型', '排队运行', '发布为工具'], current: missingOf(g).length ? 1 : !g.outputs.length ? 2 : 3 }
     : face === 'compose'
     ? { stages: ['写指令', '说清歧义', '设权限', '预演', '启用'], current: typing !== null ? 0 : r.ambs.length ? 1 : !(preview?.done && preview.id === r.id) ? 3 : r.enabled ? 4 : 4 }
     : face === 'runs' ? { stages: ['触发', '执行', '等你确认', '完成'], current: !run ? 0 : run.state === 'running' ? 1 : run.state === 'waiting' ? 2 : 3 }
       : { stages: STAGES, current: Math.min(incSt.stage, 3) };
   const qRunning = runner.queue.some(q => q.status === 'running');
   const loop = face === 'graph' && qRunning ? { stages: ['校验', '执行节点', '采样', '保存'], current: runner.live?.prog ? 2 : 1 } : face === 'maintain' && working !== null ? { stages: STAGES, current: working } : face === 'runs' && live ? { stages: ['读指令', '调工具', '检查', '产出'], current: 1 } : null;
-  const suggestions = face === 'graph' ? [
+  const suggestions = face === 'live' ? (lvUnit ? [
+    ...(lvUnit.kind === 'simulation' ? [{ id: 's', label: '运行模拟', onClick: () => send('运行模拟') }] : [{ id: 't', label: '阈值调严一点', onClick: () => send('阈值调严一点') }, { id: 'w', label: '为什么告警', onClick: () => send('为什么告警') }]),
+    { id: 'p', label: '钉到研究档案', onClick: () => send('钉到研究档案') },
+  ] : [
+    { id: 'g', label: '接入一个 GitHub 项目', onClick: () => send('把 https://github.com/opendata/hotlist-tracker 接进来') },
+    { id: 'i', label: '一句话新建', onClick: () => send('盯一下 RTX 5090 的二手价格') },
+    { id: 'a', label: '哪些在告警', onClick: () => send('哪些在告警') },
+  ]) : face === 'graph' ? [
     { id: 'b', label: '一句话搭图', onClick: () => send('搭一张竖版赏枫海报，4 张') }, { id: 'm', label: '检查缺失模型', onClick: checkModels }, { id: 'e', label: '解释这张图', onClick: explain },
   ] : face === 'compose' ? [
     { id: 'p', label: '预演一遍', onClick: doPreview }, { id: 'n', label: '一句话新建', onClick: () => send('每周五下午 5 点把本周实验整理成周报') },
@@ -338,17 +359,22 @@ export default function AutomationStudio({ file, reduced, chrome }: BenchProps) 
     faces={[
       { id: 'compose', label: '编排', en: 'COMPOSE', badge: routines.reduce((n, x) => n + x.ambs.length, 0) || undefined },
       { id: 'graph', label: '节点', en: 'GRAPH', badge: missingAll.length || undefined },
+      { id: 'live', label: '看板', en: 'LIVE', badge: lvAlerts || undefined },
       { id: 'runs', label: '运行', en: 'RUNS', badge: pending.length || undefined },
       { id: 'maintain', label: '维护', en: 'MAINTAIN', badge: openIncs.length || undefined },
     ]}
     strip={<>{FILES[file]} <i>·</i> 例程 {routines.filter(x => x.file === file).length} <i>·</i> 下一次 {nextUp ? `${hhmm(nextUp.h)} ${nextUp.x.name}` : '明天'}</>}
-    shutterLines={f => [`> mount ${f.en.toLowerCase()} · ${routines.length} routines`, f.id === 'graph' ? `> load ${tabs.length} workflow · ${missingAll.length} model missing` : f.id === 'maintain' ? `> ${openIncs.length} incidents open` : f.id === 'runs' ? `> ${pending.length} awaiting approval` : '> parse instructions', '> ready']}
+    shutterLines={f => [`> mount ${f.en.toLowerCase()} · ${routines.length} routines`, f.id === 'graph' ? `> load ${tabs.length} workflow · ${missingAll.length} model missing` : f.id === 'live' ? `> attach ${lv.units.length} live units · ${lvAlerts} alert` : f.id === 'maintain' ? `> ${openIncs.length} incidents open` : f.id === 'runs' ? `> ${pending.length} awaiting approval` : '> parse instructions', '> ready']}
     status={<><span><i className="en-sq" />{FILES[file]}</span><span>启用 {routines.filter(x => x.enabled).length} / {routines.length}</span><span data-alert={pending.length > 0 || undefined}>等你确认 {pending.length}</span><span data-alert={openIncs.length > 0 || undefined}>故障 {openIncs.length}</span><span>示例数据 · 不连接模型</span></>}>
     <div className="au" data-face={face}>
-      {face === 'graph'
+      {face === 'live'
+        ? <Explorer code="AUTO" open={xpOpen} view="board" onView={() => {}} onToggle={() => setXpOpen(v => !v)} views={LVIEWS} key="live" title="live/" badges={{ board: lvAlerts || undefined }}
+          sections={liveSections(lv, () => { lv.setSel(null); say(<p>把 GitHub 链接、研究台成果、外部 API，或者一句话想法发给我，例如「盯一下 RTX 5090 的二手价格」。我会先侦查，再适配成四件套，沙盒试跑给你看，你批准才上线。</p>, 'live'); document.querySelector<HTMLTextAreaElement>('.ad-input textarea')?.focus(); })} />
+        : face === 'graph'
         ? <Explorer code="AUTO" open={xpOpen} view={gView} onView={setGView} onToggle={() => setXpOpen(v => !v)} views={GVIEWS} key={`graph${gView}`} title="workspace/" sections={gsections} badges={{ models: missingAll.length || undefined, gallery: g.outputs.length || undefined }} />
         : <Explorer code="AUTO" open={xpOpen} view={xpView} onView={setXpView} onToggle={() => setXpOpen(v => !v)} views={VIEWS} key={face + xpView}
           title={face === 'maintain' ? 'incidents/' : 'routines/'} sections={sections} badges={{ list: face === 'maintain' ? openIncs.length || undefined : pending.length || undefined }} />}
+      {face === 'live' && <LiveFace c={lv} />}
       {face === 'compose' && <ComposeFace r={r} typing={typing} dirty={dirty.has(r.id)} preview={preview?.id === r.id ? preview : null}
         onEdit={t => { upd(r.id, x => ({ ...x, instruction: t })); markDirty(r.id); }} onResolve={resolve}
         onPerm={(tool, p) => { upd(r.id, x => ({ ...x, tools: x.tools.map(t => t.id === tool ? { ...t, perm: p } : t) })); markDirty(r.id); }}
@@ -371,11 +397,11 @@ export default function AutomationStudio({ file, reduced, chrome }: BenchProps) 
       {face === 'maintain' && <MaintainFace inc={curInc} r={incR} run={incR.runs.find(x => x.id === curInc.run)} stage={incSt.stage} working={working}
         replayN={incSt.stage >= 3 ? curInc.replay.length : replayN} regressN={incSt.stage >= 3 ? curInc.regress.length : regressN} approved={incSt.approved}
         onNext={nextStage} onApprove={() => approveFix()} onReject={() => rejectFix()} />}
-      {(face !== 'graph' || dockOpen) && <AgentDock name={face === 'graph' ? '节点助手' : face === 'maintain' ? '维护 Agent' : face === 'runs' ? '运行助手' : '例程助手'}
-        target={face === 'graph' ? `${g.id} · ${g.name}` : face === 'maintain' ? `${curInc.id} · ${curInc.routine} ${incR.name}` : `${r.id} · ${r.name} · ${r.version}`}
+      {(face !== 'graph' || dockOpen) && <AgentDock name={face === 'graph' ? '节点助手' : face === 'maintain' || face === 'live' ? '维护 Agent' : face === 'runs' ? '运行助手' : '例程助手'}
+        target={face === 'live' ? (lv.sel === '__onboard' && lv.onboard ? `接入 ${lv.onboard.id} · ${lv.onboard.unit.title}` : lvUnit ? `${lvUnit.id} · ${lvUnit.title} · ${lvUnit.versions[0].v}` : `看板 · ${lv.units.length} 个常驻`) : face === 'graph' ? `${g.id} · ${g.name}` : face === 'maintain' ? `${curInc.id} · ${curInc.routine} ${incR.name}` : `${r.id} · ${r.name} · ${r.version}`}
         plan={plan} suggestions={suggestions} events={ev[face]} busy={busy} loop={loop} onSend={send}
-        placeholder={face === 'graph' ? (gNew ? '一句话描述要搭的图，例如：竖版赏枫海报，4 张' : '「搭一张……」或问这张图') : face === 'compose' ? (newMode ? '用一句话描述新例程，例如：每天早上 9 点…' : '「加一句：……」改指令，或「每天……」新建') : face === 'runs' ? '问这次运行，例如：为什么停下' : '问维护 Agent'}
-        footnote={face === 'compose' ? '写入 / 发出默认先问你 · 危险动作只能你点' : face === 'graph' ? '写入档案的节点运行时会停下来问你' : undefined} />}
+        placeholder={face === 'live' ? (lvUnit ? `「${lvUnit.params.find(p => p.kind === 'number')?.label ?? '阈值'}调到 …」「为什么告警」「回到上一版」` : '贴 GitHub 链接，或「盯一下 …」新建常驻自动化') : face === 'graph' ? (gNew ? '一句话描述要搭的图，例如：竖版赏枫海报，4 张' : '「搭一张……」或问这张图') : face === 'compose' ? (newMode ? '用一句话描述新例程，例如：每天早上 9 点…' : '「加一句：……」改指令，或「每天……」新建') : face === 'runs' ? '问这次运行，例如：为什么停下' : '问维护 Agent'}
+        footnote={face === 'live' ? '只观察和告警 · 对外动作只生成审批卡 · 交易永不自动执行' : face === 'compose' ? '写入 / 发出默认先问你 · 危险动作只能你点' : face === 'graph' ? '写入档案的节点运行时会停下来问你' : undefined} />}
     </div>
   </BenchFrame>;
 }

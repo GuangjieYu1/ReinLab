@@ -1,0 +1,40 @@
+{
+  "authorization": "第二次授权",
+  "source": "https://platform.deepseek.com/usage",
+  "filter": {
+    "date": "2026-10-22",
+    "apiKeyName": "ReinLab",
+    "uniqueKeyCount": 1
+  },
+  "beforeExportRows": [
+    0,
+    0
+  ],
+  "afterDelaySeconds": 323,
+  "requestCount": 1,
+  "billedCounts": {
+    "request_count": 1,
+    "input_cache_miss_tokens": 2754,
+    "input_cache_hit_tokens": 0,
+    "output_tokens": 3
+  },
+  "currency": "CNY",
+  "ledgerCostCny": "0.002766",
+  "providerInvoiceCostCny": "0.0027660000000000",
+  "errorPercent": "0",
+  "providerInvoiceReconciled": true,
+  "rawOriginalReportRewritten": false,
+  "runtimeUsageMetadataRemainsOriginalSnapshot": true,
+  "originalRuntimeReconciledFlag": false,
+  "rawZipMode": "0600",
+  "rawOutsideRepository": true,
+  "beforeZipSha256": "9a1555493c0d51f679ce2fbb5cb05fff56ce326a664dc8f81b6dd0f6dfc388e5",
+  "afterZipSha256": "57168af063cf3a0d6223b0048ef92982cf53fbcc2ab28e8be0b6dd90a9d0bbc9",
+  "billingScreenshot": {
+    "localPath": "/Users/guangjieyu/.local/state/reinlab/803a04fcd69a/p110-second-billing/after-usage.png",
+    "sha256": "31e6bad8dabaa7d77fa21ef708ba30b31ca58095c991282e2abeaf168aa72455",
+    "mode": "0600",
+    "publiclyUploaded": false
+  },
+  "additionalModelRequests": 0
+}

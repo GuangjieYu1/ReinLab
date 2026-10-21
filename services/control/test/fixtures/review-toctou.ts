@@ -1,3 +1,4 @@
+import {testEvidenceDirectory} from './test-evidence';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {unlinkSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -26,7 +27,7 @@ try {
  while(Date.now()<deadline&&provider.requests.length<3)await new Promise(r=>setTimeout(r,100));
  const evidence={nativeVersion:server.version,changed,requests:provider.requests.length,leaked:provider.requests.some((body:any)=>JSON.stringify(body.messages).includes('REVIEW_CROSS_ROLE_TOCTOU_SECRET')),hookLog:await readFile(hookLog,'utf8').catch(()=>''),systemSummaries:provider.requests.map((body:any,index:number)=>{const text=JSON.stringify(body.messages.filter((m:any)=>m.role==='system'));return {requestIndex:index+1,titleGeneration:text.includes('You are a title generator'),ownMemory:text.includes('own memory'),crossRoleSentinel:text.includes('REVIEW_CROSS_ROLE_TOCTOU_SECRET')};})};
  console.log(JSON.stringify(evidence,null,2));
- await writeFile(resolve('evidence/P1-10/review-toctou.json'),JSON.stringify(evidence,null,2)+'\n');
+ await writeFile(join(await testEvidenceDirectory('review-toctou'),'review-toctou.json'),JSON.stringify(evidence,null,2)+'\n');
  if(!evidence.changed||!evidence.systemSummaries.some((s:any)=>s.ownMemory))throw new Error('Review TOCTOU: first authorized model round and tamper were not exercised');
  if(evidence.leaked)throw new Error('Review TOCTOU: cross-role AGENTS sentinel leaked into actual model HTTP');
  if(!evidence.hookLog.includes('rejected:experimental.chat.system.transform'))throw new Error('Review TOCTOU: no provider-boundary hook rejection was observed');

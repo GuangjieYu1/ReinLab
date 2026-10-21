@@ -37,3 +37,7 @@
 ## 边界
 
 仅验证simulation这一类型与一个数学样本；其他widget类型、论文引用一致性、生产鉴权、故障降级和可用性尚未验收。样本无论文引用，不冒充研究结论。一次真实生成成功不等于Provider生产实现完成，也不是ReinLab live端到端链路或T-SEC全套通过。本批未实现P1-10或P2-02之后功能，Claude最终签核仍待完成。
+
+## 2026-10-20 接入方式将变更
+
+依据用户确认的BATCH3_ADDENDUM及ARCHITECTURE_BENCHES §11：本篇旧站点接口调查仅保留历史依据。正式P2-07改为自有课堂引擎内调用`@openmaic/generation`，经`AICallFn`连接模型网关；不再直接接OpenMAIC站点`scene-content`。本批不实现SDK课堂引擎，也不把旧服务探测当作新路径已验收。

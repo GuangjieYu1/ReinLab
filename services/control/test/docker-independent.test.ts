@@ -1,9 +1,10 @@
+import {testEvidenceDirectory} from './fixtures/test-evidence';
 import {afterAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {createServer} from 'node:http';
-import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {join} from 'node:path';
 import pg from 'pg';
 import {DockerMachines,dockerPlan,type EngineTransport} from '../src/provisioner/docker';
 import {AccountProvisioner} from '../src/provisioner';
@@ -29,7 +30,7 @@ function engine(){
  };
  return {api:new DockerMachines('unix:///tmp/reinlab-independent.sock',transport),calls,containers,volumes,loseResponse:(stage:'volume'|'machine')=>{lose=stage;}};
 }
-afterAll(async()=>{const dir=resolve('evidence/P1-08-local');await mkdir(dir,{recursive:true});await writeFile(join(dir,'docker-independent-observations.json'),JSON.stringify({schemaVersion:1,nodeVersion:process.version,engine:'test-only fake Docker Engine or temporary Unix HTTP socket',realDockerValidated:false,observations},null,2)+'\n');});
+afterAll(async()=>{const dir=await testEvidenceDirectory('docker-independent');await writeFile(join(dir,'docker-independent-observations.json'),JSON.stringify({schemaVersion:1,nodeVersion:process.version,engine:'test-only fake Docker Engine or temporary Unix HTTP socket',realDockerValidated:false,observations},null,2)+'\n');});
 it.each([
  ['control host remapped',(c:any)=>{c.HostConfig.ExtraHosts=['host.docker.internal:203.0.113.9'];}],
  ['foreign attached network',(c:any)=>{c.NetworkSettings.Networks.foreign={NetworkID:'foreign-network'};}],

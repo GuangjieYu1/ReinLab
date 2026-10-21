@@ -1,0 +1,262 @@
+{
+  "fixtureOnly": true,
+  "providerCalls": 1,
+  "requests": [
+    {
+      "model": "fixture",
+      "stream": true,
+      "messages": [
+        {
+          "role": "system",
+          "contentLength": 4691,
+          "containsMarker": false,
+          "containsMaxSteps": false
+        },
+        {
+          "role": "user",
+          "contentLength": 32,
+          "containsMarker": true,
+          "containsMaxSteps": false
+        },
+        {
+          "role": "assistant",
+          "contentLength": 767,
+          "containsMarker": false,
+          "containsMaxSteps": true
+        }
+      ],
+      "tools": [
+        "edit",
+        "write",
+        "literature"
+      ]
+    }
+  ],
+  "wire": [
+    {
+      "event": "request.parsed",
+      "stream": true,
+      "bytes": 11011
+    },
+    {
+      "event": "response.end.called",
+      "doneMarker": true
+    },
+    {
+      "event": "response.finish",
+      "status": 200,
+      "writableFinished": true
+    },
+    {
+      "event": "response.close",
+      "writableFinished": true
+    }
+  ],
+  "rows": [
+    {
+      "state": "running",
+      "ended_at": null,
+      "phase": "accepted",
+      "cursor": "6",
+      "usage_uncertain": false,
+      "usage_count": 0
+    }
+  ],
+  "runtimeState": {
+    "snapshot": {
+      "sessionID": "ses_rla589911ebbf746c4a6345b0e7de54e43",
+      "runs": [
+        {
+          "runID": "run_fb556b3a76552337f88a4dcb9098390a697864435199a8ddca2eb1bcd5e592a1",
+          "sessionID": "ses_rla589911ebbf746c4a6345b0e7de54e43",
+          "requestID": "b3751eb9-5c5c-46ea-ac2b-90d1fb43d2c9",
+          "messageID": "msg_15deb5e2e001vPNoHl5dOaRXhq",
+          "state": "completed",
+          "acceptedAt": 1792577068590,
+          "updatedAt": 1792577068807,
+          "completedAt": 1792577068805,
+          "resultMessageID": "msg_15deb5ea6001LUgnWyu0KAriOX"
+        }
+      ],
+      "oldestSequence": 1,
+      "latestSequence": 28,
+      "permissions": [],
+      "questions": [],
+      "decisionScope": "connected_runtime"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "time": {
+          "created": 1792577068601
+        },
+        "parts": [
+          {
+            "type": "text",
+            "hasUsage": false,
+            "hasTokens": false,
+            "textLength": 30
+          },
+          {
+            "type": "text",
+            "hasUsage": false,
+            "hasTokens": false,
+            "textLength": 0
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "finish": "max-steps",
+        "time": {
+          "created": 1792577068710,
+          "completed": 1792577068789
+        },
+        "parts": [
+          {
+            "type": "step-start",
+            "hasUsage": false,
+            "hasTokens": false
+          },
+          {
+            "type": "text",
+            "hasUsage": false,
+            "hasTokens": false,
+            "textLength": 17
+          },
+          {
+            "type": "step-finish",
+            "hasUsage": true,
+            "hasTokens": true
+          }
+        ]
+      }
+    ],
+    "replay": [
+      {
+        "sequence": 1,
+        "type": "runtime.accepted"
+      },
+      {
+        "sequence": 2,
+        "type": "message.updated"
+      },
+      {
+        "sequence": 3,
+        "type": "message.part.updated"
+      },
+      {
+        "sequence": 4,
+        "type": "message.part.updated"
+      },
+      {
+        "sequence": 5,
+        "type": "session.filesystem.changed"
+      },
+      {
+        "sequence": 6,
+        "type": "session.status"
+      },
+      {
+        "sequence": 7,
+        "type": "message.updated"
+      },
+      {
+        "sequence": 8,
+        "type": "session.context"
+      },
+      {
+        "sequence": 9,
+        "type": "session.request.progress"
+      },
+      {
+        "sequence": 10,
+        "type": "message.updated"
+      },
+      {
+        "sequence": 11,
+        "type": "session.status"
+      },
+      {
+        "sequence": 12,
+        "type": "session.diff"
+      },
+      {
+        "sequence": 13,
+        "type": "session.request.progress"
+      },
+      {
+        "sequence": 14,
+        "type": "message.part.updated"
+      },
+      {
+        "sequence": 15,
+        "type": "session.request.progress"
+      },
+      {
+        "sequence": 16,
+        "type": "message.part.updated"
+      },
+      {
+        "sequence": 17,
+        "type": "message.part.updated"
+      },
+      {
+        "sequence": 18,
+        "type": "message.part.updated"
+      },
+      {
+        "sequence": 19,
+        "type": "message.updated"
+      },
+      {
+        "sequence": 20,
+        "type": "message.updated"
+      },
+      {
+        "sequence": 21,
+        "type": "session.diff"
+      },
+      {
+        "sequence": 22,
+        "type": "message.updated"
+      },
+      {
+        "sequence": 23,
+        "type": "session.request.progress"
+      },
+      {
+        "sequence": 24,
+        "type": "message.updated"
+      },
+      {
+        "sequence": 25,
+        "type": "session.status"
+      },
+      {
+        "sequence": 26,
+        "type": "session.status"
+      },
+      {
+        "sequence": 27,
+        "type": "session.idle"
+      },
+      {
+        "sequence": 28,
+        "type": "runtime.completed"
+      }
+    ]
+  },
+  "observerCodes": [
+    "OBSERVATION_SCHEDULER_FAILED"
+  ],
+  "logs": [
+    {
+      "type": "server.ready",
+      "schemaVersion": 1,
+      "url": "http://127.0.0.1:58058/",
+      "pid": 39571,
+      "version": "2.0.150"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "node": "v22.23.3",
+  "effectiveRed": {
+    "passed": 0,
+    "failed": 16,
+    "actualExistingRegressionCases": 3,
+    "missingSinkCases": 13
+  },
+  "firstGreen": {
+    "passed": 26,
+    "failed": 0
+  },
+  "finalGreen": {
+    "passed": 63,
+    "failed": 0,
+    "sinkCases": 18,
+    "existingCore": 3,
+    "existingIndependent": 7,
+    "observer": 27,
+    "scheduler": 8
+  },
+  "static": {
+    "controlTypecheck": "passed",
+    "lint": "passed",
+    "diffCheck": "passed"
+  },
+  "nativeIntegration": "not claimed; root owns native+DB/app wiring",
+  "independentReview": "late-step independent author asked to re-run; original red preserved",
+  "sha256": {
+    "services/control/src/bridge/openscience/observation-store.ts": "bf5c90c56ef3083c217f98ab9d2a69fe909c54e46e3004ea376622f0fd501fdd",
+    "services/control/test/observation-sink.test.ts": "0e470ead77d7d787919da9663d952226cd23cf68be4de5bbee93c48283138c09"
+  },
+  "lateStepIndependentRed": {
+    "report": "../observation-independent/late-step-red.json",
+    "passed": 7,
+    "failed": 1,
+    "issue": "priced step after settled terminal made cost ledger diverge from run spent"
+  },
+  "lateStepGreen": {
+    "passed": 68,
+    "failed": 0,
+    "sink": 22,
+    "core": 3,
+    "independent": 8,
+    "observer": 27,
+    "scheduler": 8,
+    "report": "late-step-green.json"
+  },
+  "protocolBoundary": "ended run new step-finish rejected with LATE_USAGE_AFTER_TERMINAL409 for manual reconciliation; no cost/usage/cursor append; old recorded replays still deduplicate"
+}

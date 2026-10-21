@@ -1,3 +1,4 @@
+import {testEvidenceDirectory} from './fixtures/test-evidence';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -51,7 +52,7 @@ describe.sequential('P1-10 native role boundaries T-ROLE1–5', () => {
     if (server) await server.close();
     if (provider) await provider.close();
     if (root) await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    const evidence = resolve('evidence/P1-10');
+    const evidence = await testEvidenceDirectory('native-role');
     await mkdir(evidence, { recursive: true });
     await writeFile(join(evidence, 'model-requests.json'), serializedSamples + '\n');
     await writeFile(join(evidence, 'native-test.json'), JSON.stringify({

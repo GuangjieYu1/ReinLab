@@ -1,0 +1,10 @@
+{
+  "state": "failed-before-provider",
+  "realModelForwards": 0,
+  "bytes": 0,
+  "markerConsumed": false,
+  "runState": "failed",
+  "reason": "OpenScience reported requested DeepSeek model unavailable before any provider HTTP forwarding",
+  "originalReportSha256": "21191fe3a546c0bee3c2736420cf7730310c93762953530523c363317dabd073",
+  "credentialsRecorded": false
+}

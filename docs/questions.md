@@ -71,3 +71,85 @@
 | Q-046 | CLI提供的postgres连接执行既有ALTER ROLE NOBYPASSRLS迁移真实返回42501；PG17本地角色并非超级用户 | 初始化仅在CLI的loopback端口使用supabase_admin（已实测为superuser）；旧迁移保持摘要不变，运行时仅给reinlab_app/reinlab_provisioner各自凭据并检查无超级用户/绕过RLS/角色成员/表所有权。管理凭据只在本地setup文件，不进HTTP进程 | 推荐执行；本地首次迁移已通过 |
 | Q-047 | CLI2.121.0真实Auth签发ES256，而现有可选JWT_SECRET使控制面限定HS256，真实登录返回401 | 本地运行时不下发JWT_SECRET，沿既有JWKS验签路径验证ES256及issuer/audience/role/时限；初始化仅用CLI旧JWT密钥签发专用Storage JWT，不把管理员签名密钥留在HTTP进程 | 推荐执行；真实红灯见P1-08-local/integration-attempt-1 |
 | Q-048 | 独立Colima重启后首次CLI start泛型失败而稍后成功；同tag反复build又实测导致旧containerd镜像metadata消失 | 不猜首次失败根因；仅CLI基础设施start对两类启动失败最多3次有界恢复，业务/模型不在重试闭包。镜像按全部COPY内容生成tag并固定不可变ID，存在pin或旧容器时不重build/替换基线。数据盘扩20GiB仅涉及本任务profile，保卷；本地真实9/9及重复启动通过 | 推荐执行；云仍补验 |
+| Q-049 | 容器/data不在控制面宿主FS，且同一逻辑角色的记忆/提示词更新不能覆盖旧收据绑定的AGENTS | 单一受管角色规划源复制到账户镜像，现有认证代理只提供固定根/插件的窄准备操作；控制面核对预期路径与三文件摘要后才取得远端能力。角色physicalId用logicalId前28字+--+规范输入SHA256前32字，完整摘要也存DB；旧内容目录不覆盖。保持/data/roles在档案外、非git、默认deny及taskdeny。Node22锁定镜像通过原生类型擦除执行该TS模块，zod作为账户明确生产依赖 | 推荐执行；原生与远端合同测试后才标通过 |
+| Q-050 | 原生fixture实测一次最小角色请求另触发title模型调用，不能仅按主研究请求数证明无重复或核对费用 | 全局明确禁用辅助title agent，控制面创建时提供研究运行标题；保留真实研究模型调用。全局默认/小模型与enabled provider也锁到安全配置路由（本阶段DeepSeek），不隐式调用其他提供方。原生fixture复用同一账户配置函数，核对所有provider请求数，避免只在测试里关闭标题掩盖live费用 | 推荐执行；fixture-request-inspection保留原先2请求的观察 |
+
+## Q-051 P1-10提交与观察的启动边界
+- 背景：Hatchet明确延后P1-13，P1-10需要真实提交/持久观察，不能靠观察器重发模型。
+- 推荐并采用：新增独立可信RunBridge，由用户明确创建后的控制面提交入口调用；run独占session，先保存身份与send intent，HTTP不确定结果只能读snapshot取原收据。观察器仅持read-only端口；重启只恢复已绑定active观察，绝不提交queued任务。P1-13再把admission接入Hatchet，不改幂等语义。
+- 状态：实现中，不代表已验证。
+
+## Q-052 问题卡答案的请求字段
+- 背景：§6只列decision/scope，但SDK question决定必须有answers二维数组。
+- 推荐并采用：仅question approve允许bounded answers:string[][]，permission拒绝该字段；question reject不带answers。scope只once/session，权限绝不project/always。先确认真实snapshot pending，再保存决定意图；结果未知不自动重发。
+- 状态：实现中。
+
+## Q-053 实际费用与原生币种/价格窗口
+- 背景：只读DeepSeek后台确认账户以CNY计价；官方原生CNY价与USD价×7.2不是完全一致。官方还存在peak/offpeak，不能凭models.dev静态USD价格冒充本次账单。
+- 推荐并采用：实际step费用用官方原生币种价目、明确价格窗口；固定FX7.2每次记录，CNY标conversionApplied=false，USD才换算。价格有效区间/币种未配置或实际用量/来源无效记null并暂停，不猜免费。定价与后台对账是两件事，未核对前providerInvoiceReconciled=false。
+- 当前窗口不从节假日日历猜测；冒烟前以只读后台及官方规则确认的短区间固定下来，绑定时持久化。跨区间用量标未知等待核对。长期窗口同步由后续对账任务完善。
+
+## Q-054 P1-10最小真实冒烟的执行上限
+- 背景：研究种子角色默认48步，P1-11工具预算钩子尚未实现；本批只允许一次真实模型回合且≤¥1。
+- 推荐并采用：运行输入可提出更紧的limits.maxSteps（1～种子steps），只能收紧不扩权；冒烟取1步，仍使用真实研究角色提示词/模型/账户容器与原生用量。禁用辅助title agent，模型默认与small_model统一DeepSeek且仅此provider启用。真实执行前按实际上下文与模型输出上限核对≤¥1；无法保证则不提交并保留待验。
+- 不改变role_def授权、requestID、生产模型、不引入桩。P1-11再接完整逐工具预授权。
+
+## Q-055 第三批补充Harness清单的初始来源
+- 主仓库ADDENDUM/HARNESS均已读取，实际benches/research.bench.yaml和prompts/目录尚不存在；HARNESS中的YAML是节选示例，不能当完整已审查角色表。
+- 推荐并采用：从已审查role_def迁移10个角色及提示词到研究台清单/提示词资源，保持现有ID与权限上限；入口角色映射、模型位置、write_targets、阶段和默认预算均显式声明。工具risk由独立通用注册契约提供，未实现的P1-11能力标planned，不能假称可执行。现role_def保留历史FK/兼容，不再作为研究台运行授权来源。
+- T-HAR-1/2/5/10本批完成；版本升级收件箱、完整门禁钩子、卡片生成/回放等按HARNESS落地顺序留后段，不假称完成T-HAR-4/6/8/9。
+
+## Q-056 网关与旧SPIKE-3接入方式变更
+- 用户补充决定：模型key以后仅在LiteLLM网关，运行使用临时预算key；本批只预留费用来源gateway_callback接口，不部署/伪装网关。本轮真实冒烟仍遵循已授权受保护DeepSeek配置与≤¥1限制，并标清direct_provider_usage。
+- SPIKE-3原结论保留为当时源码/接口事实；未来P2-07**接入方式将变更**：课堂引擎内使用@openmaic/generation，AICallFn连网关，不再以站点scene-content作为正式接入。当前不实现课堂引擎、不改现有前端跳转。
+
+## Q-057 Harness权限放宽审批的持久化
+- 原approval表run_id必填且kind没有harness，档案偏好调整可能尚无run。
+- 推荐并采用：本批新增租户隔离harness_proposal存放精确patch/原有效摘要/用户决定收据；账户/档案身份+CAS有效摘要核对后才应用。未经批准，含放宽的patch不改变有效配置，只生成审批卡；批准后写harness.loosen账本。纯函数或调用者布尔approved不能构成授权。
+
+## Q-058 前端基线更新与第18个场景
+- 用户明确批准仅src/、e2e/legacy/、package.json的scripts段同步主仓库现成基线，逐文件哈希；旧17任一失败停止，不改场景。
+- 实际新增5个看板文件、更新AutomationStudio；scripts源5key本已与分支相同，保留分支后端脚本和所有依赖。18/18已通过，源/目标逐字节一致，主仓库哈希未变。证据evidence/T-REG/baseline-refresh，初始缺看板失败保留evidence/T-REG/live。
+
+## Q-059 P1-10账户内恢复范围
+- Hatchet全局持久调度到P1-13才实现。应用DB角色不具跨租户扫描权限，不能为了自动恢复放宽RLS。
+- 本批选择：已认证账户请求/SSE或明确用户重放时恢复该账户已accepted会话的观察；发送结果未知仅查询原snapshot/收据。无人访问时的全局主动恢复仍待P1-13，不作已完成声明。观察器最多3次连接，外层不无限重启它。
+
+## Q-060 Harness记忆注入最小规则
+- 当前角色scope有layers/current/own/explicit，完整检索和引文授权由P1-15实现。
+- 推荐并采用：新run无本人旧thread，L1不读；自动注入仅role允许的L2当前档案且无thread、L3/L4账户全局且无dossier/thread，排除revoked/被supersedes。若显式memoryRefs UUID[]（含空数组）则仅取该集合与上述范围交集，绝不扩权。assigned-citations无已核验分配引用时本批memory为空并保留待办，不猜path或任意ID授权。
+
+## Q-061 无效问题答复的纠正
+- 决定意图一旦发送必须不可变，不因400就解开sent围栏。
+- 本批API在保存新意图之前先只读fresh snapshot验证答案；无效答案400不保存intent，可更正后提交。真正dispatch之前再次fresh核验；结果未知不自动重发。历史replied不等于ReinLab用户批准，无控制面intent时原pending只会expired。
+
+## Q-062 / B-1 DeepSeek 旧目录别名不可用
+- 原生2.0.150在连接后过滤 catalog 的 deprecated 模型；官方价格页确认旧 deepseek-v4-flash 与当前 deepseek-flash 均服务于 DeepSeek-V4.1-Flash-1017。保持三档产品路由 deepseek/deepseek-v4-flash，通过 SDK 模型配置 id=deepseek-flash 映射 API 名；不改上游，也不把旧目录行伪标 active/beta。内核实际发送 API 名与产品路由分别留证。
+- 临时冒烟配置完成后，先读真实 provider 列表核对 alias、API id、可用状态、1024输出上限/非思考，再核对受信 raw config 的本地临时端点；未生效即清理临时 auth/config，禁止开始 prompt。guard 两个等价 API 名共用一个不可回退 marker，不能增加请求次数。
+- 已保留的前置失败只接受了本地内核请求，真实提供方转发0、usage空；不修改该失败运行，不重发其 requestID。之后唯一真实冒烟必须按用户最新要求，先确认新计划再执行。
+
+## Q-063 / B-2、B-3 清单可调字段与目录声明
+- resolver现逐字段执行tunable白名单，未列入字段（即使为空或同值）400拒绝；研究台原tunable不扩容。可调整目录/记忆/附加说明的通用能力仅在专门声明这些字段的清单中可用，审批不能跳过白名单。
+- B-3处理选择：layout表示初始目录骨架，不是写权限白名单；write_targets可声明本档案内的其他纯相对子目录，仍须工具授权与路径校验，实际写入时才按授权建立。当前read/layers/、findings/、experiments/属于这种目录。初始化骨架物化与相应业务工具未在本批实现，不把允许路径称为磁盘目录已存在；后段必须按目录合同物化。维持已发布1.0.0内容及摘要不可变，不为文档观察静默改清单。
+
+## Q-064 本地全量测试资源上限
+- 中期修复后默认全量使用宿主10核推导出的9个文件worker，同时运行真实PG和多个原生内核，三个旧预算用例触及原5秒测试上限；相同文件单跑28/28，相关用例约0.5秒。尚不声称某一条数据库锁是唯一原因，红报告保留。
+- 为稳定资源占用，独立vitest.config.ts只将文件worker上限设为4，低核机器不超过默认CPU-1；复用原Vite配置。不加重试，不加大5秒超时，不跳过测试、不改业务/RLS/预算断言。最终需两版本全量及CI证明。
+
+## Q-065 唯一真实冒烟返回思考模式400（未关闭）
+- 用户明确确认后在2026-10-22 02:31北京时间空闲窗口执行唯一真实转发。DeepSeek返回400：思考模式要求回传reasoning_content，无usage；账本保留unknown/unpriced，未把spent=0当免费，marker保留且不再发送。
+- 官方文档称思考默认打开，须显式thinking.type=disabled关闭。只读上游transform仅对API id匹配deepseek-v[4-9]注入disabled；B-1改成deepseek-flash可能绕过此分支。当前只有源码推断与真实400，尚无原始wire请求存档，不把推断写成已证根因。
+- 推荐后续先用原生fixture截获实际wire字段，再通过SDK模型options显式关闭思考并核验，保持产品路由/上游源码不变。guard目前允许省略thinking，不能把能力reasoning:false当成线上关闭证明；应一起收紧其验证。此涉及安全守卫改动，应按用户约定独立安全评审。**本轮只取证送审，不改行为，不再真实重跑。** P1-10暂不关闭，需审查方确定修复范围；第二次真实验证必须取得新的明确授权，不能绕marker。
+- 后台已在延迟5分钟后导出，只有小时聚合、缺request_id且存在其他调用；未能单独归因本次费用，对账仍false。原始导出留仓库外0600，入库无其他调用金额/token/key标识。
+
+## Q-066 B-6/B-7/B-8与第二次授权（用户/审查已确定范围）
+- 追加审查确认Q-065根因：API别名绕过上游thinking自动注入。按B-6在SDK模型options显式disabled并核raw config；B-7守卫必须收到disabled，缺失也拒绝；B-8 fixture按本次非思考合同拒绝缺失/非disabled，原生截获实际出站体核对。未改上游。
+- 独立安全子agent仅评审B-7及相关配置/第二次固定目录边界，35/35，无P1/P2；其余改动作者自行复核。普通回归不读真实key/不发真实请求。
+- 用户已更换ReinLab专用key，位置/变量不变。该说明只确认凭据就绪，不构成第二次真实发送授权；本轮停在SECOND_SMOKE_PLAN.md计划后。未来按该key单独核账，第一次unknown/unpriced及已消费marker不回退。
+- 第二次固定目录p110-second-authorization与新幂等键/内核requestID隔离；默认入口仍使用原p110-one-shot，禁止任意第三次selector。新目录/marker/admission只在未来明确授权执行时创建，证据须写明第二次授权。
+
+## Q-067 第二次真实冒烟与工具读取敏感弹窗事件
+- 用户已明确第二次授权；本次新requestID、单次转发1，真实回复“链路已通”，run completed，usage已知、账本¥0.002766、hold settled；第一次失败unknown/unpriced不变。后台按ReinLab专用key的零基线单独核对，实际对账结果见real-smoke-second-authorization/。
+- 本次进入Safari时，用户前台仍在新key创建弹窗，初始AX工具响应自动包含明文。未复制到Git、业务日志、账本或证据；这里不复述任何key或片段。对话工具输出发生敏感信息暴露，不能声称本轮全程无凭据暴露。已告知用户，建议核账后由用户轮换；Codex不擅自创建/删除/更换凭据。
+- 后续操作在返回AX文本前静默读取并遮盖key形态，避免再次输出。该事件及用户轮换处理须在关闭审查时如实说明，不能因模型成功而隐去。
+- 后台延迟后按ReinLab专用key导出：零基线→1请求、输入2754/输出3、费用¥0.002766；与账本误差0%，本次核账通过。业务原始元数据未回写历史标志，独立对账报告为最终核验依据。原始截图/ZIP留本机0600，值不入仓库。P1-10送Claude审查，凭据事件仍待用户轮换处理，不自行判验收通过。

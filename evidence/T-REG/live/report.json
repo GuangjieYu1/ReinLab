@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "base": "http://127.0.0.1:5198",
+  "startedAt": "2026-10-20T15:28:07.138Z",
+  "strictWarn": false,
+  "total": 1,
+  "passed": 0,
+  "failed": 1,
+  "results": [
+    {
+      "id": "live",
+      "title": "自动化台看板：告警、调参与审批、接入项目、模拟、拒绝交易",
+      "status": "failed",
+      "durationMs": 12315,
+      "failure": "locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('tab', { name: /看板/ })\u001b[22m\n\n    at Object.run (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/e2e/legacy/scenarios/18-live.mjs:10:49)\n    at async file:///Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/e2e/legacy/run.mjs:84:9",
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": []
+    }
+  ]
+}

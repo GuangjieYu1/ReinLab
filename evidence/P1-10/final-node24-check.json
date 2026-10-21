@@ -1,0 +1,22 @@
+{
+  "runtime": "Node24 compatibility regression; project target remains Node22",
+  "node": "v24.14.1",
+  "pnpm": "11.5.2",
+  "command": "pnpm test --reporter=json --outputFile=evidence/P1-10/final-node24.json",
+  "cwd": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab",
+  "evidenceOut": null,
+  "log": "/tmp/reinlab-final-node24.log",
+  "startedAt": "2026-10-21T10:21:41.326298+00:00",
+  "realModelRequests": 0,
+  "realKeyReads": 0,
+  "status": "passed",
+  "exitCode": 0,
+  "finishedAt": "2026-10-21T10:23:13.432361+00:00",
+  "total": 1256,
+  "passed": 1256,
+  "failed": 0,
+  "pending": 0,
+  "testFiles": 105,
+  "reportSha256": "c1bb1f4326f41243efdda2b6057e94b86d6cb0cdacc379d6887fa5c1b27ef000",
+  "warning": "pnpm engine warning expected: project target Node22; explicit Node24 compatibility regression"
+}

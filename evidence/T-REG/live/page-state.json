@@ -1,0 +1,15 @@
+{
+  "tabs": [
+    "01编排COMPOSE04",
+    "02节点GRAPH01",
+    "03运行RUNS01",
+    "04维护MAINTAIN04"
+  ],
+  "boardTabs": 0,
+  "liveCards": 0,
+  "requestOrigins": [
+    "http://127.0.0.1:5198",
+    "https://fonts.googleapis.com",
+    "https://fonts.gstatic.com"
+  ]
+}

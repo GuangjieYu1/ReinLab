@@ -1,0 +1,44 @@
+{
+  "readOnly": true,
+  "first": {
+    "run": {
+      "state": "failed",
+      "spent_cny": "0.000000"
+    },
+    "binding": {
+      "usage_uncertain": true
+    },
+    "hold": {
+      "state": "unpriced",
+      "actual_cny": null
+    }
+  },
+  "second": {
+    "run": {
+      "state": "completed",
+      "spent_cny": "0.002766"
+    },
+    "binding": {
+      "usage_uncertain": false
+    },
+    "hold": {
+      "state": "settled",
+      "actual_cny": "0.002766"
+    }
+  },
+  "markers": [
+    {
+      "attempt": "p110-one-shot",
+      "present": true,
+      "mode0600": true,
+      "sha256": "7d13a075d40470eefa4321c7e4272d0ffaa704bad59b2cdc0094171ae39c6184"
+    },
+    {
+      "attempt": "p110-second-authorization",
+      "present": true,
+      "mode0600": true,
+      "sha256": "7d13a075d40470eefa4321c7e4272d0ffaa704bad59b2cdc0094171ae39c6184"
+    }
+  ],
+  "realModelRequestsAdded": 0
+}

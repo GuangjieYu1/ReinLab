@@ -1,7 +1,8 @@
+import {testEvidenceDirectory} from './fixtures/test-evidence';
 import {afterAll,afterEach,expect,it} from 'vitest';
 import {mkdtemp,mkdir,writeFile,readFile,rm,symlink,link,chmod,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import pg from 'pg';
@@ -13,7 +14,7 @@ const admin=new pg.Pool({connectionString:'postgres://postgres@127.0.0.1:55432/r
 const status={API_URL:'http://127.0.0.1:54321',DB_URL:'postgres://fixture:fixture-password@127.0.0.1:54322/postgres',ANON_KEY:'fixture-anon-padding-123456',JWT_SECRET:'fixture-jwt-padding-no-real-secret-123456'};
 async function temporary(){const dir=await realpath(await mkdtemp(join(tmpdir(),'reinlab-local-independent-')));roots.push(dir);return dir;}
 afterEach(async()=>{for(const dir of roots.splice(0))await rm(dir,{recursive:true,force:true});});
-afterAll(async()=>{await admin.end();const out=process.env.REINLAB_EVIDENCE_OUT?resolve(process.env.REINLAB_EVIDENCE_OUT):await mkdtemp(join(tmpdir(),'reinlab-local-independent-evidence-'));await mkdir(out,{recursive:true});await writeFile(join(out,'local-independent-observations.json'),JSON.stringify({schemaVersion:1,nodeVersion:process.version,realAuthSignup:false,realDockerUsed:false,pgFixtureTransactionsRollback:true,observations},null,2)+'\n');});
+afterAll(async()=>{await admin.end();const out=await testEvidenceDirectory('local-independent');await writeFile(join(out,'local-independent-observations.json'),JSON.stringify({schemaVersion:1,nodeVersion:process.version,realAuthSignup:false,realDockerUsed:false,pgFixtureTransactionsRollback:true,observations},null,2)+'\n');});
 it.each(['?host=203.0.113.7','?port=6543','?sslmode=require','#fragment'])('rejects DB URL suffix before bootstrap can reinterpret connection settings: %s',suffix=>{
  let rejected=false;try{parseSupabaseStatus(JSON.stringify({...status,DB_URL:status.DB_URL+suffix}));}catch{rejected=true;}observations.push({case:'db-url-suffix',suffix,rejected});expect(rejected).toBe(true);
 });
@@ -56,7 +57,7 @@ it('real PG error-code injection is rejected without acknowledging the lease',as
  const worker=randomUUID();await c.query("update reinlab_meta.provision_job set state='leased',attempts=1,worker_id=$2,lease_until=now()+interval '1 minute' where account_id=$1",[id,worker]);await expect(roleQuery(c,'reinlab_provisioner','select public.reinlab_provision_finish($1,$2,$3)',[id,worker,'fixture raw\nsecret'])).rejects.toMatchObject({code:'22023'});expect((await c.query('select state from reinlab_meta.provision_job where account_id=$1',[id])).rows[0].state).toBe('leased');observations.push({case:'queue-error-code-injection',rejected:true,leasePreserved:true});
 }));
 it('rejecting a privileged worker connection releases its PG connection',async()=>{
- const name='reinlab_independent_'+randomUUID().replaceAll('-','');await expect(startAuthProvisioner('postgres://postgres@127.0.0.1:55432/reinlab_test?application_name='+name,{async ensure(){throw Error('must not run');}})).rejects.toThrow('UNSAFE_DATABASE_ROLE');const active=Number((await admin.query('select count(*) from pg_stat_activity where application_name=$1',[name])).rows[0].count);observations.push({case:'unsafe-worker-startup-pool',remainingConnections:active});expect(active).toBe(0);
+ const name='reinlab_independent_'+randomUUID().replaceAll('-','');await expect(startAuthProvisioner('postgres://postgres@127.0.0.1:55432/reinlab_test?application_name='+name,{async ensure(){throw Error('must not run');}})).rejects.toThrow('UNSAFE_DATABASE_ROLE');let active=-1;await expect.poll(async()=>{active=Number((await admin.query('select count(*) from pg_stat_activity where application_name=$1',[name])).rows[0].count);return active;},{timeout:1000,interval:20}).toBe(0);observations.push({case:'unsafe-worker-startup-pool',remainingConnections:active});
 });
 
 it('real PG failed provisioning observes retry cooldown before a subsequent claim',async()=>transaction(async(c,id)=>{

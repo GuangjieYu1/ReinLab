@@ -1,0 +1,112 @@
+/* 看板面 LIVE · 莱茵生命：方角、1px 线、等宽微标注；黑白灰区分序列，橙色只给阈值 / 告警 / 正在进行，红色只给失败。 */
+.lv-center { grid-template-rows:60px minmax(0,1fr); }
+.lv-back { align-self:stretch; width:44px; border:0; border-right:1px solid var(--rh-line); background:var(--rh-paper); font:600 18px/1 var(--rh-f-ui); }
+.lv-back:hover { background:var(--rh-ink); color:var(--rh-paper); }
+.au-id[data-state='alert'] { background:var(--rh-accent); color:var(--rh-ink); }
+.au-id[data-state='fail'] { background:var(--rh-danger); color:var(--rh-white); }
+.au-id[data-state='trial'] { background:var(--rh-paper-3); color:var(--rh-ink); box-shadow:inset 0 -3px 0 var(--rh-accent); }
+.lv-observe { align-self:center; margin-right:10px; padding:4px 8px; border:1px dashed var(--rh-ink-3); font:500 10.5px/1 var(--rh-f-mono); color:var(--rh-ink-3); white-space:nowrap; }
+
+/* 看板总览 */
+.lv-board { min-height:0; overflow:auto; padding:18px; display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); grid-auto-rows:min-content; gap:14px; align-content:start;
+  background:linear-gradient(var(--rh-line-2) 1px, transparent 1px) 0 0/100% 28px, var(--rh-white); }
+.lv-card { position:relative; display:grid; gap:8px; padding:12px 14px 12px; border:1px solid var(--rh-ink); background:var(--rh-paper); text-align:left; box-shadow:4px 4px 0 var(--rh-paper-3); transition:transform .18s var(--rh-ease-move), box-shadow .18s; animation:au-rise .4s var(--rh-ease-enter) both; }
+.lv-card:hover { transform:translate(-2px,-2px); box-shadow:6px 6px 0 var(--rh-ink); }
+.lv-card[data-state='alert'] { border-color:var(--rh-accent); box-shadow:4px 4px 0 var(--rh-accent-wash), inset 4px 0 0 var(--rh-accent); }
+.lv-card[data-state='paused'] { opacity:.62; }
+.lv-card-top { display:flex; align-items:center; gap:8px; font:500 10.5px/1 var(--rh-f-mono); color:var(--rh-ink-3); }
+.lv-card-top code { padding:3px 5px; background:var(--rh-ink); color:var(--rh-paper); font:600 10.5px/1 var(--rh-f-mono); }
+.lv-kind { padding:2px 5px; border:1px solid var(--rh-line); }
+.lv-st { margin-left:auto; display:flex; align-items:center; gap:6px; } .lv-st i[data-s] { width:8px; height:8px; }
+.lv-card-title { font:800 17px/1.15 var(--rh-f-display); font-stretch:110%; }
+.lv-spark { width:100%; height:38px; display:block; border-bottom:1px solid var(--rh-line-2); }
+.lv-card-kpi { display:flex; align-items:baseline; gap:8px; } .lv-card-kpi strong { font:700 20px/1 var(--rh-f-display); } .lv-card-kpi small { font:400 10.5px/1 var(--rh-f-mono); color:var(--rh-ink-4); }
+.lv-card-src, .lv-card-alert { margin:0; font:400 10.5px/1.4 var(--rh-f-mono); color:var(--rh-ink-4); }
+.lv-card-alert { color:var(--rh-ink); padding:4px 6px; background:var(--rh-accent-wash); border-left:2px solid var(--rh-accent); }
+.lv-card.is-add { align-content:start; border-style:dashed; border-color:var(--rh-ink-3); background:var(--rh-white); box-shadow:none; }
+.lv-card.is-add:hover { border-style:solid; border-color:var(--rh-accent); box-shadow:inset 3px 0 0 var(--rh-accent); transform:none; }
+.lv-card.is-add b { font:700 14px/1.2 var(--rh-f-ui); } .lv-card.is-add span { font-size:12px; line-height:1.6; color:var(--rh-ink-3); }
+
+/* 详情 */
+.lv-detail { min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 288px; }
+.lv-main { min-height:0; min-width:0; overflow:auto; padding:0 18px 28px; }
+.lv-tabs { position:sticky; top:0; z-index:2; display:flex; gap:0; margin:0 -18px 14px; padding:0 18px; border-bottom:1px solid var(--rh-ink); background:var(--rh-white); }
+.lv-tabs button { padding:10px 14px 9px; border:0; border-bottom:3px solid transparent; background:none; font:600 12.5px/1 var(--rh-f-ui); color:var(--rh-ink-3); }
+.lv-tabs button[aria-selected='true'] { color:var(--rh-ink); border-bottom-color:var(--rh-accent); }
+.lv-banner { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin:0 0 12px; padding:9px 12px; border:1px solid var(--rh-accent); background:var(--rh-accent-wash); font-size:13px; }
+.lv-banner b { padding:2px 6px; background:var(--rh-accent); font:700 11px/1.2 var(--rh-f-ui); } .lv-banner small { width:100%; font:400 10.5px/1.3 var(--rh-f-mono); color:var(--rh-ink-3); }
+.lv-note { margin:0 0 12px; padding:8px 12px; border-left:2px solid var(--rh-ink); background:var(--rh-paper); font-size:12.5px; line-height:1.6; color:var(--rh-ink-2); }
+.lv-grid { display:grid; grid-template-columns:repeat(12, minmax(0,1fr)); gap:12px; }
+.lv-grid.is-sandbox { padding:10px; border:1px dashed var(--rh-ink-3); background:repeating-linear-gradient(135deg, transparent 0 10px, var(--rh-paper) 10px 11px); }
+.lv-w { min-width:0; display:grid; grid-template-rows:auto 1fr; border:1px solid var(--rh-ink); background:var(--rh-white); animation:au-rise .35s var(--rh-ease-enter) both; }
+.lv-w > header { padding:7px 10px; border-bottom:1px solid var(--rh-line); background:var(--rh-paper); font:600 11.5px/1 var(--rh-f-ui); letter-spacing:.02em; }
+.lv-chart { padding:8px 8px 6px; } .lv-chart svg { width:100%; height:170px; display:block; }
+.lv-w[data-kind='depth'] .lv-chart svg { height:186px; } .lv-w[data-kind='sim'] .lv-chart svg { height:200px; }
+.lv-chart text { font:400 9.5px var(--rh-f-mono); fill:var(--rh-ink-4); }
+line.lv-gl { stroke:var(--rh-line-2); stroke-width:1; vector-effect:non-scaling-stroke; }
+.lv-th { stroke:var(--rh-accent); stroke-width:1.2; stroke-dasharray:5 4; vector-effect:non-scaling-stroke; }
+.lv-th-l { fill:var(--rh-accent) !important; font-weight:600 !important; }
+.lv-zone { fill:var(--rh-accent-wash); opacity:.55; }
+.lv-dot { fill:var(--rh-ink); } .lv-dot.is-hot { fill:var(--rh-accent); }
+.lv-mid { stroke:var(--rh-ink-3); stroke-dasharray:2 3; vector-effect:non-scaling-stroke; }
+.lv-bid { fill:var(--rh-paper-3); stroke:var(--rh-ink); stroke-width:1.2; }
+.lv-ask { fill:var(--rh-white); stroke:var(--rh-ink-3); stroke-width:1.2; stroke-dasharray:4 3; }
+.lv-legend { list-style:none; display:flex; flex-wrap:wrap; gap:4px 16px; margin:4px 4px 0; padding:0; font-size:11.5px; color:var(--rh-ink-3); }
+.lv-legend li { display:flex; align-items:center; gap:6px; } .lv-legend svg { width:22px; height:6px; } .lv-legend b { font:600 11px/1 var(--rh-f-mono); color:var(--rh-ink); }
+.lv-legend em { font-style:normal; padding:1px 4px; background:var(--rh-accent); font:600 10px/1.3 var(--rh-f-ui); color:var(--rh-ink); }
+.lv-stat { display:grid; align-content:center; gap:6px; padding:14px 12px; } .lv-stat b { font:800 24px/1 var(--rh-f-display); font-stretch:105%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lv-stat small { font:400 10.5px/1.2 var(--rh-f-mono); color:var(--rh-ink-4); } .lv-stat[data-hot] { box-shadow:inset 4px 0 0 var(--rh-accent); background:var(--rh-accent-wash); }
+.lv-table { width:100%; border-collapse:collapse; font-size:12.5px; } .lv-table th { padding:6px 10px; text-align:left; font:500 10px/1 var(--rh-f-mono); letter-spacing:.06em; color:var(--rh-ink-4); border-bottom:1px solid var(--rh-line); }
+.lv-table td { padding:7px 10px; border-bottom:1px solid var(--rh-line-2); } .lv-table td[data-k='t'], .lv-table td[data-k='score'], .lv-table td[data-k='cat'], .lv-table td[data-k='v'] { font:500 11.5px/1 var(--rh-f-mono); white-space:nowrap; }
+.lv-table td[data-neg] { color:var(--rh-danger); } .lv-table tr[data-new] td { animation:lv-flash 1.2s ease-out; }
+@keyframes lv-flash { from { background:var(--rh-accent-wash); } to { background:transparent; } }
+.lv-bars { list-style:none; margin:0; padding:10px 12px; display:grid; gap:8px; } .lv-bars li { display:grid; grid-template-columns:64px 1fr 32px; align-items:center; gap:8px; font:500 11px/1 var(--rh-f-mono); }
+.lv-bars i { height:12px; background:var(--rh-ink); transition:width .4s var(--rh-ease-move); } .lv-bars b { text-align:right; }
+.lv-none { margin:0; padding:12px; font-size:12px; color:var(--rh-ink-4); }
+.lv-yaml { margin:0; padding:14px 16px; border:1px solid var(--rh-ink); background:var(--rh-paper); font:400 12px/1.7 var(--rh-f-mono); white-space:pre-wrap; color:var(--rh-ink-2); box-shadow:4px 4px 0 var(--rh-paper-3); }
+.lv-caret { display:inline-block; width:7px; height:13px; margin-left:1px; vertical-align:-2px; background:var(--rh-accent); animation:en-blink .9s steps(2) infinite; }
+.lv-log { list-style:none; margin:0; padding:0; font:400 12px/1.5 var(--rh-f-mono); } .lv-log li { display:grid; grid-template-columns:52px 1fr; gap:10px; padding:6px 4px; border-bottom:1px dashed var(--rh-line-2); }
+.lv-log time { color:var(--rh-ink-4); } .lv-log li[data-k='alert'] span { color:var(--rh-ink); background:var(--rh-accent-wash); } .lv-log li[data-k='param'] span::before { content:'调参 '; color:var(--rh-ink-4); }
+.lv-log li[data-k='deploy'] span { font-weight:600; } .lv-log li[data-k='warn'] span { color:var(--rh-accent); }
+
+/* 右栏：旋钮 */
+.lv-side { min-height:0; overflow:auto; border-left:1px solid var(--rh-ink); background:var(--rh-paper); }
+.lv-side section { padding:12px 14px 14px; border-bottom:1px solid var(--rh-line); }
+.lv-side h4 { margin:0 0 10px; font:500 10px/1 var(--rh-f-mono); letter-spacing:.12em; color:var(--rh-ink-4); }
+.lv-knob { display:grid; gap:7px; padding:10px 0; border-top:1px dashed var(--rh-line-2); } .lv-knob:first-of-type { border-top:0; padding-top:0; }
+.lv-knob header { display:flex; align-items:baseline; gap:8px; } .lv-knob header b { font:600 13px/1.2 var(--rh-f-ui); }
+.lv-knob header em { margin-left:auto; font-style:normal; font:500 9.5px/1 var(--rh-f-mono); color:var(--rh-ink-4); } .lv-knob header em[data-risk='medium'], .lv-knob header em[data-risk='high'] { color:var(--rh-accent); }
+.lv-knob small { font-size:11px; line-height:1.5; color:var(--rh-ink-3); } .lv-knob .lv-pend { color:var(--rh-ink); padding:3px 6px; background:var(--rh-accent-wash); border-left:2px solid var(--rh-accent); }
+.lv-knob[data-pending] { box-shadow:inset 3px 0 0 var(--rh-accent); padding-left:8px; }
+.lv-range { display:grid; grid-template-columns:1fr 56px; align-items:center; gap:10px; }
+.lv-range input { width:100%; accent-color:var(--rh-ink); } .lv-range output { font:700 13px/1 var(--rh-f-mono); text-align:right; }
+.lv-seg { display:flex; flex-wrap:wrap; } .lv-seg button { flex:1; padding:6px 6px; border:1px solid var(--rh-ink); margin:0 -1px -1px 0; background:var(--rh-white); font-size:11.5px; white-space:nowrap; }
+.lv-seg button[aria-pressed='true'] { background:var(--rh-ink); color:var(--rh-paper); }
+.lv-chips { display:flex; flex-wrap:wrap; gap:5px; } .lv-chips button, .lv-chips span { padding:4px 8px; border:1px solid var(--rh-ink-3); background:var(--rh-white); font-size:11.5px; }
+.lv-chips button[aria-pressed='true'] { border-color:var(--rh-ink); background:var(--rh-ink); color:var(--rh-paper); }
+.lv-chips.is-tags span { display:inline-flex; align-items:center; gap:4px; border-color:var(--rh-ink); } .lv-chips.is-tags span button { padding:0 2px; border:0; background:none; color:var(--rh-ink-4); }
+.lv-chips input { width:86px; padding:4px 6px; border:1px dashed var(--rh-ink-3); background:transparent; font-size:11.5px; } .lv-chips input:focus { outline:none; border-style:solid; border-color:var(--rh-accent); }
+.lv-plain { list-style:none; margin:0; padding:0; display:grid; gap:6px; font-size:12px; line-height:1.5; color:var(--rh-ink-2); } .lv-plain.is-mono { font:400 11px/1.4 var(--rh-f-mono); }
+.lv-link { margin-top:8px; padding:0; border:0; background:none; font-size:12px; text-decoration:underline; text-underline-offset:3px; color:var(--rh-ink-3); } .lv-link:hover { color:var(--rh-ink); }
+
+/* 接入流水线 */
+.lv-onboard { min-height:0; overflow:auto; padding:16px 22px 32px; display:grid; gap:16px; align-content:start; }
+.lv-rail { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(4, 1fr); border:1px solid var(--rh-ink); }
+.lv-rail li { display:flex; align-items:center; gap:8px; padding:10px 12px; border-right:1px solid var(--rh-line); font:600 12.5px/1 var(--rh-f-ui); color:var(--rh-ink-4); } .lv-rail li:last-child { border-right:0; }
+.lv-rail em { font-style:normal; font:600 10.5px/1 var(--rh-f-mono); }
+.lv-rail li[data-state='done'] { background:var(--rh-ink); color:var(--rh-paper); } .lv-rail li[data-state='now'] { color:var(--rh-ink); box-shadow:inset 0 -3px 0 var(--rh-accent); background:var(--rh-paper); }
+.lv-ob-sec { animation:au-rise .4s var(--rh-ease-enter) both; } .lv-ob-sec h4 { display:flex; align-items:baseline; gap:10px; margin:0 0 8px; font:800 15px/1 var(--rh-f-display); font-stretch:110%; }
+.lv-ob-sec h4 small { font:400 10.5px/1 var(--rh-f-mono); color:var(--rh-ink-4); }
+.lv-scout { list-style:none; margin:0; padding:0; border:1px solid var(--rh-ink); background:var(--rh-white); }
+.lv-scout li { display:grid; grid-template-columns:110px 1fr; gap:12px; padding:8px 12px; border-bottom:1px solid var(--rh-line-2); font-size:12.5px; line-height:1.5; }
+.lv-scout li:last-child { border-bottom:0; } .lv-scout b { font-weight:600; } .lv-scout li[data-s='ok'] b::before { content:'✓ '; } .lv-scout li[data-s='warn'] { background:var(--rh-accent-wash); } .lv-scout li[data-s='warn'] b::before { content:'! '; color:var(--rh-accent); }
+.lv-files { display:flex; gap:6px; margin-bottom:8px; } .lv-files span { padding:4px 8px; border:1px dashed var(--rh-ink-3); font:500 11px/1 var(--rh-f-mono); color:var(--rh-ink-4); } .lv-files span[data-on] { border-style:solid; border-color:var(--rh-ink); color:var(--rh-ink); }
+.lv-working::after { content:''; display:inline-block; width:7px; height:12px; margin-left:4px; background:var(--rh-accent); animation:en-blink .9s steps(2) infinite; }
+.lv-verdict { margin:0; padding:10px 12px; border:1px solid var(--rh-ink); background:var(--rh-paper); font-size:13px; } .lv-verdict[data-r='live'] { background:var(--rh-ink); color:var(--rh-paper); }
+
+/* 维护 Agent 坞里的卡片 */
+.lv-alertcard { display:grid; gap:4px; padding:9px 11px; border:1px solid var(--rh-accent); border-left-width:4px; background:var(--rh-accent-wash); font-size:12.5px; }
+.lv-alertcard b { font:700 12.5px/1.2 var(--rh-f-ui); } .lv-alertcard small { font:400 10.5px/1.3 var(--rh-f-mono); color:var(--rh-ink-3); }
+.lv-alertcard.is-pin { border-color:var(--rh-ink); background:var(--rh-paper); }
+
+@media (max-width: 1180px) { .lv-detail { grid-template-columns:minmax(0,1fr); } .lv-side { border-left:0; border-top:1px solid var(--rh-ink); } }

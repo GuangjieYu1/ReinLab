@@ -7,6 +7,7 @@ export const ACCOUNT_IMAGE_INPUTS = [
   "infra/fly/account-entrypoint.mjs",
   "infra/fly/account-health.mjs",
   "plugins/reinlab-os-plugin/index.js",
+  "services/control/src/bridge/openscience/role-project.ts",
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
