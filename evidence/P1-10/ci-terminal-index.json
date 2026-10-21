@@ -1,0 +1,132 @@
+{
+  "queriedFor": "BATCH3_INTERIM_REVIEW",
+  "source": "GitHub connector latest-attempt jobs, first page; all expected jobs present",
+  "runs": [
+    {
+      "runId": 39279672175,
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39279672175",
+      "jobs": [
+        {
+          "id": 118151429887,
+          "name": "check",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 118151430223,
+          "name": "account-image",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "allReportedJobsSuccessful": true
+    },
+    {
+      "runId": 39277895313,
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39277895313",
+      "jobs": [
+        {
+          "id": 118146688655,
+          "name": "account-image",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 118146688876,
+          "name": "check",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "allReportedJobsSuccessful": true
+    },
+    {
+      "runId": 39238145035,
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39238145035",
+      "jobs": [
+        {
+          "id": 118012161340,
+          "name": "account-image",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 118012161767,
+          "name": "check",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "allReportedJobsSuccessful": true
+    },
+    {
+      "runId": 39292972211,
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39292972211",
+      "jobs": [
+        {
+          "id": 118198101385,
+          "name": "check",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 118198101925,
+          "name": "account-image",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "allReportedJobsSuccessful": true
+    },
+    {
+      "runId": 39358295403,
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39358295403",
+      "jobs": [
+        {
+          "id": 118418180026,
+          "name": "account-image",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 118418180051,
+          "name": "check",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 118418180109,
+          "name": "local-stack",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "allReportedJobsSuccessful": true
+    },
+    {
+      "runId": 39584656056,
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39584656056",
+      "jobs": [
+        {
+          "id": 119170459256,
+          "name": "check",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 119170459532,
+          "name": "account-image",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 119170459947,
+          "name": "local-stack",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "allReportedJobsSuccessful": true
+    }
+  ]
+}

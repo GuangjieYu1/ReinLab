@@ -136,6 +136,16 @@ try {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+  // Keep the earlier zero-forward failure's identity/admission intact. The
+  // shared model-forwarded.marker above remains the sole paid-call authority.
+  const admissionFile = join(privateDirectory, "admission.env");
+  let admission: Record<string, string> = {};
+  try {
+    admission = await readPrivateEnv(admissionFile);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  assert.equal(admission.RUN_KEY, undefined);
   const env = await readPrivateEnv(paths.runtime);
   assert.equal(env.PROVISIONER_DRIVER, "docker");
   assert.equal(env.SUPABASE_URL, "http://127.0.0.1:54321");
@@ -303,11 +313,11 @@ try {
   smokePlan({ currency, window, validFrom, validUntil }, Date.now());
   // A saved explicit admission intent precedes HTTP/model activity. Never mint a
   // replacement if an earlier invocation saved a run intent or consumed marker.
-  assert.equal(identity.RUN_KEY, undefined);
-  identity.RUN_KEY = randomUUID();
-  identity.ESTIMATE_ID = quote.id;
+  assert.equal(admission.RUN_KEY, undefined);
+  admission.RUN_KEY = randomUUID();
+  admission.ESTIMATE_ID = quote.id;
   report.estimateId = quote.id;
-  await writePrivateEnv(identityFile, identity);
+  await writePrivateEnv(admissionFile, admission);
   stage = "one-confirmation";
   report.submittedAt = new Date().toISOString();
   const run = await api(
@@ -326,10 +336,10 @@ try {
         memoryRefs: [],
       },
     },
-    identity.RUN_KEY,
+    admission.RUN_KEY,
   );
-  identity.RUN_ID = run.id;
-  await writePrivateEnv(identityFile, identity);
+  admission.RUN_ID = run.id;
+  await writePrivateEnv(admissionFile, admission);
   report.runId = run.id;
   stage = "read-only-observation";
   let ended = false;

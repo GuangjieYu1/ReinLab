@@ -1,0 +1,401 @@
+{
+  "base": "http://127.0.0.1:5198",
+  "plannedIds": [
+    "df",
+    "au",
+    "gx",
+    "ex",
+    "cu",
+    "rq",
+    "dev",
+    "tst",
+    "onto",
+    "rd",
+    "sw",
+    "rs",
+    "cr",
+    "nv",
+    "vf",
+    "trip",
+    "trip-en",
+    "live"
+  ],
+  "total": 18,
+  "passed": 18,
+  "failed": 0,
+  "results": [
+    {
+      "id": "df",
+      "title": "数据台：提问派生、拖拽编码、变体、关闭",
+      "status": "passed",
+      "durationMs": 18573,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "D1.png",
+        "D2.png",
+        "D3.png",
+        "D4.png",
+        "D5.png",
+        "D6.png",
+        "D7.png"
+      ]
+    },
+    {
+      "id": "au",
+      "title": "自动化台：编排歧义 → 预演 → 一句话新建 → 运行批准 → 维护修复",
+      "status": "passed",
+      "durationMs": 39078,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "A1.png",
+        "A2.png",
+        "A3.png",
+        "A4.png",
+        "A5.png",
+        "A6.png",
+        "A7.png",
+        "A8.png",
+        "A9.png",
+        "A10.png",
+        "A11.png",
+        "A12.png"
+      ]
+    },
+    {
+      "id": "gx",
+      "title": "自动化台节点图：排队、写入批准、缓存、缺模型、一句话搭图、发布",
+      "status": "passed",
+      "durationMs": 41003,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "G1.png",
+        "G2.png",
+        "G3.png",
+        "G4.png",
+        "G5.png",
+        "G6.png",
+        "G7.png",
+        "G8.png",
+        "G9.png",
+        "G10.png",
+        "G11.png",
+        "G12.png",
+        "G13.png"
+      ]
+    },
+    {
+      "id": "ex",
+      "title": "探索台：拍照计划 → 机位视角 → 现场改计划 → 回顾与转交",
+      "status": "passed",
+      "durationMs": 30265,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "E1.png",
+        "E2.png",
+        "E3.png",
+        "E4.png",
+        "E5.png",
+        "E6.png",
+        "E7.png",
+        "E8.png",
+        "E9.png",
+        "E10.png",
+        "E11.png",
+        "E12.png"
+      ]
+    },
+    {
+      "id": "cu",
+      "title": "课程台：备课门禁流水线 → 开课 → 课堂 / 精读 / 考核 / 收尾",
+      "status": "passed",
+      "durationMs": 51654,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "C1.png",
+        "C2.png",
+        "C3.png",
+        "C4.png",
+        "C5.png",
+        "C6.png",
+        "C7.png",
+        "C8.png",
+        "C9.png",
+        "C10.png",
+        "C11.png",
+        "C12.png",
+        "C13.png",
+        "C14.png"
+      ]
+    },
+    {
+      "id": "rq",
+      "title": "工程台需求：补全、校验批注、选项修正、并排、助手流程",
+      "status": "passed",
+      "durationMs": 21303,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [
+        "ghost:  · Then 档案小票放回档案盒，回到档案场。Tab",
+        "AC-6 state: done Given 选中某份档案 · When 按 Esc · Then 档案小票放回档案盒，回到档案场。",
+        "new ghost: Given Tab",
+        "ghost2: 某份档案 · When 按 Esc · Then 档案小票放回档案盒，回到档案场。Tab",
+        "notes: 4",
+        "open notes r2: 2"
+      ],
+      "shots": [
+        "R1.png",
+        "R2.png",
+        "R3.png",
+        "R4.png",
+        "R5.png",
+        "R6.png",
+        "R7.png",
+        "R8.png",
+        "R9.png",
+        "R10.png",
+        "R11.png"
+      ]
+    },
+    {
+      "id": "dev",
+      "title": "工程台开发：窄屏预览、ToImpl 批准、Diff 评论、终端、Issue",
+      "status": "passed",
+      "durationMs": 18940,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "D1.png",
+        "D2.png",
+        "D3.png",
+        "D4.png",
+        "D5.png",
+        "D7.png",
+        "D8.png",
+        "D9.png"
+      ]
+    },
+    {
+      "id": "tst",
+      "title": "工程台测试：接口、录制回放、分析、矩阵",
+      "status": "passed",
+      "durationMs": 23728,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "S1.png",
+        "S2.png",
+        "S3.png",
+        "S4.png",
+        "S5.png",
+        "S6.png",
+        "S7.png",
+        "S8.png"
+      ]
+    },
+    {
+      "id": "onto",
+      "title": "工程台：本体视图",
+      "status": "passed",
+      "durationMs": 14123,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "N1.png",
+        "N2.png",
+        "N3.png",
+        "N4.png"
+      ]
+    },
+    {
+      "id": "rd",
+      "title": "研究台：精读",
+      "status": "passed",
+      "durationMs": 21753,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "R1.png",
+        "R2.png",
+        "R3.png",
+        "R4.png",
+        "R5.png",
+        "R6.png",
+        "R7.png"
+      ]
+    },
+    {
+      "id": "sw",
+      "title": "研究台：群研与反驳",
+      "status": "passed",
+      "durationMs": 31221,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "W1.png",
+        "W2.png",
+        "W3.png",
+        "W4.png",
+        "W5.png",
+        "W6.png"
+      ]
+    },
+    {
+      "id": "rs",
+      "title": "研究台：自研审批与切换档案",
+      "status": "passed",
+      "durationMs": 49534,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [
+        "approval 1"
+      ],
+      "shots": [
+        "Y1.png",
+        "Y2.png",
+        "Y3.png",
+        "Y4.png",
+        "Y5.png",
+        "Y6.png",
+        "Y7.png",
+        "Y8.png"
+      ]
+    },
+    {
+      "id": "cr",
+      "title": "创作台：世界观矛盾检查与三视图",
+      "status": "passed",
+      "durationMs": 17611,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "C1.png",
+        "C2.png",
+        "C3.png",
+        "C4.png",
+        "C5.png"
+      ]
+    },
+    {
+      "id": "nv",
+      "title": "创作台：一致性、续写、转为分镜",
+      "status": "passed",
+      "durationMs": 23701,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "V0.png",
+        "V1.png",
+        "V2.png",
+        "V3.png",
+        "V4.png",
+        "V5.png",
+        "V6.png",
+        "V7.png"
+      ]
+    },
+    {
+      "id": "vf",
+      "title": "创作台：分镜 → 机位 → 一致性 → 成片",
+      "status": "passed",
+      "durationMs": 34685,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "F1.png",
+        "F2.png",
+        "F3.png",
+        "F4.png",
+        "F5.png",
+        "F6.png",
+        "F7.png",
+        "F8.png",
+        "F9.png"
+      ]
+    },
+    {
+      "id": "trip",
+      "title": "入口转场（RSCH）：继续工作 → 工作台 → 返回",
+      "status": "passed",
+      "durationMs": 17139,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [
+        "frames 294 go 158 back 90"
+      ],
+      "shots": [
+        "tab.png"
+      ]
+    },
+    {
+      "id": "trip-en",
+      "title": "入口转场（ENGR）：继续工作 → 工作台 → 返回",
+      "status": "passed",
+      "durationMs": 17013,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [
+        "frames 294 go 160 back 90"
+      ],
+      "shots": [
+        "tab.png"
+      ]
+    },
+    {
+      "id": "live",
+      "title": "自动化台看板：告警、调参与审批、接入项目、模拟、拒绝交易",
+      "status": "passed",
+      "durationMs": 50052,
+      "failure": null,
+      "errors": [],
+      "warnings": [],
+      "notes": [],
+      "shots": [
+        "L1.png",
+        "L2.png",
+        "L3.png",
+        "L4.png",
+        "L5.png",
+        "L6.png",
+        "L7.png",
+        "L8.png",
+        "L9.png"
+      ]
+    }
+  ],
+  "allArtifactsDirectory": "/Users/guangjieyu/.codex/reinlab-treg18-dbo6wbzh"
+}

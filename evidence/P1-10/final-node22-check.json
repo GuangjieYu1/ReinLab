@@ -1,0 +1,13 @@
+{
+  "node": "v22.23.3",
+  "pnpm": "11.5.2",
+  "command": "pnpm test --reporter=json --outputFile=evidence/P1-10/final-node22-current.json",
+  "evidenceOut": null,
+  "total": 1256,
+  "passed": 1256,
+  "failed": 0,
+  "pending": 0,
+  "success": true,
+  "reportSha256": "01a3602ed80d0b9969bfe9d8b41e723838309bcef3cad641223df49f93aa1e3b",
+  "realModelRequests": 0
+}

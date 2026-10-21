@@ -1,0 +1,9 @@
+# Harness materialize / T-HAR10 独立审查
+
+结论：materialize7项及串行原生T10四项独立通过，未见P1/P2；独立44项组合记录包含materialize7，independent-native.json为原生4/4。原生在root确认无其他native并行后独占执行，测试清理自有子进程，无真实模型请求。
+
+materialize重新校验effective摘要、schema和安全floor，并核对registry摘要一致；角色、slot及可信model route必须存在，不回退任意模型；steps只能降低；工具risk来自registry，task与danger最后强制deny。记忆由受信调用者过滤后传入，dossier note附加但不能插入file/env配置引用。未实现的mcp/delegations拒绝，不伪造执行能力。
+
+原生测试通过真实research清单克隆、loader→effective→materializer→原角色project生成器；唯一fixture清单差异为两角色read allow。实际2.0.150内核+确定性loopback provider截获请求，验证选择角色提示词/记忆隔离、档案内正向read与外部/其他档案/role/symlink拒绝、默认deny/task deny、项目目录与write_targets保护。
+
+write_targets存在时原生可展示write工具schema，实际安全取决于插件执行guard；本报告不把工具不执行误称为工具schema完全不展示。四项原生fixture不代表真实DeepSeek账单或全研究台业务能力。

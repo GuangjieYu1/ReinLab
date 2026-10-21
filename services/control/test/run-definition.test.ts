@@ -23,7 +23,8 @@ const admin = new pg.Pool({
   }),
   db = new Database(pool);
 let registry: Awaited<ReturnType<typeof loadToolRegistry>>,
-  base: EffectiveBench;
+  base: EffectiveBench,
+  configurable: EffectiveBench;
 const routes = {
   cheap: "fixture/cheap",
   mid: "fixture/mid",
@@ -36,6 +37,22 @@ beforeAll(async () => {
   const bundle = await loadBenchBundle({ benchId: "research", registry });
   await publishBench(admin, bundle, registry);
   base = initialEffective(bundle);
+  // Generic notes/memory tests use a separately published, explicitly tunable
+  // test version. The actual research 1.0.0 manifest remains unchanged.
+  const declared = structuredClone(bundle);
+  declared.manifest.version = "1.0.0-b2-definition-" + randomUUID();
+  declared.manifest.tunable.push("roles.*.dossier_note", "roles.*.memory.*");
+  declared.digest = createHash("sha256")
+    .update(
+      canonical({
+        manifest: declared.manifest,
+        referencedHashes: declared.referencedHashes,
+        registryHash: declared.registryHash,
+      }),
+    )
+    .digest("hex");
+  await publishBench(admin, declared, registry);
+  configurable = initialEffective(declared);
 });
 afterAll(async () => {
   await pool.end();
@@ -144,7 +161,7 @@ it("loads immutable Harness definition with trusted routes and ignores input aut
   expect(result.role.role.toolGrants.bash).toBeUndefined();
   expect(result.role.dossierId).toBe(f.dossier);
   const tightened = planBenchPatch(
-    base,
+    configurable,
     { roles: { "research-read": { dossier_note: "NEW_DOSSIER_CONFIG" } } },
     registry,
     100,
@@ -155,7 +172,7 @@ it("loads immutable Harness definition with trusted routes and ignores input aut
       f.account,
       tightened.digest,
       "research",
-      "1.0.0",
+      tightened.manifest.version,
       tightened.bundleDigest,
       JSON.stringify(tightened),
     ],
@@ -229,7 +246,7 @@ it("explicit UUID memoryRefs only narrow scope and empty list injects no memory"
 });
 it("filters role read layers and leaves assigned-citations memory empty pending P1-15", async () => {
   const candidate = planBenchPatch(
-      base,
+      configurable,
       { roles: { "research-read": { memory: { read: ["L2"] } } } },
       registry,
       100,

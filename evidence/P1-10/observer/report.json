@@ -1,0 +1,38 @@
+{
+  "node": "v22.23.3",
+  "red": {
+    "passed": 1,
+    "failed": 17,
+    "stage": "empty implementation; meaningful behavioral expectations"
+  },
+  "green": {
+    "passed": 25,
+    "failed": 0
+  },
+  "static": {
+    "lint": "passed",
+    "controlTypecheck": "passed",
+    "diffCheck": "passed"
+  },
+  "integration": "read-port/sink fixtures only; native+DB integration owned by root",
+  "independentReview": "docker_driver confirmed 27/27 and combined store/independent/observer 36/36; separate independent evidence owned by reviewer",
+  "sha256": {
+    "services/control/src/bridge/openscience/observer.ts": "aaf1af129eb361a1964baddef985400d4e27f1c903d6710478e737331099e02a",
+    "services/control/test/observer.test.ts": "2a58ebff1f8d3e1183bf55b7a74ac78487a58fb202f759392925436f52c3eab0"
+  },
+  "regression": {
+    "passed": 140,
+    "failed": 0,
+    "suites": [
+      "observer",
+      "observed-settlement",
+      "budget",
+      "mapping"
+    ]
+  },
+  "finalGreen": {
+    "passed": 27,
+    "failed": 0,
+    "report": "gap-green.json"
+  }
+}

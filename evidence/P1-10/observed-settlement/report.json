@@ -1,0 +1,25 @@
+{
+  "node": "v22.23.3",
+  "tests": {
+    "observed": 31,
+    "legacyBudget": 34,
+    "total": 65,
+    "passed": 65
+  },
+  "staticInitial": {
+    "diffCheck": "passed",
+    "lint": "blocked by concurrent harness require property calls",
+    "typecheck": "blocked by concurrent harness/manifest.ts undefined type errors"
+  },
+  "sha256": {
+    "services/control/src/budget/index.ts": "4dd8f595f5d6b7b468caa546a77f6f03b9846327ec4fef0f1f5a4c0f2dc42c18",
+    "services/control/test/observed-settlement.test.ts": "b33f3132d3b46ad5bfc65ab484cc9e3094f99cc6be7ddc582488f3972a4b2ec7",
+    "infra/supabase/migrations/202610200005_runtime_observation.sql": "48da3a67eeb451eb81c04c691f1b43450edbe199f918c0b9381384dec9aa2b9f"
+  },
+  "independentReview": "passed; reviewer docker_driver, 65/65, no P1/P2; see independent-review.md",
+  "staticFinal": {
+    "lint": "passed",
+    "controlTypecheck": "passed",
+    "diffCheck": "passed"
+  }
+}

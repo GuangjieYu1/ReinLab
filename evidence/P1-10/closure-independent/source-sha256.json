@@ -1,0 +1,15 @@
+{
+  "scope": "read-only source snapshot; no secret files",
+  "sha256": {
+    "services/control/src/main.ts": "48dd8aec5da8c235a78e028a4024337e267ffd419c4515b00d16df82c6eb7419",
+    "tooling/local/control.ts": "1f7803474358eaa05a9f263c683fb605d9f0141eebb80bb301b76dc835f2cb72",
+    "services/control/src/provisioner/local-bootstrap.ts": "052300b169f2eef6fa8e0dfb1ebc95d17b587ee71443cba4b3000579752d82f3",
+    "services/control/src/bridge/openscience/pricing-environment.ts": "6abbe4ef250e4dd654174acee0169356e8ae810cc6ef833b826e91fc327859f4",
+    "services/control/src/bridge/openscience/observer.ts": "026c8b118b6050a9d7d9a66b74387005a1203dfb01e89dc1ffd95f2cd072844a",
+    "services/control/src/bridge/openscience/role-runtime.ts": "c7d88997701f025168c4669615298737227f68675a30af3bbecc81b23904668c",
+    "services/control/scripts/smoke-local.ts": "529b1dd930fa0b61b84a4a758723e605017895d0f82bbd01552b768ca928c0be",
+    "tooling/local/smoke-plan.ts": "efd20c0726475d34d120b437cb9e7fcf0685d53e16de8fff63a5b59e4bd1543e",
+    "tooling/local/one-shot-smoke-guard.ts": "7a7d47280a6b1c1438dac612f3825288fb250e58b555fd552e156aea153169de",
+    "services/control/src/api/budget.ts": "659c94e2a4466442c245160e81530524e7246775f96523073060acfef6f54818"
+  }
+}

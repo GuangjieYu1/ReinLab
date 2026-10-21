@@ -1,0 +1,37 @@
+{
+  "node": "v22.23.3",
+  "effectiveRed": {
+    "failed": 24,
+    "passed": 0
+  },
+  "green": {
+    "passed": 30,
+    "failed": 0
+  },
+  "regression": {
+    "passed": 172,
+    "failed": 0
+  },
+  "static": {
+    "controlTypecheck": "passed",
+    "lint": "passed",
+    "diffCheck": "passed"
+  },
+  "independentReview": "requested; pending",
+  "runtimeProof": "fixture only; native integration not claimed",
+  "sha256": {
+    "services/control/src/bridge/openscience/decisions.ts": "096ef20b0b40518de2c3d741c2206c74b5a9e4bbb6dc8f2909d392cc4209de36",
+    "services/control/test/decisions.test.ts": "8c9691b1185f8b2d84d4ffb3304468b9a603160b15fc5b115765fc57eb7c0a67",
+    "infra/supabase/migrations/202610200010_decision_delivery.sql": "d7d2d5f14bd98452469859d9b36c343c4604f510e6775d69d83b0e34c24f4376"
+  },
+  "finalGreen": {
+    "passed": 32,
+    "failed": 0,
+    "report": "validate-green.json"
+  },
+  "combinedFinal": {
+    "passed": 182,
+    "failed": 0,
+    "report": "../observation-scheduler/regression-green.json"
+  }
+}
