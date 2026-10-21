@@ -13,7 +13,21 @@ afterEach(async () => {
 const body = () => ({
   model: "deepseek-v4-flash",
   max_tokens: 1024,
+  thinking: { type: "disabled" },
   messages: [{ role: "user", content: "local fixture" }],
+});
+it.each([
+  undefined, null, false, [], {},
+  { type: "enabled" }, { type: "Disabled" },
+  { type: "disabled", budget_tokens: 1024 },
+])("B-7 rejects missing or invalid thinking %j without consuming the slot", async (thinking) => {
+  const f = await fixture();
+  expect((await f.post({ ...body(), thinking })).status).toBe(400);
+  expect(f.transport).not.toHaveBeenCalled();
+  expect(f.guard.status().forwardCount).toBe(0);
+  await expect(stat(f.markerPath)).rejects.toMatchObject({ code: "ENOENT" });
+  expect((await f.post()).status).toBe(200);
+  expect(f.transport).toHaveBeenCalledTimes(1);
 });
 async function fixture(
   transport: typeof fetch = vi.fn(

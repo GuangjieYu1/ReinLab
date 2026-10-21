@@ -190,10 +190,10 @@ function validate(value: unknown) {
     if (!["text", "json_object"].includes(value.response_format.type))
       throw fail(400);
   }
-  if (value.thinking !== undefined) {
-    keys(value.thinking, ["type"]);
-    if (value.thinking.type !== "disabled") throw fail(400);
-  }
+  // Omission enables DeepSeek's default thinking mode. Require the explicit
+  // wire setting before creating the irreversible paid-forward marker.
+  keys(value.thinking, ["type"]);
+  if (value.thinking.type !== "disabled") throw fail(400);
   if (value.reasoning_effort !== undefined && value.reasoning_effort !== "none")
     throw fail(400);
   return value;
