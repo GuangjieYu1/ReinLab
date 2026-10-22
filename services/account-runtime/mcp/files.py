@@ -2,7 +2,7 @@
 """Descriptor-relative files capability; stdin contains no capability credential.
 The caller is the token-checking server. No model-supplied command or root is used.
 """
-import os, sys, json, stat, fcntl, tempfile, shutil, ctypes, uuid
+import os, sys, json, stat, fcntl, tempfile, shutil, ctypes, uuid, base64
 MAX_FILE = 1024 * 1024
 MAX_PATCH = 4 * MAX_FILE
 DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -135,7 +135,16 @@ def main(req):
                         entries.append({'name':name,'kind':'directory' if stat.S_ISDIR(s.st_mode) else 'file'})
                     return {'entries':entries}
                 finally: os.close(target)
-            if operation=='undo':
+            if operation=='importPaper':
+                asset=str(uuid.UUID(args['assetId']))
+                metadata=json.dumps(args['metadata'],ensure_ascii=False)
+                changes=[{'path':'papers/'+asset+'.json','content':metadata}]
+                if args.get('pdf') is not None:
+                    binary=base64.b64decode(args['pdf'],validate=True)
+                    if len(binary)>8*MAX_FILE or not binary.startswith(b'%PDF-'): denied()
+                    changes.append({'path':'papers/'+asset+'.pdf','content':binary})
+                req['writeTargets']=['papers/']
+            elif operation=='undo':
                 version=str(uuid.UUID(args['versionId']));old=directory_at(versions,version)
                 try:
                     meta=json.loads(read_at(versions,version+'.json',65536))
@@ -156,14 +165,14 @@ def main(req):
                 if p in seen: denied()
                 seen.add(p)
                 if not any(p==t or t.endswith('/') and p.startswith(t) for t in req['writeTargets']): denied()
-                data=(change['content'] or '').encode('utf8');total+=len(data)
-                if len(data)>MAX_FILE or total>MAX_PATCH: raise ValueError('FILE_TOO_LARGE')
+                data=change['content'] if isinstance(change['content'],bytes) else (change['content'] or '').encode('utf8');total+=len(data)
+                if len(data)>(8*MAX_FILE if operation=='importPaper' else MAX_FILE) or total>(9*MAX_FILE if operation=='importPaper' else MAX_PATCH): raise ValueError('FILE_TOO_LARGE')
             stage=str(uuid.uuid4());stagefd=directory_at(versions,stage,True)
             committed=False
             try:
                 copy_tree(source,stagefd,[0,0])
                 for change in changes:
-                    if change['content'] is not None: write_at(stagefd,change['path'],change['content'].encode('utf8'))
+                    if change['content'] is not None: write_at(stagefd,change['path'],change['content'] if isinstance(change['content'],bytes) else change['content'].encode('utf8'))
                     else:
                         pp=parts(change['path']);d=os.dup(stagefd)
                         try:
@@ -200,8 +209,8 @@ def main(req):
     finally:
         os.close(lock);os.close(versions);os.close(state);os.close(dossiers);os.close(rootfd)
 try:
-    raw=sys.stdin.buffer.read(5*MAX_FILE+1)
-    if len(raw)>5*MAX_FILE: raise ValueError('FILE_TOO_LARGE')
+    raw=sys.stdin.buffer.read(12*MAX_FILE+1)
+    if len(raw)>12*MAX_FILE: raise ValueError('FILE_TOO_LARGE')
     result=main(json.loads(raw))
     sys.stdout.write(json.dumps({'result':result},ensure_ascii=False))
 except Exception as exc:

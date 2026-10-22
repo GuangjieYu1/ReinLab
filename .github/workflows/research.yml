@@ -1,10 +1,13 @@
 name: Research foundation
 on:
   push:
-    branches: ['codex/**']
+    branches: ["codex/**"]
   pull_request:
 jobs:
   check:
+    strategy:
+      matrix:
+        node: [22, 24]
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -23,11 +26,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - name: 依赖边界
         run: pnpm lint
+      - name: PDF 文本层依赖
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: 测试
         run: pnpm test --reporter=json --outputFile=test-report.json
       - name: 共享契约类型检查
@@ -41,7 +46,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: research-test-report
+          name: research-test-report-node-${{ matrix.node }}
           path: test-report.json
   account-image:
     runs-on: ubuntu-latest
@@ -50,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
       - name: 构建真实账户镜像
         run: docker build -f infra/fly/account.Dockerfile -t reinlab-account:p1-08 .
       - name: 真实容器、root新卷、认证、工具与重启验证
@@ -69,7 +74,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - name: 完整本地Supabase与真实账户镜像

@@ -168,3 +168,18 @@
 - literature虽是旧read工具，papers.fetch由控制面落论文，至少ask；不能从literature allow推出任意写。finding/layer/quiz附带的files.write只授权各自固定子目录与role.write_targets交集；冲突取更严格权限，不派发通用写权限。
 - memory.propose仅创建L3/L4升级收件箱，不是memory.write，原write=[]不变；实际内容永不因此改变。assigned-citations在无已核引用分配时仍返回空，L1继续Q-060。
 - files计划使用档案目录的原子交换提交与目录级串行化；Linux renameat2(RENAME_EXCHANGE)、macOS renamex_np(RENAME_SWAP)无支持时明确拒绝，不降级为顺序rename假原子。预提交故障无副作用，提交点后整个新目录可见；旧目录成为受保护版本，最近50份。具体故障注入和独立评审完成前不标T-MCP-4完成。
+
+## Q-071 MCP 参数默认值与版本产物范围
+- memory.read 不传 layers / refs 时只采用已绑定 run 的范围；显式 refs=[] 仍返回空。files.list 不传 path 时列本档案根，不接受绝对路径或 ..；这些可选默认值写入能力 input schema，并不从调用方推导更宽授权。JSON schema 的 UUID 格式使用明确本地校验，不关闭格式校验。
+- 卡片 schema 原文随非空 cards 的新 bundle 冻结，发布时逐字节核对 referencedHashes；research@1.0.0 cards={} 的 bundle 字节和摘要不变。
+- files 版本放在角色与档案目录之外的 /data/mcp-state/<dossier>/，备份包含 dossiers 和 mcp-state，明确排除 /data/mcp-clients 的临时能力配置。调用的批准提交为授权生效点，已登记副作用结果未知时只保留围栏，不自动重做。
+- 原生 write/edit/patch/apply_patch/multiedit 本批全部拒绝。前批测试中原生写入的正向期待按这一更严格合同更新，实际读与越权负面检查保留；正向写入由 files 的真实文件和原子性测试承担。
+- 运行级 MCP 吊销永久阻止本 run 后续签发；终态通过每次在线核验立即失效。磁盘临时配置按过期清理，并仍需补齐运行终态时主动删除的集成验证，不能仅因令牌在线已失效就声称文件已删除。
+
+## Q-072 本批收口边界与运行时依赖
+- 尚待决定：research@1.0.0 的 cards={}。建议由审查方批准后发布含 finding 等 schema 的下一版本；本批不静默修改已冻结清单。通用卡片能力使用独立 fixture bench 验证，真实卡片调用仍明确拒绝未声明 schema。
+- papers 本批严格 fixture 验证；生产网络实现只允许白名单 HTTPS，并将公开 IPv4 DNS 固定到真实连接、逐跳重新验证。纯 IPv6 来源当前明确不可用；真实提供方可用性、OpenAlex 实际接入要求等留待后续明确授权，不冒充已验。
+- 第一批单文件写入≤1MiB、补丁≤4MiB/32文件、档案 staging 总量≤64MiB/4096项；固定 papers PDF 导入≤8MiB，经控制面落至 papers/<assetId>.pdf 与元数据 JSON。PDF 文本层要求宿主安装 Poppler；CI显式安装 poppler-utils，账户镜像已有。过限明确拒绝，不截断全文或假称成功。
+- 新 MCP 账本与观察器复用账户 budget/ledger 首锁，避免 run/FK 与 ledger 锁反序；用户决定/吊销在同一个 HTTP 幂等事务与连接内完成，单连接池也必须可用。真实 npm 内核 + fixture provider 验证发现的死锁与 Zod4 接口不兼容已修复，保留红绿报告。
+- ended_at 非空时即清理 MCP 配置，包括费用未知而保留 paused_budget 的已结束运行；不把未知费用改成零。测试证明批准前无文件、once 批准后才写入、终态删除私有配置，全部为本地 fixture，非真实模型。
+- T-MCP-9 按实际值扫描另列：用户已接受的旧部署鉴权 ENV 接口迁移仍待处理；历史凭据泄露日志不因本批新增能力通过而消失。既有 local 控制面 runtime.env 的旧 key/token 环境传递也如实列为遗留项，不扩大已同意例外或宣称本批消除了全部旧凭据问题。真实模型仍等待轮换与新授权。

@@ -1,3 +1,11 @@
+import { fileHandlers } from "../src/mcp/files";
+import { serve } from "@hono/node-server";
+import { generateKeyPairSync } from "node:crypto";
+import { CapabilityAuthority } from "../src/mcp/authority";
+import { CapabilitySigner } from "../src/mcp/token";
+import { CapabilityEngine } from "../src/mcp/engine";
+import { dataHandlers } from "../src/mcp/data-handlers";
+import { bootstrapMcp, removeMcp } from "../../account-runtime/mcp/store.mjs";
 import { beforeAll, afterAll, it, expect } from "vitest";
 import pg from "pg";
 import { createServer, type Server } from "node:http";
@@ -47,7 +55,9 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
   let provider: Awaited<ReturnType<typeof startRoleProvider>> | undefined,
     native: Awaited<ReturnType<typeof startNativeRoleServer>> | undefined,
     local: Server | undefined,
-    pipeline: RuntimePipeline | undefined;
+    pipeline: RuntimePipeline | undefined,
+    mcpServer: ReturnType<typeof serve> | undefined,
+    mcpUrl = "";
   try {
     await publishBench(admin, bundle, registry);
     await admin.query("insert into account(id) values($1)", [account]);
@@ -94,9 +104,48 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
       .setExpirationTime("1h")
       .sign(privateKey);
     provider = await startRoleProvider();
+    provider.plans.set("PIPELINE_NATIVE_CONFIRMED_2214", [
+      {
+        name: "memory_read",
+        arguments: { capability: "memory.read", args: {} },
+      },
+      {
+        name: "finding_record",
+        arguments: {
+          capability: "files.write",
+          args: {
+            path: "findings/native-approved.md",
+            content: "MCP_NATIVE_APPROVED_FIXTURE",
+          },
+          requestId: "native-mcp-once-write",
+        },
+      },
+    ]);
     native = await startNativeRoleServer(root, provider.url);
     expect(native.version).toBe("2.0.150");
+    const authority = new CapabilityAuthority(
+      db,
+      new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
+    );
+    const mcp = new CapabilityEngine(authority, {
+      ...dataHandlers(db),
+      ...fileHandlers(root),
+    });
     pipeline = new RuntimePipeline(db, {
+      cleanupCapabilities: async (_accountId, runId) => {
+        await removeMcp(root, runId);
+      },
+      prepareCapabilities: async (accountId, runId) => {
+        await bootstrapMcp(
+          root,
+          {
+            runId,
+            token: await authority.issue(accountId, runId),
+            controlUrl: mcpUrl,
+          },
+          mcpUrl,
+        );
+      },
       factory: async (_account, role) =>
         new RoleRuntime({
           baseUrl: native!.baseUrl,
@@ -125,11 +174,19 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
     });
     const app = await createApp({
       pool,
+      mcp,
       auth: { issuer },
       pricing,
       harness: new HarnessStore(db, bundle, registry),
       pipeline,
     });
+    mcpServer = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" });
+    if (!mcpServer.listening)
+      await new Promise<void>((done) => mcpServer!.once("listening", done));
+    const mcpAddress = mcpServer.address();
+    if (!mcpAddress || typeof mcpAddress === "string")
+      throw Error("MCP_LISTEN_FAILED");
+    mcpUrl = "http://127.0.0.1:" + mcpAddress.port + "/";
     const post = async (path: string, body: unknown, key = randomUUID()) =>
       app.request(path, {
         method: "POST",
@@ -173,6 +230,31 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
     const confirmed = await post("/v1/runs", input, key);
     expect(confirmed.status).toBe(201);
     const run = (await confirmed.json()) as { id: string };
+    let pendingApproval: string | undefined;
+    await expect
+      .poll(
+        async () => {
+          pendingApproval = (
+            await admin.query(
+              "select id from approval where run_id=$1 and os_request_id is not null and state='pending'",
+              [run.id],
+            )
+          ).rows[0]?.id;
+          return Boolean(pendingApproval);
+        },
+        { timeout: 30000 },
+      )
+      .toBe(true);
+    await expect(
+      readFile(
+        join(root, "dossiers", dossier.id, "findings/native-approved.md"),
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    const decided = await post("/v1/approvals/" + pendingApproval + "/decide", {
+      decision: "approve",
+      scope: "once",
+    });
+    expect(decided.status).toBe(202);
     await expect
       .poll(
         async () =>
@@ -209,6 +291,16 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
         [binding.hold_id],
       )
     ).rows[0];
+    await expect
+      .poll(async () => {
+        try {
+          await readFile(join(root, "mcp-clients", run.id + ".json"));
+          return false;
+        } catch (error) {
+          return (error as NodeJS.ErrnoException).code === "ENOENT";
+        }
+      })
+      .toBe(true);
     expect(binding.phase).toBe("accepted");
     expect(binding.model_route).toBe(quote.model);
     expect(binding.role_options.model).toBe(quote.model);
@@ -229,6 +321,28 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
       events.some((event) => event.action === "run_admission_deferred"),
     ).toBe(false);
     expect(provider.requests).toHaveLength(1);
+    expect(
+      await readFile(
+        join(root, "dossiers", dossier.id, "findings/native-approved.md"),
+        "utf8",
+      ),
+    ).toBe("MCP_NATIVE_APPROVED_FIXTURE");
+    expect(
+      events.some(
+        (event) =>
+          event.action === "capability.call" &&
+          event.payload.capability === "memory.read" &&
+          event.payload.success === true,
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.action === "capability.call" &&
+          event.payload.capability === "files.write" &&
+          event.payload.success === true,
+      ),
+    ).toBe(true);
     const system = provider.requests
       .flatMap((request) =>
         request.messages.filter((message) => message.role === "system"),
@@ -285,6 +399,8 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
     );
   } finally {
     await pipeline?.shutdown();
+    if (mcpServer)
+      await new Promise<void>((done) => mcpServer!.close(() => done()));
     await native?.close();
     await provider?.close();
     if (local) {

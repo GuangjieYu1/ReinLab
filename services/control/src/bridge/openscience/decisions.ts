@@ -1,3 +1,7 @@
+import {
+  bridgeMcpDecision,
+  pendingMcpApproval,
+} from "../../mcp/approval-bridge";
 import type pg from "pg";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -204,6 +208,30 @@ export class DecisionService {
         typeof pending.permission === "string"
           ? pending.permission
           : "";
+      if (permission === "reinlab_mcp_approval") {
+        const requested = pendingMcpApproval(pending);
+        const effects = Array.isArray(row.effects) ? row.effects : [];
+        const recorded = effects
+          .map((e) => pendingMcpApproval(e?.properties ?? e))
+          .find(Boolean);
+        const grant = binding.role.mcp?.grants.find(
+          (g) => g.name === requested?.capability,
+        );
+        if (
+          !requested ||
+          !recorded ||
+          canonical(requested) !== canonical(recorded) ||
+          input.scope !== "once" ||
+          !grant ||
+          (grant.permission !== "ask" && grant.risk !== "danger")
+        )
+          throw new ApiFailure(
+            "MCP_APPROVAL_INVALID",
+            403,
+            "内核批准与冻结的能力请求不一致。",
+          );
+        return;
+      }
       const grant = Object.hasOwn(binding.role.role.toolGrants, permission)
         ? binding.role.role.toolGrants[permission]
         : undefined;
@@ -249,6 +277,7 @@ export class DecisionService {
     if (!run || terminal.has(run.state) || !pending)
       throw new ApiFailure("DECISION_EXPIRED", 409, "该请求已不再等待决定。");
     this.validatePending(binding, row, input, pending);
+    if (pendingMcpApproval(pending) && input.scope !== "once") throw invalid();
   }
   async prepare(
     client: pg.PoolClient,
@@ -273,6 +302,14 @@ export class DecisionService {
     }
     if (row.state !== "pending")
       throw new ApiFailure("DECISION_EXPIRED", 409, "该请求已不再等待决定。");
+    await bridgeMcpDecision(
+      client,
+      accountId,
+      row.run_id,
+      row.effects,
+      input.decision,
+      input.scope,
+    );
     const receipt: DecisionReceipt = {
       approvalId,
       status: "prepared",

@@ -18,7 +18,7 @@ it("independent: signed but unregistered identities and claims objects cannot au
     const changed = signer.issue({ ...claims, dossier: randomUUID() }, Math.floor(Date.now() / 1000)).token;
     await expect(a.validate(changed)).rejects.toMatchObject({ code: "CAPABILITY_TOKEN_INVALID" });
     await expect(f.db.withAccount(f.account, c => a.validateClient(c, claims))).rejects.toMatchObject({ code: "CAPABILITY_TOKEN_INVALID" });
-    await expect(f.db.withAccount(randomUUID(), c => a.validateClient(c, token))).rejects.toMatchObject({ code: "CAPABILITY_SNAPSHOT_MISSING" });
+    await expect(f.db.withAccount(randomUUID(), c => a.validateClient(c, token))).rejects.toMatchObject({ code: "RLS_DENIED", status: 404 });
     expect((await a.validate(token)).claims.run).toBe(f.run);
   } finally { await f.close(); }
 });

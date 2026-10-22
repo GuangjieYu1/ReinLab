@@ -23,6 +23,8 @@ export type RuntimePipelineOptions = {
     runId: string,
   ) => Promise<RunDefinition>;
   pricingContext?: unknown;
+  prepareCapabilities?: (accountId: string, runId: string) => Promise<void>;
+  cleanupCapabilities?: (accountId: string, runId: string) => Promise<void>;
   maxConcurrent?: number;
 };
 /** Production composition. Only explicit submit admits models; recovery exposes read ports only. */
@@ -48,9 +50,12 @@ export class RuntimePipeline {
       db,
       options.factory ?? createProductionRuntimeFactory(db),
       options.definitionLoader ?? createHarnessRunDefinitionLoader(db),
-      { pricingContext: options.pricingContext },
+      {
+        pricingContext: options.pricingContext,
+        prepareCapabilities: options.prepareCapabilities,
+      },
     );
-    const observations = new ObservationStore(db);
+    const observations = new ObservationStore(db, options.cleanupCapabilities);
     this.scheduler = new ObservationScheduler(
       createObservationAccess(db, this.bridge),
       (account, run) => observations.sink(account, run),

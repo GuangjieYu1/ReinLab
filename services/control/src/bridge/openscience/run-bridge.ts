@@ -18,7 +18,10 @@ export const PricingWindowSnapshot = z
   })
   .strict()
   .refine((value) => value.validUntil > value.validFrom);
-export type RunBridgeOptions = { pricingContext?: unknown };
+export type RunBridgeOptions = {
+  pricingContext?: unknown;
+  prepareCapabilities?: (accountId: string, runId: string) => Promise<void>;
+};
 export type RuntimeFactory = (
   accountId: string,
   role: z.infer<typeof RoleProjectRequest>,
@@ -41,7 +44,7 @@ export class RunBridge {
       accountId: string,
       runId: string,
     ) => Promise<RunDefinition>,
-    options: RunBridgeOptions = {},
+    private readonly options: RunBridgeOptions = {},
   ) {
     this.store = new BindingStore(db);
     if (options.pricingContext !== undefined) {
@@ -202,6 +205,7 @@ export class RunBridge {
         409,
         "模型运行没有可用的费用预留。",
       );
+    await this.options.prepareCapabilities?.(accountId, runId);
     await this.store.sendIntent(accountId, runId, lease);
     try {
       const receipt = await runtime.prompt({

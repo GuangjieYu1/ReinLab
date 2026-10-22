@@ -177,28 +177,20 @@
                   "type": "string"
                 },
                 "kind": {
-                  "enum": [
-                    "file",
-                    "directory"
-                  ]
+                  "enum": ["file", "directory"]
                 }
               },
-              "required": [
-                "name",
-                "kind"
-              ],
+              "required": ["name", "kind"],
               "additionalProperties": false
             }
           }
         },
-        "required": [
-          "entries"
-        ],
+        "required": ["entries"],
         "additionalProperties": false
       },
       "idempotent": false,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "files.read": {
@@ -216,9 +208,7 @@
             "maxLength": 300
           }
         },
-        "required": [
-          "path"
-        ],
+        "required": ["path"],
         "additionalProperties": false
       },
       "output": {
@@ -231,15 +221,12 @@
             "type": "string"
           }
         },
-        "required": [
-          "path",
-          "content"
-        ],
+        "required": ["path", "content"],
         "additionalProperties": false
       },
       "idempotent": false,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "files.write": {
@@ -261,10 +248,7 @@
             "maxLength": 1048576
           }
         },
-        "required": [
-          "path",
-          "content"
-        ],
+        "required": ["path", "content"],
         "additionalProperties": false
       },
       "output": {
@@ -281,15 +265,12 @@
             }
           }
         },
-        "required": [
-          "versionId",
-          "paths"
-        ],
+        "required": ["versionId", "paths"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "files.patch": {
@@ -318,17 +299,12 @@
                   "maxLength": 1048576
                 }
               },
-              "required": [
-                "path",
-                "content"
-              ],
+              "required": ["path", "content"],
               "additionalProperties": false
             }
           }
         },
-        "required": [
-          "changes"
-        ],
+        "required": ["changes"],
         "additionalProperties": false
       },
       "output": {
@@ -345,15 +321,12 @@
             }
           }
         },
-        "required": [
-          "versionId",
-          "paths"
-        ],
+        "required": ["versionId", "paths"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "files.undo": {
@@ -370,9 +343,7 @@
             "format": "uuid"
           }
         },
-        "required": [
-          "versionId"
-        ],
+        "required": ["versionId"],
         "additionalProperties": false
       },
       "output": {
@@ -389,15 +360,12 @@
             }
           }
         },
-        "required": [
-          "versionId",
-          "paths"
-        ],
+        "required": ["versionId", "paths"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "memory.read": {
@@ -414,12 +382,7 @@
             "maxItems": 4,
             "uniqueItems": true,
             "items": {
-              "enum": [
-                "L1",
-                "L2",
-                "L3",
-                "L4"
-              ]
+              "enum": ["L1", "L2", "L3", "L4"]
             }
           },
           "refs": {
@@ -449,11 +412,7 @@
                   "pattern": "^[a-f0-9-]{36}$"
                 },
                 "layer": {
-                  "enum": [
-                    "L2",
-                    "L3",
-                    "L4"
-                  ]
+                  "enum": ["L2", "L3", "L4"]
                 },
                 "key": {
                   "type": "string"
@@ -461,25 +420,17 @@
                 "value": {},
                 "evidence": {}
               },
-              "required": [
-                "id",
-                "layer",
-                "key",
-                "value",
-                "evidence"
-              ],
+              "required": ["id", "layer", "key", "value", "evidence"],
               "additionalProperties": false
             }
           }
         },
-        "required": [
-          "items"
-        ],
+        "required": ["items"],
         "additionalProperties": false
       },
       "idempotent": false,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "memory.propose": {
@@ -492,10 +443,7 @@
         "type": "object",
         "properties": {
           "targetLayer": {
-            "enum": [
-              "L3",
-              "L4"
-            ]
+            "enum": ["L3", "L4"]
           },
           "key": {
             "type": "string",
@@ -505,12 +453,7 @@
           "value": {},
           "evidence": {}
         },
-        "required": [
-          "targetLayer",
-          "key",
-          "value",
-          "evidence"
-        ],
+        "required": ["targetLayer", "key", "value", "evidence"],
         "additionalProperties": false
       },
       "output": {
@@ -524,15 +467,12 @@
             "const": "pending"
           }
         },
-        "required": [
-          "promotionId",
-          "status"
-        ],
+        "required": ["promotionId", "status"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "cards.card.answer": {
@@ -548,9 +488,7 @@
             "type": "object"
           }
         },
-        "required": [
-          "card"
-        ],
+        "required": ["card"],
         "additionalProperties": false
       },
       "output": {
@@ -561,14 +499,12 @@
             "pattern": "^[a-f0-9-]{36}$"
           }
         },
-        "required": [
-          "cardId"
-        ],
+        "required": ["cardId"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "cards.card.finding": {
@@ -584,9 +520,7 @@
             "type": "object"
           }
         },
-        "required": [
-          "card"
-        ],
+        "required": ["card"],
         "additionalProperties": false
       },
       "output": {
@@ -597,14 +531,12 @@
             "pattern": "^[a-f0-9-]{36}$"
           }
         },
-        "required": [
-          "cardId"
-        ],
+        "required": ["cardId"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "cards.card.layer": {
@@ -620,9 +552,7 @@
             "type": "object"
           }
         },
-        "required": [
-          "card"
-        ],
+        "required": ["card"],
         "additionalProperties": false
       },
       "output": {
@@ -633,14 +563,12 @@
             "pattern": "^[a-f0-9-]{36}$"
           }
         },
-        "required": [
-          "cardId"
-        ],
+        "required": ["cardId"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "cards.card.quiz": {
@@ -656,9 +584,7 @@
             "type": "object"
           }
         },
-        "required": [
-          "card"
-        ],
+        "required": ["card"],
         "additionalProperties": false
       },
       "output": {
@@ -669,14 +595,12 @@
             "pattern": "^[a-f0-9-]{36}$"
           }
         },
-        "required": [
-          "cardId"
-        ],
+        "required": ["cardId"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "cards.approval.request": {
@@ -697,10 +621,7 @@
             "type": "object"
           }
         },
-        "required": [
-          "subject",
-          "proposal"
-        ],
+        "required": ["subject", "proposal"],
         "additionalProperties": false
       },
       "output": {
@@ -714,15 +635,12 @@
             "const": "pending"
           }
         },
-        "required": [
-          "approvalId",
-          "state"
-        ],
+        "required": ["approvalId", "state"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "cards.gate.request_open": {
@@ -739,9 +657,7 @@
             "format": "uuid"
           }
         },
-        "required": [
-          "gateId"
-        ],
+        "required": ["gateId"],
         "additionalProperties": false
       },
       "output": {
@@ -755,15 +671,12 @@
             "const": "pending"
           }
         },
-        "required": [
-          "approvalId",
-          "state"
-        ],
+        "required": ["approvalId", "state"],
         "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "papers.search": {
@@ -786,13 +699,38 @@
             "maximum": 20
           }
         },
-        "required": [
-          "query"
-        ],
+        "required": ["query"],
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "papers": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "properties": {
+                "paperId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "isOpenAccess": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["paperId", "title", "source", "isOpenAccess"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["papers"],
+        "additionalProperties": false
       },
       "idempotent": false,
       "egress": [
@@ -801,7 +739,7 @@
         "export.arxiv.org",
         "api.unpaywall.org"
       ],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "papers.fetch": {
@@ -819,13 +757,41 @@
             "maxLength": 300
           }
         },
-        "required": [
-          "paperId"
-        ],
+        "required": ["paperId"],
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "enum": ["full_text", "abstract_only"]
+          },
+          "source": {
+            "type": "string"
+          },
+          "license": {
+            "type": ["string", "null"]
+          },
+          "isOpenAccess": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assetId",
+          "status",
+          "source",
+          "license",
+          "isOpenAccess",
+          "path"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [
@@ -834,7 +800,7 @@
         "export.arxiv.org",
         "api.unpaywall.org"
       ],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     },
     "papers.pages": {
@@ -860,18 +826,47 @@
             }
           }
         },
-        "required": [
-          "assetId",
-          "pages"
-        ],
+        "required": ["assetId", "pages"],
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "enum": ["full_text", "abstract_only"]
+          },
+          "pages": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "anchor": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": ["page", "anchor", "text"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["assetId", "status", "pages"],
+        "additionalProperties": false
       },
       "idempotent": false,
       "egress": [],
-      "availability": "planned",
+      "availability": "implemented",
       "review": null
     }
   },

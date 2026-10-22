@@ -1,3 +1,5 @@
+import { registerMcp } from "../mcp/protocol";
+import type { CapabilityEngine } from "../mcp/engine";
 import {
   registerRuntime,
   registerHarness,
@@ -32,6 +34,7 @@ export async function createApp(options: {
   pricing?: PricingService;
   harness?: HarnessStore;
   pipeline?: RuntimeApiPort;
+  mcp?: CapabilityEngine;
   onRunQueued?: (accountId: string, runId: string) => Promise<void>;
 }) {
   const database = new Database(options.pool);
@@ -187,6 +190,16 @@ export async function createApp(options: {
       );
     }),
   );
+  if (options.mcp) {
+    app.use(
+      "/mcp/*",
+      bodyLimit({
+        maxSize: 5 * 1024 * 1024,
+        onError: (c) => c.json({ code: "PAYLOAD_TOO_LARGE" }, 413),
+      }),
+    );
+    registerMcp(app, options.mcp);
+  }
   registerLedger(app, database);
   registerGates(app, database);
   registerBudget(
