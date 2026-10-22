@@ -1,3 +1,11 @@
+import { paperHandlers } from "./mcp/papers";
+import { homedir } from "node:os";
+import path from "node:path";
+import { ensureSigningKey } from "./mcp/token";
+import { CapabilityAuthority } from "./mcp/authority";
+import { CapabilityEngine } from "./mcp/engine";
+import { dataHandlers } from "./mcp/data-handlers";
+import { accountPort } from "./mcp/account-port";
 import { serve } from "@hono/node-server";
 import pg from "pg";
 import nodeProcess from "node:process";
@@ -14,12 +22,45 @@ const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL_APP,
   max: 10,
 });
-const pipeline = new RuntimePipeline(new Database(pool), {
+const database = new Database(pool),
+  mcpAccount = accountPort(database);
+const authority = new CapabilityAuthority(
+  database,
+  await ensureSigningKey(
+    process.env.REINLAB_MCP_SIGNING_KEY_FILE ??
+      path.join(homedir(), ".config/reinlab/mcp/signing.pem"),
+  ),
+);
+const mcp = new CapabilityEngine(authority, {
+  ...mcpAccount.handlers,
+  ...dataHandlers(database),
+  ...paperHandlers(
+    database,
+    path.join(homedir(), ".local/state/reinlab/papers"),
+    mcpAccount.deposit,
+  ),
+});
+const pipeline = new RuntimePipeline(database, {
   pricingContext: runtimePricingFromEnvironment(),
+  cleanupCapabilities: async (account, run) => {
+    await mcpAccount.cleanup(account, run);
+  },
+  prepareCapabilities: async (account, run) => {
+    const token = await authority.issue(account, run);
+    if (!process.env.REINLAB_CONTROL_URL)
+      throw new Error("MCP_CONTROL_URL_REQUIRED");
+    await mcpAccount.bootstrap(
+      account,
+      run,
+      token,
+      process.env.REINLAB_CONTROL_URL,
+    );
+  },
 });
 const app = await createApp({
   pool,
   pipeline,
+  mcp,
   auth: {
     issuer: process.env.SUPABASE_URL.replace(/\/$/, "") + "/auth/v1",
     secret: process.env.SUPABASE_JWT_SECRET

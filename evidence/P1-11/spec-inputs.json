@@ -1,0 +1,29 @@
+{
+  "readOnlyMainRepository": "/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab",
+  "files": [
+    {
+      "path": "design/reviews/CODEX_BRIEF_BATCH4.md",
+      "sha256": "9a425d245f7ebae7aabaa858858c07acf45f40caee6624d0b41dbe53fea8d81a"
+    },
+    {
+      "path": "design/reviews/P1-10_CLOSURE_REVIEW.md",
+      "sha256": "4c2e56753d78c67b3c6f6fe7da08753a8e7aac33c88bee186eb65eda17f11d85"
+    },
+    {
+      "path": "design/MCP_LAYER.md",
+      "sha256": "149e8014af53723d65f5807ee2f710857608f46bb7110329453afe70f732bbea"
+    },
+    {
+      "path": "design/HARNESS.md",
+      "sha256": "25ead251cfceb1ece512bec6928277aeb04d0eb26491ed5004ae68225c453589"
+    },
+    {
+      "path": "design/CODEX_SPEC_RESEARCH.md",
+      "sha256": "cb4ab1a604108d9bda06b1acc2d5c461c7d8b06b246d0edd7b5861b868baa28b"
+    },
+    {
+      "path": "design/ACCEPTANCE_RESEARCH.md",
+      "sha256": "96e063fb8ecfc028004bf6db58f99d13fd9e2990430e0252e2356b3e817ba58b"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { z } from "zod";
+export { Capability, CapabilityRegistryDocument, legacyRegistryCore } from "./capabilities";
 export { UsageAccountingSource, GatewayUsageCallback } from "./usage";
 export {
   BenchManifest,

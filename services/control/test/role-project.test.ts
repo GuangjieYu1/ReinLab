@@ -1,12 +1,148 @@
-import {afterEach,it,expect} from 'vitest';
-import {mkdtemp,readFile,rm,writeFile,symlink,mkdir,realpath} from 'node:fs/promises';
-import {tmpdir} from 'node:os';import path from 'node:path';import {pathToFileURL} from 'node:url';import {randomUUID} from 'node:crypto';
-import {prepareRoleProject,assertRoleProject} from '../src/bridge/openscience/role-project';
-const roots:string[]=[];afterEach(async()=>{await Promise.all(roots.splice(0).map(p=>rm(p,{recursive:true,force:true})));});
-async function options(){const root=await realpath(await mkdtemp(path.join(tmpdir(),'reinlab-role-project-')));roots.push(root);return {root,dossierId:randomUUID(),role:{id:'swarm-critic',prompt:'独立审查角色，危险动作一律拒绝',toolGrants:{read:{risk:'read',permission:'allow'},write:{risk:'write',permission:'allow'},bash:{risk:'danger',permission:'allow'},task:{risk:'read',permission:'allow'}},writeTargets:['reports/'],steps:8},model:'account/medium',memory:'仅本角色记忆',pluginUrl:pathToFileURL(path.resolve('plugins/reinlab-os-plugin/index.js')).href};}
-it('先默认拒绝，再canonical读范围/edit写目标收紧，task/danger一律拒绝',async()=>{const o=await options(),p=await prepareRoleProject(o);expect(p.directory).toBe(path.join(o.root,'roles',o.dossierId,o.role.id));expect(p.dossierDirectory).toBe(path.join(o.root,'dossiers',o.dossierId));const c=JSON.parse(await readFile(path.join(p.directory,'openscience.json'),'utf8'));const perms=c.agent.research.permission;expect(Object.keys(perms)[0]).toBe('*');expect(perms['*']).toBe('deny');expect(perms.task).toBe('deny');expect(perms.bash).toBe('deny');expect(perms.external_directory).toEqual({'*':'deny',[p.dossierDirectory+'/*']:'allow'});expect(perms.read).toMatchObject({'*':'deny',[p.dossierDirectory+'/*']:'allow'});expect(Object.values(perms.edit)).toContain('allow');expect(perms.edit['*']).toBe('deny');await expect(assertRoleProject(p)).resolves.toBeUndefined();});
-it('已有文件一致可重用，AGENTS篡改/符号链接不能覆盖或提交',async()=>{const o=await options(),p=await prepareRoleProject(o);await prepareRoleProject(o);const name=path.join(p.directory,'AGENTS.md');await writeFile(name,'tampered');await expect(assertRoleProject(p)).rejects.toMatchObject({code:'SCOPE_DENIED'});await expect(prepareRoleProject(o)).rejects.toMatchObject({code:'SCOPE_DENIED'});expect(await readFile(name,'utf8')).toBe('tampered');await rm(name);const secret=path.join(o.root,'secret');await writeFile(secret,'other-role');await symlink(secret,name);await expect(prepareRoleProject(o)).rejects.toMatchObject({code:'SCOPE_DENIED'});expect(await readFile(secret,'utf8')).toBe('other-role');});
-it.each(['../escape','outputs/../../escape','/absolute','reports/*'])('拒绝写目标 %s',async target=>{const o=await options();o.role.writeTargets=[target];await expect(prepareRoleProject(o)).rejects.toMatchObject({code:'SCOPE_DENIED'});});
-it('角色路径不是git仓库的一部分，也不接受路径组件symlink',async()=>{const o=await options();await mkdir(path.join(o.root,'.git'));await expect(prepareRoleProject(o)).rejects.toMatchObject({code:'SCOPE_DENIED'});await rm(path.join(o.root,'.git'),{recursive:true});await mkdir(path.join(o.root,'elsewhere'));await symlink(path.join(o.root,'elsewhere'),path.join(o.root,'roles'));await expect(prepareRoleProject(o)).rejects.toMatchObject({code:'SCOPE_DENIED'});});
-it.each(['openscience.jsonc','.openscience','.synsc','CLAUDE.md','CONTEXT.md'])('拒绝未管理配置/说明入口 %s，避免覆盖research或额外注入',async name=>{const o=await options(),p=await prepareRoleProject(o);if(name.startsWith('.'))await mkdir(path.join(p.directory,name));else await writeFile(path.join(p.directory,name),'unmanaged injection');await expect(assertRoleProject(p)).rejects.toMatchObject({code:'SCOPE_DENIED'});await expect(prepareRoleProject(o)).rejects.toMatchObject({code:'SCOPE_DENIED'});});
-it.each(['角色 {file:/outside/secret}','角色 {env:PRIVATE_TEST_VALUE}'])('拒绝上游配置引用展开入口 %s',async prompt=>{const o=await options();o.role.prompt=prompt;await expect(prepareRoleProject(o)).rejects.toMatchObject({code:'SCOPE_DENIED'});});
+import { afterEach, it, expect } from "vitest";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+  symlink,
+  mkdir,
+  realpath,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { randomUUID } from "node:crypto";
+import {
+  prepareRoleProject,
+  assertRoleProject,
+} from "../src/bridge/openscience/role-project";
+const roots: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((p) => rm(p, { recursive: true, force: true })),
+  );
+});
+async function options() {
+  const root = await realpath(
+    await mkdtemp(path.join(tmpdir(), "reinlab-role-project-")),
+  );
+  roots.push(root);
+  return {
+    root,
+    dossierId: randomUUID(),
+    role: {
+      id: "swarm-critic",
+      prompt: "独立审查角色，危险动作一律拒绝",
+      toolGrants: {
+        read: { risk: "read", permission: "allow" },
+        write: { risk: "write", permission: "allow" },
+        bash: { risk: "danger", permission: "allow" },
+        task: { risk: "read", permission: "allow" },
+      },
+      writeTargets: ["reports/"],
+      steps: 8,
+    },
+    model: "account/medium",
+    memory: "仅本角色记忆",
+    pluginUrl: pathToFileURL(path.resolve("plugins/reinlab-os-plugin/index.js"))
+      .href,
+  };
+}
+it("先默认拒绝，再canonical读范围/edit写目标收紧，task/danger一律拒绝", async () => {
+  const o = await options(),
+    p = await prepareRoleProject(o);
+  expect(p.directory).toBe(path.join(o.root, "roles", o.dossierId, o.role.id));
+  expect(p.dossierDirectory).toBe(path.join(o.root, "dossiers", o.dossierId));
+  const c = JSON.parse(
+    await readFile(path.join(p.directory, "openscience.json"), "utf8"),
+  );
+  const perms = c.agent.research.permission;
+  expect(Object.keys(perms)[0]).toBe("*");
+  expect(perms["*"]).toBe("deny");
+  expect(perms.task).toBe("deny");
+  expect(perms.bash).toBe("deny");
+  expect(perms.external_directory).toEqual({
+    "*": "deny",
+    [p.dossierDirectory + "/*"]: "allow",
+  });
+  expect(perms.read).toMatchObject({
+    "*": "deny",
+    [p.dossierDirectory + "/*"]: "allow",
+  });
+  expect(Object.values(perms.edit).every((v) => v === "deny")).toBe(true);
+  expect(perms.edit["*"]).toBe("deny");
+  await expect(assertRoleProject(p)).resolves.toBeUndefined();
+});
+it("已有文件一致可重用，AGENTS篡改/符号链接不能覆盖或提交", async () => {
+  const o = await options(),
+    p = await prepareRoleProject(o);
+  await prepareRoleProject(o);
+  const name = path.join(p.directory, "AGENTS.md");
+  await writeFile(name, "tampered");
+  await expect(assertRoleProject(p)).rejects.toMatchObject({
+    code: "SCOPE_DENIED",
+  });
+  await expect(prepareRoleProject(o)).rejects.toMatchObject({
+    code: "SCOPE_DENIED",
+  });
+  expect(await readFile(name, "utf8")).toBe("tampered");
+  await rm(name);
+  const secret = path.join(o.root, "secret");
+  await writeFile(secret, "other-role");
+  await symlink(secret, name);
+  await expect(prepareRoleProject(o)).rejects.toMatchObject({
+    code: "SCOPE_DENIED",
+  });
+  expect(await readFile(secret, "utf8")).toBe("other-role");
+});
+it.each(["../escape", "outputs/../../escape", "/absolute", "reports/*"])(
+  "拒绝写目标 %s",
+  async (target) => {
+    const o = await options();
+    o.role.writeTargets = [target];
+    await expect(prepareRoleProject(o)).rejects.toMatchObject({
+      code: "SCOPE_DENIED",
+    });
+  },
+);
+it("角色路径不是git仓库的一部分，也不接受路径组件symlink", async () => {
+  const o = await options();
+  await mkdir(path.join(o.root, ".git"));
+  await expect(prepareRoleProject(o)).rejects.toMatchObject({
+    code: "SCOPE_DENIED",
+  });
+  await rm(path.join(o.root, ".git"), { recursive: true });
+  await mkdir(path.join(o.root, "elsewhere"));
+  await symlink(path.join(o.root, "elsewhere"), path.join(o.root, "roles"));
+  await expect(prepareRoleProject(o)).rejects.toMatchObject({
+    code: "SCOPE_DENIED",
+  });
+});
+it.each([
+  "openscience.jsonc",
+  ".openscience",
+  ".synsc",
+  "CLAUDE.md",
+  "CONTEXT.md",
+])("拒绝未管理配置/说明入口 %s，避免覆盖research或额外注入", async (name) => {
+  const o = await options(),
+    p = await prepareRoleProject(o);
+  if (name.startsWith(".")) await mkdir(path.join(p.directory, name));
+  else await writeFile(path.join(p.directory, name), "unmanaged injection");
+  await expect(assertRoleProject(p)).rejects.toMatchObject({
+    code: "SCOPE_DENIED",
+  });
+  await expect(prepareRoleProject(o)).rejects.toMatchObject({
+    code: "SCOPE_DENIED",
+  });
+});
+it.each(["角色 {file:/outside/secret}", "角色 {env:PRIVATE_TEST_VALUE}"])(
+  "拒绝上游配置引用展开入口 %s",
+  async (prompt) => {
+    const o = await options();
+    o.role.prompt = prompt;
+    await expect(prepareRoleProject(o)).rejects.toMatchObject({
+      code: "SCOPE_DENIED",
+    });
+  },
+);

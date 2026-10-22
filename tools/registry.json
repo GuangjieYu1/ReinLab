@@ -143,5 +143,802 @@
     }
   },
   "mcp": {},
-  "delegations": []
+  "delegations": [],
+  "capabilityRevision": "mcp-2026-10-23.1",
+  "capabilities": {
+    "files.list": {
+      "server": "files",
+      "capability": "list",
+      "placement": "account",
+      "risk": "read",
+      "effects": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "maxItems": 4096,
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": ["file", "directory"]
+                }
+              },
+              "required": ["name", "kind"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["entries"],
+        "additionalProperties": false
+      },
+      "idempotent": false,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "files.read": {
+      "server": "files",
+      "capability": "read",
+      "placement": "account",
+      "risk": "read",
+      "effects": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": ["path", "content"],
+        "additionalProperties": false
+      },
+      "idempotent": false,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "files.write": {
+      "server": "files",
+      "capability": "write",
+      "placement": "account",
+      "risk": "write",
+      "effects": "dossier_write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 1048576
+          }
+        },
+        "required": ["path", "content"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["versionId", "paths"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "files.patch": {
+      "server": "files",
+      "capability": "patch",
+      "placement": "account",
+      "risk": "write",
+      "effects": "dossier_write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "changes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300
+                },
+                "content": {
+                  "type": "string",
+                  "maxLength": 1048576
+                }
+              },
+              "required": ["path", "content"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["changes"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["versionId", "paths"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "files.undo": {
+      "server": "files",
+      "capability": "undo",
+      "placement": "account",
+      "risk": "write",
+      "effects": "dossier_write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": ["versionId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["versionId", "paths"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "memory.read": {
+      "server": "memory",
+      "capability": "read",
+      "placement": "account",
+      "risk": "read",
+      "effects": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "layers": {
+            "type": "array",
+            "maxItems": 4,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["L1", "L2", "L3", "L4"]
+            }
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 128,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9-]{36}$"
+                },
+                "layer": {
+                  "enum": ["L2", "L3", "L4"]
+                },
+                "key": {
+                  "type": "string"
+                },
+                "value": {},
+                "evidence": {}
+              },
+              "required": ["id", "layer", "key", "value", "evidence"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "idempotent": false,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "memory.propose": {
+      "server": "memory",
+      "capability": "propose",
+      "placement": "account",
+      "risk": "write",
+      "effects": "memory_proposal",
+      "input": {
+        "type": "object",
+        "properties": {
+          "targetLayer": {
+            "enum": ["L3", "L4"]
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "value": {},
+          "evidence": {}
+        },
+        "required": ["targetLayer", "key", "value", "evidence"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "status": {
+            "const": "pending"
+          }
+        },
+        "required": ["promotionId", "status"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "cards.card.answer": {
+      "server": "cards",
+      "capability": "card.answer",
+      "placement": "control",
+      "risk": "write",
+      "effects": "ui_card",
+      "input": {
+        "type": "object",
+        "properties": {
+          "card": {
+            "type": "object"
+          }
+        },
+        "required": ["card"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          }
+        },
+        "required": ["cardId"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "cards.card.finding": {
+      "server": "cards",
+      "capability": "card.finding",
+      "placement": "control",
+      "risk": "write",
+      "effects": "ui_card",
+      "input": {
+        "type": "object",
+        "properties": {
+          "card": {
+            "type": "object"
+          }
+        },
+        "required": ["card"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          }
+        },
+        "required": ["cardId"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "cards.card.layer": {
+      "server": "cards",
+      "capability": "card.layer",
+      "placement": "control",
+      "risk": "write",
+      "effects": "ui_card",
+      "input": {
+        "type": "object",
+        "properties": {
+          "card": {
+            "type": "object"
+          }
+        },
+        "required": ["card"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          }
+        },
+        "required": ["cardId"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "cards.card.quiz": {
+      "server": "cards",
+      "capability": "card.quiz",
+      "placement": "control",
+      "risk": "write",
+      "effects": "ui_card",
+      "input": {
+        "type": "object",
+        "properties": {
+          "card": {
+            "type": "object"
+          }
+        },
+        "required": ["card"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          }
+        },
+        "required": ["cardId"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "cards.approval.request": {
+      "server": "cards",
+      "capability": "approval.request",
+      "placement": "control",
+      "risk": "write",
+      "effects": "ui_card",
+      "input": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "proposal": {
+            "type": "object"
+          }
+        },
+        "required": ["subject", "proposal"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "state": {
+            "const": "pending"
+          }
+        },
+        "required": ["approvalId", "state"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "cards.gate.request_open": {
+      "server": "cards",
+      "capability": "gate.request_open",
+      "placement": "control",
+      "risk": "write",
+      "effects": "ui_card",
+      "input": {
+        "type": "object",
+        "properties": {
+          "gateId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": ["gateId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "state": {
+            "const": "pending"
+          }
+        },
+        "required": ["approvalId", "state"],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    },
+    "papers.search": {
+      "server": "papers",
+      "capability": "search",
+      "placement": "shared",
+      "risk": "read",
+      "effects": "network_fetch",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "papers": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "properties": {
+                "paperId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "isOpenAccess": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["paperId", "title", "source", "isOpenAccess"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["papers"],
+        "additionalProperties": false
+      },
+      "idempotent": false,
+      "egress": [
+        "api.openalex.org",
+        "arxiv.org",
+        "export.arxiv.org",
+        "api.unpaywall.org"
+      ],
+      "availability": "implemented",
+      "review": null
+    },
+    "papers.fetch": {
+      "server": "papers",
+      "capability": "fetch",
+      "placement": "shared",
+      "risk": "write",
+      "effects": "network_fetch",
+      "input": {
+        "type": "object",
+        "properties": {
+          "paperId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": ["paperId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "enum": ["full_text", "abstract_only"]
+          },
+          "source": {
+            "type": "string"
+          },
+          "license": {
+            "type": ["string", "null"]
+          },
+          "isOpenAccess": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assetId",
+          "status",
+          "source",
+          "license",
+          "isOpenAccess",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "idempotent": true,
+      "egress": [
+        "api.openalex.org",
+        "arxiv.org",
+        "export.arxiv.org",
+        "api.unpaywall.org"
+      ],
+      "availability": "implemented",
+      "review": null
+    },
+    "papers.pages": {
+      "server": "papers",
+      "capability": "pages",
+      "placement": "shared",
+      "risk": "read",
+      "effects": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pages": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "required": ["assetId", "pages"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "enum": ["full_text", "abstract_only"]
+          },
+          "pages": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "anchor": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": ["page", "anchor", "text"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["assetId", "status", "pages"],
+        "additionalProperties": false
+      },
+      "idempotent": false,
+      "egress": [],
+      "availability": "implemented",
+      "review": null
+    }
+  },
+  "aliases": {
+    "literature": [
+      {
+        "capability": "papers.search"
+      },
+      {
+        "capability": "papers.fetch",
+        "minimumPermission": "ask"
+      },
+      {
+        "capability": "papers.pages"
+      }
+    ],
+    "memory_read": [
+      {
+        "capability": "memory.read"
+      }
+    ],
+    "memory_propose": [
+      {
+        "capability": "memory.propose",
+        "minimumPermission": "ask"
+      }
+    ],
+    "card_answer": [
+      {
+        "capability": "cards.card.answer"
+      }
+    ],
+    "card_approval": [
+      {
+        "capability": "cards.approval.request"
+      }
+    ],
+    "finding_record": [
+      {
+        "capability": "cards.card.finding"
+      },
+      {
+        "capability": "files.write",
+        "pathPrefix": "findings/",
+        "minimumPermission": "ask"
+      }
+    ],
+    "read_layer_write": [
+      {
+        "capability": "cards.card.layer"
+      },
+      {
+        "capability": "files.write",
+        "pathPrefix": "read/layers/",
+        "minimumPermission": "ask"
+      }
+    ],
+    "read_quiz_write": [
+      {
+        "capability": "cards.card.quiz"
+      },
+      {
+        "capability": "files.write",
+        "pathPrefix": "read/quizzes/",
+        "minimumPermission": "ask"
+      }
+    ],
+    "plan_propose": [
+      {
+        "capability": "cards.approval.request",
+        "minimumPermission": "ask"
+      }
+    ]
+  }
 }

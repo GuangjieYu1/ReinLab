@@ -150,20 +150,19 @@ function checkedEndpoint(
   return url.origin;
 }
 /** Production-only account resolver; never provisions, starts or repairs resources. */
-export function createProductionRuntimeFactory(
+export function createProductionAccountResolver(
   db: Database,
   options: ProductionFactoryOptions = {},
-): RuntimeFactory {
+) {
   const dependencies = Object.freeze({ ...options }),
     vault = dependencies.vault ?? readonlyVault;
   const app =
       dependencies.app ?? process.env.FLY_APP_ACCOUNTS ?? "reinlab-local",
     controlUrl = dependencies.controlUrl ?? process.env.REINLAB_CONTROL_URL;
-  return async (accountId, rawRole) => {
+  return async (accountId: string) => {
     try {
-      const identity = z.string().uuid().safeParse(accountId),
-        role = RoleProjectRequest.safeParse(rawRole);
-      if (!identity.success || !role.success) throw denied();
+      const identity = z.string().uuid().safeParse(accountId);
+      if (!identity.success) throw denied();
       if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(app) || !controlUrl)
         throw unavailable();
       const account = identity.data.toLowerCase();
@@ -238,20 +237,30 @@ export function createProductionRuntimeFactory(
         machine.id,
         app,
       );
-      const store = new RemoteRoleStore(
-        { baseUrl, token: tokens.auth, accountId: account },
-        dependencies.transport,
-      );
-      const project = await store.prepare({
-        ...role.data,
-        root: "/data",
-        pluginUrl: "file:///opt/reinlab/plugin/index.js",
-      });
-      return new RoleRuntime({ baseUrl, token: tokens.auth, project });
+      return { baseUrl, token: tokens.auth, accountId: account };
     } catch (error) {
       if (error instanceof FactoryFailure) throw error;
       if ((error as { code?: string })?.code === "SCOPE_DENIED") throw denied();
       throw unavailable();
     }
+  };
+}
+
+export function createProductionRuntimeFactory(
+  db: Database,
+  options: ProductionFactoryOptions = {},
+): RuntimeFactory {
+  const resolve = createProductionAccountResolver(db, options);
+  return async (accountId, rawRole) => {
+    const role = RoleProjectRequest.safeParse(rawRole);
+    if (!role.success) throw denied();
+    const connection = await resolve(accountId);
+    const store = new RemoteRoleStore(connection, options.transport);
+    const project = await store.prepare({
+      ...role.data,
+      root: "/data",
+      pluginUrl: "file:///opt/reinlab/plugin/index.js",
+    });
+    return new RoleRuntime({ ...connection, project });
   };
 }

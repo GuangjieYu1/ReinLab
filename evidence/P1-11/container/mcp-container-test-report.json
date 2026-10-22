@@ -1,0 +1,14 @@
+{
+  "status": "passed",
+  "passed": 4,
+  "failed": 0,
+  "checks": [
+    "linux-atomic-patch-unicode-and-undo",
+    "linux-scope-and-symlink-denials-no-partial-write",
+    "linux-private-config-stdio-proxy-and-terminal-cleanup",
+    "locked-plugin-runtime-imports"
+  ],
+  "modelCalls": 0,
+  "network": "none; container loopback fixture only",
+  "image": "reinlab-account:local-71e914661428"
+}

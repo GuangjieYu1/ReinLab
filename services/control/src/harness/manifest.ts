@@ -1,4 +1,4 @@
-import { BenchManifest, ToolRegistry } from "@reinlab/contracts";
+import { BenchManifest, ToolRegistry, CapabilityRegistryDocument, legacyRegistryCore } from "@reinlab/contracts";
 import { constants } from "node:fs";
 import { open, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -12,6 +12,7 @@ export type LoadedBenchBundle = {
   prompts: Record<string, string>;
   referencedHashes: Record<string, string>;
   registryHash: string;
+  schemas?: Record<string,string>;
 };
 export class BenchManifestError extends Error {
   readonly code = "BENCH_MANIFEST_INVALID";
@@ -174,15 +175,15 @@ function frozen<T>(value: T): T {
   }
   return value;
 }
-export async function loadToolRegistry(
+export async function loadRegistryDocument(
   root = repositoryRoot,
-): Promise<ToolRegistry> {
+): Promise<CapabilityRegistryDocument> {
   const base = await rootPath(root),
     raw = parseDocumentStrict(
       decode(await bytes(base, "tools/registry.json", 262144), "registry"),
       "registry",
     );
-  const parsed = ToolRegistry.safeParse(raw);
+  const parsed = CapabilityRegistryDocument.safeParse(raw);
   if (!parsed.success)
     throw new BenchManifestError(
       parsed.error.issues.map((issue) => ({
@@ -191,6 +192,9 @@ export async function loadToolRegistry(
       })),
     );
   return frozen(parsed.data);
+}
+export async function loadToolRegistry(root = repositoryRoot): Promise<ToolRegistry> {
+  return frozen(legacyRegistryCore(await loadRegistryDocument(root)));
 }
 /** Universal non-overridable policy; reuse after merging trusted patches. */
 export function assertBenchSafety(
@@ -268,7 +272,8 @@ export async function loadBenchBundle(options: {
   const referencedHashes: Record<string, string> = {
       [manifestFile]: sha(data),
     },
-    prompts: Record<string, string> = {};
+    prompts: Record<string, string> = {},
+    schemas: Record<string,string> = {};
   const reference = async (file: string, prefix: string, maximum: number) => {
     if (!file.startsWith(prefix) || !relative(file))
       failure([file], "引用超出当前工作台bundle");
@@ -303,6 +308,7 @@ export async function loadBenchBundle(options: {
     );
     try {
       checkedTree(JSON.parse(text));
+      schemas[definition.schema] = text;
     } catch (error) {
       if (error instanceof BenchManifestError) throw error;
       failure([definition.schema], "卡片schema不是有效JSON");
@@ -312,5 +318,5 @@ export async function loadBenchBundle(options: {
     await reference(file, "templates/" + manifest.id + "/", 131072);
   const registryHash = sha(canonical(registry.data));
   const digest = sha(canonical({ manifest, referencedHashes, registryHash }));
-  return frozen({ manifest, digest, prompts, referencedHashes, registryHash });
+  return frozen({ manifest, digest, prompts, referencedHashes, registryHash, ...(Object.keys(schemas).length ? {schemas} : {}) });
 }

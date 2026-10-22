@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hash, CapabilityScope } from "../../mcp/token";
 import type { Database } from "../../db/database";
 import { ApiFailure, denied } from "../../api/errors";
 import { canonical } from "../../api/context";
@@ -42,11 +43,12 @@ export function createHarnessRunDefinitionLoader(
       throw denied();
     return db.withAccount(accountId, async (client) => {
       const result = await client.query(
-        `select r.dossier_id,r.role_id,r.input,d.bench dossier_bench,h.bench,h.version,h.effective_digest,h.model_route,e.bundle_digest,e.snapshot,v.registry,v.digest version_digest
+        `select r.dossier_id,r.role_id,r.input,d.bench dossier_bench,h.bench,h.version,h.effective_digest,h.model_route,e.bundle_digest,e.snapshot,v.registry,v.digest version_digest,m.catalog,m.catalog_digest,m.scope,m.scope_digest
     from run r join dossier d on d.account_id=r.account_id and d.id=r.dossier_id
     left join run_harness h on h.account_id=r.account_id and h.dossier_id=r.dossier_id and h.run_id=r.id
     left join bench_effective e on e.account_id=h.account_id and e.digest=h.effective_digest and e.bench=h.bench and e.version=h.version
     left join bench_version v on v.bench=e.bench and v.version=e.version
+    left join mcp_run m on m.account_id=r.account_id and m.run_id=r.id
     where r.account_id=$1 and r.id=$2`,
         [accountId, runId],
       );
@@ -162,13 +164,46 @@ export function createHarnessRunDefinitionLoader(
           if (Buffer.byteLength(memory, "utf8") > 131072) throw tooLarge();
         }
       }
+      let mcp: z.infer<typeof RoleProjectRequest>["mcp"];
+      if (row.catalog) {
+        const { digest, ...catalog } = row.catalog;
+        const scope = CapabilityScope.parse(row.scope);
+        if (
+          hash(catalog) !== digest ||
+          digest !== row.catalog_digest ||
+          hash(scope) !== row.scope_digest
+        )
+          throw corrupt();
+        mcp = {
+          runId,
+          grants: scope.grants
+            .map((g) => ({ ...g, risk: row.catalog.capabilities[g.name].risk }))
+            .map(({ writeTargets: _targets, ...g }) => g),
+          aliases: Object.fromEntries(
+            Object.entries(
+              row.catalog.aliases as Record<
+                string,
+                Array<{ capability: string }>
+              >,
+            ).flatMap(([alias, entries]) => {
+              const allowed = entries
+                .map((e) => e.capability)
+                .filter((name) => scope.grants.some((g) => g.name === name));
+              return allowed.length ? [[alias, allowed]] : [];
+            }),
+          ),
+        };
+      }
       return {
-        role: materializeHarnessRole(effective, registry, {
-          dossierId: row.dossier_id,
-          roleId: row.role_id,
-          modelRoutes,
-          memory,
-          maxSteps,
+        role: RoleProjectRequest.parse({
+          ...materializeHarnessRole(effective, registry, {
+            dossierId: row.dossier_id,
+            roleId: row.role_id,
+            modelRoutes,
+            memory,
+            maxSteps,
+          }),
+          ...(mcp ? { mcp } : {}),
         }),
         message,
       };

@@ -1,7 +1,17 @@
 import { z } from "zod";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { constants } from "node:fs";
-import { mkdir, lstat, realpath, open, readdir, mkdtemp, rename, rm } from "node:fs/promises";
+import {
+  mkdir,
+  lstat,
+  realpath,
+  open,
+  readdir,
+  mkdtemp,
+  rename,
+  rm,
+} from "node:fs/promises";
 import { createHash } from "node:crypto";
 const Action = z.enum(["allow", "ask", "deny"]);
 const Role = z
@@ -28,6 +38,27 @@ const Options = z
     role: Role,
     model: z.string().regex(/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._:/-]+$/),
     memory: z.string().max(131072),
+    mcp: z
+      .object({
+        runId: z.string().uuid(),
+        aliases: z.record(
+          z.string().regex(/^[a-z][a-z0-9_-]{0,79}$/),
+          z.array(z.string().regex(/^[a-z][a-z0-9_.-]+$/)).max(16),
+        ),
+        grants: z
+          .array(
+            z
+              .object({
+                name: z.string(),
+                permission: z.enum(["allow", "ask"]),
+                risk: z.enum(["read", "write", "danger"]),
+              })
+              .strict(),
+          )
+          .max(128),
+      })
+      .strict()
+      .optional(),
     pluginUrl: z.string().url(),
   })
   .strict();
@@ -43,6 +74,7 @@ const issued = new WeakMap<
     root: string;
     pluginUrl: string;
     grants: Array<{ path: string; access: "read" | "write" }>;
+    targets: string[];
   }
 >();
 const digest = (data: string | Buffer) =>
@@ -157,6 +189,11 @@ export async function assertRoleProject(project: RoleProject): Promise<void> {
       throw scopeDenied();
     for (const grant of state.grants)
       await grantPath(project.dossierDirectory, grant.path);
+    for (const target of state.targets)
+      await grantPath(
+        project.dossierDirectory,
+        path.resolve(project.dossierDirectory, target),
+      );
     for (const [name, hash] of Object.entries(state.files))
       if (digest(await bytes(path.join(project.directory, name))) !== hash)
         throw scopeDenied();
@@ -167,22 +204,45 @@ export async function assertRoleProject(project: RoleProject): Promise<void> {
 export const RoleProjectRequest = Options.omit({ root: true, pluginUrl: true });
 export type RoleOptions = z.infer<typeof Options>;
 function canonicalRole(value: unknown): string {
-  if (Array.isArray(value)) return "[" + value.map(canonicalRole).join(",") + "]";
-  if (value && typeof value === "object") return "{" + Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => JSON.stringify(key) + ":" + canonicalRole(item)).join(",") + "}";
+  if (Array.isArray(value))
+    return "[" + value.map(canonicalRole).join(",") + "]";
+  if (value && typeof value === "object")
+    return (
+      "{" +
+      Object.entries(value)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, item]) => JSON.stringify(key) + ":" + canonicalRole(item))
+        .join(",") +
+      "}"
+    );
   return JSON.stringify(value);
 }
-export function roleDefinitionHash(raw: unknown) { return digest(canonicalRole(Options.parse(raw))); }
+export function roleDefinitionHash(raw: unknown) {
+  return digest(canonicalRole(Options.parse(raw)));
+}
 export function versionRoleOptions(raw: unknown): RoleOptions {
   try {
     const input = Options.parse(raw);
-    return { ...input, role: { ...input.role, id: input.role.id.slice(0, 28) + "--" + roleDefinitionHash(input).slice(0, 32) } };
-  } catch { throw scopeDenied(); }
+    return {
+      ...input,
+      role: {
+        ...input.role,
+        id:
+          input.role.id.slice(0, 28) +
+          "--" +
+          roleDefinitionHash(input).slice(0, 32),
+      },
+    };
+  } catch {
+    throw scopeDenied();
+  }
 }
 /** Pure content contract shared by the controller and the account's fixed store. */
 export function planRoleProject(raw: unknown) {
   try {
     const input = Options.parse(raw);
-    if (!path.isAbsolute(input.root) || path.resolve(input.root) !== input.root) throw scopeDenied();
+    if (!path.isAbsolute(input.root) || path.resolve(input.root) !== input.root)
+      throw scopeDenied();
     const root = input.root;
     const plugin = new URL(input.pluginUrl);
     if (plugin.protocol !== "file:" || plugin.search || plugin.hash)
@@ -219,9 +279,13 @@ export function planRoleProject(raw: unknown) {
     const tools: Record<string, { risk: string; permission: string }> = {};
     const editors = ["edit", "write", "patch", "apply_patch", "multiedit"];
     let editAction = "deny";
-    for (const [name, grant] of Object.entries(input.role.toolGrants).sort(([a], [b]) => a.localeCompare(b))) {
+    for (const [name, grant] of Object.entries(input.role.toolGrants).sort(
+      ([a], [b]) => a.localeCompare(b),
+    )) {
       const action =
-        grant.risk === "danger" || name === "task" ? "deny" : grant.permission;
+        grant.risk === "danger" || name === "task" || editors.includes(name)
+          ? "deny"
+          : grant.permission;
       tools[name] = { ...grant, permission: action };
       if (editors.includes(name)) {
         if (action === "allow" || (action === "ask" && editAction === "deny"))
@@ -251,9 +315,53 @@ export function planRoleProject(raw: unknown) {
       [dossierDirectory + "/*"]: "allow",
     };
     permission.task = "deny";
+    if (input.mcp) {
+      permission.reinlab_mcp_approval = "ask";
+      tools.reinlab_mcp_approval = { risk: "write", permission: "ask" };
+      for (const grant of input.mcp.grants) {
+        const key = "reinlab_" + grant.name.replaceAll(".", "_");
+        permission[key] = "allow";
+        tools[key] = {
+          risk: grant.risk,
+          permission: grant.risk === "danger" ? "ask" : "allow",
+        };
+      }
+    }
     const config =
       JSON.stringify(
         {
+          ...(input.mcp
+            ? {
+                mcp: Object.fromEntries(
+                  [
+                    ...new Set(
+                      input.mcp.grants.map((g) => g.name.split(".")[0]),
+                    ),
+                  ].map((server) => [
+                    "reinlab_" + server,
+                    {
+                      type: "local",
+                      command: [
+                        "node",
+                        fileURLToPath(
+                          new URL(
+                            "../../../../account-runtime/mcp/client.mjs",
+                            import.meta.url,
+                          ),
+                        ),
+                        path.join(
+                          root,
+                          "mcp-clients",
+                          input.mcp!.runId + ".json",
+                        ),
+                        server,
+                      ],
+                      enabled: true,
+                    },
+                  ]),
+                ),
+              }
+            : {}),
           default_agent: "research",
           agent: {
             research: {
@@ -282,6 +390,7 @@ export function planRoleProject(raw: unknown) {
           dossierDirectory,
           tools,
           writeTargets: input.role.writeTargets,
+          ...(input.mcp ? { mcp: input.mcp } : {}),
           configSha256: digest(config),
           memorySha256: digest(memory),
         },
@@ -294,10 +403,34 @@ export function planRoleProject(raw: unknown) {
       ".role-policy.json": policy,
     };
 
-    const project = Object.freeze({ directory: dir, dossierDirectory, roleId: input.role.id });
-    if (Object.values(content).some(text => Buffer.byteLength(text) > 262144)) throw scopeDenied();
-    return { input, project, files: content, hashes: Object.fromEntries(Object.entries(content).map(([name, text]) => [name, digest(text)])), grants: [{ path: dossierDirectory, access: "read" as const }, ...(editAction === "deny" ? [] : input.role.writeTargets.map(t => ({ path: path.resolve(dossierDirectory, t), access: "write" as const })))], pluginUrl: input.pluginUrl };
-  } catch { throw scopeDenied(); }
+    const project = Object.freeze({
+      directory: dir,
+      dossierDirectory,
+      roleId: input.role.id,
+    });
+    if (Object.values(content).some((text) => Buffer.byteLength(text) > 262144))
+      throw scopeDenied();
+    return {
+      input,
+      project,
+      files: content,
+      hashes: Object.fromEntries(
+        Object.entries(content).map(([name, text]) => [name, digest(text)]),
+      ),
+      grants: [
+        { path: dossierDirectory, access: "read" as const },
+        ...(editAction === "deny"
+          ? []
+          : input.role.writeTargets.map((t) => ({
+              path: path.resolve(dossierDirectory, t),
+              access: "write" as const,
+            }))),
+      ],
+      pluginUrl: input.pluginUrl,
+    };
+  } catch {
+    throw scopeDenied();
+  }
 }
 export async function prepareRoleProject(raw: unknown): Promise<RoleProject> {
   try {
@@ -314,24 +447,52 @@ export async function prepareRoleProject(raw: unknown): Promise<RoleProject> {
     const roles = await directory(root, "roles");
     const parent = await directory(roles, input.dossierId);
     let exists = false;
-    try { await plainDirectory(project.directory); exists = true; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    if (!exists) {
-      const staging = await mkdtemp(path.join(parent, "." + input.role.id + "-"));
-      try {
-        for (const [name, text] of Object.entries(plan.files)) await managed(path.join(staging, name), text);
-        try { await rename(staging, project.directory); }
-        catch (error) { if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error; }
-      } finally { await rm(staging, { recursive: true, force: true }); }
+    try {
+      await plainDirectory(project.directory);
+      exists = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    issued.set(project, { root, pluginUrl: plan.pluginUrl, grants: plan.grants, files: plan.hashes });
+    if (!exists) {
+      const staging = await mkdtemp(
+        path.join(parent, "." + input.role.id + "-"),
+      );
+      try {
+        for (const [name, text] of Object.entries(plan.files))
+          await managed(path.join(staging, name), text);
+        try {
+          await rename(staging, project.directory);
+        } catch (error) {
+          if (
+            !["EEXIST", "ENOTEMPTY"].includes(
+              (error as NodeJS.ErrnoException).code ?? "",
+            )
+          )
+            throw error;
+        }
+      } finally {
+        await rm(staging, { recursive: true, force: true });
+      }
+    }
+    issued.set(project, {
+      root,
+      pluginUrl: plan.pluginUrl,
+      grants: plan.grants,
+      targets: input.role.writeTargets,
+      files: plan.hashes,
+    });
     await assertRoleProject(project);
     return project;
-  } catch { throw scopeDenied(); }
+  } catch {
+    throw scopeDenied();
+  }
 }
 
 /** Called only behind the account entrypoint's existing authentication guard. */
-export async function prepareAccountRole(raw: unknown, fixed: { root: string; pluginUrl: string; accountId: string }) {
+export async function prepareAccountRole(
+  raw: unknown,
+  fixed: { root: string; pluginUrl: string; accountId: string },
+) {
   try {
     const input = RoleProjectRequest.parse(raw);
     const accountId = z.string().uuid().parse(fixed.accountId);
@@ -339,6 +500,14 @@ export async function prepareAccountRole(raw: unknown, fixed: { root: string; pl
     const project = await prepareRoleProject(options);
     const plan = planRoleProject(options);
     await assertRoleProject(project);
-    return { schemaVersion: 1 as const, accountId, ...project, hashes: plan.hashes, pluginUrl: plan.pluginUrl };
-  } catch { throw scopeDenied(); }
+    return {
+      schemaVersion: 1 as const,
+      accountId,
+      ...project,
+      hashes: plan.hashes,
+      pluginUrl: plan.pluginUrl,
+    };
+  } catch {
+    throw scopeDenied();
+  }
 }

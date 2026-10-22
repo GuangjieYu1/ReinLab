@@ -69,6 +69,10 @@ export async function publishBench(
         bundle.referencedHashes[definition.prompt]
       )
         conflict();
+    for (const definition of Object.values(bundle.manifest.cards)) {
+      const schema = bundle.schemas?.[definition.schema];
+      if (typeof schema !== "string" || createHash("sha256").update(schema).digest("hex") !== bundle.referencedHashes[definition.schema]) conflict();
+    }
     await c.query(
       "insert into bench_version(bench,version,digest,bundle,registry) values($1,$2,$3,$4::jsonb,$5::jsonb)",
       [

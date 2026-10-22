@@ -1,3 +1,4 @@
+import { mcpTools } from "./mcp-tools.js";
 import path from "node:path";
 import { constants } from "node:fs";
 import { open, realpath, readdir } from "node:fs/promises";
@@ -98,6 +99,7 @@ export const ReinLabPlugin = async ({ directory }) => {
   };
   await verify();
   return {
+    tool: mcpTools(policy, verify),
     "experimental.chat.system.transform": async () => {
       await verify();
     },
@@ -121,29 +123,8 @@ export const ReinLabPlugin = async ({ directory }) => {
           denied();
         await singleLink(target);
       }
-      if (
-        ["write", "edit", "patch", "apply_patch", "multiedit"].includes(tool)
-      ) {
-        // Native edit policy separately checks every target. Only simple single-file
-        // tools are supported by this first bridge; multi-file patching fails closed.
-        if (
-          !["write", "edit"].includes(tool) ||
-          typeof args.filePath !== "string"
-        )
-          denied();
-        const target = await destination(
-          path.resolve(directory, args.filePath),
-        );
-        if (!inside(policy.dossierDirectory, target)) denied();
-        await singleLink(target);
-        const allowed = policy.writeTargets.some((t) => {
-          const absolute = path.resolve(policy.dossierDirectory, t);
-          return t.endsWith("/")
-            ? inside(absolute, target)
-            : target === absolute;
-        });
-        if (!allowed) denied();
-      }
+      if (["write", "edit", "patch", "apply_patch", "multiedit"].includes(tool))
+        denied();
     },
   };
 };

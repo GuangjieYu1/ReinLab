@@ -113,7 +113,13 @@ export type PendingSnapshot = {
 };
 /** Projection + checkpoint are a single account transaction. No runtime write port. */
 export class ObservationStore {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly onTerminal?: (
+      account: string,
+      run: string,
+    ) => Promise<void>,
+  ) {}
   async ingest(
     accountId: string,
     runId: string,
@@ -353,12 +359,27 @@ export class ObservationStore {
       return event.sequence;
     });
   }
+  private async cleanupTerminal(accountId: string, runId: string) {
+    if (!this.onTerminal) return;
+    const terminal = await this.db.withAccount(
+      accountId,
+      async (c) =>
+        (
+          await c.query(
+            "select 1 from run where id=$1 and (ended_at is not null or state in ('completed','failed','cancelled','interrupted'))",
+            [runId],
+          )
+        ).rowCount,
+    );
+    if (terminal) await this.onTerminal(accountId, runId);
+  }
   sink(accountId: string, runId: string): ObservationSink {
     const bindings = new BindingStore(this.db);
     return Object.freeze({
       cursor: async () => (await bindings.get(accountId, runId)).cursor,
       ingest: async (raw: unknown, pending?: PendingSnapshot) => {
         await this.ingest(accountId, runId, raw, pending);
+        await this.cleanupTerminal(accountId, runId);
       },
       gap: async (latest: number, reason: "CURSOR_EXPIRED" | "CURSOR_GAP") => {
         await this.gap(accountId, runId, latest, reason);
@@ -368,6 +389,7 @@ export class ObservationStore {
       },
       synchronize: async (snapshot: unknown) => {
         await this.synchronize(accountId, runId, snapshot);
+        await this.cleanupTerminal(accountId, runId);
       },
     });
   }
