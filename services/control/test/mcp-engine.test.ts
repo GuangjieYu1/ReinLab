@@ -9,7 +9,7 @@ it("T-MCP-2/3/8 direct client is checked, once approval binds parameters, concur
  try{
   const a=new CapabilityAuthority(f.db,new CapabilitySigner(generateKeyPairSync("ed25519").privateKey));
   const token=await a.issue(f.account,f.run);let effects=0;
-  const e=new CapabilityEngine(a,{"files.write":async()=>({versionId:randomUUID(),count:++effects})});
+  const e=new CapabilityEngine(a,{"files.write":async()=>{effects++;return {versionId:randomUUID(),paths:["findings/a.md"]};}});
   const req={capability:"files.write",args:{path:"findings/a.md",content:"approved content"},requestId:randomUUID()};
   const pending=await e.call("files",token,req).catch(error=>error);
   expect(pending.code).toBe("APPROVAL_REQUIRED");expect(effects).toBe(0);

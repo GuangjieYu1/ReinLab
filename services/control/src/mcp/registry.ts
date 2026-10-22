@@ -1,3 +1,4 @@
+import Ajv from "ajv";
 import { createHash } from "node:crypto";
 import type { BenchRole, CapabilityRegistryDocument } from "@reinlab/contracts";
 import { canonical } from "../api/context";
@@ -15,6 +16,10 @@ const unavailable = () => new ApiFailure("CAPABILITY_REGISTRY_INVALID", 503, "èƒ
 export async function loadCapabilityCatalog(root?: string): Promise<CapabilityCatalog> {
   const registry = await loadRegistryDocument(root);
   if (!registry.capabilityRevision || !registry.capabilities || !registry.aliases) throw unavailable();
+  const validator=new Ajv({strict:true,validateFormats:true});
+  validator.addFormat("uuid",/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  try { for(const cap of Object.values(registry.capabilities)) { validator.compile(cap.input); validator.compile(cap.output); } }
+  catch { throw unavailable(); }
   const snapshot = { revision: registry.capabilityRevision, capabilities: registry.capabilities, aliases: registry.aliases };
   return { ...snapshot, digest: createHash("sha256").update(canonical(snapshot)).digest("hex") };
 }

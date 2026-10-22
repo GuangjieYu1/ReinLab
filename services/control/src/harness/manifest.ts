@@ -12,6 +12,7 @@ export type LoadedBenchBundle = {
   prompts: Record<string, string>;
   referencedHashes: Record<string, string>;
   registryHash: string;
+  schemas?: Record<string,string>;
 };
 export class BenchManifestError extends Error {
   readonly code = "BENCH_MANIFEST_INVALID";
@@ -271,7 +272,8 @@ export async function loadBenchBundle(options: {
   const referencedHashes: Record<string, string> = {
       [manifestFile]: sha(data),
     },
-    prompts: Record<string, string> = {};
+    prompts: Record<string, string> = {},
+    schemas: Record<string,string> = {};
   const reference = async (file: string, prefix: string, maximum: number) => {
     if (!file.startsWith(prefix) || !relative(file))
       failure([file], "引用超出当前工作台bundle");
@@ -306,6 +308,7 @@ export async function loadBenchBundle(options: {
     );
     try {
       checkedTree(JSON.parse(text));
+      schemas[definition.schema] = text;
     } catch (error) {
       if (error instanceof BenchManifestError) throw error;
       failure([definition.schema], "卡片schema不是有效JSON");
@@ -315,5 +318,5 @@ export async function loadBenchBundle(options: {
     await reference(file, "templates/" + manifest.id + "/", 131072);
   const registryHash = sha(canonical(registry.data));
   const digest = sha(canonical({ manifest, referencedHashes, registryHash }));
-  return frozen({ manifest, digest, prompts, referencedHashes, registryHash });
+  return frozen({ manifest, digest, prompts, referencedHashes, registryHash, ...(Object.keys(schemas).length ? {schemas} : {}) });
 }

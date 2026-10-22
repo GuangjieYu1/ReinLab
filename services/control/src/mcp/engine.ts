@@ -12,7 +12,8 @@ const Request = z.object({ capability:z.string().regex(/^[a-z][a-z0-9_.-]+$/).ma
 export type CapabilityRequest=z.infer<typeof Request>;
 export type CapabilityHandler=(context:AuthorizedCapability, args:Record<string,unknown>, requestId:string)=>Promise<Record<string,unknown>>;
 const fail=(code:string,status:400|403|409|503=403)=>new ApiFailure(code,status,"能力请求被拒绝。");
-const ajv=new Ajv({strict:true,allErrors:false,validateFormats:false});
+const ajv=new Ajv({strict:true,allErrors:false,validateFormats:true});
+ajv.addFormat("uuid",/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 function conforms(schema:Record<string,unknown>, value:unknown) {
   try { return ajv.compile(schema)(value); } catch { throw fail("CAPABILITY_SCHEMA_INVALID",503); }
 }

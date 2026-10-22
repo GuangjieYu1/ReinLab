@@ -161,13 +161,40 @@
             "maxLength": 300
           }
         },
-        "required": [
-          "path"
-        ],
+        "required": [],
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "maxItems": 4096,
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "file",
+                    "directory"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "additionalProperties": false
       },
       "idempotent": false,
       "egress": [],
@@ -195,7 +222,20 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
       },
       "idempotent": false,
       "egress": [],
@@ -228,7 +268,24 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "versionId",
+          "paths"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
@@ -275,7 +332,24 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "versionId",
+          "paths"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
@@ -302,7 +376,24 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "versionId",
+          "paths"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
@@ -341,14 +432,50 @@
             }
           }
         },
-        "required": [
-          "layers",
-          "refs"
-        ],
+        "required": [],
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9-]{36}$"
+                },
+                "layer": {
+                  "enum": [
+                    "L2",
+                    "L3",
+                    "L4"
+                  ]
+                },
+                "key": {
+                  "type": "string"
+                },
+                "value": {},
+                "evidence": {}
+              },
+              "required": [
+                "id",
+                "layer",
+                "key",
+                "value",
+                "evidence"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
       },
       "idempotent": false,
       "egress": [],
@@ -387,7 +514,21 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "status": {
+            "const": "pending"
+          }
+        },
+        "required": [
+          "promotionId",
+          "status"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
@@ -413,7 +554,17 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          }
+        },
+        "required": [
+          "cardId"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
@@ -439,7 +590,17 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          }
+        },
+        "required": [
+          "cardId"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
@@ -465,7 +626,17 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          }
+        },
+        "required": [
+          "cardId"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
@@ -491,7 +662,17 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          }
+        },
+        "required": [
+          "cardId"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
@@ -523,7 +704,21 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "state": {
+            "const": "pending"
+          }
+        },
+        "required": [
+          "approvalId",
+          "state"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],
@@ -550,7 +745,21 @@
         "additionalProperties": false
       },
       "output": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "state": {
+            "const": "pending"
+          }
+        },
+        "required": [
+          "approvalId",
+          "state"
+        ],
+        "additionalProperties": false
       },
       "idempotent": true,
       "egress": [],

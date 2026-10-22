@@ -40,7 +40,7 @@ it("independent: direct callers cannot cross servers, skip schema, or approve an
   try {
     const { a } = authority(f), token = await a.issue(f.account, f.run);
     let effects = 0;
-    const e = new CapabilityEngine(a, { "files.write": async () => ({ count: ++effects }) });
+    const e = new CapabilityEngine(a, { "files.write": async (_context, args) => { effects++; return { versionId: randomUUID(), paths: [args.path] }; } });
     const req = { capability: "files.write", args: { path: "findings/check.md", content: "fixture" }, requestId: randomUUID() };
     await expect(e.call("memory", token, req)).rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
     await expect(e.call("files", token, { ...req, args: { ...req.args, arbitrary: true } })).rejects.toMatchObject({ code: "CAPABILITY_INPUT_INVALID" });
@@ -59,7 +59,7 @@ it("independent: concurrent approved request cannot execute again while original
     let effects = 0, entered!: () => void;
     const started = new Promise<void>(resolve => { entered = resolve; });
     const gate = new Promise<void>(resolve => { release = resolve; });
-    const e = new CapabilityEngine(a, { "files.write": async () => { effects++; entered(); await gate; return { count: effects }; } });
+    const e = new CapabilityEngine(a, { "files.write": async (_context, args) => { effects++; entered(); await gate; return { versionId: randomUUID(), paths: [args.path] }; } });
     const req = { capability: "files.write", args: { path: "findings/concurrent.md", content: "fixture" }, requestId: randomUUID() };
     const pending = await e.call("files", token, req).catch(error => error);
     await e.decide(f.account, pending.approvalId, "approve");
