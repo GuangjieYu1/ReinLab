@@ -3,6 +3,7 @@
 独立 agent 仅用于安全边界与迁移，GPT 6.1 Sol / medium。令牌、服务器检查、files 路径/原子性、审批和两份迁移经独立复核。主 agent 自行复核其余实现。
 
 - 阶段独立报告：reinlab-p111-security-stage.md、reinlab-p111-files-security.md。
+- 最终迁移与边界收口报告：reinlab-p111-final-security-review.md，明确包含两份迁移的RLS/FORCE、复合身份FK及append-only复核。
 - 后续独立测试：independent-mcp-security（7）+ independent-mcp-integration（3，含 max=1 连接池）+ independent-mcp-papers（5），agent 亲跑15/15。green/pre-freeze-security.json 另含 root 执行的真实 npm 内核 fixture（1），合计16，不能将其全部表述为 agent 亲跑。
 - 扫描器独立复评：reinlab-p111-scan-review.md，7/7；已修必需目录缺失误报、FIFO阻塞、Git错误诊断泄露、不可读子目录静默遗漏。无未解决的确认 P1/P2；实际扫描缺口仍须下述单独披露。
 - 主 agent 根据原生 fixture 发现并修复 Zod4 record 接口、账户 ledger/run 锁反序；HTTP 用户决定与吊销复用同一 client/事务；末态 ended_at（含 paused_budget）主动删除临时配置均有集成验证。未加重试、未改RLS或断言去隐藏失败。

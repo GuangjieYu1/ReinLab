@@ -22,7 +22,7 @@
 | 值扫描器纯 fixture | 7 / 0 / 0 | security/scanner-unit.txt；security/reinlab-p111-scan-review.md |
 | 新增 fixture 账本导出 | 1 / 0 / 0 | green/native-ledger.json；native-fixture/mcp-ledger.jsonl |
 | 类型检查 / 依赖边界 / mock 构建 | 通过 | green/validation.json；green/mock-build.txt |
-| CI | 见独立终态记录 | ci/README.md |
+| CI | 见独立终态记录 | ci/README.md 与 PR #17 固定提交的终态记录 |
 
 全量已包含定向项，不把定向项再加到全量总数中。T-MCP 逐项对应 `test-index.csv`。`frontend-baseline.csv` 逐文件验证 253 个 src / e2e/legacy 文件相对 P1-10 `bc995fe` 完全一致。
 
