@@ -1,3 +1,4 @@
+import { bindRunCapabilities, loadCapabilityCatalog } from "../mcp/authority";
 import type { HarnessStore } from "../harness/store";
 import type { Hono } from "hono";
 import { randomUUID } from "node:crypto";
@@ -191,6 +192,7 @@ export function registerBudget(
             estimate.quote.model,
           ],
         );
+        await bindRunCapabilities(client, accountId, id, effective, input.roleId, input.input, await loadCapabilityCatalog());
         await allocateBudget(client, accountId, {
           dossierId: input.dossierId,
           runId: id,
