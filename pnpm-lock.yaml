@@ -111,6 +111,9 @@ importers:
       '@synsci/openscience':
         specifier: 2.0.150
         version: 2.0.150
+      '@synsci/plugin':
+        specifier: 2.0.150
+        version: 2.0.150
       zod:
         specifier: 3.25.76
         version: 3.25.76

@@ -167,14 +167,14 @@
 ## Q-070 别名的副作用与多文件原子性
 - literature虽是旧read工具，papers.fetch由控制面落论文，至少ask；不能从literature allow推出任意写。finding/layer/quiz附带的files.write只授权各自固定子目录与role.write_targets交集；冲突取更严格权限，不派发通用写权限。
 - memory.propose仅创建L3/L4升级收件箱，不是memory.write，原write=[]不变；实际内容永不因此改变。assigned-citations在无已核引用分配时仍返回空，L1继续Q-060。
-- files计划使用档案目录的原子交换提交与目录级串行化；Linux renameat2(RENAME_EXCHANGE)、macOS renamex_np(RENAME_SWAP)无支持时明确拒绝，不降级为顺序rename假原子。预提交故障无副作用，提交点后整个新目录可见；旧目录成为受保护版本，最近50份。具体故障注入和独立评审完成前不标T-MCP-4完成。
+- files计划使用档案目录的原子交换提交与目录级串行化；Linux renameat2(RENAME_EXCHANGE)、macOS renamex_np(RENAME_SWAP)无支持时明确拒绝，不降级为顺序rename假原子。预提交故障无副作用，提交点后整个新目录可见；旧目录成为受保护版本，最近50份。已通过真实文件、提交前故障注入和独立路径评审；Linux 镜像复核另附容器报告。
 
 ## Q-071 MCP 参数默认值与版本产物范围
 - memory.read 不传 layers / refs 时只采用已绑定 run 的范围；显式 refs=[] 仍返回空。files.list 不传 path 时列本档案根，不接受绝对路径或 ..；这些可选默认值写入能力 input schema，并不从调用方推导更宽授权。JSON schema 的 UUID 格式使用明确本地校验，不关闭格式校验。
 - 卡片 schema 原文随非空 cards 的新 bundle 冻结，发布时逐字节核对 referencedHashes；research@1.0.0 cards={} 的 bundle 字节和摘要不变。
 - files 版本放在角色与档案目录之外的 /data/mcp-state/<dossier>/，备份包含 dossiers 和 mcp-state，明确排除 /data/mcp-clients 的临时能力配置。调用的批准提交为授权生效点，已登记副作用结果未知时只保留围栏，不自动重做。
 - 原生 write/edit/patch/apply_patch/multiedit 本批全部拒绝。前批测试中原生写入的正向期待按这一更严格合同更新，实际读与越权负面检查保留；正向写入由 files 的真实文件和原子性测试承担。
-- 运行级 MCP 吊销永久阻止本 run 后续签发；终态通过每次在线核验立即失效。磁盘临时配置按过期清理，并仍需补齐运行终态时主动删除的集成验证，不能仅因令牌在线已失效就声称文件已删除。
+- 运行级 MCP 吊销永久阻止本 run 后续签发；终态通过每次在线核验立即失效。磁盘临时配置按过期清理；原生内核集成测试另已验证运行终态主动删除（含 ended_at 非空而 state 为 paused_budget 的费用未知运行），与令牌在线失效分别核对。
 
 ## Q-072 本批收口边界与运行时依赖
 - 尚待决定：research@1.0.0 的 cards={}。建议由审查方批准后发布含 finding 等 schema 的下一版本；本批不静默修改已冻结清单。通用卡片能力使用独立 fixture bench 验证，真实卡片调用仍明确拒绝未声明 schema。

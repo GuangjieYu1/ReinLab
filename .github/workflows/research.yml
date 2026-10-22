@@ -60,11 +60,15 @@ jobs:
         run: docker build -f infra/fly/account.Dockerfile -t reinlab-account:p1-08 .
       - name: 真实容器、root新卷、认证、工具与重启验证
         run: node services/account-runtime/verify-container.mjs
+      - name: MCP Linux 原子文件、stdio 和私有配置验证
+        run: node services/account-runtime/verify-mcp-container.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: account-container-test-report
-          path: container-test-report.json
+          path: |
+            container-test-report.json
+            mcp-container-test-report.json
   local-stack:
     runs-on: ubuntu-latest
     timeout-minutes: 25
