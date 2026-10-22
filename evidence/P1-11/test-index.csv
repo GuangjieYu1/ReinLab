@@ -1,0 +1,11 @@
+test,status,tests,evidence,limitations
+T-MCP-1,fixture_passed,"mcp-token;mcp-authority;independent-mcp-security;mcp-http",green/full-node22.json,"invalid token audit is anonymous and cannot forge tenant"
+T-MCP-2,fixture_passed,"independent-mcp-integration;mcp-http;independent-mcp-security",green/pre-freeze-security.json,"external HTTP caller has no plugin"
+T-MCP-3,fixture_passed,"mcp-engine;independent-mcp-security;pipeline-native",native-fixture/mcp-ledger.jsonl,"real locked kernel plus fixture provider; no real model"
+T-MCP-4,fixture_passed,"mcp-files;independent-mcp-files",container/mcp-container-test-report.json,"atomic directory exchange unsupported platforms explicitly denied"
+T-MCP-5,fixture_passed,mcp-data,green/data-green.json,"Q-060; no approved L3/L4 mutation"
+T-MCP-6,fixture_passed,mcp-data,green/data-green.json,"positive card schema in separate fixture bench; research1.0.0 cards empty is denied"
+T-MCP-7,fixture_passed,"mcp-papers;independent-mcp-papers",green/pre-freeze-security.json,"fixture only; no real papers network"
+T-MCP-8,fixture_passed,"mcp-engine;independent-mcp-integration;independent-mcp-security",green/pre-freeze-security.json,"successful receipt replay allowed; changed payload409; unknown side effect fenced"
+T-MCP-9,partial,"mcp-account-config;pipeline-native;credential value scan",security/credential-scan.json,"legacy ENV and historical leaked key logs remain; not fully passed"
+T-MCP-10,awaiting_rotation_and_authorization,not_executed,README.md,"also requires reviewed finding card manifest version; no new real model requests"

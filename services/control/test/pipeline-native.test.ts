@@ -369,6 +369,10 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
     ).toBe(1);
     const evidence = await testEvidenceDirectory("pipeline-native");
     await writeFile(
+      join(evidence, "mcp-ledger.jsonl"),
+      events.map((event) => JSON.stringify({ ...event, fixtureOnly: true })).join("\n") + "\n",
+    );
+    await writeFile(
       join(evidence, "pipeline-native-evidence.json"),
       JSON.stringify(
         {

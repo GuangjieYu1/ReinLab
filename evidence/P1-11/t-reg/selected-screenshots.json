@@ -1,0 +1,92 @@
+[
+  {
+    "scenario": "df",
+    "file": "t-reg/df/D7.png",
+    "sha256": "06b0e1ccbed682ea168415e788e5c5535064549faf89cf21d11e5b992e22f349"
+  },
+  {
+    "scenario": "au",
+    "file": "t-reg/au/A12.png",
+    "sha256": "2273819d28f7b01d5751b4942544bf04909ff0e5f824af5f8c8e4fa5922af275"
+  },
+  {
+    "scenario": "gx",
+    "file": "t-reg/gx/G13.png",
+    "sha256": "98b65093bbe627739613cb7b580ebf3a1f15c876db727510bf16d32d6cf169c6"
+  },
+  {
+    "scenario": "ex",
+    "file": "t-reg/ex/E12.png",
+    "sha256": "651e7e21ea7b99372106a984e13d654924d1b7b36a8ec83f9e3c6f3601d551c8"
+  },
+  {
+    "scenario": "cu",
+    "file": "t-reg/cu/C14.png",
+    "sha256": "7ac3b2940921f046c85ccf339d98c12b1f67cbec1031408168c9cccf1144eb40"
+  },
+  {
+    "scenario": "rq",
+    "file": "t-reg/rq/R11.png",
+    "sha256": "9553673cb2a226c65ae55a6534a5f4d606a63d967d2abfe829e81d409a11624a"
+  },
+  {
+    "scenario": "dev",
+    "file": "t-reg/dev/D9.png",
+    "sha256": "7e84c08ccc56da03ce2073cfffa4c7b09688c67d853694867344403b0a6bed65"
+  },
+  {
+    "scenario": "tst",
+    "file": "t-reg/tst/S8.png",
+    "sha256": "ac300dc8cc2b505d7f3ed8cd96857c29f738593ab21f31563ecff72bbb295380"
+  },
+  {
+    "scenario": "onto",
+    "file": "t-reg/onto/N4.png",
+    "sha256": "d20626c111572844e7130424dd9e2b654668e0a33697759e7341834ac2f4ab4a"
+  },
+  {
+    "scenario": "rd",
+    "file": "t-reg/rd/R7.png",
+    "sha256": "354fa0b18cb31e3b6211d038816f58931318e80a17841c73f5dba56484b62d32"
+  },
+  {
+    "scenario": "sw",
+    "file": "t-reg/sw/W6.png",
+    "sha256": "0682d2a5730d13097a4084fe80029ce9dce291ae611a5d0478b5350fc08b711c"
+  },
+  {
+    "scenario": "rs",
+    "file": "t-reg/rs/Y8.png",
+    "sha256": "49dbbd1960a946b3e8602cb21f0d2b902b2cfa26f38e87ed801db6ebd4bd2b2f"
+  },
+  {
+    "scenario": "cr",
+    "file": "t-reg/cr/C5.png",
+    "sha256": "acdb632ac605576dfaa92ded27ecfd83d258d0465e90ea181d76cfc5cdf77ad3"
+  },
+  {
+    "scenario": "nv",
+    "file": "t-reg/nv/V7.png",
+    "sha256": "ff3f273d1ed7ebfbd53c65b969339deb9269fd51f41027ea47724532a32ec48d"
+  },
+  {
+    "scenario": "vf",
+    "file": "t-reg/vf/F9.png",
+    "sha256": "914c8897b40e6b96e887ff8359df6bc3e8ecc4810adbb79b6ad52333e4fa2ed5"
+  },
+  {
+    "scenario": "trip",
+    "file": "t-reg/trip/tab.png",
+    "sha256": "af969e97844bd3bd81e70d4f695fe4ed4aa399284d7db320153990f5a7d273fc"
+  },
+  {
+    "scenario": "trip-en",
+    "file": "t-reg/trip-en/tab.png",
+    "sha256": "e63cb0789af752ba12f53a9ed2ad1f0fc38b41f96532bc7807ef66f0993fda76"
+  },
+  {
+    "scenario": "live",
+    "file": "t-reg/live/L9.png",
+    "sha256": "280317359cff6e1a8ba5825ccdae1cb00c56de698d45cff47ca6048a2471d592"
+  }
+]

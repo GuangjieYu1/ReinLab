@@ -1,0 +1,1 @@
+{"status":"passed","node":"22.23.3","checks":["contracts tsc","control tsc","local orchestration tsc strict","dependency boundaries","VITE_BACKEND=mock build"],"modelCalls":0}
