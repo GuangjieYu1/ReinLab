@@ -153,3 +153,18 @@
 - 本次进入Safari时，用户前台仍在新key创建弹窗，初始AX工具响应自动包含明文。未复制到Git、业务日志、账本或证据；这里不复述任何key或片段。对话工具输出发生敏感信息暴露，不能声称本轮全程无凭据暴露。已告知用户，建议核账后由用户轮换；Codex不擅自创建/删除/更换凭据。
 - 后续操作在返回AX文本前静默读取并遮盖key形态，避免再次输出。该事件及用户轮换处理须在关闭审查时如实说明，不能因模型成功而隐去。
 - 后台延迟后按ReinLab专用key导出：零基线→1请求、输入2754/输出3、费用¥0.002766；与账本误差0%，本次核账通过。业务原始元数据未回写历史标志，独立对账报告为最终核验依据。原始截图/ZIP留本机0600，值不入仓库。P1-10送Claude审查，凭据事件仍待用户轮换处理，不自行判验收通过。
+
+## Q-068 第四批规格优先级与令牌传递
+- 用户第四批明确key/能力令牌不进任何环境变量，优先于MCP_LAYER.md第8节的旧环境注入描述。本批新增令牌使用进程内存与角色project/档案/备份范围外的临时0600配置（父目录0700），结束清理；不修改上游。
+- 真实模型调用仍等待用户轮换已泄露key及新明确授权；旧两次授权均已消费。本批不会操作浏览器或调用真实模型，T-MCP-10保持待授权。
+- 发现既有OpenScience2.0.150部署鉴权只读OPENSCIENCE_AUTH_TOKEN（server/server.ts:227、host-guard.ts:82）；原账户容器沿用ENV，未找到文件/FD接口。保持现有鉴权，不为了避开ENV而取消该层。用户已明确接受推荐：旧部署鉴权令牌迁移单列待处理，本批新增key/MCP令牌不进入环境变量，T-MCP-9不宣称消除此既有缺口。
+
+## Q-069 能力目录与已发布清单摘要兼容
+- 不改research@1.0.0字节/角色名/版本，也不改旧bench_version.registry行。tools/registry.json新增capabilityRevision/capabilities/aliases，严格整体解析后，harness仍仅接收原v1核心投影；旧registryHash保持35f5aaf3682f03ab094c30074beacef5a76071b08ed0bab49188800d39fa906e。
+- 新能力目录单独digest/revision，以append-only能力版本和每run快照固定；令牌必须绑定该快照，旧run缺快照不得自动采用current。新字段不是未哈希授权输入，权限仍与冻结清单求交。
+- 原清单mcp/cards均为空。按清单schema发卡必须有定义，当前research1.0.0发卡会明确UNDECLARED_CARD；T-MCP-6使用显式声明schema的独立测试bench。真实T-MCP-10除key轮换授权外，需要审查决定如何发布含finding schema的新版本，不能用fixture或静默补schema代替。此为后续真实验证前待决定项，不阻碍通用服务器与fixture开发。
+
+## Q-070 别名的副作用与多文件原子性
+- literature虽是旧read工具，papers.fetch由控制面落论文，至少ask；不能从literature allow推出任意写。finding/layer/quiz附带的files.write只授权各自固定子目录与role.write_targets交集；冲突取更严格权限，不派发通用写权限。
+- memory.propose仅创建L3/L4升级收件箱，不是memory.write，原write=[]不变；实际内容永不因此改变。assigned-citations在无已核引用分配时仍返回空，L1继续Q-060。
+- files计划使用档案目录的原子交换提交与目录级串行化；Linux renameat2(RENAME_EXCHANGE)、macOS renamex_np(RENAME_SWAP)无支持时明确拒绝，不降级为顺序rename假原子。预提交故障无副作用，提交点后整个新目录可见；旧目录成为受保护版本，最近50份。具体故障注入和独立评审完成前不标T-MCP-4完成。

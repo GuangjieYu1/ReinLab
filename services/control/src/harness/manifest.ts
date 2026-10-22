@@ -1,4 +1,4 @@
-import { BenchManifest, ToolRegistry } from "@reinlab/contracts";
+import { BenchManifest, ToolRegistry, CapabilityRegistryDocument, legacyRegistryCore } from "@reinlab/contracts";
 import { constants } from "node:fs";
 import { open, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -174,15 +174,15 @@ function frozen<T>(value: T): T {
   }
   return value;
 }
-export async function loadToolRegistry(
+export async function loadRegistryDocument(
   root = repositoryRoot,
-): Promise<ToolRegistry> {
+): Promise<CapabilityRegistryDocument> {
   const base = await rootPath(root),
     raw = parseDocumentStrict(
       decode(await bytes(base, "tools/registry.json", 262144), "registry"),
       "registry",
     );
-  const parsed = ToolRegistry.safeParse(raw);
+  const parsed = CapabilityRegistryDocument.safeParse(raw);
   if (!parsed.success)
     throw new BenchManifestError(
       parsed.error.issues.map((issue) => ({
@@ -191,6 +191,9 @@ export async function loadToolRegistry(
       })),
     );
   return frozen(parsed.data);
+}
+export async function loadToolRegistry(root = repositoryRoot): Promise<ToolRegistry> {
+  return frozen(legacyRegistryCore(await loadRegistryDocument(root)));
 }
 /** Universal non-overridable policy; reuse after merging trusted patches. */
 export function assertBenchSafety(
