@@ -1,3 +1,4 @@
+import {runtimeConfiguration} from "../configuration";
 import {randomBytes,randomUUID} from 'node:crypto';
 import type pg from 'pg';
 import {Database} from '../db/database';
@@ -60,9 +61,10 @@ export class AccountProvisioner {
  private async check(id:string,tokens:Tokens){try{const r=await fetch((await this.driver.endpoint(id,this.config.app))+'/global/health',{headers:{authorization:'Bearer '+tokens.auth},redirect:'error',signal:AbortSignal.timeout(5000)});if(!r.ok)return false;const body=await r.json() as {healthy?:boolean;version?:string};return body.healthy===true&&body.version===OS_VERSION;}catch{return false;}}
 }
 export function environmentDriver(){
- const kind=process.env.PROVISIONER_DRIVER??'fly';
- if(kind==='docker'){if(!process.env.DOCKER_HOST)throw new ApiFailure('PROVISIONER_CONFIG_MISSING',503,'本地账户机器部署配置尚未完成。');return new DockerMachines(process.env.DOCKER_HOST);}
- if(kind!=='fly'||!process.env.FLY_APP_ACCOUNTS||!process.env.FLY_API_TOKEN)throw new ApiFailure('PROVISIONER_CONFIG_MISSING',503,'账户机器部署配置尚未完成。');
- return driverFor(new FlyMachines(process.env.FLY_APP_ACCOUNTS,process.env.FLY_API_TOKEN));
+ const config=runtimeConfiguration();
+ const kind=config.PROVISIONER_DRIVER??'fly';
+ if(kind==='docker'){if(!config.DOCKER_HOST)throw new ApiFailure('PROVISIONER_CONFIG_MISSING',503,'本地账户机器部署配置尚未完成。');return new DockerMachines(config.DOCKER_HOST);}
+ if(kind!=='fly'||!config.FLY_APP_ACCOUNTS||!config.FLY_API_TOKEN)throw new ApiFailure('PROVISIONER_CONFIG_MISSING',503,'账户机器部署配置尚未完成。');
+ return driverFor(new FlyMachines(config.FLY_APP_ACCOUNTS,config.FLY_API_TOKEN));
 }
-export function provisionerFromEnvironment(db:Database){const {ACCOUNT_IMAGE,REINLAB_CONTROL_URL}=process.env;if(!ACCOUNT_IMAGE||!REINLAB_CONTROL_URL)throw new ApiFailure('PROVISIONER_CONFIG_MISSING',503,'账户机器部署配置尚未完成。');return new AccountProvisioner(db,environmentDriver(),new SupabaseKeyVault(),{app:process.env.FLY_APP_ACCOUNTS??'reinlab-local',image:ACCOUNT_IMAGE,controlUrl:REINLAB_CONTROL_URL});}
+export function provisionerFromEnvironment(db:Database){const config=runtimeConfiguration();const {ACCOUNT_IMAGE,REINLAB_CONTROL_URL}=config;if(!ACCOUNT_IMAGE||!REINLAB_CONTROL_URL)throw new ApiFailure('PROVISIONER_CONFIG_MISSING',503,'账户机器部署配置尚未完成。');return new AccountProvisioner(db,environmentDriver(),new SupabaseKeyVault(),{app:config.FLY_APP_ACCOUNTS??'reinlab-local',image:ACCOUNT_IMAGE,controlUrl:REINLAB_CONTROL_URL});}

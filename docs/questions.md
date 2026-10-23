@@ -188,3 +188,9 @@
 - 当前实际值扫描：工作树、Git refs/reflog 可达全部对象、证据、本任务临时日志0命中；本机 Codex sessions 1个文件、shell_snapshots 3个文件命中当前 DeepSeek key。报告只含计数；MCP 私钥与选定实际签发/核验/吊销的 fixture token 在上述范围均0。
 - T-MCP-9标部分通过。扫描覆盖列明目录与选定值，不包含历史截图OCR、全部历史令牌或整机。未读浏览器，不删除历史命中；继续等待用户确认轮换、清除旧 shell 自动加载及新真实调用授权。旧部署/控制面ENV迁移按Q-068/Q-072保留，不能声称已消除。
 - 任务分支本地GPG签名因无交互pinentry失败，后续本批提交仅单次git参数关闭签名，没有修改用户全局配置。SSH认证不可用，使用已有系统HTTPS凭据助手推送，未读取、打印或导出凭据。
+
+## Q-074 第五批凭据文件化与固定内核入口
+- 用户已确认删除 .zshrc 自动导出并轮换 ReinLab 专用 DeepSeek key；本批不沿用旧两次授权，不执行 T-MCP-10，等待另行明确授权（≤¥1）。历史扫描报告保持原样，新的值扫描另记，不抹掉旧泄露事实。
+- 本地 runtime.env 保留为项目外0600文件（父目录0700），名称兼容旧配置，不再 Object.assign 到 process.env。控制面、provisioner、lifecycle 与本地验证脚本在进程内读取；进程间只传配置文件路径。既有环境中的秘密字段不能作为隐式凭据回退，单元测试中的公开部署参数可保持环境配置。
+- 锁定 OpenScience 2.0.150 的 CLI 无 token-file 接口。推荐验证自有网络 listener 认证部署适配：原内核源字节、Host/Origin、SDK及插件 internalFetch 不变；网络 listener 自第一请求起读取私有文件做等价恒时 Bearer 校验，不通过伪内部头放行，不运行裸监听后再补guard，不把文件值塞回虚拟或真实ENV。安全SPIKE和真实固定内核fixture证明完成前不标此部分已迁移。SDK仍是业务调用入口；若安全前提不能成立，明确保留阻塞，不能靠删鉴权交付。
+- Docker/Fly按账户传递受保护文件。Fly files.raw_value只是Base64，不当成加密；app全局secrets默认ENV分发不作为无ENV方案。配置、日志、inspect和角色project的实际值检查与旧机器安全升级均需单独验证；云端实机仍为“云端补验”。

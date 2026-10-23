@@ -1,3 +1,4 @@
+import {runtimeConfiguration} from "../configuration";
 import {randomUUID,createHash} from 'node:crypto';
 import type pg from 'pg';
 import {z} from 'zod';
@@ -89,4 +90,4 @@ export class AccountLifecycle {
   }catch(error){if(error instanceof ApiFailure)throw error;throw fail('SNAPSHOT_UNAVAILABLE');}finally{await this.release(id,lease);}
  }
 }
-export function lifecycleFromEnvironment(db:Database){const {SUPABASE_URL,STORAGE_SERVICE_TOKEN,REINLAB_CONTROL_URL}=process.env;if(!SUPABASE_URL||!STORAGE_SERVICE_TOKEN||!REINLAB_CONTROL_URL)throw fail('LIFECYCLE_CONFIG_MISSING');return new AccountLifecycle(db,environmentDriver(),new SupabaseKeyVault(),{app:process.env.FLY_APP_ACCOUNTS??'reinlab-local',storageUrl:SUPABASE_URL,storageToken:STORAGE_SERVICE_TOKEN,controlUrl:REINLAB_CONTROL_URL});}
+export function lifecycleFromEnvironment(db:Database){const config=runtimeConfiguration();const {SUPABASE_URL,STORAGE_SERVICE_TOKEN,REINLAB_CONTROL_URL}=config;if(!SUPABASE_URL||!STORAGE_SERVICE_TOKEN||!REINLAB_CONTROL_URL)throw fail('LIFECYCLE_CONFIG_MISSING');return new AccountLifecycle(db,environmentDriver(),new SupabaseKeyVault(),{app:config.FLY_APP_ACCOUNTS??'reinlab-local',storageUrl:SUPABASE_URL,storageToken:STORAGE_SERVICE_TOKEN,controlUrl:REINLAB_CONTROL_URL});}

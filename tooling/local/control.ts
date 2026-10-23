@@ -1,6 +1,5 @@
-import { readPrivateEnv } from './config';
-import { localPaths } from './paths';
+import { localPaths } from "./paths";
 
-const environment = await readPrivateEnv(localPaths().runtime);
-Object.assign(process.env, environment);
-await import('../../services/control/src/main');
+// Only a protected file path crosses the process boundary; values stay in memory.
+process.env.REINLAB_RUNTIME_CONFIG_FILE = localPaths().runtime;
+await import("../../services/control/src/main");
