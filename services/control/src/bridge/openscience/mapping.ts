@@ -605,7 +605,9 @@ export function mapRuntimeEvent(
       event.type === "message.part.updated" &&
       body.part.type === "tool" &&
       (body.part.tool === "read_quiz_write" ||
-        body.part.state?.input?.capability === "cards.read_quiz_write")
+        ["cards.read_quiz_write", "cards.card.quiz"].includes(
+          body.part.state?.input?.capability,
+        ))
     ) {
       const p = body.part;
       body.part = {

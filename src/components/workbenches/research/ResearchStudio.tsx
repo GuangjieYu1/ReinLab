@@ -1,3 +1,5 @@
+import {liveBackend} from '../../../data/research-live';
+import LiveResearch from './LiveResearch';
 import { useState } from 'react';
 import type { BenchProps } from '../WorkbenchStudio';
 import ReadMode from './read/ReadMode';
@@ -11,7 +13,8 @@ type Mode = 'read' | 'swarm' | 'auto';
 const MODES: { id: Mode; label: string; en: string }[] = [{ id: 'read', label: '精读', en: 'READ' }, { id: 'swarm', label: '群研', en: 'SWARM' }, { id: 'auto', label: '自研', en: 'AUTO' }];
 const DEFAULT: Mode[] = ['read', 'swarm', 'auto', 'auto'];
 
-export default function ResearchStudio(props: BenchProps) {
+export default function ResearchStudio(props:BenchProps){return liveBackend?<LiveResearch {...props}/>:<MockResearchStudio {...props}/>;}
+function MockResearchStudio(props: BenchProps) {
   const [mode, setMode] = useState<Mode>(() => DEFAULT[props.file] ?? 'read');
   const [inbox, setInbox] = useState<Record<Mode, string[]>>({ read: [], swarm: [], auto: [] });
   const switcher = <div className="rs-modes" role="group" aria-label="研究模式">

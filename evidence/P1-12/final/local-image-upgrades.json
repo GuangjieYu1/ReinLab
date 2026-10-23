@@ -1,0 +1,33 @@
+{
+  "realInfrastructure": true,
+  "passed": 4,
+  "failed": 0,
+  "modelRequests": 0,
+  "image": "reinlab-account:local-ec9cf4906365",
+  "results": [
+    {
+      "account": "f9f18ffa-a0b4-406f-9a8e-4766f5c71818",
+      "state": "ready",
+      "operationId": "efeac812-3240-490c-97d3-203321e32d61",
+      "imageDigest": "sha256:f8635482ac71406cd1704f3c9a0f2ba7396aeb160e63fb102c37e59757ac34b2"
+    },
+    {
+      "account": "e301c349-5854-4f83-b307-7b578bcfe779",
+      "state": "ready",
+      "operationId": "0ff56eca-53fa-4aaa-973d-f8090f1bb018",
+      "imageDigest": "sha256:f8635482ac71406cd1704f3c9a0f2ba7396aeb160e63fb102c37e59757ac34b2"
+    },
+    {
+      "account": "60af9cc6-d0c3-4ecc-91e3-46baaba824b7",
+      "state": "ready",
+      "operationId": "60ba3076-c836-42b9-9312-d65eaef4b220",
+      "imageDigest": "sha256:f8635482ac71406cd1704f3c9a0f2ba7396aeb160e63fb102c37e59757ac34b2"
+    },
+    {
+      "account": "ccba9861-2a41-4f38-a6ae-68efabb11080",
+      "state": "ready",
+      "operationId": "edb62b61-b09c-4315-a398-d43a5e8f9147",
+      "imageDigest": "sha256:f8635482ac71406cd1704f3c9a0f2ba7396aeb160e63fb102c37e59757ac34b2"
+    }
+  ]
+}

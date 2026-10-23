@@ -43,4 +43,27 @@ class ScannerTests(unittest.TestCase):
             scope=scanner.scan_tree(Path(directory),{'fixture':'synthetic-selected-value'})
             self.assertEqual(scope['readErrors'],1)
             self.assertEqual(scanner.audit_status({'worktree':scope}),'incomplete')
+    def test_account_root_requires_nonempty_private_bound_identity(self):
+        import os,tempfile,json,uuid
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve();root.chmod(0o700)
+            with self.assertRaises(ValueError):scanner.account_values(root)
+            account=str(uuid.uuid4());folder=root/account;folder.mkdir(mode=0o700)
+            file=folder/'account.json';file.write_text(json.dumps({'schema':'account_credentials@1','accountId':account,'auth':'A'*43,'container':'B'*43}));file.chmod(0o600)
+            values,count=scanner.account_values(root);self.assertEqual(count,1);self.assertEqual(len(values),2)
+            for target,mode in [(root,0o755),(folder,0o755),(file,0o400)]:
+                target.chmod(mode)
+                with self.assertRaises(ValueError):scanner.account_values(root)
+                target.chmod(0o600 if target==file else 0o700)
+            file.write_text(json.dumps({'schema':'account_credentials@1','accountId':str(uuid.uuid4()),'auth':'A'*43,'container':'B'*43}))
+            with self.assertRaises(ValueError):scanner.account_values(root)
+    def test_report_refuses_links_and_preserves_target(self):
+        import os,tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);target=root/'original';target.write_text('unchanged');link=root/'linked';link.symlink_to(target)
+            with self.assertRaises(ValueError):scanner.publish_report(link,{'count':0})
+            link.unlink();os.link(target,link)
+            with self.assertRaises(ValueError):scanner.publish_report(link,{'count':0})
+            self.assertEqual(target.read_text(),'unchanged')
+            output=root/'report.json';scanner.publish_report(output,{'count':0});self.assertEqual(output.stat().st_mode&0o777,0o600)
 if __name__=='__main__':unittest.main()

@@ -111,11 +111,21 @@ def exchange(a,an,b,bn):
     fn.restype=ctypes.c_int
     if fn(a,an.encode(),b,bn.encode(),2)!=0: raise ValueError('ATOMIC_EXCHANGE_FAILED')
 
+def lock_at(directory):
+    # Darwin/APFS can report ENOENT when concurrent O_CREAT opens race on a
+    # previously absent name. Create once exclusively, then open the existing
+    # permanent lock inode without O_CREAT. Never retry permission/link errors.
+    flags=os.O_RDWR|os.O_NOFOLLOW|os.O_NONBLOCK
+    try: return os.open('lock',flags,dir_fd=directory)
+    except FileNotFoundError:
+        try: return os.open('lock',flags|os.O_CREAT|os.O_EXCL,0o600,dir_fd=directory)
+        except FileExistsError: return os.open('lock',flags,dir_fd=directory)
+
 def main(req):
     root=req['root']; dossier=str(uuid.UUID(req['dossier']));operation=req['operation'];args=req['args']
     rootfd=anchor(root);dossiers=directory_at(rootfd,'dossiers');state=directory_at(rootfd,'mcp-state',True)
     versions=directory_at(state,dossier,True)
-    lock=os.open('lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_NONBLOCK,0o600,dir_fd=versions)
+    lock=lock_at(versions)
     try:
         if regular(lock).st_mode & 0o077: denied()
         fcntl.flock(lock,fcntl.LOCK_EX)

@@ -1,3 +1,5 @@
+import LiveInboxBoundary from './components/workbenches/research/LiveInbox';
+import {liveBackend} from './data/research-live';
 import React, { lazy, startTransition, Suspense, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -42,7 +44,7 @@ function Root() {
   }, []);
   const withTransit = nav.preview === 'entry' || nav.preview === 'workbench' || nav.preview === '__blank';
   return <>
-    <Page key={nav.n} preview={nav.preview} />
+    {liveBackend?<LiveInboxBoundary><Page key={nav.n} preview={nav.preview}/></LiveInboxBoundary>:<Page key={nav.n} preview={nav.preview} />}
     {withTransit && <Suspense fallback={null}><EmblemTransit /></Suspense>}
   </>;
 }

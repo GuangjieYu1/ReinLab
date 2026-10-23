@@ -61,6 +61,9 @@ const pipeline = new RuntimePipeline(database, {
 });
 const app = await createApp({
   pool,
+  session: config.SUPABASE_ANON_KEY
+    ? { url: config.SUPABASE_URL, anonKey: config.SUPABASE_ANON_KEY }
+    : undefined,
   pricing: pricingFromEnvironment(config),
   pipeline,
   mcp,

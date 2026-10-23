@@ -94,8 +94,44 @@ jobs:
         run: pnpm local:verify
         env:
           REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-integration
+      - name: 安装浏览器（仅测试隔离浏览器）
+        run: pnpm exec playwright install --with-deps chromium
+      - name: P1-12 真实本地Auth/API/浏览器（模型0调用）
+        run: |
+          VITE_BACKEND=live pnpm dev --port 5181 > /tmp/reinlab-live-vite.log 2>&1 &
+          for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:5181/ > /dev/null && break; sleep 1; done
+          pnpm exec tsx services/control/scripts/verify-inbox-live.ts
+        env:
+          REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-inbox
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: local-infrastructure-test-report
-          path: ${{ runner.temp }}/local-integration/*.json
+          path: |
+            ${{ runner.temp }}/local-integration/*.json
+            ${{ runner.temp }}/local-inbox/*
+  legacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_BACKEND: mock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: 原样18场景T-REG
+        run: |
+          pnpm dev > /tmp/reinlab-mock-vite.log 2>&1 &
+          for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:5173/ > /dev/null && break; sleep 1; done
+          pnpm e2e:legacy
+        env:
+          E2E_OUT: ${{ runner.temp }}/legacy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-t-reg
+          path: ${{ runner.temp }}/legacy

@@ -1,3 +1,5 @@
+import { registerSession, type SessionPort } from "./session";
+import { registerPromotions } from "./promotions";
 import { registerMcp } from "../mcp/protocol";
 import type { CapabilityEngine } from "../mcp/engine";
 import {
@@ -30,6 +32,7 @@ import { monthlyBudgetSnapshot, currentPeriod } from "../budget";
 
 export async function createApp(options: {
   pool: pg.Pool;
+  session?: SessionPort;
   auth: JwtConfig;
   pricing?: PricingService;
   harness?: HarnessStore;
@@ -78,6 +81,7 @@ export async function createApp(options: {
   app.use("/internal/*", () => {
     throw new ApiFailure("SCOPE_DENIED", 403, "账户容器调用尚未通过验证。");
   });
+  if (options.session) registerSession(app, options.session);
   app.get("/health", (c) => c.json({ status: "ok" }));
   app.get("/v1/me", async (c) =>
     database.withAccount(c.get("accountId"), async (client) => {
@@ -200,6 +204,7 @@ export async function createApp(options: {
     );
     registerMcp(app, options.mcp);
   }
+  registerPromotions(app, database);
   registerLedger(app, database);
   registerGates(app, database);
   registerBudget(
@@ -214,7 +219,7 @@ export async function createApp(options: {
           }
         : undefined),
   );
-  registerRuntime(app, database, options.pipeline);
+  registerRuntime(app, database, options.pipeline, options.mcp);
   registerHarness(app, database, harness);
   app.notFound((c) =>
     c.json({ code: "NOT_FOUND", message: "接口不存在。" }, 404),
