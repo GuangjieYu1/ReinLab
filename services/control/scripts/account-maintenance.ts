@@ -12,6 +12,7 @@ try{
  pool=new pg.Pool({connectionString:config.DATABASE_URL_APP,max:3});const db=new Database(pool);await db.assertSafeRole();const service=lifecycleFromEnvironment(db);
  let result:{code:string};
  if(command==='snapshot')result=await service.snapshot(id,value);
+ else if(command==='migrate-credentials')result=await service.migrateCredentials(id,value,mode as 'wait'|'interrupt',operation);
  else if(command==='upgrade')result=await service.upgrade(id,value,mode as 'wait'|'interrupt',operation);
  else if(command==='reconcile')result=await service.reconcileRuntime(id,value);
  else if(command==='registered'){await service.registered({source:'supabase-auth',accountId:id},provisionerFromEnvironment(db));result={code:'ACCOUNT_PROVISIONED'};}

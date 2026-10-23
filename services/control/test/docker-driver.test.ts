@@ -1,3 +1,4 @@
+import {mkdtempSync,realpathSync} from "node:fs";
 import { it, expect } from "vitest";
 import { DockerMachines, dockerPlan } from "../src/provisioner/docker";
 const accountId = "12345678-1234-4234-8234-123456789abc";
@@ -67,7 +68,7 @@ function engine() {
               Name: b.HostConfig.Binds[0].split(":")[0],
               Destination: "/data",
               RW: true,
-            },
+            }, { Type:"bind", Source:b.HostConfig.Binds[1].split(":")[0], Destination:"/run/reinlab-source/account.json", RW:false }
           ],
           State: { Running: false },
           NetworkSettings: {
@@ -90,11 +91,11 @@ function engine() {
         return {};
       }
       throw Error("unexpected engine request");
-    },
+    }, realpathSync(mkdtempSync(join(tmpdir(),"reinlab-credential-driver-"))),
   );
   return { api, calls, containers, volumes };
 }
-it("一卷一容器，令牌只在HTTP body，随机端口仅映射宿主loopback", async () => {
+it("一卷一容器，令牌只经私有文件只读挂载，随机端口仅映射宿主loopback", async () => {
   const e = engine();
   const v = await e.api.createVolume(input.volumeId);
   expect(v.id).toBe(input.volumeId);
@@ -107,7 +108,9 @@ it("一卷一容器，令牌只在HTTP body，随机端口仅映射宿主loopbac
     "4097/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }],
   });
   expect(create.body.HostConfig.Privileged).toBe(false);
-  expect(create.body.HostConfig.Binds).toEqual([input.volumeId + ":/data"]);
+  expect(create.body.HostConfig.Binds[0]).toBe(input.volumeId + ":/data");
+  expect(create.body.HostConfig.Binds[1]).toMatch(/:\/run\/reinlab-source\/account.json:ro$/);
+  expect(JSON.stringify(create.body)).not.toContain(input.tokens.auth);
   expect(JSON.stringify(e.calls.map((c) => c.path))).not.toContain(
     input.tokens.auth,
   );
@@ -282,4 +285,24 @@ it("真实PG上的Docker编排创建和重用一机一卷且采用中立计划",
     await pool.end();
     await admin.end();
   }
+});
+
+function makeLegacy(container:any,tokens=input.tokens){
+  container.Mounts.length=1;
+  container.HostConfig.Binds.length=1;
+  container.Config.Env=container.Config.Env.filter((p:string)=>!p.startsWith('REINLAB_ACCOUNT_CREDENTIAL_FILE=')&&!p.startsWith('REINLAB_CREDENTIAL_SOURCE_UID='));
+  container.Config.Env.push('OPENSCIENCE_AUTH_TOKEN='+tokens.auth,'REINLAB_CONTAINER_SECRET='+tokens.container);
+}
+it('旧ENV机器只准显式迁移；文件凭据必须与旧令牌相同，卷与部署限制保持',async()=>{
+  const e=engine();const m=await e.api.createMachine(dockerPlan(input));makeLegacy(e.containers[0]);
+  await expect(e.api.listMachines()).rejects.toMatchObject({code:'PROVISIONING_CONFLICT'});
+  const [old]=await e.api.listLegacyMachines();expect(old.config.files).toBeUndefined();
+  const desired={...m.config,image:'reinlab-account:file-auth'};
+  const foreign=dockerPlan({...input,tokens:{...input.tokens,auth:'c'.repeat(43)}}).config.files;
+  const before=e.calls.length;
+  await expect(e.api.migrateCredentials(m.id,{...desired,files:foreign})).rejects.toMatchObject({code:'PROVISIONING_CONFLICT'});
+  expect(e.calls.slice(before).every(c=>c.method==='GET')).toBe(true);
+  await e.api.migrateCredentials(m.id,desired);
+  const [now]=await e.api.listMachines();expect(now.config.env).not.toHaveProperty('OPENSCIENCE_AUTH_TOKEN');
+  expect(now.config.files).toEqual(m.config.files);expect(e.containers[0].Mounts[0].Name).toBe(input.volumeId);
 });

@@ -1,4 +1,8 @@
 import {
+  readAccountCredentials,
+  writeRuntimeAccountCredentials,
+} from "../../services/account-runtime/credentials.mjs";
+import {
   bootstrapMcp,
   accountFiles,
   cleanupMcp,
@@ -28,7 +32,8 @@ export function accountGlobalConfiguration({
 }
 export async function startAccount({
   root = "/data",
-  executable = "/opt/os/node_modules/.bin/openscience",
+  executable = "/opt/reinlab/reinlab-openscience",
+  privateDirectory = "/run/reinlab-private",
   pluginUrl = "file:///opt/reinlab/plugin/index.js",
   environment = process.env,
 } = {}) {
@@ -36,8 +41,27 @@ export async function startAccount({
     console.error(JSON.stringify({ code }));
     process.exit(1);
   };
-  const env = environment,
-    token = env.OPENSCIENCE_AUTH_TOKEN;
+  const env = environment;
+  if (
+    Object.keys(env).some((key) =>
+      /(?:_KEY|_TOKEN|_SECRET|_PASSWORD)$|^DATABASE_URL(?:_|$)/.test(key),
+    )
+  )
+    fail("ACCOUNT_SECRET_ENV_FORBIDDEN");
+  const sourceOwner = Number(env.REINLAB_CREDENTIAL_SOURCE_UID ?? getuid?.());
+  if (!Number.isSafeInteger(sourceOwner) || sourceOwner < 0)
+    fail("ACCOUNT_CONFIG_MISSING");
+  let credentials;
+  try {
+    credentials = readAccountCredentials(env.REINLAB_ACCOUNT_CREDENTIAL_FILE, {
+      accountId: env.REINLAB_ACCOUNT_ID,
+      owner: sourceOwner,
+      parentOwner: getuid?.(),
+    });
+  } catch {
+    fail("ACCOUNT_CONFIG_MISSING");
+  }
+  const token = credentials.auth;
   if (
     env.REINLAB_ACCOUNT_DRIVER !== undefined &&
     !["fly", "docker"].includes(env.REINLAB_ACCOUNT_DRIVER)
@@ -46,11 +70,25 @@ export async function startAccount({
   if (
     !token ||
     !/^[A-Za-z0-9_-]{43}$/.test(token) ||
-    !/^[A-Za-z0-9_-]{43}$/.test(env.REINLAB_CONTAINER_SECRET ?? "") ||
     !/^[a-f0-9-]{36}$/.test(env.REINLAB_ACCOUNT_ID ?? "")
   )
     fail("ACCOUNT_CONFIG_MISSING");
   umask(0o077);
+  await mkdir(privateDirectory, { recursive: true, mode: 0o700 });
+  if (
+    !(await lstat(privateDirectory)).isDirectory() ||
+    (await lstat(privateDirectory)).isSymbolicLink()
+  )
+    fail("ACCOUNT_PATH_UNSAFE");
+  await chmod(privateDirectory, 0o700);
+  const runtimeCredentialFile = privateDirectory + "/account.json";
+  // Ephemeral copy is outside /data, role projects and all backups. Root source stays read-only.
+  writeRuntimeAccountCredentials(runtimeCredentialFile, credentials);
+  await chmod(runtimeCredentialFile, 0o600);
+  if (getuid?.() === 0) {
+    await chown(privateDirectory, 1000, 1000);
+    await chown(runtimeCredentialFile, 1000, 1000);
+  }
   // A fresh Fly volume is root-owned; initialize only managed directories, then drop all privilege.
   if (getuid?.() === 0) {
     for (const dir of [
@@ -98,7 +136,9 @@ export async function startAccount({
       cwd: root,
       detached: true,
       env: {
-        ...env,
+        PATH: env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+        REINLAB_ACCOUNT_ID: env.REINLAB_ACCOUNT_ID,
+        REINLAB_ACCOUNT_CREDENTIAL_FILE: runtimeCredentialFile,
         OPENSCIENCE_DISABLE_AUTOUPDATE: "1",
         HOME: root,
         XDG_CACHE_HOME: root + "/cache",

@@ -21,7 +21,7 @@
 - `upgrade <account UUID> <registry.fly.io/...:tag> <wait|interrupt> <operation UUID>`：真实调用 Fly Machines update；只输出 UPDATE_REQUESTED，随后须执行带认证健康检查与运行时对账。
 - `reconcile <account UUID> <runtimeId>`：runtimeId 必须从认证的账户机器健康响应提取，不得直接接受公开用户输入。
 
-环境：DATABASE_URL_APP、FLY_API_TOKEN、FLY_APP_ACCOUNTS、SUPABASE_URL、STORAGE_SERVICE_TOKEN、REINLAB_CONTROL_URL 及 Vault；注册另需 ACCOUNT_IMAGE。Storage token 仅接受 role=reinlab_snapshot_writer 的三段 JWT；模块解码角色实施输入约束，Storage 服务校验签名和真实授权。fixture JWT 不代表云端身份验证，仍需部署并验证 bucket policy。当前未部署 cron、Auth hook 或 Storage policy；这些是云端上线接线，不声称已完成。运维 CLI 单次只处理显式可信账户，输出仅 JSON code。
+配置：DATABASE_URL_APP、FLY_API_TOKEN、FLY_APP_ACCOUNTS、SUPABASE_URL、STORAGE_SERVICE_TOKEN、REINLAB_CONTROL_URL 及 Vault；注册另需 ACCOUNT_IMAGE。第五批起这些值从受保护配置文件在进程内读取，REINLAB_RUNTIME_CONFIG_FILE 只传文件路径；凭据禁止 export、shell source 或通过容器 Env 传递。Storage token 仅接受 role=reinlab_snapshot_writer 的三段 JWT；模块解码角色实施输入约束，Storage 服务校验签名和真实授权。fixture JWT 不代表云端身份验证，仍需部署并验证 bucket policy。当前未部署 cron、Auth hook 或 Storage policy；这些是云端上线接线，不声称已完成。运维 CLI 单次只处理显式可信账户，输出仅 JSON code。
 
 并发：与 ensure 共用 200 秒 lease，外部流式操作 120 秒截止；升级先核对提供方资源，再事务写 phase=upgrade_pending:<operation> 与 interrupted + ledger，随后释放数据库连接执行 Fly update。提供方失败保留 pending 状态供人工对账；升级持久操作表保存 sha256(JSON {image,mode})。同操作 applied 返回原 UPDATE_REQUESTED，不再发 POST；异内容 DEDUPE_CONFLICT。pending/indeterminate 同操作仅查询 Fly 镜像确认，匹配才 applied，否则 PROVISIONING_INDETERMINATE，不再 POST。新操作要求机器 ready 且没有其他 pending/indeterminate。派发层必须拒绝 machine 非 ready 或存在有效租约，当前任务尚未接入真实模型派发。
 

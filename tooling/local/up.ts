@@ -54,7 +54,7 @@ try {
     ...defaultModelEnvironment(), DATABASE_URL_APP: database.databaseApp, DATABASE_URL_PROVISIONER: database.databaseProvisioner,
     SUPABASE_URL: status.apiUrl, SUPABASE_ANON_KEY: status.anonKey,
     STORAGE_SERVICE_TOKEN: database.storageToken, STORAGE_BUCKET: 'reinlab',
-    PROVISIONER_DRIVER: 'docker', DOCKER_HOST: cliEnvironment.DOCKER_HOST, ACCOUNT_IMAGE: image,
+    PROVISIONER_DRIVER: 'docker', REINLAB_DOCKER_CREDENTIAL_DIR: join(paths.state,'account-credentials'), DOCKER_HOST: cliEnvironment.DOCKER_HOST, ACCOUNT_IMAGE: image,
     REINLAB_CONTROL_URL: 'http://host.docker.internal:3001/', PORT: '3001',
     INTERNAL_SIGNING_KEY: signingKey,
   });

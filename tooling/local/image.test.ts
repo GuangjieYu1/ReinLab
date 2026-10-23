@@ -255,8 +255,11 @@ it("内容tag覆盖Dockerfile所有COPY输入，每个manifest变化都改变tag
   const dockerfile = await readFile("infra/fly/account.Dockerfile", "utf8");
   const copied = dockerfile
     .split("\n")
-    .filter((line) => line.startsWith("COPY "))
+    .filter((line) => line.startsWith("COPY ") && !line.startsWith("COPY --from="))
     .flatMap((line) => line.trim().split(/\s+/).slice(1, -1));
+  // Stage artifacts derive from the separately enumerated local source inputs;
+  // external stage identities are pinned by the Dockerfile bytes themselves.
+  expect(dockerfile).toContain("COPY --from=kernel-build");
   for (const file of copied) expect(ACCOUNT_IMAGE_INPUTS).toContain(file);
   expect(ACCOUNT_IMAGE_INPUTS).toContain("infra/fly/account.Dockerfile");
   const original = await accountImageTag(async (file) =>

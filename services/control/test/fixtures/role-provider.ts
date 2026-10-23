@@ -1,7 +1,7 @@
 /** Test-only loopback provider. Never contacts a real model or accepts model credentials. */
 import { createServer, type Server } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, realpath, chmod } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -187,7 +187,8 @@ export async function startNativeRoleServer(
     XDG_CACHE_HOME: join(isolated, "cache"),
     XDG_STATE_HOME: join(isolated, "state"),
     OPENSCIENCE_CONFIG_DIR: join(isolated, "config"),
-    OPENSCIENCE_AUTH_TOKEN: token,
+    REINLAB_ACCOUNT_ID: "12345678-1234-4234-8234-123456789abc",
+    REINLAB_ACCOUNT_CREDENTIAL_FILE: await realpath(isolated) + "/credentials/account.json",
     OPENSCIENCE_DISABLE_DEFAULT_PLUGINS: "1",
     OPENSCIENCE_DISABLE_AUTOUPDATE: "1",
     OPENSCIENCE_DISABLE_MODELS_FETCH: "1",
@@ -197,13 +198,16 @@ export async function startNativeRoleServer(
     OPENSCIENCE_EXPERIMENTAL_DISABLE_FILEWATCHER: "1",
     OPENSCIENCE_DISABLE_AUTOCOMPACT: "1",
   };
+  await mkdir(join(isolated,"credentials"),{mode:0o700,recursive:true});
+  await chmod(join(isolated,"credentials"),0o700);
+  await writeFile(env.REINLAB_ACCOUNT_CREDENTIAL_FILE,JSON.stringify({schema:"account_credentials@1",accountId:env.REINLAB_ACCOUNT_ID,auth:token,container:randomBytes(32).toString("base64url")}),{mode:0o600});
   await writeFile(
     join(isolated, "config", "openscience.json"),
     JSON.stringify(config),
     { mode: 0o600 },
   );
   const binary = resolve(
-    "services/account-runtime/node_modules/.bin/openscience",
+    "dist/account-runtime/reinlab-openscience",
   );
   const portProbe = createServer();
   const portURL = await listen(portProbe);

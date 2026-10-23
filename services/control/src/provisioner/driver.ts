@@ -45,6 +45,8 @@ export interface AccountDriver extends Machines {
   validateImage(image: string): void;
   validateDeployment(input: Omit<PlanInput, "volumeId">): void;
   endpoint(id: string, app: string): Promise<string>;
+  listLegacyMachines?(): Promise<AccountMachine[]>;
+  migrateCredentials?(id: string, config: unknown): Promise<void>;
 }
 export function driverFor(machines: Machines): AccountDriver {
   if ("kind" in machines) return machines as AccountDriver;

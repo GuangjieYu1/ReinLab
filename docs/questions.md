@@ -194,3 +194,11 @@
 - 本地 runtime.env 保留为项目外0600文件（父目录0700），名称兼容旧配置，不再 Object.assign 到 process.env。控制面、provisioner、lifecycle 与本地验证脚本在进程内读取；进程间只传配置文件路径。既有环境中的秘密字段不能作为隐式凭据回退，单元测试中的公开部署参数可保持环境配置。
 - 锁定 OpenScience 2.0.150 的 CLI 无 token-file 接口。推荐验证自有网络 listener 认证部署适配：原内核源字节、Host/Origin、SDK及插件 internalFetch 不变；网络 listener 自第一请求起读取私有文件做等价恒时 Bearer 校验，不通过伪内部头放行，不运行裸监听后再补guard，不把文件值塞回虚拟或真实ENV。安全SPIKE和真实固定内核fixture证明完成前不标此部分已迁移。SDK仍是业务调用入口；若安全前提不能成立，明确保留阻塞，不能靠删鉴权交付。
 - Docker/Fly按账户传递受保护文件。Fly files.raw_value只是Base64，不当成加密；app全局secrets默认ENV分发不作为无ENV方案。配置、日志、inspect和角色project的实际值检查与旧机器安全升级均需单独验证；云端实机仍为“云端补验”。
+
+### Q-075 — 固定内核的文件鉴权部署适配与私有挂载
+
+第五批已确认锁定npm standalone不执行preload且仅支持ENV鉴权；采用固定v2.0.150源码commit e700f00c0e4a45f7cd56d94d626d0e11b45b38c1的归档与SHA256、原Bun1.3.14/官方headless/encrypt插件和全部define重新构建，业务仍走原SDK；自有入口在首次网络bind前安装文件Bearer检查，保留原bootstrap、Host/Origin及插件可信internalFetch。上游checkout不修改。构建清单如实标注“原源码+ReinLab部署适配”，不冒称原npm standalone。LICENSE/NOTICE随镜像分发。
+
+Docker凭据逐账户保存在项目外0700目录/0600文件，仅精确只读挂载一个文件；/data与角色project、备份都不含部署凭据。专用Colima只读挂载新增的account-credentials目录，未挂载整个用户配置目录。实测该macOS/Colima 9p文件uid映射为guest root，故darwin计划明确要求source uid=0；Linux原生bind要求宿主uid。部署不符合此权限契约时失败关闭，不自动放宽。其他macOS共享驱动映射需补实测后单独配置，不能猜为已兼容。
+
+旧机器必须经可信运维migrate-credentials命令、精确身份/原Vault令牌核对、活跃运行wait/interrupt与durable操作围栏后迁移。普通ensure、resolver拒绝旧ENV形态。Fly files仅在控制面内存交付raw_value，其实际落盘权限和云端生命周期统一记“云端补验”。
