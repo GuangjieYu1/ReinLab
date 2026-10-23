@@ -17,7 +17,7 @@ function engine(){
  const calls:Array<{path:string;method:string}>=[],containers:any[]=[],volumes:any[]=[];let lose:'volume'|'machine'|undefined;
  const transport:EngineTransport=async(path,method,body)=>{
   calls.push({path,method});
-  if(path.startsWith('/images/'))return {Config:{Env:[]}};
+  if(path.startsWith('/images/'))return {Id:'sha256:'+'f'.repeat(64),Config:{Env:[]}};
   if(path==='/volumes/create'){const b=structuredClone(body) as any;volumes.push({...b,Options:{}});if(lose==='volume'){lose=undefined;throw Error('fixture response lost '+base.tokens.auth);}return b;}
   if(path==='/volumes')return {Volumes:volumes};
   if(path==='/containers/json?all=true')return containers.map(c=>({Id:c.Id,Names:[c.Name],Labels:c.Config.Labels,Mounts:c.Mounts}));

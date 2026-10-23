@@ -1,3 +1,4 @@
+import { DockerMachines } from "./docker";
 import { sameCredentialFiles } from "./credential-file";
 import { runtimeConfiguration } from "../configuration";
 import { randomUUID, createHash } from "node:crypto";
@@ -280,6 +281,8 @@ export class AccountLifecycle {
       ).rows[0];
       if (operation && operation.request_hash !== requestHash)
         throw fail("DEDUPE_CONFLICT", 409);
+      if (operation?.state === "not_applied")
+        throw fail("MIGRATION_NOT_APPLIED", 409);
       if (operation?.state === "applied") return { code: "UPDATE_REQUESTED" };
       const { row, tokens } = await this.db.withAccount(id, async (c) => ({
         row: await this.machine(c, id),
@@ -316,6 +319,13 @@ export class AccountLifecycle {
         });
       }
       if (
+        legacyMachine &&
+        this.driver.kind === "fly" &&
+        Object.keys((m.config.env ?? {}) as object).length !==
+          Object.keys(expectedEnv).length
+      )
+        throw fail("PROVISIONING_CONFLICT", 409);
+      if (
         matches.length !== 1 ||
         !m ||
         (!legacyMachine &&
@@ -349,12 +359,43 @@ export class AccountLifecycle {
       if (operation) {
         if (m.config.image !== image || (migrateCredentials && legacyMachine))
           throw fail("PROVISIONING_INDETERMINATE", 409);
-        await this.db.withAccount(id, (c) =>
-          c.query(
-            "update account_machine_operation set state='applied' where account_id=$1 and operation_id=$2",
-            [id, operationId],
-          ),
+        const audit = await this.db.withAccount(
+          id,
+          async (c) =>
+            (
+              await c.query(
+                "select target_image_digest from credential_preflight_reconciliation where account_id=$1 and recovery_operation_id=$2",
+                [id, operationId],
+              )
+            ).rows[0],
         );
+        if (audit) {
+          if (!(this.driver instanceof DockerMachines))
+            throw fail("PROVISIONING_CONFLICT", 409);
+          const proof = await this.driver.inspectCredentialMigration(
+            m.id,
+            image,
+            false,
+          );
+          if (
+            proof.runtimeImageDigest !== audit.target_image_digest ||
+            proof.targetImageDigest !== audit.target_image_digest
+          )
+            throw fail("PROVISIONING_INDETERMINATE", 409);
+        }
+        await this.db.withAccount(id, async (c) => {
+          const updated = await c.query(
+            "update account_machine_operation o set state='applied' where o.account_id=$1 and o.operation_id=$2 and o.state in ('pending','indeterminate') and exists(select 1 from account_machine m where m.account_id=$1 and m.lease_id=$3 and m.lease_until>clock_timestamp() and ($4::boolean=false or m.phase=$5))",
+            [
+              id,
+              operationId,
+              lease,
+              Boolean(audit),
+              "upgrade_pending:" + operationId,
+            ],
+          );
+          if (!updated.rowCount) throw fail("PROVISIONING_INDETERMINATE", 409);
+        });
         return { code: "UPDATE_REQUESTED" };
       }
       await this.db.withAccount(id, async (c) => {
@@ -398,12 +439,18 @@ export class AccountLifecycle {
         );
       });
       try {
+        const migratedEnv: Record<string, string> = {
+          ...(m.config.env as Record<string, string>),
+          ...expectedConfig.env,
+        };
+        delete migratedEnv.OPENSCIENCE_AUTH_TOKEN;
+        delete migratedEnv.REINLAB_CONTAINER_SECRET;
         const update = migrateCredentials
           ? {
               ...m.config,
               image,
               files: expectedConfig.files,
-              env: expectedConfig.env,
+              env: migratedEnv,
             }
           : { ...m.config, image };
         if (migrateCredentials && this.driver.kind === "docker") {

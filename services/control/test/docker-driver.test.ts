@@ -25,7 +25,7 @@ it("Docker只能显式Unix socket与本地tag及精确控制面地址", () => {
   ])
     expect(() => dockerPlan({ ...input, controlUrl })).toThrow();
 });
-function engine() {
+function engine(baseEnv:Record<string,string>={}) {
   const calls: {
       path: string;
       method: string;
@@ -37,7 +37,7 @@ function engine() {
     "unix:///tmp/reinlab-test.sock",
     async (path, method, body) => {
       calls.push({ path, method, body });
-      if (path.startsWith("/images/")) return { Config: { Env: [] } };
+      if (path.startsWith("/images/")) return { Id:"sha256:"+"d".repeat(64),Config: { Env: Object.entries(baseEnv).map(([k,v])=>k+"="+v) } };
       if (path === "/volumes/create") {
         const b = body as any;
         volumes.push({ ...b, Options: {} });
@@ -54,10 +54,12 @@ function engine() {
         const b = body as any;
         const name = path.split("=")[1];
         containers.push({
+          Created:new Date().toISOString(),
           Id: "c".repeat(64),
           Name: "/" + name,
           Config: {
             ...b,
+            Env:Object.entries({...baseEnv,...Object.fromEntries(b.Env.map((pair:string)=>[pair.slice(0,pair.indexOf('=')),pair.slice(pair.indexOf('=')+1)]))}).map(([k,v])=>k+'='+v),
             Entrypoint: ["node", "/opt/reinlab/account-entrypoint.mjs"],
           },
           Image: "sha256:" + "d".repeat(64),
@@ -173,7 +175,7 @@ it("升级只重建受控同名容器，保留卷且检查配置", async () => {
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join,resolve } from "node:path";
 import { AccountLifecycle } from "../src/provisioner/lifecycle";
 import type { Database } from "../src/db/database";
 it("真实Unix HTTP协议固定API版本且Engine响应敏感内容不外露", async () => {
@@ -305,4 +307,65 @@ it('旧ENV机器只准显式迁移；文件凭据必须与旧令牌相同，卷�
   await e.api.migrateCredentials(m.id,desired);
   const [now]=await e.api.listMachines();expect(now.config.env).not.toHaveProperty('OPENSCIENCE_AUTH_TOKEN');
   expect(now.config.files).toEqual(m.config.files);expect(e.containers[0].Mounts[0].Name).toBe(input.volumeId);
+});
+
+it('真实PG显式凭据迁移保留已验证的镜像baseline Env，删除旧令牌而不放宽部署配置',async()=>{
+ const admin=new pg.Pool({connectionString:'postgres://postgres@127.0.0.1:55432/reinlab_test'}),pool=new pg.Pool({connectionString:'postgres://reinlab_app@127.0.0.1:55432/reinlab_test'});
+ try{
+  const id=randomUUID(),key=randomBytes(32),e=engine({PATH:'/usr/local/bin:/usr/bin:/bin',HOME:'/data',NODE_VERSION:'22.23.0'}),db=new RuntimeDatabase(pool),vault={async key(){return Buffer.from(key)}};
+  await admin.query('insert into account(id)values($1)',[id]);
+  await new AccountProvisioner(db,e.api,vault,{app:'reinlab-local',image:input.image,controlUrl:input.controlUrl},async()=>true).ensure(id);
+  const machine=(await e.api.listMachines())[0], bundle=JSON.parse(Buffer.from((machine.config.files as any[])[0].raw_value,'base64').toString());
+  makeLegacy(e.containers[0],bundle);
+  const lifecycle=new AccountLifecycle(db,e.api,vault,{app:'reinlab-local',storageUrl:'http://127.0.0.1:54321/',storageToken:'e30.'+Buffer.from(JSON.stringify({role:'reinlab_snapshot_writer'})).toString('base64url')+'.fixture',controlUrl:input.controlUrl});
+  expect(await lifecycle.migrateCredentials(id,'reinlab-account:file-auth','wait',randomUUID())).toEqual({code:'UPDATE_REQUESTED'});
+  const [now]=await e.api.listMachines();expect(now.config.env).toMatchObject({HOME:'/data',NODE_VERSION:'22.23.0'});expect(now.config.env).not.toHaveProperty('OPENSCIENCE_AUTH_TOKEN');expect(now.config.env).not.toHaveProperty('REINLAB_CONTAINER_SECRET');
+ }finally{await pool.end();await admin.end();}
+});
+
+import {applyMigrations} from '../src/db/migrate';
+import {reconcileKnownCredentialPreflight} from '../src/provisioner/credential-recovery';
+import {createHash} from 'node:crypto';
+async function knownPreflightFixture(defaults:Record<string,string>={HOME:'/data',PATH:'/usr/local/bin:/usr/bin:/bin',NODE_VERSION:'22.23.0'}){
+ const admin=new pg.Pool({connectionString:'postgres://postgres@127.0.0.1:55432/reinlab_test'}),pool=new pg.Pool({connectionString:'postgres://reinlab_app@127.0.0.1:55432/reinlab_test'});
+ await applyMigrations(admin,resolve('infra/supabase/migrations'));
+ const id=randomUUID(),oldOp=randomUUID(),newOp=randomUUID(),key=randomBytes(32),db=new RuntimeDatabase(pool),vault={async key(){return Buffer.from(key)}},e=engine(defaults),target='reinlab-account:file-auth';
+ await admin.query('insert into account(id)values($1)',[id]);
+ await new AccountProvisioner(db,e.api,vault,{app:'reinlab-local',image:input.image,controlUrl:input.controlUrl},async()=>true).ensure(id);
+ const [current]=await e.api.listMachines(),bundle=JSON.parse(Buffer.from((current.config.files as any[])[0].raw_value,'base64').toString());
+ makeLegacy(e.containers[0],bundle);e.containers[0].Created='2020-01-01T00:00:00.000Z';
+ await admin.query("insert into account_machine_operation(account_id,operation_id,request_hash,image,mode,state) values($1,$2,$3,$4,'wait','indeterminate')",[id,oldOp,createHash('sha256').update(JSON.stringify({image:target,mode:'wait',migrateCredentials:true})).digest('hex'),target]);
+ await admin.query("update account_machine set state='starting',phase=$2,image=$3 where account_id=$1",[id,'upgrade_pending:'+oldOp,target]);
+ const proof={db,driver:e.api,vault,accountId:id,operationId:oldOp,recoveryOperationId:newOp,expectedImmutableId:'c'.repeat(64),targetImageDigest:'sha256:'+'d'.repeat(64)};
+ return {admin,pool,id,oldOp,newOp,target,proof,e,db,vault,close:async()=>{await pool.end();await admin.end();}};
+}
+it('已知变更前拒绝的专用恢复终结旧op并同租约预留新op；重放不二次变更且旧op不可复活',async()=>{
+ const f=await knownPreflightFixture();try{
+  const result=await reconcileKnownCredentialPreflight(f.proof);expect(result).toMatchObject({code:'CREDENTIAL_PREFLIGHT_RECOVERED',operationId:f.newOp});
+  expect((await f.admin.query('select operation_id,state from account_machine_operation where account_id=$1 order by created_at,operation_id',[f.id])).rows).toEqual(expect.arrayContaining([{operation_id:f.oldOp,state:'not_applied'},{operation_id:f.newOp,state:'applied'}]));
+  const mutations=f.e.calls.filter(c=>c.method!=='GET').length;
+  expect(await reconcileKnownCredentialPreflight(f.proof)).toMatchObject({replayed:true});expect(f.e.calls.filter(c=>c.method!=='GET')).toHaveLength(mutations);
+  const audit=(await f.admin.query('select * from credential_preflight_reconciliation where account_id=$1',[f.id])).rows;
+  expect(audit).toHaveLength(1);expect(audit[0].reason).toBe('e044e46_image_env_preflight_rejection');expect(JSON.stringify(audit)).not.toContain('OPENSCIENCE_AUTH_TOKEN');
+  await expect(f.db.withAccount(f.id,c=>c.query("update account_machine_operation set state='applied' where operation_id=$1",[f.oldOp]))).rejects.toMatchObject({code:'23514'});
+  const lifecycle=new AccountLifecycle(f.db,f.e.api,f.vault,{app:'reinlab-local',storageUrl:'http://127.0.0.1:54321/',storageToken:'e30.'+Buffer.from(JSON.stringify({role:'reinlab_snapshot_writer'})).toString('base64url')+'.fixture',controlUrl:input.controlUrl});
+  await expect(lifecycle.migrateCredentials(f.id,f.target,'wait',f.oldOp)).rejects.toMatchObject({code:'MIGRATION_NOT_APPLIED'});
+ }finally{await f.close();}
+});
+it.each(['wrong-id','wrong-digest','new-container','active-run','not-e044-rejection'] as const)('专用恢复拒绝不完整证据 %s，旧unknown保持且不发新副作用',async which=>{
+ const f=await knownPreflightFixture(which==='not-e044-rejection'?{}:undefined);try{
+  let proof={...f.proof};
+  if(which==='wrong-id')proof.expectedImmutableId='e'.repeat(64);
+  if(which==='wrong-digest')proof.targetImageDigest='sha256:'+'e'.repeat(64);
+  if(which==='new-container')f.e.containers[0].Created=new Date(Date.now()+3600000).toISOString();
+  if(which==='active-run'){
+   const dossier=randomUUID();await f.admin.query("insert into dossier(id,account_id,bench,title,workspace_path)values($1,$2,'research','active',$3)",[dossier,f.id,'/data/dossiers/'+dossier]);
+   await f.admin.query("insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny)values($1,$2,$3,'research-read','read',$4,'waiting',1)",[randomUUID(),f.id,dossier,randomUUID()]);
+  }
+  const before=f.e.calls.length;
+  await expect(reconcileKnownCredentialPreflight(proof)).rejects.toMatchObject({code:'CREDENTIAL_RECONCILIATION_REQUIRED'});
+  expect(f.e.calls.slice(before).every(c=>c.method==='GET')).toBe(true);
+  expect((await f.admin.query('select state from account_machine_operation where account_id=$1 and operation_id=$2',[f.id,f.oldOp])).rows[0].state).toBe('indeterminate');
+  expect((await f.admin.query('select 1 from credential_preflight_reconciliation where account_id=$1',[f.id])).rowCount).toBe(0);
+ }finally{await f.close();}
 });

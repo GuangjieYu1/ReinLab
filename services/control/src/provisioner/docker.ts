@@ -19,7 +19,8 @@ import type {
   PlanInput,
 } from "./driver";
 const owner = "io.reinlab.managed",
-  account = "io.reinlab.account";
+  account = "io.reinlab.account",
+  logicalImageLabel = "io.reinlab.image";
 const conflict = () =>
   new ApiFailure(
     "PROVISIONING_CONFLICT",
@@ -191,7 +192,11 @@ export class DockerMachines implements AccountDriver {
       name !== "rl-" + id.replaceAll("-", "")
     )
       throw conflict();
-    const mounts = raw.Mounts ?? [],
+    const mounts = Array.isArray(raw.Mounts)
+        ? [...raw.Mounts].sort((a: Json, b: Json) =>
+            String(a.Destination).localeCompare(String(b.Destination)),
+          )
+        : (raw.Mounts ?? []),
       port = h.PortBindings?.["4097/tcp"];
     if (
       h.Privileged !== false ||
@@ -264,7 +269,12 @@ export class DockerMachines implements AccountDriver {
       if (pair.slice(0, at) in env) throw conflict();
       env[pair.slice(0, at)] = pair.slice(at + 1);
     }
-    this.validateImage(c.Image);
+    const logicalImage = labels[logicalImageLabel] ?? c.Image;
+    this.validateImage(logicalImage);
+    if (labels[logicalImageLabel] !== undefined && c.Image !== raw.Image)
+      throw conflict();
+    if (labels[logicalImageLabel] === undefined && c.Image !== logicalImage)
+      throw conflict();
     if (!/^sha256:[a-f0-9]{64}$/.test(raw.Image)) throw conflict();
     const image = await this.call("/images/" + raw.Image + "/json");
     const baseEnv: Record<string, string> = {};
@@ -273,10 +283,16 @@ export class DockerMachines implements AccountDriver {
       const at = pair.indexOf("=");
       baseEnv[pair.slice(0, at)] = pair.slice(at + 1);
     }
+    if (
+      Object.keys(baseEnv).some((key) =>
+        /(?:_KEY|_TOKEN|_SECRET|_PASSWORD)$|^DATABASE_URL(?:_|$)/.test(key),
+      )
+    )
+      throw conflict();
     const expected = this.plan({
       accountId: id,
       volumeId: "rl_" + id.replaceAll("-", ""),
-      image: c.Image,
+      image: logicalImage,
       controlUrl: env.REINLAB_CONTROL_URL,
       tokens: legacy
         ? Tokens.parse({
@@ -306,7 +322,7 @@ export class DockerMachines implements AccountDriver {
       region: "local",
       state: raw.State?.Running ? "started" : "stopped",
       config: {
-        image: c.Image,
+        image: logicalImage,
         auto_destroy: false,
         restart: { policy: "always" },
         metadata: { reinlab_account_id: id, reinlab_os_version: OS_VERSION },
@@ -442,12 +458,15 @@ export class DockerMachines implements AccountDriver {
       throw conflict();
     return file;
   }
-  private body(plan: ReturnType<typeof dockerPlan>) {
+  private body(plan: ReturnType<typeof dockerPlan>, imageId: string) {
     const c = plan.config;
     return {
-      Image: c.image,
+      Image: imageId,
       Env: Object.entries(c.env).map(([k, v]) => k + "=" + v),
-      Labels: this.labels(c.metadata.reinlab_account_id),
+      Labels: {
+        ...this.labels(c.metadata.reinlab_account_id),
+        [logicalImageLabel]: c.image,
+      },
       ExposedPorts: { "4097/tcp": {} },
       HostConfig: {
         Binds: [
@@ -469,6 +488,9 @@ export class DockerMachines implements AccountDriver {
     };
   }
   async createMachine(input: unknown) {
+    return this.createPinnedMachine(input);
+  }
+  private async createPinnedMachine(input: unknown, pinnedImage?: string) {
     const p = input as ReturnType<typeof dockerPlan>;
     const env = p.config.env;
     const plan = this.plan({
@@ -478,10 +500,18 @@ export class DockerMachines implements AccountDriver {
       controlUrl: env.REINLAB_CONTROL_URL,
       tokens: tokensFromFiles(p.config.files, env.REINLAB_ACCOUNT_ID),
     });
+    const imageId =
+      pinnedImage ??
+      (
+        await this.call(
+          "/images/" + encodeURIComponent(plan.config.image) + "/json",
+        )
+      ).Id;
+    if (!/^sha256:[a-f0-9]{64}$/.test(imageId)) throw conflict();
     await this.call(
       "/containers/create?name=" + plan.name,
       "POST",
-      this.body(plan),
+      this.body(plan, imageId),
     );
     await this.start(plan.name);
     return this.normalized(
@@ -510,15 +540,51 @@ export class DockerMachines implements AccountDriver {
       throw conflict();
     return "http://127.0.0.1:" + ports[0].HostPort;
   }
-  async migrateCredentials(id: string, input: unknown) {
-    return this.replace(id, input, true);
+  async inspectCredentialMigration(
+    id: string,
+    targetImage: string,
+    legacy = true,
+  ) {
+    this.id(id);
+    this.validateImage(targetImage);
+    const raw = await this.call("/containers/" + id + "/json");
+    const machine = await this.normalized(raw, legacy);
+    const target = await this.call(
+      "/images/" + encodeURIComponent(targetImage) + "/json",
+    );
+    if (
+      !/^sha256:[a-f0-9]{64}$/.test(target.Id) ||
+      typeof raw.Created !== "string" ||
+      !Number.isFinite(Date.parse(raw.Created))
+    )
+      throw conflict();
+    return {
+      machine,
+      runtimeImageDigest: raw.Image as string,
+      immutableId: this.immutableId(raw),
+      createdAt: new Date(raw.Created).toISOString(),
+      targetImageDigest: target.Id as string,
+    };
+  }
+  async migrateCredentials(
+    id: string,
+    input: unknown,
+    proof?: { immutableId: string; targetImageDigest: string },
+  ) {
+    return this.replace(id, input, true, proof);
   }
   async update(id: string, input: unknown) {
     return this.replace(id, input, false);
   }
-  private async replace(id: string, input: unknown, legacy: boolean) {
+  private async replace(
+    id: string,
+    input: unknown,
+    legacy: boolean,
+    proof?: { immutableId: string; targetImageDigest: string },
+  ) {
     this.id(id);
     const raw = await this.call("/containers/" + id + "/json");
+    if (proof && raw.Id !== proof.immutableId) throw conflict();
     const old = await this.normalized(raw, legacy),
       c = input as Json,
       env = c.env;
@@ -569,9 +635,18 @@ export class DockerMachines implements AccountDriver {
       controlUrl: env.REINLAB_CONTROL_URL,
       tokens: tokensFromFiles(c.files, env.REINLAB_ACCOUNT_ID),
     });
+    const imageId = (
+      await this.call("/images/" + encodeURIComponent(c.image) + "/json")
+    ).Id;
+    if (
+      !/^sha256:[a-f0-9]{64}$/.test(imageId) ||
+      (proof && imageId !== proof.targetImageDigest)
+    )
+      throw conflict();
     const resourceId = this.immutableId(raw);
-    await this.call("/containers/" + resourceId + "/stop?t=10", "POST");
+    if (raw.State.Running)
+      await this.call("/containers/" + resourceId + "/stop?t=10", "POST");
     await this.call("/containers/" + resourceId, "DELETE");
-    await this.createMachine(plan);
+    await this.createPinnedMachine(plan, imageId);
   }
 }

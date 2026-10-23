@@ -138,7 +138,7 @@ async function containerReferences(run: LocalImageRunner) {
       "container",
       "inspect",
       "--format",
-      "[{{json .Config.Image}},{{json .Image}}]",
+      '[{{if index .Config.Labels "io.reinlab.image"}}{{json (index .Config.Labels "io.reinlab.image")}}{{else}}{{json .Config.Image}}{{end}},{{json .Image}}]',
       ...ids,
     ])
   ).trim();

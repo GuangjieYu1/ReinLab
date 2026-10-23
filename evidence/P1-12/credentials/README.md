@@ -38,3 +38,11 @@ REINLAB_RUNTIME_CONFIG_FILE=/protected/0700/runtime.env pnpm exec tsx services/c
 ```
 
 旧ENV迁移需原Vault令牌精确匹配；有active runs时wait拒绝，中断只允许显式interrupt。同operation未知结果只对账，不重做；不同内容冲突。正常ensure/resolver不接受旧ENV形态。不要把机器config、files.raw_value、完整Docker inspect或Vault内容导出进证据。
+
+## 实际旧账户迁移补充
+
+`followup/`：四账户真实文件化及健康检查4/4、本地完整Supabase verifier 9/9，模型调用0。独立安全最终20/20，详见security-review.md；补充Engine协议/真实PG定向结果见tests.json。
+
+真实环境先发现Colima原2GiB不足，专用实例调整4CPU/6GiB；随后定位e044e46迁移丢失镜像baseline ENV，首次变更前拒绝被保守记unknown。专用审计恢复把原op终结not_applied并预留新op（没有泛化重试口）；实际新容器启动后又因Docker Mounts顺序不定误报unknown。修复仅规范挂载列表顺序，保留精确集合校验。新op通过现有只读对账（目标immutable digest、文件/ENV/卷/身份、审计绑定、有效租约）确认为applied，未再次创建。所有旧操作与追加审计保留。
+
+新容器create直接使用immutable Image ID，逻辑tag仅存元数据；不暴露凭据值。Fly实际文件投递为云端补验。

@@ -11,3 +11,5 @@
 测试与红绿报告目前位于 /tmp/reinlab-p112-*；最终统一归档 evidence/P1-12/。源计划每个完整小步提交，本地GPG无法交互时仍仅单次关闭签名，不改全局配置。
 
 2026-10-23阶段结果：正式部署产物和镜像已构建；原生账户6/6、Linux容器8/8（含重启与所有进程ENV扫描）、Node22全量1395/1395；后补writer独立安全与最终metadata调整另有定向复测。独立安全发现并关闭routes/static旁路与同镜像迁移unknown误判。具体证据见evidence/P1-12/credentials/。此为凭据前置阶段，不能当作research@1.1.0、P1-12 API/live或本地旧账户迁移已完成。未执行T-MCP-10。
+
+本地真实旧机迁移入口：`tsx services/control/scripts/migrate-local-credentials.ts`，只允许已配置docker驱动并核对受管资源，逐账户保存稳定operation UUID（项目外私有状态文件），wait模式不隐式中断active run；全部旧机迁移后再做普通ensure健康检查。未知结果只能同operation对账，不能新建请求冒充恢复。
