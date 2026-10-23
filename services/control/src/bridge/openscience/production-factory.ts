@@ -1,3 +1,4 @@
+import { runtimeConfiguration } from "../../configuration";
 import { z } from "zod";
 import type { Database } from "../../db/database";
 import { ApiFailure } from "../../api/errors";
@@ -156,9 +157,10 @@ export function createProductionAccountResolver(
 ) {
   const dependencies = Object.freeze({ ...options }),
     vault = dependencies.vault ?? readonlyVault;
+  const config = runtimeConfiguration();
   const app =
-      dependencies.app ?? process.env.FLY_APP_ACCOUNTS ?? "reinlab-local",
-    controlUrl = dependencies.controlUrl ?? process.env.REINLAB_CONTROL_URL;
+      dependencies.app ?? config.FLY_APP_ACCOUNTS ?? "reinlab-local",
+    controlUrl = dependencies.controlUrl ?? config.REINLAB_CONTROL_URL;
   return async (accountId: string) => {
     try {
       const identity = z.string().uuid().safeParse(accountId);

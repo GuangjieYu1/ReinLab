@@ -9,6 +9,9 @@ import { createApp } from '../src/api/app';
 import { applyMigrations } from '../src/db/migrate';
 import { assertApplicationRole } from '../src/db/database';
 import { scrub } from '../src/ledger';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { writePrivateEnv } from '../../../tooling/local/config';
 
 const admin=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL??'postgres://postgres@127.0.0.1:55432/reinlab_test'});
 const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL_APP??'postgres://reinlab_app@127.0.0.1:55432/reinlab_test',max:4});
@@ -74,7 +77,9 @@ describe('控制面 API',()=>{
     const envSecret=randomBytes(48).toString('base64url'),applicationName='reinlab_native_'+randomUUID().replaceAll('-','');
     const dbUrl=new URL(process.env.TEST_DATABASE_URL_APP??'postgres://reinlab_app@127.0.0.1:55432/reinlab_test');dbUrl.searchParams.set('application_name',applicationName);
     const jwt=await token(A,{},new TextEncoder().encode(envSecret));
-    const child=spawn(process.execPath,['--import','tsx','services/control/src/main.ts'],{env:{...process.env,PORT:'0',DATABASE_URL_APP:dbUrl.toString(),SUPABASE_URL:issuer.replace(/\/auth\/v1$/,''),SUPABASE_JWT_SECRET:envSecret},stdio:['ignore','pipe','pipe']});
+    const privateRoot=await realpath(await mkdtemp(path.join(tmpdir(),'reinlab-control-config-'))),configFile=path.join(privateRoot,'runtime.env');
+    await writePrivateEnv(configFile,{PORT:'0',DATABASE_URL_APP:dbUrl.toString(),SUPABASE_URL:issuer.replace(/\/auth\/v1$/,''),SUPABASE_JWT_SECRET:envSecret,REINLAB_MCP_SIGNING_KEY_FILE:path.join(privateRoot,'mcp','signing.pem')});
+    const child=spawn(process.execPath,['--import','tsx','--import','./services/control/test/fixtures/config-environment-audit.ts','services/control/src/main.ts'],{env:{PATH:process.env.PATH,HOME:process.env.HOME,NODE_ENV:'test',REINLAB_RUNTIME_CONFIG_FILE:configFile},stdio:['ignore','pipe','pipe']});
     let stderr='',phase='startup';
     const sanitizeStderr=(text:string)=>String(scrub(text.split(envSecret).join('[REDACTED]').split(jwt).join('[REDACTED]').split(dbUrl.toString()).join('[REDACTED_DB]')));
     child.stderr.on('data',chunk=>{stderr=(stderr+String(chunk)).slice(-24000);});
@@ -94,7 +99,7 @@ describe('控制面 API',()=>{
     } catch(error) {
       console.error(JSON.stringify({code:'CONTROL_NATIVE_TEST_FAILED',phase,stderr:sanitizeStderr(stderr).slice(-12000),exitCode:child.exitCode,signal:child.signalCode}));
       throw error;
-    } finally { if(child.exitCode===null&&child.signalCode===null){const exit=new Promise<void>(resolve=>child.once('exit',()=>resolve()));child.kill('SIGTERM');await exit;} }
+    } finally { if(child.exitCode===null&&child.signalCode===null){const exit=new Promise<void>(resolve=>child.once('exit',()=>resolve()));child.kill('SIGTERM');await exit;} await rm(privateRoot,{recursive:true,force:true}); }
   },15000);
   it('已借出连接异步断开不会杀进程，坏连接被丢弃并可恢复',async()=>{
     const child=spawn(process.execPath,['--import','tsx','services/control/test/fixtures/connection-recovery.ts'],{env:{...process.env,TEST_ACCOUNT_ID:A},stdio:['pipe','pipe','pipe']});

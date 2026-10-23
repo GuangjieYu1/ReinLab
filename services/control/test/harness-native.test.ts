@@ -68,6 +68,12 @@ describe.sequential("T-HAR10 harness-generated native role boundaries", () => {
       join(bundleRoot, "benches/research.bench.yaml"),
       stringify(manifest),
     );
+    // The released manifest now references card schemas; fixture bundle carries
+    // their exact source bytes too, rather than dropping production validation.
+    for(const card of Object.values(manifest.cards) as Array<{schema:string}>){
+      await mkdir(join(bundleRoot,'schemas/research'),{recursive:true});
+      await copyFile(resolve(card.schema),join(bundleRoot,card.schema));
+    }
     const registry = await loadToolRegistry(),
       effective = initialEffective(
         await loadBenchBundle({

@@ -1,4 +1,9 @@
-import { BenchManifest, ToolRegistry, CapabilityRegistryDocument, legacyRegistryCore } from "@reinlab/contracts";
+import {
+  BenchManifest,
+  ToolRegistry,
+  CapabilityRegistryDocument,
+  legacyRegistryCore,
+} from "@reinlab/contracts";
 import { constants } from "node:fs";
 import { open, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -12,7 +17,7 @@ export type LoadedBenchBundle = {
   prompts: Record<string, string>;
   referencedHashes: Record<string, string>;
   registryHash: string;
-  schemas?: Record<string,string>;
+  schemas?: Record<string, string>;
 };
 export class BenchManifestError extends Error {
   readonly code = "BENCH_MANIFEST_INVALID";
@@ -193,7 +198,9 @@ export async function loadRegistryDocument(
     );
   return frozen(parsed.data);
 }
-export async function loadToolRegistry(root = repositoryRoot): Promise<ToolRegistry> {
+export async function loadToolRegistry(
+  root = repositoryRoot,
+): Promise<ToolRegistry> {
   return frozen(legacyRegistryCore(await loadRegistryDocument(root)));
 }
 /** Universal non-overridable policy; reuse after merging trusted patches. */
@@ -246,13 +253,18 @@ export function assertBenchSafety(
 export async function loadBenchBundle(options: {
   root?: string;
   benchId: string;
+  version?: string;
   registry: ToolRegistry;
 }): Promise<LoadedBenchBundle> {
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(options.benchId))
     failure(["id"], "工作台标识无效");
   const root = await rootPath(options.root ?? repositoryRoot),
     manifestFile = "benches/" + options.benchId + ".bench.yaml";
-  const data = await bytes(root, manifestFile, 1048576),
+  const sourceFile =
+    options.benchId === "research" && options.version === "1.0.0"
+      ? "benches/releases/research@1.0.0.bench.yaml"
+      : manifestFile;
+  const data = await bytes(root, sourceFile, 1048576),
     raw = parseDocumentStrict(decode(data, "manifest"), "manifest");
   const parsed = BenchManifest.safeParse(raw);
   if (!parsed.success)
@@ -263,6 +275,8 @@ export async function loadBenchBundle(options: {
       })),
     );
   const manifest = parsed.data;
+  if (options.version && manifest.version !== options.version)
+    failure(["version"], "版本引用不存在");
   if (manifest.id !== options.benchId)
     failure(["id"], "工作台标识与文件不一致");
   checkedTree(options.registry, ["registry"]);
@@ -273,7 +287,7 @@ export async function loadBenchBundle(options: {
       [manifestFile]: sha(data),
     },
     prompts: Record<string, string> = {},
-    schemas: Record<string,string> = {};
+    schemas: Record<string, string> = {};
   const reference = async (file: string, prefix: string, maximum: number) => {
     if (!file.startsWith(prefix) || !relative(file))
       failure([file], "引用超出当前工作台bundle");
@@ -318,5 +332,12 @@ export async function loadBenchBundle(options: {
     await reference(file, "templates/" + manifest.id + "/", 131072);
   const registryHash = sha(canonical(registry.data));
   const digest = sha(canonical({ manifest, referencedHashes, registryHash }));
-  return frozen({ manifest, digest, prompts, referencedHashes, registryHash, ...(Object.keys(schemas).length ? {schemas} : {}) });
+  return frozen({
+    manifest,
+    digest,
+    prompts,
+    referencedHashes,
+    registryHash,
+    ...(Object.keys(schemas).length ? { schemas } : {}),
+  });
 }

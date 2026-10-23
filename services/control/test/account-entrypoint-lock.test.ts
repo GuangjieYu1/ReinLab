@@ -6,6 +6,7 @@ import {
   chmod,
   readFile,
   rm,
+  realpath,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -18,9 +19,22 @@ it("入口配置与子进程强制禁用自动升级并保留模型和插件", a
   await mkdir(root);
   await writeFile(
     executable,
-    `#!${process.execPath}\nimport {readFile,writeFile} from 'node:fs/promises';const config=JSON.parse(await readFile(process.env.OPENSCIENCE_CONFIG_DIR+'/openscience.json','utf8'));await writeFile(process.env.TEST_ACCOUNT_REPORT,JSON.stringify({config,autoUpdate:process.env.OPENSCIENCE_DISABLE_AUTOUPDATE}));process.exit(17);\n`,
+    `#!${process.execPath}\nimport {readFile,writeFile} from 'node:fs/promises';const config=JSON.parse(await readFile(process.env.OPENSCIENCE_CONFIG_DIR+'/openscience.json','utf8'));await writeFile(new URL('result.json',import.meta.url),JSON.stringify({config,autoUpdate:process.env.OPENSCIENCE_DISABLE_AUTOUPDATE,environment:process.env}));process.exit(17);\n`,
   );
   await chmod(executable, 0o700);
+  const canonical = await realpath(dir),
+    accountId = "12345678-1234-4234-8234-123456789abc";
+  await chmod(dir, 0o700);
+  await writeFile(
+    join(dir, "account.json"),
+    JSON.stringify({
+      schema: "account_credentials@1",
+      accountId,
+      auth: "a".repeat(43),
+      container: "b".repeat(43),
+    }),
+    { mode: 0o600 },
+  );
   const report = join(dir, "result.json"),
     entry = pathToFileURL(resolve("infra/fly/account-entrypoint.mjs")).href;
   const child = spawn(
@@ -28,7 +42,7 @@ it("入口配置与子进程强制禁用自动升级并保留模型和插件", a
     [
       "--input-type=module",
       "-e",
-      `const {startAccount}=await import(${JSON.stringify(entry)});await startAccount({root:process.env.TEST_ACCOUNT_ROOT,executable:process.env.TEST_ACCOUNT_EXECUTABLE});`,
+      `const {startAccount}=await import(${JSON.stringify(entry)});await startAccount({root:process.env.TEST_ACCOUNT_ROOT,executable:process.env.TEST_ACCOUNT_EXECUTABLE,privateDirectory:process.env.TEST_PRIVATE_DIRECTORY});`,
     ],
     {
       stdio: "ignore",
@@ -37,8 +51,8 @@ it("入口配置与子进程强制禁用自动升级并保留模型和插件", a
         TEST_ACCOUNT_ROOT: root,
         TEST_ACCOUNT_EXECUTABLE: executable,
         TEST_ACCOUNT_REPORT: report,
-        OPENSCIENCE_AUTH_TOKEN: "a".repeat(43),
-        REINLAB_CONTAINER_SECRET: "b".repeat(43),
+        REINLAB_ACCOUNT_CREDENTIAL_FILE: canonical + "/account.json",
+        TEST_PRIVATE_DIRECTORY: canonical + "/private",
         REINLAB_ACCOUNT_ID: "12345678-1234-4234-8234-123456789abc",
         OPENSCIENCE_DISABLE_AUTOUPDATE: "0",
         OPENSCIENCE_DEFAULT_MODEL: "deepseek/deepseek-v4-flash",
@@ -68,6 +82,9 @@ it("入口配置与子进程强制禁用自动升级并保留模型和插件", a
       agent: { title: { disable: true } },
     });
     expect(observed.autoUpdate).toBe("1");
+    expect(JSON.stringify(observed.environment)).not.toContain("a".repeat(43));
+    expect(JSON.stringify(observed.environment)).not.toContain("b".repeat(43));
+    expect(observed.environment.TEST_ACCOUNT_REPORT).toBeUndefined();
   } finally {
     child.kill("SIGKILL");
     await rm(dir, { recursive: true, force: true });

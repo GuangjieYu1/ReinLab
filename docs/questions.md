@@ -188,3 +188,49 @@
 - 当前实际值扫描：工作树、Git refs/reflog 可达全部对象、证据、本任务临时日志0命中；本机 Codex sessions 1个文件、shell_snapshots 3个文件命中当前 DeepSeek key。报告只含计数；MCP 私钥与选定实际签发/核验/吊销的 fixture token 在上述范围均0。
 - T-MCP-9标部分通过。扫描覆盖列明目录与选定值，不包含历史截图OCR、全部历史令牌或整机。未读浏览器，不删除历史命中；继续等待用户确认轮换、清除旧 shell 自动加载及新真实调用授权。旧部署/控制面ENV迁移按Q-068/Q-072保留，不能声称已消除。
 - 任务分支本地GPG签名因无交互pinentry失败，后续本批提交仅单次git参数关闭签名，没有修改用户全局配置。SSH认证不可用，使用已有系统HTTPS凭据助手推送，未读取、打印或导出凭据。
+
+## Q-074 第五批凭据文件化与固定内核入口
+- 用户已确认删除 .zshrc 自动导出并轮换 ReinLab 专用 DeepSeek key；本批不沿用旧两次授权，不执行 T-MCP-10，等待另行明确授权（≤¥1）。历史扫描报告保持原样，新的值扫描另记，不抹掉旧泄露事实。
+- 本地 runtime.env 保留为项目外0600文件（父目录0700），名称兼容旧配置，不再 Object.assign 到 process.env。控制面、provisioner、lifecycle 与本地验证脚本在进程内读取；进程间只传配置文件路径。既有环境中的秘密字段不能作为隐式凭据回退，单元测试中的公开部署参数可保持环境配置。
+- 锁定 OpenScience 2.0.150 的 CLI 无 token-file 接口。推荐验证自有网络 listener 认证部署适配：原内核源字节、Host/Origin、SDK及插件 internalFetch 不变；网络 listener 自第一请求起读取私有文件做等价恒时 Bearer 校验，不通过伪内部头放行，不运行裸监听后再补guard，不把文件值塞回虚拟或真实ENV。安全SPIKE和真实固定内核fixture证明完成前不标此部分已迁移。SDK仍是业务调用入口；若安全前提不能成立，明确保留阻塞，不能靠删鉴权交付。
+- Docker/Fly按账户传递受保护文件。Fly files.raw_value只是Base64，不当成加密；app全局secrets默认ENV分发不作为无ENV方案。配置、日志、inspect和角色project的实际值检查与旧机器安全升级均需单独验证；云端实机仍为“云端补验”。
+
+### Q-075 — 固定内核的文件鉴权部署适配与私有挂载
+
+第五批已确认锁定npm standalone不执行preload且仅支持ENV鉴权；采用固定v2.0.150源码commit e700f00c0e4a45f7cd56d94d626d0e11b45b38c1的归档与SHA256、原Bun1.3.14/官方headless/encrypt插件和全部define重新构建，业务仍走原SDK；自有入口在首次网络bind前安装文件Bearer检查，保留原bootstrap、Host/Origin及插件可信internalFetch。上游checkout不修改。构建清单如实标注“原源码+ReinLab部署适配”，不冒称原npm standalone。LICENSE/NOTICE随镜像分发。
+
+Docker凭据逐账户保存在项目外0700目录/0600文件，仅精确只读挂载一个文件；/data与角色project、备份都不含部署凭据。专用Colima只读挂载新增的account-credentials目录，未挂载整个用户配置目录。实测该macOS/Colima 9p文件uid映射为guest root，故darwin计划明确要求source uid=0；Linux原生bind要求宿主uid。部署不符合此权限契约时失败关闭，不自动放宽。其他macOS共享驱动映射需补实测后单独配置，不能猜为已兼容。
+
+旧机器必须经可信运维migrate-credentials命令、精确身份/原Vault令牌核对、活跃运行wait/interrupt与durable操作围栏后迁移。普通ensure、resolver拒绝旧ENV形态。Fly files仅在控制面内存交付raw_value，其实际落盘权限和云端生命周期统一记“云端补验”。
+
+### Q-076 — research@1.1.0 卡片的保守存储与引用约束
+
+只更新清单version/cards，1.0.0原字节归档并可重载；既有档案回填旧版本，新档案默认1.1.0，未实现升级收件箱时禁止静默改版本。schema的anchor.paperId使用papers.fetch返回的本地asset UUID，页码1..1000，quote1..300 Unicode字符且规范化后非空；文本与数组设有界上限以避免无限输入。anim仅字符串声明，前端只识别既有动画ID，不执行任意HTML。当前卡片引用必须来自同一run成功papers.pages输出的不可变页回执，并核对规范化原文包含quote；跨run/跨角色引用不默认放行，后续群研的assigned-citations链路需单独定义。quiz keys只写角色获准的read/quizzes/档案JSON，事件与返回仅含题面和cardId；服务器未配置档案存储时拒绝，而非回退到事件。finding n/at由服务端生成。已有L3/L4和其他权限字段不变。
+
+### Q-077 — 本地完整栈资源不足与未知迁移的恢复
+
+真实核验：专用Colima配置为2CPU/2GiB；完整Supabase和4个账户机器启动后，guest available约4MiB、无swap、loadavg33，Docker list耗时7~11秒且多次超过现有15秒deadline。daemon实际支持API1.41（minimum1.40），所以“API版本不兼容”假设已被实测否定，诊断期的协商实现已撤回。推荐并采用仅将本任务专用实例调整到4CPU/6GiB（宿主16GiB、10逻辑核），保留磁盘、卷与挂载；不放宽安全检查或把超时当成功。已进入indeterminate的迁移沿用原持久operation UUID对账，不盲目重建；所有本地迁移仍以真实结果为准。
+
+## Q-078（第五批，按推荐实施）收件箱 live 登录与展示
+现有登录为纯演示，尚无 Supabase 会话入口；研究台无上线收件箱容器。推荐在 live 下复用原两字段登录（邮箱/密码）和 AgentDock 的卡片/按钮，仅切换真实数据与必要文案；mock 分支保持现状。控制面进程内读取配置并代理固定 Supabase Auth，会话只存在浏览器内存，不写localStorage/构建变量/URL。登录或回前台读取待处理，按工作台分组。理由：满足P1-12真实JWT链路而不将服务密钥下放、不假造未实现的其他研究功能。
+
+## Q-079（第五批，按推荐实施）旧提议缺依据及门禁请求过时
+P1-11允许空依据的 memory.propose 成为pending；不将其默认为可上线。approve/keep_local 必须通过严格 PromotionItem，旧不合格项可编辑补全或驳回。门禁卡冻结 state/revision/reviewArtifact；旧无快照的卡只能驳回，需重新发起后才能批准。理由：保留已有接口兼容，同时不放宽引用或批准校验。
+
+## Q-080（第五批，按真实协议修正）Supabase refresh token 是不透明字符串
+本地真实 Auth 返回 refresh_token 长度12（未打印/记录值），并不满足开发时错误假设的16位下限，造成代理401。登录JWT仍由现有签名/issuer/audience/role/sub校验；刷新身份由固定Supabase Auth核验。代理仅要求非空可打印ASCII、≤8192，不自行规定上游token熵或格式。保留同源/JSON/固定URL/重定向拒绝/缓存禁止；增加真实形状12位合成契约红绿回归。没有放宽账户JWT或业务授权。
+
+## 第五批状态更新（Q-068/Q-069/Q-072/Q-073）
+用户已确认轮换专用key并删除自动export；两次旧授权均已用尽，T-MCP-10未重新授权，本批不执行。控制面runtime.env已改进程内读取；4个既有本地账户旧部署鉴权已迁移文件，旧操作/审计保留。research@1.1.0发布，旧档案1.0.0钉住不变。Fly实际私有文件投递、托管Supabase、staging统一为云端补验。
+
+## Q-081（第五批，覆盖限制如实保留）进程环境的可读范围
+核对实际4账户时，每账户可读取2个进程环境，1个进程因Linux权限返回EACCES；未提权或取消隔离。旧verifier的PID正则多重转义存在空循环风险，改String.raw并强制readable>0、输出blocked计数，检查名明确readable_processes_only。凭据不得进ENV的实现约束仍由显式child ENV白名单、网络入口拒秘密ENV、Docker精确ENV规范化与原生fixture验证；实际日志/control ENV另外比较。文件/历史字节扫描仅覆盖当前11个选定值，不宣称所有历史key、全部进程、整机或历史截图OCR都已覆盖。
+
+## Q-082（第五批，补齐原规格）升级依据的eventRef与可回看来源
+BACKEND_MEMORY_SESSION §13要求evidence为eventRef并能回到原对话/作答，而旧MCP只约束JSON，非空字符串仍可伪造。推荐规范为`event:<账本seq>`，账户由JWT隐含；approve/edit/keep_local须在RLS下核对同来源档案与from_run的真实不可变事件，未知/跨来源拒绝。只读证据接口返回原已脱敏事件，前端可点开查看及复制引用；旧不合格pending仅可edit修正或reject，不把任意run:/文本当核对通过，也不偷偷生成“依据”。模型产生提议仍不自动生效。理由：满足明确的来源追溯要求，页quote核对及用户决定边界都保留。
+
+## Q-083（第五批，冷启动可复现）Colima私有凭据根必须显式只读共享
+复跑local:up发现CLI配置只保存工作树mount，已运行VM中此前手动添加的私有凭据共享不能据此保证下次冷启动仍存在。固定本任务Colima再加仓库外account-credentials根只读mount（无:w），先检查canonical/本人/0700，并将资源配置保持实测的4CPU/6GiB。Docker Desktop显式socket路径不自动改VM。理由：账户只读私有文件bind在冷启动后也能复现，不靠旧VM隐含状态；实际source uid继续严格检查。
+
+## Q-084（第五批，局部网络故障）Docker Hub IPv6连接重置
+冷启动最终镜像构建时，宿主Docker认证客户端IPv6连接被重置；IPv4探测正常。仅构建期间使用127.0.0.1 CONNECT代理，目的地白名单auth.docker.io:443/registry-1.docker.io:443，TCP选IPv4，TLS保持端到端，不解码/记录请求；进程结束关闭。未修改项目鉴权、镜像内容或全局网络策略，试验VM hosts已恢复、临时私有Docker认证配置已删除。最终镜像真实构建、4账户稳定操作ID升级并健康；不是云端验收。

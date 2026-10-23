@@ -1,3 +1,5 @@
+import { registerApprovalInbox, decideInboxCard } from "./inbox-approvals";
+import type { CapabilityEngine } from "../mcp/engine";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { Hono } from "hono";
@@ -7,7 +9,7 @@ import type { HarnessStore } from "../harness/store";
 import type { RuntimePipeline } from "../bridge/openscience/pipeline";
 import { lockBudget } from "../budget";
 import { cny } from "../budget/money";
-import { appendEvent, scrub } from "../ledger";
+import { appendEvent } from "../ledger";
 import { mutate, type ApiContext, type ApiEnv } from "./context";
 import { ApiFailure, denied } from "./errors";
 export type RuntimeApiPort = Pick<
@@ -31,28 +33,6 @@ const HarnessDecision = z
   .object({ decision: z.enum(["approve", "reject"]) })
   .strict();
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value));
-// Public approval content keeps question options while dropping routing identities.
-function publicEffects(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map(publicEffects);
-  if (value && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(
-          ([key]) =>
-            ![
-              "sessionID",
-              "sessionId",
-              "requestID",
-              "requestId",
-              "runID",
-              "os_session_id",
-              "os_request_id",
-            ].includes(key),
-        )
-        .map(([key, item]) => [key, publicEffects(item)]),
-    );
-  return value;
-}
 
 function id(value: string) {
   if (!uuid.safeParse(value).success) throw denied();
@@ -105,6 +85,7 @@ export function registerRuntime(
   app: Hono<ApiEnv>,
   db: Database,
   pipeline?: RuntimeApiPort,
+  mcp?: CapabilityEngine,
 ) {
   app.get("/v1/runs/:id", (c) =>
     db.withAccount(c.get("accountId"), async (client) => {
@@ -184,33 +165,11 @@ export function registerRuntime(
       }
     return response;
   });
-  app.get("/v1/approvals", (c) =>
-    db.withAccount(c.get("accountId"), async (client) => {
-      const state = z
-        .enum(["pending", "indeterminate"])
-        .safeParse(c.req.query("state") ?? "pending");
-      if (!state.success)
-        throw new ApiFailure("INVALID_INPUT", 400, "待处理决定状态无效。");
-      const result = await client.query(
-        `select a.id,a.run_id,a.kind,a.title,a.effects,a.risk,a.state,a.decision_sent from approval a join os_binding b on b.account_id=a.account_id and b.run_id=a.run_id and b.session_id=a.os_session_id where a.account_id=$1 and a.state=$2 and a.kind in ('permission','question') and a.os_request_id is not null and b.phase='accepted' and b.receipt is not null order by a.id limit 200`,
-        [c.get("accountId"), state.data],
-      );
-      return c.json({
-        items: result.rows.map((row) => ({
-          id: row.id,
-          runId: row.run_id,
-          kind: row.kind,
-          title: scrub(String(row.title).slice(0, 300)),
-          effects: scrub(publicEffects(row.effects)),
-          risk: row.risk,
-          state: row.state,
-          sent: row.decision_sent,
-        })),
-      });
-    }),
-  );
+  registerApprovalInbox(app, db);
   app.post("/v1/approvals/:id/decide", async (c) => {
     idem(c);
+    const card = await decideInboxCard(c, db, mcp);
+    if (card) return card;
     const port = available(pipeline),
       approval = id(c.req.param("id")),
       account = c.get("accountId");

@@ -1,3 +1,4 @@
+import { verifyCardSources } from "./card-integrity";
 import { lockBudget } from "../budget";
 import Ajv from "ajv";
 import { createHash, randomUUID } from "node:crypto";
@@ -18,7 +19,17 @@ ajv.addFormat(
 const layers = z.array(z.enum(["L2", "L3", "L4"])).max(3),
   refs = z.array(z.string().uuid()).max(128);
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value));
-export function dataHandlers(db: Database): Record<string, CapabilityHandler> {
+export type CardDeposit = (
+  context: Parameters<CapabilityHandler>[0],
+  id: string,
+  name: string,
+  card: Record<string, unknown>,
+  writeTargets: string[],
+) => Promise<void>;
+export function dataHandlers(
+  db: Database,
+  deposit?: CardDeposit,
+): Record<string, CapabilityHandler> {
   const handlers: Record<string, CapabilityHandler> = {};
   handlers["memory.read"] = async (context, args) =>
     db.withAccount(context.claims.account, async (client) => {
@@ -143,14 +154,50 @@ export function dataHandlers(db: Database): Record<string, CapabilityHandler> {
             400,
             "卡片不符合工作台规范。",
           );
-        const card = scrub(json(args.card)),
-          id = randomUUID();
+        const rawCard = args.card as Record<string, any>;
+        const reviewed =
+          row.snapshot.manifest.id === "research" &&
+          row.snapshot.manifest.version === "1.1.0";
+        if (reviewed) await verifyCardSources(client, context, name, rawCard);
+        const id = randomUUID();
+        if (reviewed && name === "quiz") {
+          if (!deposit)
+            throw new ApiFailure(
+              "CARD_STORAGE_UNAVAILABLE",
+              503,
+              "检查题档案存储尚未就绪。",
+            );
+          await deposit(
+            context,
+            id,
+            name,
+            rawCard,
+            row.snapshot.manifest.roles[context.claims.role].write_targets,
+          );
+        }
+        const storedCard = { ...rawCard };
+        if (name === "quiz") delete storedCard.keys;
+        if (reviewed && name === "finding") {
+          const count = (
+            await client.query(
+              "select count(*)::int n from event where dossier_id=$1 and action='card_created' and payload->>'cardType'='finding'",
+              [context.claims.dossier],
+            )
+          ).rows[0].n;
+          storedCard.n = count + 1;
+          storedCard.at = new Date().toISOString();
+        }
+        const card = scrub(json(storedCard));
         await appendEvent(client, context.claims.account, {
           dossierId: context.claims.dossier,
           runId: context.claims.run,
           kind: "card",
           action: "card_created",
-          payload: { cardId: id, card },
+          payload: {
+            cardId: id,
+            ...(reviewed ? { cardType: name } : {}),
+            card,
+          },
           dedupeKey: "mcp-card:" + id,
         });
         return { cardId: id };
@@ -169,6 +216,23 @@ export function dataHandlers(db: Database): Record<string, CapabilityHandler> {
           ).rowCount
         )
           throw deny("GATE_SCOPE_DENIED");
+        const gate =
+          operation === "gate.request_open"
+            ? (
+                await client.query(
+                  "select id,state,revision,review_artifact_id from gate where dossier_id=$1 and id=$2",
+                  [context.claims.dossier, args.gateId],
+                )
+              ).rows[0]
+            : null;
+        const gateSnapshot = gate
+          ? {
+              gateId: gate.id,
+              state: gate.state,
+              revision: gate.revision,
+              artifactId: gate.review_artifact_id,
+            }
+          : undefined;
         const id = randomUUID();
         await client.query(
           "insert into approval(id,account_id,run_id,kind,title,effects,risk) values($1,$2,$3,$4,$5,$6::jsonb,'write')",
@@ -180,7 +244,15 @@ export function dataHandlers(db: Database): Record<string, CapabilityHandler> {
             operation === "gate.request_open"
               ? "请求用户放行门禁"
               : String(scrub(String(args.subject))),
-            JSON.stringify(scrub(json({ operation, ...args }))),
+            JSON.stringify(
+              scrub(
+                json({
+                  ...args,
+                  operation,
+                  ...(gateSnapshot ? { gateSnapshot } : {}),
+                }),
+              ),
+            ),
           ],
         );
         await appendEvent(client, context.claims.account, {

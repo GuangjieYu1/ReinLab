@@ -1,3 +1,4 @@
+import {mkdtempSync,realpathSync} from "node:fs";
 import {testEvidenceDirectory} from './fixtures/test-evidence';
 import {afterAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
@@ -16,11 +17,11 @@ function engine(){
  const calls:Array<{path:string;method:string}>=[],containers:any[]=[],volumes:any[]=[];let lose:'volume'|'machine'|undefined;
  const transport:EngineTransport=async(path,method,body)=>{
   calls.push({path,method});
-  if(path.startsWith('/images/'))return {Config:{Env:[]}};
+  if(path.startsWith('/images/'))return {Id:'sha256:'+'f'.repeat(64),Config:{Env:[]}};
   if(path==='/volumes/create'){const b=structuredClone(body) as any;volumes.push({...b,Options:{}});if(lose==='volume'){lose=undefined;throw Error('fixture response lost '+base.tokens.auth);}return b;}
   if(path==='/volumes')return {Volumes:volumes};
   if(path==='/containers/json?all=true')return containers.map(c=>({Id:c.Id,Names:[c.Name],Labels:c.Config.Labels,Mounts:c.Mounts}));
-  if(path.startsWith('/containers/create?')){const b=structuredClone(body) as any;const c={Id:'d'.repeat(64),Name:'/'+path.split('=')[1],Config:{...b,Entrypoint:['node','/opt/reinlab/account-entrypoint.mjs']},Image:'sha256:'+'f'.repeat(64),HostConfig:b.HostConfig,Mounts:[{Type:'volume',Name:b.HostConfig.Binds[0].split(':')[0],Destination:'/data',RW:true}],State:{Running:false},NetworkSettings:{Ports:{'4097/tcp':[{HostIp:'127.0.0.1',HostPort:'49222'}]},Networks:{bridge:{NetworkID:'fixture-bridge'}}}};containers.push(c);if(lose==='machine'){lose=undefined;throw Error('fixture response lost '+base.tokens.container);}return {Id:c.Id};}
+  if(path.startsWith('/containers/create?')){const b=structuredClone(body) as any;const c={Id:'d'.repeat(64),Name:'/'+path.split('=')[1],Config:{...b,Entrypoint:['node','/opt/reinlab/account-entrypoint.mjs']},Image:'sha256:'+'f'.repeat(64),HostConfig:b.HostConfig,Mounts:[{Type:'volume',Name:b.HostConfig.Binds[0].split(':')[0],Destination:'/data',RW:true},{Type:'bind',Source:b.HostConfig.Binds[1].split(':')[0],Destination:'/run/reinlab-source/account.json',RW:false}],State:{Running:false},NetworkSettings:{Ports:{'4097/tcp':[{HostIp:'127.0.0.1',HostPort:'49222'}]},Networks:{bridge:{NetworkID:'fixture-bridge'}}}};containers.push(c);if(lose==='machine'){lose=undefined;throw Error('fixture response lost '+base.tokens.container);}return {Id:c.Id};}
   const key=path.split('/')[2],c=containers.find(c=>c.Id===key||c.Name==='/'+key);
   if(path.endsWith('/json'))return c;
   if(path.endsWith('/start')){c.State.Running=true;return {};}
@@ -28,7 +29,7 @@ function engine(){
   if(method==='DELETE'){containers.splice(containers.indexOf(c),1);return {};}
   throw Error('unexpected fake engine route');
  };
- return {api:new DockerMachines('unix:///tmp/reinlab-independent.sock',transport),calls,containers,volumes,loseResponse:(stage:'volume'|'machine')=>{lose=stage;}};
+ return {api:new DockerMachines('unix:///tmp/reinlab-independent.sock',transport,realpathSync(mkdtempSync(join(tmpdir(),'reinlab-credential-independent-')))),calls,containers,volumes,loseResponse:(stage:'volume'|'machine')=>{lose=stage;}};
 }
 afterAll(async()=>{const dir=await testEvidenceDirectory('docker-independent');await writeFile(join(dir,'docker-independent-observations.json'),JSON.stringify({schemaVersion:1,nodeVersion:process.version,engine:'test-only fake Docker Engine or temporary Unix HTTP socket',realDockerValidated:false,observations},null,2)+'\n');});
 it.each([

@@ -1,3 +1,4 @@
+import { readRuntimeConfiguration } from "../src/configuration";
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -29,8 +30,8 @@ async function check(name: string, work: () => Promise<void>) {
   }
 }
 try {
-  const env = await readPrivateEnv(paths.runtime);
-  Object.assign(process.env, env);
+  const env = readRuntimeConfiguration(paths.runtime);
+  process.env.REINLAB_RUNTIME_CONFIG_FILE = paths.runtime;
   pool = new pg.Pool({ connectionString: env.DATABASE_URL_APP, max: 3 });
   const db = new Database(pool);
   await db.assertSafeRole();

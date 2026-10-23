@@ -582,3 +582,9 @@ export const DossierDetail = z
   })
   .strict();
 export type DossierDetail = z.infer<typeof DossierDetail>;
+
+/** P1-12 browser DTOs contain no credential or runtime routing identity. */
+export type InboxSource = { bench: string; dossierId: string; dossierTitle: string; runId: string; roleId: string };
+export type InboxPromotion = { id: string; target: PromotionTarget; items: JsonValue; reason: string; createdAt: string; expiresAt: string; source: InboxSource };
+export type InboxApproval = { id: string; runId: string; kind: string; title: string; effects: JsonValue; risk: Risk; state: 'pending'|'indeterminate'; sent: boolean; source: InboxSource };
+export type BrowserSession = { accessToken:string; refreshToken:string; expiresIn:number; accountId:string };

@@ -1,3 +1,13 @@
+import { getuid } from "node:process";
+import { mkdirSync, writeFileSync, lstatSync, realpathSync } from "node:fs";
+import { join, isAbsolute } from "node:path";
+import { homedir } from "node:os";
+import { readAccountCredentials } from "../../../account-runtime/credentials.mjs";
+import {
+  accountCredentialFiles,
+  tokensFromFiles,
+  ACCOUNT_CREDENTIAL_PATH,
+} from "./credential-file";
 import { request } from "node:http";
 import { z } from "zod";
 import { ApiFailure } from "../api/errors";
@@ -9,7 +19,8 @@ import type {
   PlanInput,
 } from "./driver";
 const owner = "io.reinlab.managed",
-  account = "io.reinlab.account";
+  account = "io.reinlab.account",
+  logicalImageLabel = "io.reinlab.image";
 const conflict = () =>
   new ApiFailure(
     "PROVISIONING_CONFLICT",
@@ -45,13 +56,16 @@ export function dockerPlan(i: PlanInput) {
         reinlab_account_id: i.accountId,
         reinlab_os_version: OS_VERSION,
       },
+      files: accountCredentialFiles(i.accountId, i.tokens),
       env: {
-        OPENSCIENCE_AUTH_TOKEN: i.tokens.auth,
+        REINLAB_ACCOUNT_CREDENTIAL_FILE: ACCOUNT_CREDENTIAL_PATH,
+        REINLAB_CREDENTIAL_SOURCE_UID: String(
+          process.platform === "darwin" ? 0 : (getuid?.() ?? 0),
+        ),
         OPENSCIENCE_DATA_DIR: "/data/os-data",
         OPENSCIENCE_CONFIG_DIR: "/data/os-config",
         REINLAB_CONTROL_URL: i.controlUrl,
         REINLAB_ACCOUNT_ID: i.accountId,
-        REINLAB_CONTAINER_SECRET: i.tokens.container,
         REINLAB_ACCOUNT_DRIVER: "docker",
       },
     },
@@ -68,7 +82,14 @@ export class DockerMachines implements AccountDriver {
   readonly kind = "docker" as const;
   readonly region = "local";
   private transport: EngineTransport;
-  constructor(host: string, transport?: EngineTransport) {
+  constructor(
+    host: string,
+    transport?: EngineTransport,
+    private credentialDirectory = join(
+      homedir(),
+      ".local/state/reinlab/account-credentials",
+    ),
+  ) {
     if (
       !/^unix:\/\/\/[^\0\r\n]+$/.test(host) ||
       host.includes("?") ||
@@ -158,7 +179,7 @@ export class DockerMachines implements AccountDriver {
     z.string().uuid().parse(id);
     return { [owner]: "true", [account]: id };
   }
-  private async normalized(raw: Json): Promise<AccountMachine> {
+  private async normalized(raw: Json, legacy = false): Promise<AccountMachine> {
     const name = String(raw.Name ?? "").replace(/^\//, "");
     this.id(name);
     const c = raw.Config ?? {},
@@ -171,7 +192,11 @@ export class DockerMachines implements AccountDriver {
       name !== "rl-" + id.replaceAll("-", "")
     )
       throw conflict();
-    const mounts = raw.Mounts ?? [],
+    const mounts = Array.isArray(raw.Mounts)
+        ? [...raw.Mounts].sort((a: Json, b: Json) =>
+            String(a.Destination).localeCompare(String(b.Destination)),
+          )
+        : (raw.Mounts ?? []),
       port = h.PortBindings?.["4097/tcp"];
     if (
       h.Privileged !== false ||
@@ -212,11 +237,24 @@ export class DockerMachines implements AccountDriver {
       h.PublishAllPorts === true ||
       h.VolumesFrom?.length ||
       !Array.isArray(mounts) ||
-      mounts.length !== 1 ||
+      mounts.length !== (legacy ? 1 : 2) ||
       mounts[0].Type !== "volume" ||
       mounts[0].Name !== "rl_" + id.replaceAll("-", "") ||
       mounts[0].Destination !== "/data" ||
       mounts[0].RW !== true ||
+      (!legacy &&
+        (mounts[1].Type !== "bind" ||
+          mounts[1].Destination !== ACCOUNT_CREDENTIAL_PATH ||
+          mounts[1].RW !== false ||
+          mounts[1].Source !== this.credentialPath(id) ||
+          JSON.stringify(h.Binds) !==
+            JSON.stringify([
+              mounts[0].Name + ":/data",
+              this.credentialPath(id) + ":" + ACCOUNT_CREDENTIAL_PATH + ":ro",
+            ]))) ||
+      (legacy &&
+        JSON.stringify(h.Binds) !==
+          JSON.stringify([mounts[0].Name + ":/data"])) ||
       Object.keys(h.PortBindings ?? {}).length !== 1 ||
       !Array.isArray(port) ||
       port.length !== 1 ||
@@ -231,7 +269,12 @@ export class DockerMachines implements AccountDriver {
       if (pair.slice(0, at) in env) throw conflict();
       env[pair.slice(0, at)] = pair.slice(at + 1);
     }
-    this.validateImage(c.Image);
+    const logicalImage = labels[logicalImageLabel] ?? c.Image;
+    this.validateImage(logicalImage);
+    if (labels[logicalImageLabel] !== undefined && c.Image !== raw.Image)
+      throw conflict();
+    if (labels[logicalImageLabel] === undefined && c.Image !== logicalImage)
+      throw conflict();
     if (!/^sha256:[a-f0-9]{64}$/.test(raw.Image)) throw conflict();
     const image = await this.call("/images/" + raw.Image + "/json");
     const baseEnv: Record<string, string> = {};
@@ -240,16 +283,33 @@ export class DockerMachines implements AccountDriver {
       const at = pair.indexOf("=");
       baseEnv[pair.slice(0, at)] = pair.slice(at + 1);
     }
+    if (
+      Object.keys(baseEnv).some((key) =>
+        /(?:_KEY|_TOKEN|_SECRET|_PASSWORD)$|^DATABASE_URL(?:_|$)/.test(key),
+      )
+    )
+      throw conflict();
     const expected = this.plan({
       accountId: id,
       volumeId: "rl_" + id.replaceAll("-", ""),
-      image: c.Image,
+      image: logicalImage,
       controlUrl: env.REINLAB_CONTROL_URL,
-      tokens: {
-        auth: env.OPENSCIENCE_AUTH_TOKEN,
-        container: env.REINLAB_CONTAINER_SECRET,
-      },
+      tokens: legacy
+        ? Tokens.parse({
+            auth: env.OPENSCIENCE_AUTH_TOKEN,
+            container: env.REINLAB_CONTAINER_SECRET,
+          })
+        : this.readCredentials(id),
     }).config.env;
+    if (legacy) {
+      delete (expected as Record<string, string>)
+        .REINLAB_ACCOUNT_CREDENTIAL_FILE;
+      delete (expected as Record<string, string>).REINLAB_CREDENTIAL_SOURCE_UID;
+      Object.assign(expected, {
+        OPENSCIENCE_AUTH_TOKEN: env.OPENSCIENCE_AUTH_TOKEN,
+        REINLAB_CONTAINER_SECRET: env.REINLAB_CONTAINER_SECRET,
+      });
+    }
     const merged = { ...baseEnv, ...expected };
     if (
       Object.keys(env).length !== Object.keys(merged).length ||
@@ -262,16 +322,26 @@ export class DockerMachines implements AccountDriver {
       region: "local",
       state: raw.State?.Running ? "started" : "stopped",
       config: {
-        image: c.Image,
+        image: logicalImage,
         auto_destroy: false,
         restart: { policy: "always" },
         metadata: { reinlab_account_id: id, reinlab_os_version: OS_VERSION },
         mounts: [{ volume: mounts[0].Name, path: "/data" }],
         env,
+        ...(legacy
+          ? {}
+          : { files: accountCredentialFiles(id, this.readCredentials(id)) }),
       },
     };
   }
+  /** Only the trusted maintenance workflow may inspect legacy ENV machines for an explicit migration. */
+  async listLegacyMachines() {
+    return this.listMachineMode(true);
+  }
   async listMachines() {
+    return this.listMachineMode(false);
+  }
+  private async listMachineMode(legacy: boolean) {
     const rows = await this.call("/containers/json?all=true");
     if (!Array.isArray(rows)) throw unavailable();
     const candidates = rows.filter(
@@ -282,9 +352,8 @@ export class DockerMachines implements AccountDriver {
     return Promise.all(
       candidates.map(async (r: Json) => {
         if (!/^[a-f0-9]{64}$/.test(r.Id)) throw conflict();
-        return this.normalized(
-          await this.call("/containers/" + r.Id + "/json"),
-        );
+        const raw = await this.call("/containers/" + r.Id + "/json");
+        return this.normalized(raw, legacy && raw.Mounts?.length === 1);
       }),
     );
   }
@@ -342,15 +411,71 @@ export class DockerMachines implements AccountDriver {
     if (matches.length !== 1) throw conflict();
     return matches[0];
   }
-  private body(plan: ReturnType<typeof dockerPlan>) {
+  private credentialPath(id: string) {
+    z.string().uuid().parse(id);
+    if (
+      !isAbsolute(this.credentialDirectory) ||
+      /[:\0\r\n]/.test(this.credentialDirectory)
+    )
+      throw conflict();
+    return join(this.credentialDirectory, id, "account.json");
+  }
+  private readCredentials(id: string) {
+    try {
+      const v = readAccountCredentials(this.credentialPath(id), {
+        accountId: id,
+      });
+      return { auth: v.auth, container: v.container };
+    } catch {
+      throw conflict();
+    }
+  }
+  private publishCredentials(id: string, files: unknown) {
+    const tokens = tokensFromFiles(files, id),
+      file = this.credentialPath(id),
+      dir = join(this.credentialDirectory, id);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (
+      realpathSync(dir) !== dir ||
+      (lstatSync(dir).mode & 0o777) !== 0o700 ||
+      lstatSync(dir).uid !== getuid?.()
+    )
+      throw conflict();
+    try {
+      writeFileSync(
+        file,
+        JSON.stringify({
+          schema: "account_credentials@1",
+          accountId: id,
+          ...tokens,
+        }),
+        { flag: "wx", mode: 0o600 },
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw conflict();
+    }
+    if (JSON.stringify(this.readCredentials(id)) !== JSON.stringify(tokens))
+      throw conflict();
+    return file;
+  }
+  private body(plan: ReturnType<typeof dockerPlan>, imageId: string) {
     const c = plan.config;
     return {
-      Image: c.image,
+      Image: imageId,
       Env: Object.entries(c.env).map(([k, v]) => k + "=" + v),
-      Labels: this.labels(c.metadata.reinlab_account_id),
+      Labels: {
+        ...this.labels(c.metadata.reinlab_account_id),
+        [logicalImageLabel]: c.image,
+      },
       ExposedPorts: { "4097/tcp": {} },
       HostConfig: {
-        Binds: [c.mounts[0].volume + ":/data"],
+        Binds: [
+          c.mounts[0].volume + ":/data",
+          this.publishCredentials(c.metadata.reinlab_account_id, c.files) +
+            ":" +
+            ACCOUNT_CREDENTIAL_PATH +
+            ":ro",
+        ],
         PortBindings: { "4097/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }] },
         RestartPolicy: { Name: "always" },
         Privileged: false,
@@ -363,6 +488,9 @@ export class DockerMachines implements AccountDriver {
     };
   }
   async createMachine(input: unknown) {
+    return this.createPinnedMachine(input);
+  }
+  private async createPinnedMachine(input: unknown, pinnedImage?: string) {
     const p = input as ReturnType<typeof dockerPlan>;
     const env = p.config.env;
     const plan = this.plan({
@@ -370,15 +498,20 @@ export class DockerMachines implements AccountDriver {
       volumeId: p.config.mounts[0].volume,
       image: p.config.image,
       controlUrl: env.REINLAB_CONTROL_URL,
-      tokens: {
-        auth: env.OPENSCIENCE_AUTH_TOKEN,
-        container: env.REINLAB_CONTAINER_SECRET,
-      },
+      tokens: tokensFromFiles(p.config.files, env.REINLAB_ACCOUNT_ID),
     });
+    const imageId =
+      pinnedImage ??
+      (
+        await this.call(
+          "/images/" + encodeURIComponent(plan.config.image) + "/json",
+        )
+      ).Id;
+    if (!/^sha256:[a-f0-9]{64}$/.test(imageId)) throw conflict();
     await this.call(
       "/containers/create?name=" + plan.name,
       "POST",
-      this.body(plan),
+      this.body(plan, imageId),
     );
     await this.start(plan.name);
     return this.normalized(
@@ -407,31 +540,113 @@ export class DockerMachines implements AccountDriver {
       throw conflict();
     return "http://127.0.0.1:" + ports[0].HostPort;
   }
+  async inspectCredentialMigration(
+    id: string,
+    targetImage: string,
+    legacy = true,
+  ) {
+    this.id(id);
+    this.validateImage(targetImage);
+    const raw = await this.call("/containers/" + id + "/json");
+    const machine = await this.normalized(raw, legacy);
+    const target = await this.call(
+      "/images/" + encodeURIComponent(targetImage) + "/json",
+    );
+    if (
+      !/^sha256:[a-f0-9]{64}$/.test(target.Id) ||
+      typeof raw.Created !== "string" ||
+      !Number.isFinite(Date.parse(raw.Created))
+    )
+      throw conflict();
+    return {
+      machine,
+      runtimeImageDigest: raw.Image as string,
+      immutableId: this.immutableId(raw),
+      createdAt: new Date(raw.Created).toISOString(),
+      targetImageDigest: target.Id as string,
+    };
+  }
+  async migrateCredentials(
+    id: string,
+    input: unknown,
+    proof?: { immutableId: string; targetImageDigest: string },
+  ) {
+    return this.replace(id, input, true, proof);
+  }
   async update(id: string, input: unknown) {
+    return this.replace(id, input, false);
+  }
+  private async replace(
+    id: string,
+    input: unknown,
+    legacy: boolean,
+    proof?: { immutableId: string; targetImageDigest: string },
+  ) {
     this.id(id);
     const raw = await this.call("/containers/" + id + "/json");
-    const old = await this.normalized(raw),
+    if (proof && raw.Id !== proof.immutableId) throw conflict();
+    const old = await this.normalized(raw, legacy),
       c = input as Json,
       env = c.env;
     this.validateImage(c.image);
-    if (
-      JSON.stringify({ ...c, image: old.config.image }) !==
-      JSON.stringify(old.config)
-    )
+    const previous = {
+      ...old.config,
+      env: { ...(old.config.env as Record<string, string>) },
+    };
+    if (legacy) {
+      const tokens = tokensFromFiles(c.files, env.REINLAB_ACCOUNT_ID),
+        previousEnv = previous.env;
+      if (
+        previousEnv.OPENSCIENCE_AUTH_TOKEN !== tokens.auth ||
+        previousEnv.REINLAB_CONTAINER_SECRET !== tokens.container
+      )
+        throw conflict();
+      delete previousEnv.OPENSCIENCE_AUTH_TOKEN;
+      delete previousEnv.REINLAB_CONTAINER_SECRET;
+      Object.assign(previousEnv, {
+        REINLAB_ACCOUNT_CREDENTIAL_FILE: ACCOUNT_CREDENTIAL_PATH,
+        REINLAB_CREDENTIAL_SOURCE_UID: String(
+          process.platform === "darwin" ? 0 : (getuid?.() ?? 0),
+        ),
+      });
+      Object.assign(previous, {
+        files: accountCredentialFiles(env.REINLAB_ACCOUNT_ID, tokens),
+      });
+    }
+    // Canonical comparison ignores object-key order, never identity or any deployment field.
+    const canonical = (v: any): string =>
+      JSON.stringify(
+        v && typeof v === "object" && !Array.isArray(v)
+          ? Object.fromEntries(
+              Object.keys(v)
+                .sort()
+                .map((k) => [k, JSON.parse(canonical(v[k]))]),
+            )
+          : Array.isArray(v)
+            ? v.map((x) => JSON.parse(canonical(x)))
+            : v,
+      );
+    if (canonical({ ...c, image: old.config.image }) !== canonical(previous))
       throw conflict();
     const plan = this.plan({
       accountId: env.REINLAB_ACCOUNT_ID,
       volumeId: c.mounts[0].volume,
       image: c.image,
       controlUrl: env.REINLAB_CONTROL_URL,
-      tokens: {
-        auth: env.OPENSCIENCE_AUTH_TOKEN,
-        container: env.REINLAB_CONTAINER_SECRET,
-      },
+      tokens: tokensFromFiles(c.files, env.REINLAB_ACCOUNT_ID),
     });
+    const imageId = (
+      await this.call("/images/" + encodeURIComponent(c.image) + "/json")
+    ).Id;
+    if (
+      !/^sha256:[a-f0-9]{64}$/.test(imageId) ||
+      (proof && imageId !== proof.targetImageDigest)
+    )
+      throw conflict();
     const resourceId = this.immutableId(raw);
-    await this.call("/containers/" + resourceId + "/stop?t=10", "POST");
+    if (raw.State.Running)
+      await this.call("/containers/" + resourceId + "/stop?t=10", "POST");
     await this.call("/containers/" + resourceId, "DELETE");
-    await this.createMachine(plan);
+    await this.createPinnedMachine(plan, imageId);
   }
 }

@@ -1,5 +1,5 @@
 import { availableParallelism } from "node:os";
-import { defineConfig, mergeConfig } from "vitest/config";
+import { defineConfig, mergeConfig, configDefaults } from "vitest/config";
 import viteConfig from "./vite.config";
 
 // Native processes and the shared real PostgreSQL fixture compete for CPU/IO.
@@ -7,6 +7,6 @@ import viteConfig from "./vite.config";
 export default mergeConfig(
   viteConfig,
   defineConfig({
-    test: { maxWorkers: Math.max(1, Math.min(4, availableParallelism() - 1)) },
+    test: { exclude:[...configDefaults.exclude,"**/dist/**"], maxWorkers: Math.max(1, Math.min(4, availableParallelism() - 1)) },
   }),
 );

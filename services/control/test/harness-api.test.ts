@@ -99,7 +99,7 @@ it("run estimate and confirmed admission bind manifest version/effective hash, c
   const quote = await (
     await post("/v1/runs/estimate", { dossierId: dossier, mode: "read" })
   ).json();
-  expect(quote.assumptions.benchVersion).toBe("1.0.0");
+  expect(quote.assumptions.benchVersion).toBe("1.1.0");
   expect(quote.assumptions.effectiveConfigDigest).toMatch(/^[a-f0-9]{64}$/);
   const confirmed = await post("/v1/runs", {
     dossierId: dossier,
@@ -120,7 +120,7 @@ it("run estimate and confirmed admission bind manifest version/effective hash, c
       )
     ).rows[0],
   ).toEqual({
-    version: "1.0.0",
+    version: "1.1.0",
     effective_digest: quote.assumptions.effectiveConfigDigest,
   });
   const stale = await (

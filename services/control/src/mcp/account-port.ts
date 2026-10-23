@@ -2,6 +2,7 @@ import { ApiFailure } from "../api/errors";
 import { createProductionAccountResolver } from "../bridge/openscience/production-factory";
 import type { Database } from "../db/database";
 import type { CapabilityHandler } from "./engine";
+import type { CardDeposit } from "./data-handlers";
 import type { PaperDeposit } from "./papers";
 const unavailable = () =>
   new ApiFailure("MCP_ACCOUNT_UNAVAILABLE", 503, "账户能力服务暂时不可用。");
@@ -68,6 +69,28 @@ export function accountPort(db: Database) {
   return {
     handlers,
     deposit,
+    cardDeposit: (async (context, id, name, card, writeTargets) => {
+      if (
+        name !== "quiz" ||
+        !context.scope.grants.some((g) => g.name === "cards.card.quiz")
+      )
+        throw unavailable();
+      const target = "read/quizzes/" + id + ".json";
+      if (
+        !writeTargets.some(
+          (prefix) =>
+            prefix === "read/quizzes/" ||
+            (prefix.endsWith("/") && target.startsWith(prefix)),
+        )
+      )
+        throw unavailable();
+      await post(context.claims.account, "/reinlab/mcp/files", {
+        dossier: context.claims.dossier,
+        operation: "write",
+        args: { path: target, content: JSON.stringify(card) },
+        writeTargets,
+      });
+    }) as CardDeposit,
     cleanup: (account: string, runId: string) =>
       post(account, "/reinlab/mcp/cleanup", { runId }),
     bootstrap: (

@@ -236,7 +236,7 @@ it("migrates the actual ten role prompts byte-for-byte and keeps unavailable too
       expect(registry.tools[tool].availability).toBe("planned");
   }
   expect(bundle.manifest.budget.by_mode.auto).toBeNull();
-  expect(bundle.manifest.cards).toEqual({});
+  expect(Object.keys(bundle.manifest.cards).sort()).toEqual(["answer","finding","layer","quiz"]);
   const sql = await readFile(
     join(root, "infra/supabase/migrations/202610190002_roles.sql"),
     "utf8",

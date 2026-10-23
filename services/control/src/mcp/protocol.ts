@@ -87,29 +87,35 @@ export function registerMcp(app: Hono<ApiEnv>, engine: CapabilityEngine) {
         });
       if (message.method === "ping")
         return c.json({ jsonrpc: "2.0", id, result: {} });
-      if (message.method === "tools/list")
-        return c.json({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            tools: auth.scope.grants
-              .filter((g) => g.name.startsWith(server + "."))
-              .map((g) => ({
+      if (message.method === "tools/list") {
+        const tools = await Promise.all(
+          auth.scope.grants
+            .filter((g) => g.name.startsWith(server + "."))
+            .map(async (g) => {
+              const args = await engine.inputSchema(auth, g.name);
+              if (!args) return null;
+              return {
                 name: g.name.slice(server.length + 1),
                 description: g.name,
                 inputSchema: {
                   type: "object",
                   properties: {
-                    args: auth.catalog.capabilities[g.name].input,
+                    args,
                     requestId: { type: "string" },
                     approvalId: { type: "string" },
                   },
                   required: ["args"],
                   additionalProperties: false,
                 },
-              })),
-          },
+              };
+            }),
+        );
+        return c.json({
+          jsonrpc: "2.0",
+          id,
+          result: { tools: tools.filter((value) => value !== null) },
         });
+      }
       return c.json({
         jsonrpc: "2.0",
         id,

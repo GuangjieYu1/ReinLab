@@ -1,0 +1,3 @@
+category,authorized_real_model_calls,actual_real_model_calls,ledger_cny,billed_cny,usd_cny_rate,status
+P1-12,0,0,0.000000,0.000000,7.2,no_real_model_request
+T-MCP-10,0,0,,,7.2,awaiting_explicit_authorization

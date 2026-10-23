@@ -601,6 +601,28 @@ export function mapRuntimeEvent(
       projection.kind = "error";
       projection.runState = body.recovered === true ? "interrupted" : "failed";
     } else if (event.type === "session.error") projection.kind = "error";
+    if (
+      event.type === "message.part.updated" &&
+      body.part.type === "tool" &&
+      (body.part.tool === "read_quiz_write" ||
+        ["cards.read_quiz_write", "cards.card.quiz"].includes(
+          body.part.state?.input?.capability,
+        ))
+    ) {
+      const p = body.part;
+      body.part = {
+        id: p.id,
+        sessionID: p.sessionID,
+        messageID: p.messageID,
+        type: "tool",
+        tool: p.tool,
+        callID: p.callID,
+        state: {
+          status: p.state.status,
+          ...(p.state.time ? { time: p.state.time } : {}),
+        },
+      };
+    }
     // Every outward field, including projections outside payload, shares the
     // same final bound and scrub pass. Numeric observations remain numeric.
     return bounded({

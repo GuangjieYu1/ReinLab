@@ -4,6 +4,13 @@ import { readPrivateEnv, writePrivateEnv } from "./config";
 
 export const ACCOUNT_IMAGE_INPUTS = [
   "infra/fly/account.Dockerfile",
+  "services/account-runtime/build.mjs",
+  "services/account-runtime/compile.ts",
+  "services/account-runtime/deployment-entry.ts",
+  "services/account-runtime/credentials.mjs",
+  "services/account-runtime/network-guard.mjs",
+  "services/account-runtime/build-inputs/source.json",
+  "services/account-runtime/build-inputs/models-snapshot.ts.gz",
   "infra/fly/account-entrypoint.mjs",
   "infra/fly/account-health.mjs",
   "plugins/reinlab-os-plugin/index.js",
@@ -131,7 +138,7 @@ async function containerReferences(run: LocalImageRunner) {
       "container",
       "inspect",
       "--format",
-      "[{{json .Config.Image}},{{json .Image}}]",
+      '[{{if index .Config.Labels "io.reinlab.image"}}{{json (index .Config.Labels "io.reinlab.image")}}{{else}}{{json .Config.Image}}{{end}},{{json .Image}}]',
       ...ids,
     ])
   ).trim();

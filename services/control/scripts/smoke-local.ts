@@ -1,3 +1,4 @@
+import { readRuntimeConfiguration } from "../src/configuration";
 import assert from "node:assert/strict";
 import { cleanupSmoke } from "../../../tooling/local/smoke-cleanup";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -150,7 +151,7 @@ try {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   assert.equal(admission.RUN_KEY, undefined);
-  const env = await readPrivateEnv(paths.runtime);
+  const env = readRuntimeConfiguration(paths.runtime);
   assert.equal(env.PROVISIONER_DRIVER, "docker");
   assert.equal(env.SUPABASE_URL, "http://127.0.0.1:54321");
   for (const key of [
@@ -160,7 +161,7 @@ try {
   ])
     assert.equal(env[key], plan.model);
   assert.equal(env.MODEL_USD_CNY_RATE, "7.2");
-  Object.assign(process.env, env);
+  process.env.REINLAB_RUNTIME_CONFIG_FILE = paths.runtime;
   pool = new pg.Pool({ connectionString: env.DATABASE_URL_APP, max: 5 });
   const db = new Database(pool);
   await db.assertSafeRole();
