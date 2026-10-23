@@ -19,7 +19,11 @@ import { runtimePricingFromEnvironment } from "./bridge/openscience/pricing-envi
 import { startAuthProvisioner } from "./provisioner/auth-worker";
 
 const config = runtimeConfiguration();
-if (!process.env.REINLAB_RUNTIME_CONFIG_FILE || !config.DATABASE_URL_APP || !config.SUPABASE_URL)
+if (
+  !process.env.REINLAB_RUNTIME_CONFIG_FILE ||
+  !config.DATABASE_URL_APP ||
+  !config.SUPABASE_URL
+)
   throw new Error("CONFIG_MISSING: 需要应用数据库连接与Supabase地址");
 const pool = new pg.Pool({
   connectionString: config.DATABASE_URL_APP,
@@ -36,7 +40,7 @@ const authority = new CapabilityAuthority(
 );
 const mcp = new CapabilityEngine(authority, {
   ...mcpAccount.handlers,
-  ...dataHandlers(database),
+  ...dataHandlers(database, mcpAccount.cardDeposit),
   ...paperHandlers(
     database,
     path.join(homedir(), ".local/state/reinlab/papers"),
@@ -52,12 +56,7 @@ const pipeline = new RuntimePipeline(database, {
     const token = await authority.issue(account, run);
     if (!config.REINLAB_CONTROL_URL)
       throw new Error("MCP_CONTROL_URL_REQUIRED");
-    await mcpAccount.bootstrap(
-      account,
-      run,
-      token,
-      config.REINLAB_CONTROL_URL,
-    );
+    await mcpAccount.bootstrap(account, run, token, config.REINLAB_CONTROL_URL);
   },
 });
 const app = await createApp({

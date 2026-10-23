@@ -1,6 +1,6 @@
 schema: reinlab.bench/v1
 id: research
-version: 1.0.0
+version: 1.1.0
 code: RSCH
 title: 研究工作台
 ui: custom
@@ -326,7 +326,11 @@ engines: {}
 delegations:
   accepts: []
   sends: []
-cards: {}
+cards:
+  layer: { schema: schemas/research/layer.json, ui: LayerCard, tool: read_layer_write }
+  quiz: { schema: schemas/research/quiz.json, ui: QuizCard, tool: read_quiz_write }
+  finding: { schema: schemas/research/finding.json, ui: FindingCard, tool: finding_record }
+  answer: { schema: schemas/research/answer.json, ui: AnswerCard, tool: card_answer }
 budget:
   default_cny: 5
   by_mode:

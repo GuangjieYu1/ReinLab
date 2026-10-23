@@ -1,5 +1,5 @@
 import { lockBudget } from "../budget";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import type pg from "pg";
 import Ajv from "ajv";
 import { z } from "zod";
@@ -67,6 +67,50 @@ export class CapabilityEngine {
     readonly authority: CapabilityAuthority,
     private readonly handlers: Readonly<Record<string, CapabilityHandler>>,
   ) {}
+  /** Advertise the schema frozen for this run, never the current working-tree manifest. */
+  async inputSchema(
+    auth: AuthorizedCapability,
+    name: string,
+  ): Promise<Record<string, unknown> | null> {
+    const input = structuredClone(auth.catalog.capabilities[name].input);
+    if (!name.startsWith("cards.card.")) return input;
+    const cardName = name.slice("cards.card.".length);
+    const schema = await this.authority.db.withAccount(
+      auth.claims.account,
+      async (client) => {
+        const row = (
+          await client.query(
+            `select e.snapshot,v.bundle from run_harness h join bench_effective e on e.account_id=h.account_id and e.digest=h.effective_digest join bench_version v on v.bench=h.bench and v.version=h.version where h.run_id=$1`,
+            [auth.claims.run],
+          )
+        ).rows[0];
+        const declaration = row?.snapshot?.manifest?.cards?.[cardName];
+        if (!declaration) return null;
+        const text = row.bundle.schemas?.[declaration.schema];
+        if (
+          typeof text !== "string" ||
+          createHash("sha256").update(text).digest("hex") !==
+            row.bundle.referencedHashes[declaration.schema]
+        )
+          throw fail("CARD_SCHEMA_UNAVAILABLE", 503);
+        try {
+          const schema = JSON.parse(text);
+          ajv.compile(schema);
+          return schema;
+        } catch {
+          throw fail("CARD_SCHEMA_INVALID", 503);
+        }
+      },
+    );
+    if (!schema) return null;
+    return {
+      ...input,
+      properties: {
+        ...(input.properties as Record<string, unknown>),
+        card: schema,
+      },
+    };
+  }
   private async event(
     auth: AuthorizedCapability,
     capability: string,
@@ -217,6 +261,58 @@ export class CapabilityEngine {
             !conforms(capability.output, result)
           )
             throw fail("CAPABILITY_OUTPUT_INVALID", 503);
+          if (
+            request.capability === "papers.pages" &&
+            result.status === "full_text"
+          ) {
+            const pages = result.pages as Array<{ page: number; text: string }>;
+            if (
+              result.assetId !== request.args.assetId ||
+              !pages.every((page) =>
+                (request!.args.pages as number[]).includes(page.page),
+              )
+            )
+              throw fail("PAPER_SCOPE_DENIED");
+            await this.authority.db.withAccount(
+              auth.claims.account,
+              async (client) => {
+                await lockBudget(client, auth.claims.account);
+                await this.authority.validateClient(client, rawToken);
+                for (const page of pages) {
+                  const saved = await client.query(
+                    `insert into paper_page_read(account_id,dossier_id,run_id,asset_id,page,text_sha256,page_text)
+                 select $1,$2,$3,id,$5,$6,$7 from paper_asset where account_id=$1 and dossier_id=$2 and id=$4 and status='full_text'
+                 on conflict do nothing`,
+                    [
+                      auth.claims.account,
+                      auth.claims.dossier,
+                      auth.claims.run,
+                      result.assetId,
+                      page.page,
+                      createHash("sha256").update(page.text).digest("hex"),
+                      page.text,
+                    ],
+                  );
+                  if (
+                    !saved.rowCount &&
+                    !(
+                      await client.query(
+                        "select 1 from paper_page_read where account_id=$1 and run_id=$2 and asset_id=$3 and page=$4 and text_sha256=$5",
+                        [
+                          auth.claims.account,
+                          auth.claims.run,
+                          result.assetId,
+                          page.page,
+                          createHash("sha256").update(page.text).digest("hex"),
+                        ],
+                      )
+                    ).rowCount
+                  )
+                    throw fail("PAPER_SCOPE_DENIED");
+                }
+              },
+            );
+          }
           if (capability.idempotent)
             await this.finish(auth, requestId, "succeeded", result);
         } catch (error) {
@@ -406,6 +502,7 @@ export class CapabilityEngine {
       throw fail("APPROVAL_EXPIRED", 409);
     if (row.decision && row.decision !== decision)
       throw fail("IDEMPOTENCY_CONFLICT", 409);
+    const alreadyDecided = Boolean(row.decision);
     await client.query("update mcp_approval set decision=$2 where id=$1", [
       approvalId,
       decision,
@@ -414,6 +511,23 @@ export class CapabilityEngine {
       "update approval set state=$2,decided_scope='once',decided_at=coalesce(decided_at,now()) where id=$1",
       [approvalId, decision === "approve" ? "approved" : "rejected"],
     );
+    if (!alreadyDecided) {
+      const source = (
+        await client.query("select dossier_id,role_id from run where id=$1", [
+          row.run_id,
+        ])
+      ).rows[0];
+      await appendEvent(client, account, {
+        dossierId: source.dossier_id,
+        runId: row.run_id,
+        roleId: source.role_id,
+        kind: "approval",
+        action: "approval.decided",
+        risk: "write",
+        payload: { approvalId, decision, scope: "once" },
+        dedupeKey: "mcp-user-decision:" + approvalId,
+      });
+    }
     return { approvalId, decision, scope: "once" };
   }
 }

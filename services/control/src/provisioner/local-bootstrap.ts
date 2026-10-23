@@ -43,11 +43,12 @@ export async function bootstrapLocalDatabase(
       resolve("infra/supabase/migrations"),
     );
     const registry = await loadToolRegistry();
-    await publishBench(
-      pool,
-      await loadBenchBundle({ benchId: "research", registry }),
-      registry,
-    );
+    for (const version of ["1.0.0", undefined])
+      await publishBench(
+        pool,
+        await loadBenchBundle({ benchId: "research", registry, version }),
+        registry,
+      );
     // Generated base64url values are validated above; DDL has no parameter form.
     await pool.query(`alter role reinlab_app password '${passwords.app}'`);
     await pool.query(

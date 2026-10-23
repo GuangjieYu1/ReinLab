@@ -71,7 +71,12 @@ export async function publishBench(
         conflict();
     for (const definition of Object.values(bundle.manifest.cards)) {
       const schema = bundle.schemas?.[definition.schema];
-      if (typeof schema !== "string" || createHash("sha256").update(schema).digest("hex") !== bundle.referencedHashes[definition.schema]) conflict();
+      if (
+        typeof schema !== "string" ||
+        createHash("sha256").update(schema).digest("hex") !==
+          bundle.referencedHashes[definition.schema]
+      )
+        conflict();
     }
     await c.query(
       "insert into bench_version(bench,version,digest,bundle,registry) values($1,$2,$3,$4::jsonb,$5::jsonb)",
@@ -184,7 +189,38 @@ export class HarnessStore {
     c: pg.PoolClient,
     accountId: string,
     dossierId: string,
-  ) {
+  ): Promise<EffectiveBench> {
+    // Resolve the immutable dossier pin before deriving a baseline. A new release never
+    // changes an existing dossier simply because it has no explicit override yet.
+    const pin = (
+      await c.query("select bench,bench_version from dossier where id=$1", [
+        dossierId,
+      ])
+    ).rows[0];
+    if (!pin || pin.bench !== this.bundle.manifest.id) throw denied();
+    if (pin.bench_version !== this.bundle.manifest.version) {
+      const published = (
+        await c.query(
+          "select bundle,registry from bench_version where bench=$1 and version=$2",
+          [pin.bench, pin.bench_version],
+        )
+      ).rows[0];
+      if (
+        !published ||
+        published.bundle.manifest.version !== pin.bench_version ||
+        published.bundle.manifest.id !== pin.bench
+      )
+        throw new ApiFailure(
+          "BENCH_NOT_PUBLISHED",
+          503,
+          "档案钉住的版本尚未发布。",
+        );
+      return new HarnessStore(
+        this.db,
+        published.bundle,
+        published.registry,
+      ).effectiveClient(c, accountId, dossierId);
+    }
     const context = await this.context(c, accountId, dossierId),
       override = (
         await c.query(
@@ -240,14 +276,46 @@ export class HarnessStore {
       this.proposeClient(c, accountId, dossierId, patch, id),
     );
   }
+  private async pinnedStore(
+    c: pg.PoolClient,
+    dossierId: string,
+  ): Promise<HarnessStore> {
+    const row = (
+      await c.query("select bench,bench_version from dossier where id=$1", [
+        dossierId,
+      ])
+    ).rows[0];
+    if (!row || row.bench !== this.bundle.manifest.id) throw denied();
+    if (row.bench_version === this.bundle.manifest.version) return this;
+    const saved = (
+      await c.query(
+        "select bundle,registry from bench_version where bench=$1 and version=$2",
+        [row.bench, row.bench_version],
+      )
+    ).rows[0];
+    if (
+      !saved ||
+      saved.bundle.manifest.version !== row.bench_version ||
+      saved.bundle.manifest.id !== row.bench
+    )
+      throw new ApiFailure(
+        "BENCH_NOT_PUBLISHED",
+        503,
+        "档案钉住的版本尚未发布。",
+      );
+    return new HarnessStore(this.db, saved.bundle, saved.registry);
+  }
   async proposeClient(
     c: pg.PoolClient,
     accountId: string,
     dossierId: string,
     patch: unknown,
     id: string,
-  ) {
+  ): Promise<ReturnType<HarnessStore["proposalReply"]>> {
     if (!z.string().uuid().safeParse(id).success) throw denied();
+    const pinned = await this.pinnedStore(c, dossierId);
+    if (pinned !== this)
+      return pinned.proposeClient(c, accountId, dossierId, patch, id);
     await lockBudget(c, accountId);
     const current = await this.effectiveClient(c, accountId, dossierId),
       context = await this.context(c, accountId, dossierId);
@@ -337,7 +405,7 @@ export class HarnessStore {
     accountId: string,
     id: string,
     decision: "approve" | "reject",
-  ) {
+  ): Promise<{ id: string; state: string; digest: string }> {
     if (
       !z.string().uuid().safeParse(id).success ||
       !["approve", "reject"].includes(decision)
@@ -350,6 +418,8 @@ export class HarnessStore {
       ])
     ).rows[0];
     if (!row) throw denied();
+    const pinned = await this.pinnedStore(c, row.dossier_id);
+    if (pinned !== this) return pinned.decideClient(c, accountId, id, decision);
     if (row.receipt) {
       if (row.decision !== decision)
         throw new ApiFailure(

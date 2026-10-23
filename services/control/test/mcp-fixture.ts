@@ -9,12 +9,12 @@ import { initialEffective } from "../src/harness/resolver";
 import { bindRunCapabilities } from "../src/mcp/authority";
 import { loadCapabilityCatalog, type CapabilityCatalog } from "../src/mcp/registry";
 import { hash } from "../src/mcp/token";
-export async function mcpFixture(catalogOverride?: CapabilityCatalog, declaredCard=false) {
+export async function mcpFixture(catalogOverride?: CapabilityCatalog, declaredCard=false,version="1.0.0") {
   const admin = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/reinlab_test", connectionTimeoutMillis:3000 });
   const pool = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL_APP ?? "postgres://reinlab_app@127.0.0.1:55432/reinlab_test", connectionTimeoutMillis:3000 });
   const db = new Database(pool), account = randomUUID(), dossier = randomUUID(), run = randomUUID(), hold = randomUUID();
   await applyMigrations(admin, resolve("infra/supabase/migrations"));
-  const registry = await loadToolRegistry(), bundle = structuredClone(await loadBenchBundle({ benchId: "research", registry }));
+  const registry = await loadToolRegistry(), bundle = structuredClone(await loadBenchBundle({ benchId: "research", registry,version }));
   if(declaredCard){
     bundle.manifest.version="1.0.0-mcp-fixture-"+randomUUID();
     const schema=JSON.stringify({type:"object",properties:{kind:{const:"finding"},claim:{type:"string",minLength:1}},required:["kind","claim"],additionalProperties:false});
