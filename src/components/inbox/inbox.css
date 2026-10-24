@@ -110,3 +110,24 @@ body.ibx-lock .cine-scene-viewport, body.ibx-lock .cine-fixed-stage { display:no
 
 @media (prefers-reduced-motion: reduce) { .ibx, .ibx-scrim, .ibx-doc, .ibx-bigstamp, .ibx-quote { animation:none; } }
 @media (max-width: 860px) { .ibx-body { grid-template-columns:1fr; } .ibx-list { max-height:34vh; border-right:0; border-bottom:1px solid var(--rh-ink); } .ibx-doc { padding:20px 20px 30px; } .ibx-detail { background:var(--rh-white); } }
+
+/* 原生问题（AI 在问你） */
+.ibx-tag[data-k='ask'] { border-color:var(--rh-accent); color:var(--rh-ink); background:var(--rh-accent-wash); }
+.ibx-src a { margin-left:6px; color:var(--rh-ink); text-decoration:underline; text-underline-offset:3px; }
+.ibx-qs { list-style:none; margin:0 0 6px; padding:0; display:grid; gap:14px; }
+.ibx-qs > li { padding:14px 18px; border:1px solid var(--rh-ink); background:var(--rh-paper); box-shadow:4px 4px 0 var(--rh-paper-3); }
+.ibx-qs h4 { display:flex; align-items:baseline; gap:10px; margin:0 0 10px; font:700 14.5px/1.4 var(--rh-f-ui); }
+.ibx-qs h4 em { font-style:normal; padding:2px 6px; background:var(--rh-ink); color:var(--rh-paper); font:600 10.5px/1.3 var(--rh-f-mono); }
+.ibx-qs h4 small { margin-left:auto; font:400 10.5px/1 var(--rh-f-mono); color:var(--rh-ink-4); }
+.ibx-opts { display:grid; gap:6px; }
+.ibx-opts button { display:grid; grid-template-columns:16px 1fr; align-items:start; gap:10px; padding:9px 12px; border:1px solid var(--rh-line); background:var(--rh-white); text-align:left; color:inherit; }
+.ibx-opts button:hover:not(:disabled) { border-color:var(--rh-ink); }
+.ibx-opts button[aria-checked='true'] { border-color:var(--rh-ink); box-shadow:inset 4px 0 0 var(--rh-accent); }
+.ibx-opts i { margin-top:3px; width:13px; height:13px; border:1.5px solid var(--rh-ink); border-radius:50%; }
+.ibx-opts i[data-multi] { border-radius:0; }
+.ibx-opts button[aria-checked='true'] i { background:var(--rh-ink); box-shadow:inset 0 0 0 2px var(--rh-white); }
+.ibx-opts span { display:grid; gap:3px; } .ibx-opts b { font:600 13.5px/1.35 var(--rh-f-ui); } .ibx-opts small { font:400 12px/1.5 var(--rh-f-read); color:var(--rh-ink-3); }
+.ibx-own { display:grid; grid-template-columns:auto 1fr; align-items:center; gap:10px; margin-top:8px; }
+.ibx-own span { font:500 10.5px/1 var(--rh-f-mono); letter-spacing:.06em; color:var(--rh-ink-4); }
+.ibx-own input { padding:8px 10px; border:1px dashed var(--rh-ink-3); background:var(--rh-white); font:400 13.5px/1.4 var(--rh-f-read); color:var(--rh-ink); }
+.ibx-own input:focus { outline:none; border-style:solid; border-color:var(--rh-ink); box-shadow:inset 3px 0 0 var(--rh-accent); }

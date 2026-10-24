@@ -1,6 +1,6 @@
 # T-MCP-10 单次真实链路计划（本批用户已明确授权）
 
-状态：准备完成，尚未调用真实模型。用户本批原话「都要」明确授权T-MCP-10；此为新任务的唯一工作流，不是重复旧P1-10尝试。
+状态：准备完成，尚未调用真实模型。a7737ab旧转场红灯已由Claude修复并获用户同步授权；本轮执行前置条件为最新CI全绿，授权仍未消费。用户本批原话「都要」明确授权T-MCP-10；此为新任务的唯一工作流，不是重复旧P1-10尝试。
 
 1. 新建专用本地账户及 research@1.1.0 档案。真正OpenScience2.0.150、SDK、插件和生产MCP；三档产品路由 deepseek/deepseek-v4-flash，wire deepseek-flash、thinking.disabled，每轮输出≤1024 token。
 2. 顺序 papers.search→fetch→pages(1)→files.write（once）→cards.card.finding（once）→结束。全文缺失立即停，不把摘要冒充页码，不编造引用。样本 QA-LoRA（OpenAlex W4387156572，OA许可字段other-oa，arxiv.org/pdf/2309.14717）。只读公开预检PDF681578字节、文本层可读；预检不替代新run内实际能力读取与paper_page_read核对。

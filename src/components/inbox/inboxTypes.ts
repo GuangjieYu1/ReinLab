@@ -6,10 +6,13 @@ export type Json = string | number | boolean | null | Json[] | { [k: string]: Js
 export type PromotionTarget = 'L3.profile' | 'L3.preference' | 'L3.procedure' | 'L4.knowledge';
 export type Risk = 'read' | 'write' | 'danger';
 
-export type InboxSource = { bench: string; dossierId: string; dossierTitle: string; runId: string; roleId: string };
+/** href：回到原对话的真实路由；没有就不显示跳转，不用假链接。 */
+export type InboxSource = { bench: string; dossierId: string; dossierTitle: string; runId: string; roleId: string; href?: string };
 export type PromotionItem = { key: string; value: Json; evidence: string[]; supersedes?: string };
 export type InboxPromotion = { id: string; target: PromotionTarget; items: PromotionItem[]; reason: string; createdAt: string; expiresAt: string; source: InboxSource };
-export type InboxApproval = { id: string; runId: string; kind: string; title: string; effects: string[]; risk: Risk; state: 'pending' | 'indeterminate'; sent: boolean; source: InboxSource };
+/** 原生 question：AI 在运行中问你的问题（与后端 question.asked 对齐）。custom 未设或为 true 时允许自己填答案。 */
+export type InboxQuestion = { question: string; header: string; options: { label: string; description: string }[]; multiple?: boolean; custom?: boolean };
+export type InboxApproval = { id: string; runId: string; kind: string; title: string; effects: string[]; risk: Risk; state: 'pending' | 'indeterminate'; sent: boolean; source: InboxSource; questions?: InboxQuestion[] };
 
 export type PromotionDecision =
   | { decision: 'approve' }
@@ -25,7 +28,8 @@ export type SupersededView = { id: string; key: string; value: Json };
 export interface InboxAdapter {
   load(): Promise<{ promotions: InboxPromotion[]; approvals: InboxApproval[] }>;
   decidePromotion(id: string, decision: PromotionDecision): Promise<void>;
-  decideApproval(id: string, decision: 'approve' | 'reject'): Promise<void>;
+  /** kind 为 question 时，批准必须带 answers（每题一组所选标签，顺序与 questions 一致）；驳回不带。 */
+  decideApproval(id: string, decision: 'approve' | 'reject', answers?: string[][]): Promise<void>;
   evidence(ref: string): Promise<EvidenceView>;
   superseded(id: string): Promise<SupersededView | null>;
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BENCH, RISK_TEXT, TARGET, type EvidenceView, type InboxAdapter, type InboxApproval, type InboxPromotion, type Json, type PromotionDecision, type PromotionItem, type SupersededView } from './inboxTypes';
+import { BENCH, RISK_TEXT, TARGET, type EvidenceView, type InboxAdapter, type InboxApproval, type InboxPromotion, type InboxQuestion, type Json, type PromotionDecision, type PromotionItem, type SupersededView } from './inboxTypes';
 import '../../styles/rhine.css';
 import './inbox.css';
 
@@ -8,8 +8,8 @@ import './inbox.css';
 // 不批准就不生效；过期作废，不会默认通过。键盘：↑↓ 切换，A 批准，E 改后批准，L 只存本档案，R 驳回，Esc 稍后处理。
 
 type Entry = { kind: 'promotion'; p: InboxPromotion } | { kind: 'approval'; a: InboxApproval };
-type Done = 'approve' | 'edit' | 'reject' | 'keep_local' | 'approved' | 'rejected';
-const DONE_TEXT: Record<Done, string> = { approve: '已批准', edit: '已修改并批准', reject: '已驳回', keep_local: '只存本档案', approved: '已批准一次', rejected: '已驳回' };
+type Done = 'approve' | 'edit' | 'reject' | 'keep_local' | 'approved' | 'rejected' | 'answered';
+const DONE_TEXT: Record<Done, string> = { approve: '已批准', edit: '已修改并批准', reject: '已驳回', keep_local: '只存本档案', approved: '已批准一次', rejected: '已驳回', answered: '已回答' };
 const idOf = (e: Entry) => (e.kind === 'promotion' ? e.p.id : e.a.id);
 
 function ago(iso: string) {
@@ -42,6 +42,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
   const [editing, setEditing] = useState<(Record<string, string> | string)[] | null>(null);
   const [openEv, setOpenEv] = useState<Record<string, EvidenceView | 'loading' | 'missing'>>({});
   const [old, setOld] = useState<Record<string, SupersededView | null>>({});
+  const [answers, setAnswers] = useState<Record<string, string[][]>>({});
   const sheet = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -79,13 +80,14 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
     setBusy(true); setError('');
     try {
       if (cur.kind === 'promotion' && typeof d === 'object') await adapter.decidePromotion(cur.p.id, d);
-      else if (cur.kind === 'approval') await adapter.decideApproval(cur.a.id, d === 'approve-once' ? 'approve' : 'reject');
-      const mark: Done = d === 'approve-once' ? 'approved' : d === 'reject-once' ? 'rejected' : (d as PromotionDecision).decision;
+      else if (cur.kind === 'approval') await adapter.decideApproval(cur.a.id, d === 'approve-once' ? 'approve' : 'reject', d === 'approve-once' && cur.a.questions ? answers[cur.a.id] : undefined);
+      const mark: Done = d === 'approve-once' ? (cur.kind === 'approval' && cur.a.kind === 'question' ? 'answered' : 'approved') : d === 'reject-once' ? 'rejected' : (d as PromotionDecision).decision;
       setDone(m => ({ ...m, [idOf(cur)]: mark })); setEditing(null);
       window.setTimeout(() => next(idOf(cur)), 650);
     } catch { setError('没有提交成功，这一条保持原样，可以再点一次。'); }
     finally { setBusy(false); }
   }
+  const answered = (a: InboxApproval) => !a.questions || a.questions.every((_, i) => (answers[a.id]?.[i] ?? []).some(x => x.trim()));
   function startEdit() { if (cur?.kind === 'promotion' && !done[cur.p.id]) setEditing(cur.p.items.map(it => editable(it.value))); }
   function saveEdit() {
     if (cur?.kind !== 'promotion' || !editing) return;
@@ -112,7 +114,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
     else if (k === 'arrowdown' || k === 'j') { const n = entries[Math.min(entries.length - 1, i + 1)]; if (n) setSel(idOf(n)); }
     else if (k === 'arrowup' || k === 'k') { const n = entries[Math.max(0, i - 1)]; if (n) setSel(idOf(n)); }
     else if (!cur || editing) return;
-    else if (k === 'a') void decide(cur.kind === 'promotion' ? { decision: 'approve' } : 'approve-once');
+    else if (k === 'a') { if (cur.kind === 'approval' && !answered(cur.a)) return; void decide(cur.kind === 'promotion' ? { decision: 'approve' } : 'approve-once'); }
     else if (k === 'r') void decide(cur.kind === 'promotion' ? { decision: 'reject' } : 'reject-once');
     else if (k === 'e' && cur.kind === 'promotion') startEdit();
     else if (k === 'l' && cur.kind === 'promotion') void decide({ decision: 'keep_local' });
@@ -136,7 +138,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
     const title = e.kind === 'promotion' ? (e.p.items.length > 1 ? `${e.p.items[0].key} 等 ${e.p.items.length} 条` : e.p.items[0].key) : e.a.title;
     const exp = e.kind === 'promotion' ? left(e.p.expiresAt) : null;
     return <button key={id} className="ibx-row" aria-current={id === sel || undefined} data-done={d || undefined} onClick={() => { setSel(id); setEditing(null); }}>
-      <span className="ibx-tag" data-k={e.kind === 'promotion' ? TARGET[e.p.target].layer : e.a.risk}>{e.kind === 'promotion' ? TARGET[e.p.target].layer : e.a.risk === 'danger' ? '危' : '写'}</span>
+      <span className="ibx-tag" data-k={e.kind === 'promotion' ? TARGET[e.p.target].layer : e.a.kind === 'question' ? 'ask' : e.a.risk}>{e.kind === 'promotion' ? TARGET[e.p.target].layer : e.a.kind === 'question' ? '问' : e.a.risk === 'danger' ? '危' : '写'}</span>
       <span className="ibx-row-main"><b>{title}</b><small>{e.kind === 'promotion' ? `${TARGET[e.p.target].name} · ${e.p.source.dossierTitle}` : e.a.state === 'indeterminate' ? '结果未知 · 等待核对' : `${BENCH[e.a.source.bench]?.name ?? e.a.source.bench} · ${e.a.source.dossierTitle}`}</small></span>
       {d ? <em className="ibx-stamp-s">{DONE_TEXT[d]}</em> : exp ? <em className="ibx-exp" data-soon={exp.soon || undefined}>{exp.text.replace('后作废', '')}</em> : null}
     </button>;
@@ -165,7 +167,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
           {entries === null ? <p className="ibx-loading">正在读取收件箱…</p>
             : allDone && !cur ? <div className="ibx-clear"><span className="ibx-bigstamp">已清空</span><p>处理了 {handled} 件事。批准的内容从下一次读取开始生效，驳回的不会再提。</p><button className="ibx-go" onClick={onClose}>进入终端</button></div>
             : cur?.kind === 'promotion' ? <PromotionView p={cur.p} d={done[cur.p.id]} editing={editing} setEditing={setEditing} openEv={openEv} toggle={toggleEvidence} old={old} />
-            : cur?.kind === 'approval' ? <ApprovalView a={cur.a} d={done[cur.a.id]} />
+            : cur?.kind === 'approval' ? <ApprovalView a={cur.a} d={done[cur.a.id]} answers={answers[cur.a.id] ?? []} setAnswers={v => setAnswers(m => ({ ...m, [cur.a.id]: v }))} />
             : <p className="ibx-loading">选一条开始处理。</p>}
         </article>
       </div>
@@ -181,6 +183,10 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
             <button className="ibx-btn is-solid" onClick={() => decide({ decision: 'approve' })} disabled={busy}>批准<kbd>A</kbd></button></>)}
         {cur?.kind === 'approval' && !done[cur.a.id] && (cur.a.state === 'indeterminate'
           ? <span className="ibx-hint">这个动作已经发出、结果未知；不会自动重发，核对完会自动从这里消失。</span>
+          : cur.a.kind === 'question'
+          ? <><span className="ibx-hint">{answered(cur.a) ? '回答会原样交给提问的 Agent' : '每个问题都要回答后才能提交'}</span>
+            <button className="ibx-btn" onClick={() => decide('reject-once')} disabled={busy}>不回答<kbd>R</kbd></button>
+            <button className="ibx-btn is-solid" onClick={() => decide('approve-once')} disabled={busy || !answered(cur.a)}>提交回答<kbd>A</kbd></button></>
           : <><span className="ibx-hint">{RISK_TEXT[cur.a.risk]} · 只放行这一次，参数变了要重新批准</span>
             <button className="ibx-btn" onClick={() => decide('reject-once')} disabled={busy}>驳回<kbd>R</kbd></button>
             <button className="ibx-btn is-solid" onClick={() => decide('approve-once')} disabled={busy}>批准这一次<kbd>A</kbd></button></>)}
@@ -192,7 +198,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
 
 function Source({ s, at }: { s: InboxPromotion['source']; at?: string }) {
   const b = BENCH[s.bench];
-  return <p className="ibx-src"><code>{b?.code ?? s.bench}</code>{b?.name ?? s.bench} · 《{s.dossierTitle}》 · {s.roleId}{at && <> · {ago(at)}</>}</p>;
+  return <p className="ibx-src"><code>{b?.code ?? s.bench}</code>{b?.name ?? s.bench} · 《{s.dossierTitle}》 · {s.roleId}{at && <> · {ago(at)}</>}{s.href && <a href={s.href}>打开档案 ↗</a>}</p>;
 }
 
 function PromotionView({ p, d, editing, setEditing, openEv, toggle, old }: {
@@ -213,7 +219,7 @@ function PromotionView({ p, d, editing, setEditing, openEv, toggle, old }: {
       {it.supersedes && <div className="ibx-old"><small>将替换旧条目</small>{old[it.supersedes] ? <s>{typeof old[it.supersedes]!.value === 'string' ? old[it.supersedes]!.value as string : JSON.stringify(old[it.supersedes]!.value)}</s> : <s>读取中…</s>}</div>}
       <div className="ibx-ev"><small>依据</small>{it.evidence.map(ref => { const v = openEv[ref]; return <button key={ref} aria-expanded={!!v && v !== 'loading'} onClick={() => toggle(ref)}>{v && typeof v === 'object' ? v.kind : '依据'} {it.evidence.indexOf(ref) + 1}</button>; })}</div>
       {it.evidence.map(ref => { const v = openEv[ref]; if (!v) return null; return <blockquote key={ref} className="ibx-quote">
-        {v === 'loading' ? '正在读取原文…' : v === 'missing' ? '这条依据已经找不到了。批准前建议先驳回或只存本档案。' : <><b>{v.title}</b><q>{v.quote}</q><footer>{v.kind} · {ago(v.at)}{v.href && <a href={v.href} onClick={e => e.preventDefault()}>回到原对话 ↗</a>}</footer></>}
+        {v === 'loading' ? '正在读取原文…' : v === 'missing' ? '这条依据已经找不到了。批准前建议先驳回或只存本档案。' : <><b>{v.title}</b><q>{v.quote}</q><footer>{v.kind} · {ago(v.at)}{v.href && <a href={v.href}>回到原对话 ↗</a>}</footer></>}
       </blockquote>; })}
     </li>)}</ol>
     <section className="ibx-why"><h5>为什么值得记住</h5><p>{p.reason}</p></section>
@@ -221,13 +227,37 @@ function PromotionView({ p, d, editing, setEditing, openEv, toggle, old }: {
   </div>;
 }
 
-function ApprovalView({ a, d }: { a: InboxApproval; d?: Done }) {
+function ApprovalView({ a, d, answers, setAnswers }: { a: InboxApproval; d?: Done; answers: string[][]; setAnswers: (v: string[][]) => void }) {
   return <div className="ibx-doc" key={a.id}>
     {d && <span className="ibx-bigstamp" data-k={d}>{DONE_TEXT[d]}</span>}
-    <div className="ibx-meta"><span className="ibx-layer" data-risk={a.risk}><b>{a.risk === 'danger' ? '危险' : '写入'}</b>{a.kind}</span><Source s={a.source} /></div>
+    <div className="ibx-meta"><span className="ibx-layer" data-risk={a.risk}><b>{a.kind === 'question' ? '提问' : a.risk === 'danger' ? '危险' : '写入'}</b>{a.kind === 'question' ? 'AI 在问你' : a.kind}</span><Source s={a.source} /></div>
     <h2>{a.title}</h2>
+    {a.questions && <Questions qs={a.questions} answers={answers} set={setAnswers} locked={!!d} />}
     {a.state === 'indeterminate' && <p className="ibx-warn"><b>结果未知</b>上次批准后已经发出，但没有收到结果。为了不重复执行，这里不会再发一次；核对完会自动消失。</p>}
     <section className="ibx-effect"><h5>会发生什么</h5><ul>{a.effects.map(x => <li key={x}>{x}</li>)}</ul></section>
-    <section className="ibx-why"><h5>为什么在这里</h5><p>这个动作不阻塞运行，所以等你上线时一起处理。批准只放行这一次；参数一变就要重新批准。</p></section>
+    <section className="ibx-why"><h5>为什么在这里</h5><p>{a.kind === 'question' ? '提问的 Agent 停在这里等你；回答只对这一次运行有效，不会写进长期记忆。' : '这个动作不阻塞运行，所以等你上线时一起处理。批准只放行这一次；参数一变就要重新批准。'}</p></section>
   </div>;
+}
+
+/** 原生问题：单选 / 多选；允许自定义时可以写自己的答案。答案按题目顺序组成 string[][]。 */
+function Questions({ qs, answers, set, locked }: { qs: InboxQuestion[]; answers: string[][]; set: (v: string[][]) => void; locked: boolean }) {
+  const [own, setOwn] = useState<Record<number, string>>({});
+  const at = (i: number) => answers[i] ?? [];
+  const put = (i: number, v: string[]) => set(qs.map((_, k) => (k === i ? v : at(k))));
+  const pick = (i: number, label: string) => {
+    const q = qs[i], cur = at(i);
+    put(i, q.multiple ? (cur.includes(label) ? cur.filter(x => x !== label) : [...cur, label]) : [label]);
+  };
+  return <ol className="ibx-qs">{qs.map((q, i) => {
+    const allowOwn = q.custom !== false, mine = own[i] ?? '';
+    return <li key={i}>
+      <h4><em>{q.header}</em>{q.question}<small>{q.multiple ? '可多选' : '单选'}</small></h4>
+      <div className="ibx-opts" role={q.multiple ? 'group' : 'radiogroup'} aria-label={q.question}>
+        {q.options.map(o => { const on = at(i).includes(o.label); return <button key={o.label} role={q.multiple ? 'checkbox' : 'radio'} aria-checked={on} disabled={locked} onClick={() => pick(i, o.label)}>
+          <i aria-hidden="true" data-multi={q.multiple || undefined} /><span><b>{o.label}</b><small>{o.description}</small></span></button>; })}
+      </div>
+      {allowOwn && <label className="ibx-own"><span>自己写</span><input value={mine} disabled={locked} placeholder="都不合适时写你的答案"
+        onChange={e => { const v = e.target.value; setOwn(m => ({ ...m, [i]: v })); const base = at(i).filter(x => q.options.some(o => o.label === x)); put(i, v.trim() ? (q.multiple ? [...base, v.trim()] : [v.trim()]) : (q.multiple ? base : [])); }} /></label>}
+    </li>;
+  })}</ol>;
 }

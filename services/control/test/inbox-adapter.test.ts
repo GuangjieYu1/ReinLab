@@ -23,3 +23,29 @@ it('failed decisions propagate so the component cannot paint success; exact user
  const decide=vi.fn().mockRejectedValueOnce(Error('reply lost')).mockResolvedValueOnce({});const adapter=createLiveInboxAdapter({generation:()=>1,api:vi.fn(),decide,inbox:async()=>({promotions:[promotion],approvals:[]})} as any);await adapter.load();
  await expect(adapter.decidePromotion('promotion-a',{decision:'approve'})).rejects.toThrow('reply lost');await adapter.decidePromotion('promotion-a',{decision:'approve'});expect(decide.mock.calls[0]).toEqual(decide.mock.calls[1]);
 });
+
+it('maps native question fields and forwards the exact ordered answer arrays to the existing decision API', async () => {
+  const questions = [
+    { question: '选取验证方法', header: '验证', options: [{ label: '复跑', description: '真实测试' }, { label: '核查', description: '检查来源' }], multiple: true, custom: false },
+    { question: '还有什么要求？', header: '补充', options: [{ label: '无', description: '直接继续' }] },
+  ];
+  const native = { id: 'question-a', kind: 'question', runId: 'run-a', state: 'pending', sent: false, risk: 'write', title: '问题等待你的回答', source, effects: [{ source: { type: 'question.asked' }, properties: { id: 'native-private-id', questions } }] };
+  const decide = vi.fn();
+  const adapter = createLiveInboxAdapter({ generation: () => 1, api: vi.fn(), decide, inbox: async () => ({ promotions: [], approvals: [native] }) } as any);
+  const loaded = await adapter.load();
+  expect(loaded.approvals[0].questions).toEqual(questions);
+  expect(loaded.approvals[0].source.href).toBeUndefined();
+  const answers = [['核查', '复跑'], [' 保留原始空格的自定义回答 ']];
+  await adapter.decideApproval('question-a', 'approve', answers);
+  expect(decide).toHaveBeenCalledWith('approval', 'question-a', { decision: 'approve', scope: 'once', answers });
+  expect(decide.mock.calls[0][2].answers).toBe(answers);
+});
+
+it('does not normalize invalid question answers or turn a backend validation rejection into success', async () => {
+  const decide = vi.fn().mockRejectedValue(Error('backend rejected answers'));
+  const adapter = createLiveInboxAdapter({ generation: () => 1, api: vi.fn(), decide, inbox: async () => ({ promotions: [], approvals: [{ id: 'question-a', kind: 'question', state: 'pending', sent: false }] }) } as any);
+  await adapter.load();
+  const answers = [[], ['重复', '重复']];
+  await expect(adapter.decideApproval('question-a', 'approve', answers)).rejects.toThrow('backend rejected answers');
+  expect(decide.mock.calls[0][2].answers).toBe(answers);
+});

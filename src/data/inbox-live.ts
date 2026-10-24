@@ -1,4 +1,4 @@
-import type { InboxAdapter, InboxPromotion, PromotionItem, EvidenceView } from '../components/inbox/inboxTypes';
+import type { InboxAdapter, InboxPromotion, InboxQuestion, PromotionItem, EvidenceView } from '../components/inbox/inboxTypes';
 import { api, decide, inbox, sessionGeneration } from './research-live';
 
 type Ports = { api: typeof api; decide: typeof decide; inbox: typeof inbox; generation: typeof sessionGeneration };
@@ -14,6 +14,22 @@ function effects(value: unknown): string[] {
   if (value === undefined || value === null) return [];
   // API has already scrubbed private metadata. Text nodes remain escaped by Claude's component.
   return [JSON.stringify(value, null, 2)];
+}
+function nativeQuestions(value: unknown): InboxQuestion[] | undefined {
+  if (!Array.isArray(value) || value.length !== 1) return undefined;
+  const event = value[0];
+  if (!object(event) || event.source?.type !== 'question.asked' || !object(event.properties)) return undefined;
+  const questions = event.properties.questions;
+  if (!Array.isArray(questions) || questions.length === 0 || questions.length > 64 || questions.some(q =>
+    !object(q) || typeof q.question !== 'string' || typeof q.header !== 'string' ||
+    !Array.isArray(q.options) || q.options.length > 64 || q.options.some((o: unknown) => !object(o) || typeof o.label !== 'string' || typeof o.description !== 'string') ||
+    (q.multiple !== undefined && typeof q.multiple !== 'boolean') || (q.custom !== undefined && typeof q.custom !== 'boolean')
+  )) return undefined;
+  return questions.map(q => ({ question: q.question, header: q.header,
+    options: q.options.map((o: { label: string; description: string }) => ({ label: o.label, description: o.description })),
+    ...(q.multiple === undefined ? {} : { multiple: q.multiple }),
+    ...(q.custom === undefined ? {} : { custom: q.custom }),
+  }));
 }
 export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, generation: sessionGeneration }): InboxAdapter {
   let generation = -1;
@@ -33,7 +49,7 @@ export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, gene
       promotions = new Map(mapped.map(p => [p.id, p]));
       approvals = new Map(data.approvals.map(a => [a.id, a]));
       generation = expected;
-      return { promotions: mapped, approvals: data.approvals.map(a => ({ ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects(a.effects) })) };
+      return { promotions: mapped, approvals: data.approvals.map(a => ({ ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects(a.effects), ...(a.kind === 'question' ? { questions: nativeQuestions(a.effects) } : {}) })) };
     },
     async decidePromotion(id, decision) {
       current();
@@ -41,12 +57,12 @@ export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, gene
       await ports.decide('promotion', id, decision);
       current();
     },
-    async decideApproval(id, decision) {
+    async decideApproval(id, decision, answers) {
       current();
       const entry = approvals.get(id);
-      if (!entry || entry.state !== 'pending' || entry.sent || (entry.kind === 'question' && decision === 'approve')) throw unavailable();
-      // InboxAdapter has no answer fields: never invent an answer to approve a native question.
-      await ports.decide('approval', id, { decision, scope: 'once' });
+      if (!entry || entry.state !== 'pending' || entry.sent || (entry.kind === 'question' && decision === 'approve' && answers === undefined)) throw unavailable();
+      // Keep labels, ordering and whitespace intact; the native decision API validates the answers.
+      await ports.decide('approval', id, { decision, scope: 'once', ...(answers === undefined ? {} : { answers }) });
       current();
     },
     async evidence(ref) {

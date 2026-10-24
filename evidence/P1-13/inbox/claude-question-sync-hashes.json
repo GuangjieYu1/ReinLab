@@ -1,0 +1,56 @@
+{
+  "syncedAt": "2026-10-24T17:26:00.404195+00:00",
+  "sourceRoot": "/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab",
+  "authorization": "用户2026-10-25指定7文件；转场断言由Claude前端负责人修改，后端原样同步",
+  "files": [
+    {
+      "file": "src/components/inbox/inboxTypes.ts",
+      "sourceSha256": "8b9d8aa8d2b21b51893f0e109d193bfcd728dd8a48c9fd1478da9ec1bea94a63",
+      "previousSha256": "22a91b7ae2d48595a6fd7b0832711d2082e96192297e0ffc339acab0172914a4",
+      "syncedSha256": "8b9d8aa8d2b21b51893f0e109d193bfcd728dd8a48c9fd1478da9ec1bea94a63",
+      "byteIdentical": true
+    },
+    {
+      "file": "src/components/inbox/InboxPanel.tsx",
+      "sourceSha256": "48695733e2f86e5129e4f54c400238da2ba7b63eeeac04b617c2a60f3dcd601a",
+      "previousSha256": "9870b722a4a48d68cf5146a5d4bc8b62d5afd60f77bd0f7b75071554995c54dd",
+      "syncedSha256": "48695733e2f86e5129e4f54c400238da2ba7b63eeeac04b617c2a60f3dcd601a",
+      "byteIdentical": true
+    },
+    {
+      "file": "src/components/inbox/mockInbox.ts",
+      "sourceSha256": "511a6af959c0fc541d19b05f1f698b2625841180008638e25296d770f8daea61",
+      "previousSha256": "0a26d85c3ab743f227930cfdc2bb633ec8cf72947ee71567cab58f412cd83576",
+      "syncedSha256": "511a6af959c0fc541d19b05f1f698b2625841180008638e25296d770f8daea61",
+      "byteIdentical": true
+    },
+    {
+      "file": "src/components/inbox/inbox.css",
+      "sourceSha256": "7e9a0aa5aed6d6046c113e0b03bc564e437972d8eff6736f0c1942e9eb032018",
+      "previousSha256": "a7bf445a6c6b93363d53f255096c687d70fb6386957ed46778b1734f08d61fa1",
+      "syncedSha256": "7e9a0aa5aed6d6046c113e0b03bc564e437972d8eff6736f0c1942e9eb032018",
+      "byteIdentical": true
+    },
+    {
+      "file": "e2e/legacy/scenarios/16-entry-rsch.mjs",
+      "sourceSha256": "3b39c90c633b13507038cce794121695d0b225a1951741665a6d644f50d0b546",
+      "previousSha256": "5b03150d90c0388a75e890bc430411893c1af5f04fdada80d55e4a4c61f25be5",
+      "syncedSha256": "3b39c90c633b13507038cce794121695d0b225a1951741665a6d644f50d0b546",
+      "byteIdentical": true
+    },
+    {
+      "file": "e2e/legacy/scenarios/17-entry-engr.mjs",
+      "sourceSha256": "8d1ef79a1afb3292d46fb68dc679bac93ba6a6eb49328b8b1b8f23f33848c9c3",
+      "previousSha256": "093183bf2270f782cceb9c56b897cdeaaf7d672b329f8c4cb6f7a11ca7c9ff92",
+      "syncedSha256": "8d1ef79a1afb3292d46fb68dc679bac93ba6a6eb49328b8b1b8f23f33848c9c3",
+      "byteIdentical": true
+    },
+    {
+      "file": "e2e/legacy/scenarios/19-inbox.mjs",
+      "sourceSha256": "0c9833ac79d6fe670d4dd3c3b5fecad2e845fcb2e88c349a0ae2df4ed4b98e07",
+      "previousSha256": "aaf0e528f4163541450c836a66291fe7ff6c7fc71b5a847faa761bb564aacafe",
+      "syncedSha256": "0c9833ac79d6fe670d4dd3c3b5fecad2e845fcb2e88c349a0ae2df4ed4b98e07",
+      "byteIdentical": true
+    }
+  ]
+}

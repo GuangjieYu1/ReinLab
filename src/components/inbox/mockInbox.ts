@@ -47,6 +47,12 @@ export const APPROVALS: InboxApproval[] = [
     effects: ['新建 1 个文件，约 1.2 KB', '内容是上面那条 L4 知识的长版本，带 3 处页码引用', '写入后可以在档案里撤销'] },
   { id: 'a-source', runId: 'run-automation-5', kind: 'live.params.set', title: 'LV-01 新能源车舆情 · 来源加上「短视频」', risk: 'write', state: 'pending', sent: false, source: src('automation', '新能源车舆情', 'maintainer', 5),
     effects: ['运行器会放行 1 个新域名', '下一拍开始生效，可以一键回到上一版'] },
+  { id: 'a-question', runId: 'run-research-7', kind: 'question', title: '群研第二轮：先往哪个方向查？', risk: 'read', state: 'pending', sent: false, source: src('research', '稀疏专家路由的稳定性', 'swarm-lead', 7),
+    effects: ['群研指挥暂停在第二轮开始前，等你回答', '回答后按你的选择分派 4 个子 Agent', '不回答也可以驳回，这一轮会结束'],
+    questions: [
+      { header: '方向', question: '第二轮先集中在哪个方向？', options: [{ label: '路由塌缩的成因', description: '读 3 篇近期分析论文，找共同机制' }, { label: '容量因子的工程取舍', description: '对比 4 个开源实现的默认值与报告' }, { label: '两边各一半', description: '每边 2 个子 Agent，深度会浅一些' }] },
+      { header: '来源', question: '允许用哪些来源？', multiple: true, custom: false, options: [{ label: 'arXiv', description: '预印本，最新但未审稿' }, { label: '会议论文', description: 'NeurIPS / ICML / ICLR' }, { label: '技术博客', description: '工程经验，引用时要标注' }] },
+    ] },
   { id: 'a-unknown', runId: 'run-research-6', kind: 'files.write', title: '写入 read/layers/03-method.md', risk: 'write', state: 'indeterminate', sent: true, source: src('research', '稀疏专家路由的稳定性', 'research-read', 6),
     effects: ['你上次已批准，但发出后连接中断，结果未知', '不会自动重发；核对后会出现在档案的写入记录里'] },
 ];
@@ -71,8 +77,13 @@ export function mockAdapter(): InboxAdapter {
   return {
     async load() { await wait(160); return { promotions, approvals }; },
     async decidePromotion(id: string, _d: PromotionDecision) { await wait(220); promotions = promotions.filter(p => p.id !== id); },
-    async decideApproval(id: string) { await wait(220); approvals = approvals.filter(a => a.id !== id); },
-    async evidence(ref: string) { await wait(120); const e = EVIDENCE[ref]; if (!e) throw new Error('EVIDENCE_NOT_FOUND'); return { ref, ...e, href: '#' }; },
+    async decideApproval(id: string, decision: 'approve' | 'reject', answers?: string[][]) {
+      await wait(220);
+      const a = approvals.find(x => x.id === id);
+      if (a?.kind === 'question' && decision === 'approve' && (!answers || answers.length !== a.questions?.length || answers.some(x => !x.length))) throw new Error('INVALID_ANSWER');
+      approvals = approvals.filter(x => x.id !== id);
+    },
+    async evidence(ref: string) { await wait(120); const e = EVIDENCE[ref]; if (!e) throw new Error('EVIDENCE_NOT_FOUND'); return { ref, ...e }; },
     async superseded(id: string) { await wait(80); return OLD[id] ?? null; },
   };
 }
