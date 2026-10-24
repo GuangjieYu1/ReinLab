@@ -11,7 +11,7 @@ import pg from "pg";
 import { chromium } from "playwright";
 import { readRuntimeConfiguration } from "../src/configuration";
 import { Database } from "../src/db/database";
-import { createApp } from "../src/api/app";
+import { createSmokeApp } from "../src/api/smoke-app";
 import { CapabilityAuthority } from "../src/mcp/authority";
 import { ensureSigningKey, hash } from "../src/mcp/token";
 import { CapabilityEngine } from "../src/mcp/engine";
@@ -184,13 +184,13 @@ try {
   stage = "trusted_control";
   await stopOwnedControl(paths.process, resolve("tooling/local/control.ts"));
   controlStopped = true;
-  const app = await createApp({
+  const app = await createSmokeApp({
     pool,
     harness,
     pipeline,
     mcp,
     auth: { issuer: config.SUPABASE_URL + "/auth/v1" },
-  });
+  }, config);
   server = serve({ fetch: app.fetch, hostname: "0.0.0.0", port: 3001 });
   await new Promise<void>((done) =>
     server!.listening ? done() : server!.once("listening", done)

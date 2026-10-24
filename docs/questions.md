@@ -271,3 +271,7 @@ InboxAdapter只有approve/reject，无原生question的answers；因此live适�
 ### Q-094 Q-085/Q-093已由前端负责人解决，按用户授权恢复（2026-10-25）
 
 用户明确指定同步Claude更新的四个inbox文件及三个场景，七文件原样复制并记录哈希。转场断言修改来自Claude前端负责人，后端没有另改场景。原生question从既有effects的question.asked事件映射到questions，五类字段原样保留；answers二维数组不去重、排序或trim，仍交已有后端严格校验。当前LiveResearch无按run/event定位原对话的真实路由，因此source.href/evidence.href均不伪造；这已符合新接口允许留空的约定。原T-MCP-10授权仍未消费，待最新CI全绿执行一次。
+
+### Q-095 T-MCP-10单次预估失败与新授权（2026-10-25，待决定）
+
+26e4940的全部10项CI终态成功后只执行一次。新1.1.0档案创建，预估HTTP503；无run/estimate/usage、未创建守卫或模型转发标记，真实模型0调用，专用key账单0请求/0tokens/¥0.00。根因为单次临时控制面漏传文件pricing配置，已提取createSmokeApp与常规main一样显式注入，真实API/RLS fixture复现503后按原201/六位小数合同通过；只读真实models.dev预估成功。没有重启执行器。推荐先由Claude审代码与故障证据，再由用户给新的明确单次授权和新计划做真实复验；本次不假定“还没花钱就能重跑”。证据evidence/P1-13/T-MCP-10/。

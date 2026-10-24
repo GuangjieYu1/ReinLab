@@ -1,0 +1,20 @@
+{
+  "observedAt": "2026-10-24T17:44:38.031471+00:00",
+  "timezone": "Asia/Shanghai",
+  "apiKeyAlias": "ReinLab",
+  "requests": 0,
+  "tokens": 0,
+  "costCny": "0.00",
+  "credentialPopupClosed": true,
+  "sourceSha256": "b9b730fad0d91be3870c3fd1c1b713649ab7412958119d01c132da2b9b600486",
+  "crop": [
+    750,
+    700,
+    2700,
+    1694
+  ],
+  "sourceDimensions": [
+    2940,
+    1694
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "authorization": "第六批T-MCP-10单次执行；失败后未重跑",
+  "actualModelRequests": 0,
+  "reason": "预估HTTP503，guard尚未创建、无run/usage/estimate",
+  "runs": 0,
+  "usage_rows": 0,
+  "estimates": 0,
+  "modelForwardMarkerExists": false,
+  "controlRestored": true,
+  "cleanupFailures": []
+}

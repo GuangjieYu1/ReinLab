@@ -1,0 +1,50 @@
+{
+  "at": "2026-10-24T17:35:11.540Z",
+  "realInfrastructure": true,
+  "modelRequests": 0,
+  "upgrades": {
+    "applied": 0,
+    "reused": 2
+  },
+  "passed": 9,
+  "failed": 0,
+  "completed": true,
+  "results": [
+    {
+      "name": "real_auth_registration_and_login",
+      "passed": true
+    },
+    {
+      "name": "auth_trigger_queue_and_two_real_account_containers",
+      "passed": true
+    },
+    {
+      "name": "real_auth_jwt_control_api_and_cross_account_rls",
+      "passed": true
+    },
+    {
+      "name": "real_vault_envelope_and_private_metadata_denied",
+      "passed": true
+    },
+    {
+      "name": "isolated_named_volume_probe",
+      "passed": true
+    },
+    {
+      "name": "explicit_image_upgrade_keeps_volume_and_credential_envelope",
+      "passed": true
+    },
+    {
+      "name": "real_account_container_reaches_its_control_health_endpoint",
+      "passed": true
+    },
+    {
+      "name": "real_private_storage_snapshot_and_account_access_denied",
+      "passed": true
+    },
+    {
+      "name": "real_container_restart_keeps_volume_and_envelope",
+      "passed": true
+    }
+  ]
+}
