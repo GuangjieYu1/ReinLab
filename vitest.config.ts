@@ -7,6 +7,6 @@ import viteConfig from "./vite.config";
 export default mergeConfig(
   viteConfig,
   defineConfig({
-    test: { exclude:[...configDefaults.exclude,"**/dist/**"], maxWorkers: Math.max(1, Math.min(4, availableParallelism() - 1)) },
+    test: { globalSetup:["./tooling/native-preflight.mjs"], exclude:[...configDefaults.exclude,"**/dist/**","**/.artifacts/**"], maxWorkers: Math.max(1, Math.min(4, availableParallelism() - 1)) },
   }),
 );

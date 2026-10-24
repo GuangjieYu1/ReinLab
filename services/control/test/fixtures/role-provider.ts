@@ -5,6 +5,7 @@ import { mkdir, writeFile, realpath, chmod } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
+import { requireNativeArtifact } from "../../../account-runtime/artifact.mjs";
 import { accountGlobalConfiguration } from "../../../../infra/fly/account-entrypoint.mjs";
 
 export interface FixtureCall {
@@ -206,9 +207,7 @@ export async function startNativeRoleServer(
     JSON.stringify(config),
     { mode: 0o600 },
   );
-  const binary = resolve(
-    "dist/account-runtime/reinlab-openscience",
-  );
+  const binary = requireNativeArtifact();
   const portProbe = createServer();
   const portURL = await listen(portProbe);
   const port = new URL(portURL).port;

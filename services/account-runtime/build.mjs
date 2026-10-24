@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
-const out = path.resolve(here, "../../dist/account-runtime"),
+const out = path.resolve(here, "../../.artifacts/account-runtime"),
   source = path.join(out, "upstream");
 const pin = JSON.parse(
   await readFile(path.join(here, "build-inputs/source.json"), "utf8"),

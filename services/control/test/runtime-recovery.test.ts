@@ -1,3 +1,5 @@
+import { requireNativeArtifact } from "../../account-runtime/artifact.mjs";
+requireNativeArtifact();
 import { expect, it } from 'vitest';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

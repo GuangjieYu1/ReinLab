@@ -19,3 +19,5 @@ ios/App/output/
 infra/supabase/.temp/
 infra/supabase/.branches/
 .local/
+
+.artifacts/
