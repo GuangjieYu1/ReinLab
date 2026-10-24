@@ -4,6 +4,9 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Chevron
 import { platforms, type Platform } from '../../model';
 import { isLearningStore, LEARNING_KEY, subjectIds, type SubjectId } from '../classroom/learningState';
 import BootStage, { CinematicBrand, type BootStageHandle } from './BootStage';
+import InboxHost from '../inbox/InboxHost';
+import { liveBackend } from '../../data/research-live';
+import { liveInboxAdapter } from '../../data/inbox-live';
 import LoginGate from './LoginGate';
 import { AmbientScore, type AudioStatus } from './AmbientScore';
 import { animateArchiveUnfold, startArchiveApproach, type OpeningRect } from './archiveOpening';
@@ -556,6 +559,7 @@ export default function CinematicExperience({ active, reduced, replayRequest, cl
     {(mode !== 'ready' && mode !== 'classroom' && mode !== 'research' || archiveVisible || detailVisible) && <nav className="cine-system-nav" aria-label="档案终端导航" inert={sharedTransitionPhase !== null}>
       {isFilm ? <button onClick={skip}>ENTER SYSTEM <span>跳过演出</span><ArrowUpRight size={17} /></button> : <>
         <button onClick={() => leave(onWorkbench)}><Grid2X2 size={14} /> 工作台</button>
+        <InboxHost autoOpen={archiveVisible && !sharedTransitionPhase} adapter={liveBackend ? liveInboxAdapter : undefined} />
         {mode === 'archive' && config.id === 'learning' && <button onClick={() => enterOpenMAIC('workspace', reduced)}>OpenMAIC · 聊天主页<ArrowUpRight size={14} /></button>}
         <button onClick={start} disabled={reduced} aria-label="重播完整演出"><RotateCcw size={14} /><span>REINITIALIZE</span></button>
       </>}

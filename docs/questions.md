@@ -234,3 +234,9 @@ BACKEND_MEMORY_SESSION §13要求evidence为eventRef并能回到原对话/作答
 
 ## Q-084（第五批，局部网络故障）Docker Hub IPv6连接重置
 冷启动最终镜像构建时，宿主Docker认证客户端IPv6连接被重置；IPv4探测正常。仅构建期间使用127.0.0.1 CONNECT代理，目的地白名单auth.docker.io:443/registry-1.docker.io:443，TCP选IPv4，TLS保持端到端，不解码/记录请求；进程结束关闭。未修改项目鉴权、镜像内容或全局网络策略，试验VM hosts已恢复、临时私有Docker认证配置已删除。最终镜像真实构建、4账户稳定操作ID升级并健康；不是云端验收。
+
+## Q-085（第六批，Claude收件箱接口边界）问答与来源跳转
+InboxAdapter只有approve/reject，无原生question的answers；因此live适配器不捏造答案，question仅可reject，approve失败并保留原项。已有API问答能力不删。EvidenceView映射真实同来源eventRef原文；目前Claude组件对href点击preventDefault且未给真实对话路由，因此不设置虚假href（尤其不使用#），原文查看仍可用。后续问答输入和对话跳转由Claude决定前端接口，本批不改组件交互。旧非结构化promotion.items无法符合组件类型时明确失败，不制造依据或隐式批准。
+
+## Q-086（第六批，推荐方案待安全评审）全局恢复的最小发现权限
+无人访问时不能靠普通JWT账户入口触发恢复。建议独立Hatchet worker用专属发现连接，只授予account.id列SELECT及该角色专属RLS SELECT策略；无账户姓名/凭据/业务表权限，无BYPASSRLS，不给reinlab_app角色继承。发现ID之后恢复仍通过原reinlab_app与SET LOCAL app.account_id执行逐账户读取和账本写入；每个account.reconcile只使用只读runtime observation，不提交prompt或重发审批/工具。全局定时由Hatchet持久cron驱动，worker断线重连后按DB游标重入。理由：需要全局发现但不扩大普通应用账户查询范围；不把管理员连接放进worker。

@@ -1,0 +1,60 @@
+{
+  "sourceRoot": "/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab",
+  "scope": "inbox bytes exact; main and CinematicExperience inbox integrations only; no unrelated source edits",
+  "files": [
+    {
+      "file": "src/components/inbox/inbox.css",
+      "sourceSha256": "a7bf445a6c6b93363d53f255096c687d70fb6386957ed46778b1734f08d61fa1",
+      "previousSha256": null,
+      "currentSha256": "a7bf445a6c6b93363d53f255096c687d70fb6386957ed46778b1734f08d61fa1"
+    },
+    {
+      "file": "src/components/inbox/InboxPreview.tsx",
+      "sourceSha256": "425d362f443fdb3a83634a39429d35f33ad04eac33389625e1d9fbe828705641",
+      "previousSha256": null,
+      "currentSha256": "425d362f443fdb3a83634a39429d35f33ad04eac33389625e1d9fbe828705641"
+    },
+    {
+      "file": "src/components/inbox/inboxTypes.ts",
+      "sourceSha256": "22a91b7ae2d48595a6fd7b0832711d2082e96192297e0ffc339acab0172914a4",
+      "previousSha256": null,
+      "currentSha256": "22a91b7ae2d48595a6fd7b0832711d2082e96192297e0ffc339acab0172914a4"
+    },
+    {
+      "file": "src/components/inbox/mockInbox.ts",
+      "sourceSha256": "0a26d85c3ab743f227930cfdc2bb633ec8cf72947ee71567cab58f412cd83576",
+      "previousSha256": null,
+      "currentSha256": "0a26d85c3ab743f227930cfdc2bb633ec8cf72947ee71567cab58f412cd83576"
+    },
+    {
+      "file": "src/components/inbox/InboxPanel.tsx",
+      "sourceSha256": "9870b722a4a48d68cf5146a5d4bc8b62d5afd60f77bd0f7b75071554995c54dd",
+      "previousSha256": null,
+      "currentSha256": "9870b722a4a48d68cf5146a5d4bc8b62d5afd60f77bd0f7b75071554995c54dd"
+    },
+    {
+      "file": "src/components/inbox/InboxHost.tsx",
+      "sourceSha256": "6f70ff8754fb7afcaf1d51f9048162efc3d0ac805ec8aa4d079d5b395d8eb46e",
+      "previousSha256": null,
+      "currentSha256": "6f70ff8754fb7afcaf1d51f9048162efc3d0ac805ec8aa4d079d5b395d8eb46e"
+    },
+    {
+      "file": "src/main.tsx",
+      "sourceSha256": "0587e24f0bf232a870351ba3a8c0c8c75a566c0c7bdf4b7f63bc349ad9f6295e",
+      "previousSha256": "503b10132a743f1343870779c509a1cbe6ef60f5476573296af9bacb65ca576f",
+      "currentSha256": "bed1e2776d083f65a86582b8448c1bab58ae589d576aef5ff4bd40d06bbd07f6"
+    },
+    {
+      "file": "src/components/cinematic/CinematicExperience.tsx",
+      "sourceSha256": "d9ed00aed66815ccdaef08f2c1558b370acf14608d51cfa4601bfdb8fc33f0be",
+      "previousSha256": "4fbf2ab1be1828153a28cc8cb253da8ce88451d7cebe5130e0ac14122898fe9d",
+      "currentSha256": "a740184cfa1da2d408811263578cbeb79d2c3cb8b8adbdc6a699718ce783383b"
+    },
+    {
+      "file": "e2e/legacy/scenarios/19-inbox.mjs",
+      "sourceSha256": "aaf0e528f4163541450c836a66291fe7ff6c7fc71b5a847faa761bb564aacafe",
+      "previousSha256": null,
+      "currentSha256": "aaf0e528f4163541450c836a66291fe7ff6c7fc71b5a847faa761bb564aacafe"
+    }
+  ]
+}

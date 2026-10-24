@@ -1,3 +1,5 @@
+import InboxHost from "../../inbox/InboxHost";
+import { liveInboxAdapter } from "../../../data/inbox-live";
 import BenchFrame from "../BenchFrame";
 import { useEffect, useState } from "react";
 import type { Dossier } from "../../../../packages/contracts/src/index";
@@ -54,6 +56,7 @@ export default function LiveResearch({ chrome, reduced, file }: BenchProps) {
       status={<span>真实数据 · 审批与上线收件箱</span>}
     >
       <section className="rh-panel">
+        <InboxHost autoOpen adapter={liveInboxAdapter} />
         <h1>{files.find((d) => d.id === selected)?.title ?? "研究档案"}</h1>
         {error ? (
           <p role="alert">{error}</p>

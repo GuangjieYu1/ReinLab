@@ -82,6 +82,23 @@ function evidenceRow(row: Record<string, any>) {
 }
 
 export function registerPromotions(app: Hono<ApiEnv>, db: Database) {
+  app.get('/v1/promotions/:id/superseded/:memoryId', (c) =>
+    db.withAccount(c.get('accountId'), async (client) => {
+      const promotion = c.req.param('id'), memory = c.req.param('memoryId');
+      if (![promotion, memory].every(v => z.string().uuid().safeParse(v).success)) throw denied();
+      const row = (await client.query(
+        `select m.id,m.key,m.value from promotion p
+         join run r on r.account_id=p.account_id and r.id=p.from_run
+         join memory_item m on m.account_id=p.account_id and m.id=$2
+         where p.id=$1 and m.thread_id is null
+           and ((m.layer=split_part(p.target_layer,'.',1) and m.dossier_id is null) or (m.layer='L2' and m.dossier_id=r.dossier_id))
+           and exists(select 1 from jsonb_array_elements(case when jsonb_typeof(p.items)='array' then p.items else '[]'::jsonb end) i where i->>'supersedes'=m.id::text and i->>'key'=m.key)`,
+        [promotion, memory],
+      )).rows[0];
+      if (!row) throw denied();
+      return c.json({ id:row.id, key:scrub(row.key), value:scrub(row.value) });
+    }),
+  );
   app.get("/v1/promotions", (c) =>
     db.withAccount(c.get("accountId"), async (client) => {
       if (

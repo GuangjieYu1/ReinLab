@@ -4,6 +4,19 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {SignJWT} from 'jose';
 import {mcpFixture} from './mcp-fixture';
 import {createApp} from '../src/api/app';
+
+it('Claude适配的被替换条目只在同账户、当前提议实际引用且key/层匹配时返回',async()=>{
+ const f=await fixture();try{
+  const old=randomUUID(),unlisted=randomUUID();
+  await f.admin.query("insert into memory_item(id,account_id,layer,key,value)values($1,$3,'L4','lesson','\"原条目\"'),($2,$3,'L4','private','\"不能任意读\"')",[old,unlisted,f.account]);
+  const id=await f.proposal([{key:'lesson',value:'new',evidence:[f.eventRef],supersedes:old} as any]);
+  const path='/v1/promotions/'+id+'/superseded/';
+  const r=await f.request(path+old);expect(r.status).toBe(200);expect(await r.json()).toEqual({id:old,key:'lesson',value:'原条目'});
+  expect((await f.request(path+unlisted)).status).toBe(404);
+  expect((await f.request('/v1/promotions/'+randomUUID()+'/superseded/'+old)).status).toBe(404);
+  const cross=await f.proposal([{key:'different-key',value:'new',evidence:[f.eventRef],supersedes:old} as any]);expect((await f.request('/v1/promotions/'+cross+'/superseded/'+old)).status).toBe(404);
+ }finally{await f.close();}
+});
 async function fixture(){
  const f=await mcpFixture(),secret=randomBytes(48),issuer='https://inbox.fixture/auth/v1';
  const app=await createApp({pool:f.pool,auth:{issuer,secret}});
