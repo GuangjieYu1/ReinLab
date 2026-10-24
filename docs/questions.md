@@ -259,3 +259,7 @@ InboxAdapter只有approve/reject，无原生question的answers；因此live适�
 ### Q-091 Hatchet文件加载器内部回写ENV（第六批源码核验）
 - 固定core源码pkg/config/loader/loader.go:175–188会在DATABASE_URL未设置时，用database.yaml密码构造URL并回写进程ENV；仅检查Docker Config.Env不够。推荐并采用：所有admin/server和migrate都只传无密码的公开DSN，固定passfile指向私有0600 pgpass；database.yaml不再保存数据库密码。pgx固定版本支持passfile，实际数据库连接验证后才能关闭此项。DSN本身不含密码/token，不是凭据ENV回退。
 - 临时管理容器均禁用Docker日志驱动，token CLI stdout只作为宿主内存IPC，不落日志；worker仍只接收私有配置路径。已有本任务profile做受限维护，保留数据库和签名材料，不篡改未知资源。真实模型调用仍未开始。
+
+### Q-092 冒烟上游响应中的转义凭据（第六批安全复核）
+
+独立反射测试发现，仅比较响应原始字节不足以覆盖JSON Unicode转义。推荐并已采用：在每个JSON/SSE帧解析后遍历键和值检查实际凭据；解析未知、截断或上游错误也不透传原响应体，永久封住后续模型轮次。合成反射及既有守卫/私有证据共28项通过；不改变单次授权或预算。

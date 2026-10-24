@@ -47,6 +47,21 @@ export async function startMcpSmokeGuard(options: {
     controllers = new Set<AbortController>();
   const transport = options.testOnlyTransport ?? fetch,
     expected = Buffer.from(options.incomingToken);
+  const reflectsCredential = (value: unknown) => {
+    const pending: unknown[] = [value];
+    while (pending.length) {
+      const item = pending.pop();
+      if (typeof item === "string") {
+        if (
+          item.includes(options.upstreamKey) ||
+          item.includes(options.incomingToken)
+        ) return true;
+      } else if (item && typeof item === "object") {
+        for (const [key, child] of Object.entries(item)) pending.push(key, child);
+      }
+    }
+    return false;
+  };
   const server = createServer(async (req, res) => {
     let forwarded = false,
       owns = false;
@@ -206,6 +221,7 @@ export async function startMcpSmokeGuard(options: {
             }
             if (!data) continue;
             const value = JSON.parse(data);
+            if (reflectsCredential(value)) unknown = true;
             if (value.error) unknown = true;
             if (
               value.choices?.some((choice: any) =>
@@ -217,6 +233,7 @@ export async function startMcpSmokeGuard(options: {
           if (!done || !finished) unknown = true;
         } else {
           const value = JSON.parse(text);
+          if (reflectsCredential(value)) unknown = true;
           if (
             value.error ||
             !value.choices?.some((choice: any) =>
@@ -228,6 +245,7 @@ export async function startMcpSmokeGuard(options: {
       } catch {
         unknown = true;
       }
+      if (unknown) throw Error("MCP_SMOKE_RESPONSE_UNKNOWN");
       res.end(bytes);
     } catch (e) {
       if (forwarded || (owns && count > 0)) unknown = true;
