@@ -56,6 +56,14 @@ export async function startMcpSmokeGuard(options: {
           item.includes(options.upstreamKey) ||
           item.includes(options.incomingToken)
         ) return true;
+        // Tool-call arguments are JSON inside a JSON string and the SDK parses them again.
+        if (/^\s*[\[{\"]/.test(item)) {
+          try {
+            pending.push(JSON.parse(item));
+          } catch {
+            // Ordinary model text can start with punctuation without being nested JSON.
+          }
+        }
       } else if (item && typeof item === "object") {
         for (const [key, child] of Object.entries(item)) pending.push(key, child);
       }
@@ -212,6 +220,29 @@ export async function startMcpSmokeGuard(options: {
         if (type?.includes("text/event-stream")) {
           let finished = false,
             done = false;
+          const streams = new Map<string, string>();
+          const checkStream = (value: unknown) => {
+            const pending = [{ path: "", value }];
+            while (pending.length) {
+              const { path, value: item } = pending.pop()!;
+              if (typeof item === "string") {
+                const combined = (streams.get(path) ?? "") + item;
+                streams.set(path, combined);
+                if (reflectsCredential(combined)) unknown = true;
+              } else if (Array.isArray(item)) {
+                // OpenAI choices and tool calls merge by their declared index, not array position.
+                for (let position = item.length - 1; position >= 0; position--) {
+                  const child = item[position];
+                  const index = Number.isSafeInteger(child?.index) && child.index >= 0
+                    ? child.index : position;
+                  pending.push({ path: path + "/[" + index + "]", value: child });
+                }
+              } else if (item && typeof item === "object") {
+                for (const [key, child] of Object.entries(item).reverse())
+                  pending.push({ path: path + "/" + JSON.stringify(key), value: child });
+              }
+            }
+          };
           for (const line of text.split(/\r?\n/)) {
             if (!line.startsWith("data:")) continue;
             const data = line.slice(5).trim();
@@ -222,6 +253,7 @@ export async function startMcpSmokeGuard(options: {
             if (!data) continue;
             const value = JSON.parse(data);
             if (reflectsCredential(value)) unknown = true;
+            checkStream(value);
             if (value.error) unknown = true;
             if (
               value.choices?.some((choice: any) =>

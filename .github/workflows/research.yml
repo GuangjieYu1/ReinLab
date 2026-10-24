@@ -35,7 +35,9 @@ jobs:
       - name: PDF 文本层依赖
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: 凭据扫描器（仅合成 fixture）
-        run: python3 tooling/security/test-scan.py
+        run: |
+          python3 tooling/security/test-scan.py
+          python3 tooling/security/test-scan-p113.py
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
