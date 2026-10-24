@@ -19,7 +19,10 @@
     "check": "pnpm lint && pnpm test && pnpm build",
     "e2e:legacy": "node e2e/legacy/run.mjs",
     "local:up": "tsx tooling/local/up.ts",
-    "local:verify": "tsx services/control/scripts/verify-local.ts"
+    "local:verify": "tsx services/control/scripts/verify-local.ts",
+    "test:native-after-build": "node tooling/test-native-after-build.mjs",
+    "local:hatchet": "tsx tooling/local/hatchet.ts",
+    "dev:worker": "tsx tooling/local/worker.ts"
   },
   "dependencies": {
     "@capacitor/browser": "^8.0.4",

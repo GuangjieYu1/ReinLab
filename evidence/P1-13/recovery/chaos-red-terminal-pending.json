@@ -1,0 +1,137 @@
+{
+  "fixtureModel": true,
+  "realModelRequests": 0,
+  "realKeyReads": 0,
+  "realInfrastructure": true,
+  "startedAt": "2026-10-24T05:37:48.030Z",
+  "checks": [
+    {
+      "name": "one approved fixture write, second write remains pending",
+      "passed": true
+    },
+    {
+      "name": "real worker SIGKILL before recovery",
+      "passed": true
+    },
+    {
+      "name": "real account container SIGKILL/start with preserved volume",
+      "passed": true
+    },
+    {
+      "name": "Hatchet cron globally discovers/reconciles with control process stopped and zero user HTTP",
+      "passed": true
+    },
+    {
+      "name": "original event sequence continuous, cursor equals native high-water, no duplicates",
+      "passed": true
+    }
+  ],
+  "passed": false,
+  "accountId": "56ff6793-a1aa-4272-b0b2-b6f14938734d",
+  "dossierId": "f633c1f9-f319-4753-bcc2-03dbdf6543ab",
+  "runId": "95037b60-a735-490c-a8d3-977f81bc362f",
+  "noVisitorStartedAt": "2026-10-24T05:38:00.169Z",
+  "before": {
+    "binding": {
+      "cursor": "28",
+      "session_id": "ses_rldac38ff338764f82882f3a6bddaa3368",
+      "receipt": {
+        "runID": "run_f290bebbba2170a004148aaed27ccff288e714ad7d5d8c358b725402cd7ac2a8",
+        "acceptedAt": 1792820275135
+      }
+    },
+    "events": [
+      {
+        "sequence": "1"
+      },
+      {
+        "sequence": "2"
+      },
+      {
+        "sequence": "3"
+      },
+      {
+        "sequence": "4"
+      },
+      {
+        "sequence": "5"
+      },
+      {
+        "sequence": "6"
+      },
+      {
+        "sequence": "7"
+      },
+      {
+        "sequence": "8"
+      },
+      {
+        "sequence": "9"
+      },
+      {
+        "sequence": "10"
+      },
+      {
+        "sequence": "11"
+      },
+      {
+        "sequence": "12"
+      },
+      {
+        "sequence": "13"
+      },
+      {
+        "sequence": "14"
+      },
+      {
+        "sequence": "15"
+      },
+      {
+        "sequence": "16"
+      },
+      {
+        "sequence": "17"
+      },
+      {
+        "sequence": "18"
+      },
+      {
+        "sequence": "19"
+      },
+      {
+        "sequence": "20"
+      },
+      {
+        "sequence": "21"
+      },
+      {
+        "sequence": "22"
+      },
+      {
+        "sequence": "23"
+      },
+      {
+        "sequence": "24"
+      },
+      {
+        "sequence": "25"
+      },
+      {
+        "sequence": "26"
+      },
+      {
+        "sequence": "27"
+      },
+      {
+        "sequence": "28"
+      }
+    ]
+  },
+  "noVisitorEndedAt": "2026-10-24T05:38:12.939Z",
+  "failure": {
+    "stage": "assert_replay",
+    "code": "RECOVERY_ASSERTION_FAILED"
+  },
+  "fixtureGatewayCleanupFailed": true,
+  "finishedAt": "2026-10-24T05:38:15.686Z"
+}

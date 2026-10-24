@@ -1,0 +1,9 @@
+{
+  "modelRequests": 0,
+  "source": "https://models.dev/api.json",
+  "model": "deepseek/deepseek-v4-flash",
+  "estimatedCny": "0.047520",
+  "usdCnyRate": "7.200000",
+  "catalogSha256": "722da062bebc86d8bab3fe074d481a133657b483e2cc02c6c9a9a101f22cc13f",
+  "scope": "修复后的只读公共目录预估诊断；不是重跑执行器，也不是真实模型验证"
+}

@@ -5,6 +5,7 @@ import { mkdir, writeFile, realpath, chmod } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
+import { requireNativeArtifact } from "../../../account-runtime/artifact.mjs";
 import { accountGlobalConfiguration } from "../../../../infra/fly/account-entrypoint.mjs";
 
 export interface FixtureCall {
@@ -16,7 +17,7 @@ export interface CapturedRequest {
   tools?: Array<{ function: { name: string } }>;
   [key: string]: any;
 }
-export async function startRoleProvider() {
+export async function startRoleProvider(options: {bindHost?: "127.0.0.1" | "0.0.0.0"} = {}) {
   const requests: CapturedRequest[] = [];
   const plans = new Map<string, FixtureCall[]>();
   const delays = new Map<string, Promise<void>>();
@@ -114,7 +115,7 @@ export async function startRoleProvider() {
       );
     }
   });
-  const url = await listen(server);
+  const url = await listen(server, options.bindHost);
   return {
     requests,
     plans,
@@ -126,10 +127,10 @@ export async function startRoleProvider() {
     close: () => close(server),
   };
 }
-async function listen(server: Server) {
+async function listen(server: Server, host = "127.0.0.1") {
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.listen(0, host, resolve);
   });
   return `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 }
@@ -206,9 +207,7 @@ export async function startNativeRoleServer(
     JSON.stringify(config),
     { mode: 0o600 },
   );
-  const binary = resolve(
-    "dist/account-runtime/reinlab-openscience",
-  );
+  const binary = requireNativeArtifact();
   const portProbe = createServer();
   const portURL = await listen(portProbe);
   const port = new URL(portURL).port;

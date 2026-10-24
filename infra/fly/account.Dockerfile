@@ -20,8 +20,8 @@ COPY plugins/reinlab-os-plugin/index.js plugins/reinlab-os-plugin/mcp-tools.js /
 COPY services/account-runtime/mcp/files.py services/account-runtime/mcp/client.mjs services/account-runtime/mcp/store.mjs /services/account-runtime/mcp/
 RUN ln -s /services/account-runtime/mcp /opt/reinlab/mcp
 RUN echo '{"type":"module"}' > /opt/reinlab/plugin/package.json
-COPY --from=kernel-build /build/dist/account-runtime/reinlab-openscience /opt/reinlab/reinlab-openscience
-COPY --from=kernel-build /build/dist/account-runtime/LICENSE /build/dist/account-runtime/NOTICE /build/dist/account-runtime/manifest.json /opt/reinlab/upstream/
+COPY --from=kernel-build /build/.artifacts/account-runtime/reinlab-openscience /opt/reinlab/reinlab-openscience
+COPY --from=kernel-build /build/.artifacts/account-runtime/LICENSE /build/.artifacts/account-runtime/NOTICE /build/.artifacts/account-runtime/manifest.json /opt/reinlab/upstream/
 COPY services/account-runtime/credentials.mjs services/account-runtime/network-guard.mjs /services/account-runtime/
 COPY infra/fly/account-entrypoint.mjs infra/fly/account-health.mjs /opt/reinlab/
 COPY services/control/src/bridge/openscience/role-project.ts /services/control/src/bridge/openscience/role-project.ts

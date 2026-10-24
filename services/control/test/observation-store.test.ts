@@ -245,3 +245,13 @@ it("missing usage and untrusted approvals never become free execution or actiona
     ).rows[0].state,
   ).toBe("unpriced");
 });
+
+it('terminal recovery expires unlinked MCP/permission cards without approving them',async()=>{
+ const f=await fixture();
+ await db.withAccount(account,async c=>{await c.query("insert into approval(account_id,run_id,kind,title,effects,risk) values($1,$2,'permission','fixture MCP approval','{}','write')",[account,f.run]);});
+ await new ObservationStore(db).ingest(account,f.run,event(f,1,'runtime.failed',{message:'fixture crash',recovered:true}));
+ const rows=await db.withAccount(account,c=>c.query("select state from approval where run_id=$1 and kind in ('permission','question')",[f.run]));
+ expect(rows.rows).toEqual([{state:'expired'}]);
+ await new ObservationStore(db).ingest(account,f.run,event(f,1,'runtime.failed',{message:'fixture crash',recovered:true}));
+ expect((await db.withAccount(account,c=>c.query("select count(*)::int n from event where run_id=$1 and action='runtime_approvals_expired'",[f.run]))).rows[0].n).toBe(1);
+});

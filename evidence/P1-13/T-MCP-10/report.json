@@ -1,0 +1,28 @@
+{
+  "authorization": "第六批用户明确授权T-MCP-10（都要）",
+  "realModel": true,
+  "attempts": 1,
+  "budgetCny": 1,
+  "providerInvoiceReconciled": false,
+  "completed": false,
+  "startedAt": "2026-10-24T17:44:54.453Z",
+  "pricingContext": {
+    "currency": "CNY",
+    "window": "offpeak",
+    "usdCnyRate": "7.2",
+    "pricingVersion": "deepseek-official-2026-10-20",
+    "validFrom": 1792863834465,
+    "validUntil": 1792867494465
+  },
+  "accountId": "d59c039e-7d3f-423f-9e84-d88ae42eecd0",
+  "dossierId": "4e72bb61-dd8f-47da-bacb-41d6ea616e38",
+  "benchVersion": "1.1.0",
+  "failure": {
+    "stage": "fresh_1_1_dossier",
+    "code": "MCP10_HTTP_503"
+  },
+  "controlRestored": true,
+  "cleanupFailures": [],
+  "passed": false,
+  "finishedAt": "2026-10-24T17:44:59.571Z"
+}

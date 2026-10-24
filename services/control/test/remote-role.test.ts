@@ -38,3 +38,9 @@ it('rechecks the remote managed files before reusing a capability', async () => 
   const project = await store.prepare(input); changed = true;
   await expect(assertProject(project)).rejects.toMatchObject({ code: 'SCOPE_DENIED' });
 });
+it('deployment role digests use the fixed container MCP executable, never the control host checkout',()=>{
+ const input={...options(),mcp:{runId:randomUUID(),aliases:{literature:['papers.search']},grants:[{name:'papers.search',permission:'allow' as const,risk:'read' as const}]}};
+ const config=JSON.parse(planRoleProject(input).files['openscience.json']);
+ expect(config.mcp.reinlab_papers.command[1]).toBe('/services/account-runtime/mcp/client.mjs');
+ expect(JSON.stringify(config)).not.toContain('/Users/');
+});

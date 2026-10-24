@@ -343,12 +343,9 @@ export function planRoleProject(raw: unknown) {
                       type: "local",
                       command: [
                         "node",
-                        fileURLToPath(
-                          new URL(
-                            "../../../../account-runtime/mcp/client.mjs",
-                            import.meta.url,
-                          ),
-                        ),
+                        root === "/data" && input.pluginUrl === "file:///opt/reinlab/plugin/index.js"
+                          ? "/services/account-runtime/mcp/client.mjs"
+                          : fileURLToPath(new URL("../../../../account-runtime/mcp/client.mjs", import.meta.url)),
                         path.join(
                           root,
                           "mcp-clients",
@@ -488,16 +485,42 @@ export async function prepareRoleProject(raw: unknown): Promise<RoleProject> {
   }
 }
 
+/** Read-only recovery: missing or changed role files are denied, never created. */
+export async function verifyRoleProject(raw: unknown): Promise<RoleProject> {
+  try {
+    // Validate all content before touching the store. The host plan and remote
+    // receipt use exactly these bytes; no server-selected replacement policy.
+    const parsed = planRoleProject(raw);
+    await plainDirectory(parsed.input.root);
+    const root = await realpath(parsed.input.root);
+    await noGit(root);
+    const plan = planRoleProject({ ...parsed.input, root });
+    const { input, project } = plan;
+    issued.set(project, {
+      root,
+      pluginUrl: plan.pluginUrl,
+      grants: plan.grants,
+      targets: input.role.writeTargets,
+      files: plan.hashes,
+    });
+    await assertRoleProject(project);
+    return project;
+  } catch {
+    throw scopeDenied();
+  }
+}
+
 /** Called only behind the account entrypoint's existing authentication guard. */
 export async function prepareAccountRole(
   raw: unknown,
   fixed: { root: string; pluginUrl: string; accountId: string },
+  readOnly = false,
 ) {
   try {
     const input = RoleProjectRequest.parse(raw);
     const accountId = z.string().uuid().parse(fixed.accountId);
     const options = { ...input, root: fixed.root, pluginUrl: fixed.pluginUrl };
-    const project = await prepareRoleProject(options);
+    const project = await (readOnly ? verifyRoleProject : prepareRoleProject)(options);
     const plan = planRoleProject(options);
     await assertRoleProject(project);
     return {

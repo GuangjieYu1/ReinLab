@@ -1,4 +1,7 @@
 export type SmokeCleanupName =
+  | "run_resolution"
+  | "run_cancel"
+  | "control_restore"
   | "evidence"
   | "temporary_config"
   | "observer"

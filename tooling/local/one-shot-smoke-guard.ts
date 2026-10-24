@@ -48,7 +48,7 @@ function functionCall(value: unknown) {
   keys(value, ["name", "arguments"]);
   if (!string(value.name) || !string(value.arguments)) throw fail(400);
 }
-function validate(value: unknown) {
+export function validateSmokeRequest(value: unknown) {
   keys(value, [
     "model",
     "messages",
@@ -208,7 +208,7 @@ function privateHost(host: string) {
     (a === 192 && b === 168)
   );
 }
-async function readBody(request: IncomingMessage) {
+export async function readSmokeBody(request: IncomingMessage) {
   if (
     request.headers["content-encoding"] !== undefined ||
     !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(
@@ -237,7 +237,7 @@ async function readBody(request: IncomingMessage) {
   } catch {
     throw fail(400);
   }
-  const encoded = Buffer.from(JSON.stringify(validate(parsed)));
+  const encoded = Buffer.from(JSON.stringify(validateSmokeRequest(parsed)));
   if (encoded.length > ceiling) throw fail(413);
   return encoded;
 }
@@ -308,7 +308,7 @@ export async function startOneShotSmokeGuard(
         throw fail(401);
       if (request.method !== "POST" || request.url !== "/v1/chat/completions")
         throw fail(404);
-      const body = await readBody(request);
+      const body = await readSmokeBody(request);
       if (controller.signal.aborted || closed) throw fail(503);
       let handle;
       try {

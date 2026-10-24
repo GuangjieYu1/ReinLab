@@ -74,7 +74,7 @@ function responseFailure(error: unknown, status: number | undefined) {
           code: "CURSOR_EXPIRED",
           status: 409,
           oldestSequence: Number(body.oldestSequence),
-        },
+        }
       );
     if (
       body.error === "cursor_ahead" &&
@@ -90,10 +90,10 @@ function responseFailure(error: unknown, status: number | undefined) {
       body.error === "decision_expired"
         ? "DECISION_EXPIRED"
         : body.error === "decision_conflict"
-          ? "DECISION_CONFLICT"
-          : body.error === "session_busy"
-            ? "SESSION_BUSY"
-            : "IDEMPOTENCY_CONFLICT";
+        ? "DECISION_CONFLICT"
+        : body.error === "session_busy"
+        ? "SESSION_BUSY"
+        : "IDEMPOTENCY_CONFLICT";
     return Object.assign(new Error("执行内核拒绝冲突或过期的操作。"), {
       code,
       status: 409,
@@ -109,7 +109,9 @@ function responseFailure(error: unknown, status: number | undefined) {
 export class RoleRuntime {
   private smokeBusy = false;
   private smokeSetting = false;
-  private smokeCleanup: (() => Promise<void>) | undefined;
+  private smokeCleanup:
+    | ((reconnected?: RoleRuntime) => Promise<void>)
+    | undefined;
   private readonly client;
   private readonly sessions = new Set<string>();
   private readonly timeoutMs: number;
@@ -120,8 +122,9 @@ export class RoleRuntime {
       token: string;
       project: RoleProject;
       timeoutMs?: number;
+      readOnlyRecovery?: boolean;
       testOnlyDelegation?: boolean;
-    },
+    }
   ) {
     this.options = Object.freeze({ ...options });
     this.delegation = options.testOnlyDelegation === true;
@@ -155,7 +158,7 @@ export class RoleRuntime {
     if (sessionID && !this.sessions.has(sessionID)) throw scopeDenied();
   }
   private async call<T>(
-    work: (options: { signal: AbortSignal }) => Promise<Reply<T>>,
+    work: (options: { signal: AbortSignal }) => Promise<Reply<T>>
   ): Promise<T> {
     try {
       const result = await work({
@@ -187,7 +190,7 @@ export class RoleRuntime {
   private async requirePlugin() {
     const required = await projectPlugin(this.options.project);
     const config = await this.call((options) =>
-      this.client.global.config.get(options),
+      this.client.global.config.get(options)
     );
     if (!config.plugin?.includes(required)) throw scopeDenied();
     return config;
@@ -202,8 +205,8 @@ export class RoleRuntime {
             ...grant,
             scope: "session",
           },
-          options,
-        ),
+          options
+        )
       );
   }
   async createSession(title = "研究角色会话", sessionID?: string) {
@@ -219,8 +222,8 @@ export class RoleRuntime {
           workspace: "project",
           ...(sessionID ? { id: sessionID } : {}),
         },
-        options,
-      ),
+        options
+      )
     );
     if (
       sessionID &&
@@ -241,8 +244,8 @@ export class RoleRuntime {
     const session = await this.call((options) =>
       this.client.session.get(
         { directory: this.options.project.directory, sessionID },
-        options,
-      ),
+        options
+      )
     ).catch((error) => {
       if (error?.code === "OS_NOT_FOUND") throw scopeDenied();
       throw error;
@@ -254,7 +257,7 @@ export class RoleRuntime {
       session.parentID
     )
       throw scopeDenied();
-    await this.grantSession(sessionID);
+    if (!this.options.readOnlyRecovery) await this.grantSession(sessionID);
     this.sessions.add(sessionID);
     return { sessionID };
   }
@@ -262,7 +265,11 @@ export class RoleRuntime {
   async configureSmokeGateway(input: {
     origin: string;
     token: string;
-  }): Promise<{ configured: true; outputCap: 1024; cleanup(): Promise<void> }> {
+  }): Promise<{
+    configured: true;
+    outputCap: 1024;
+    cleanup(reconnected?: RoleRuntime): Promise<void>;
+  }> {
     const parsed = z
       .object({
         origin: z.string(),
@@ -276,7 +283,7 @@ export class RoleRuntime {
     if (!parsed.success || this.smokeBusy) throw scopeDenied();
     const match =
       /^http:\/\/(host\.docker\.internal|127\.0\.0\.1):([0-9]{1,5})\/?$/.exec(
-        parsed.data.origin,
+        parsed.data.origin
       );
     if (
       !match ||
@@ -294,50 +301,67 @@ export class RoleRuntime {
       const providers = await this.call((options) =>
         this.client.provider.list(
           { directory: this.options.project.directory },
-          options,
-        ),
+          options
+        )
       );
       if (
         !Array.isArray(providers.connected) ||
         providers.connected.length ||
         Object.values(config.provider ?? {}).some(
-          (provider) => provider.options?.apiKey !== undefined,
+          (provider) => provider.options?.apiKey !== undefined
         )
       )
         throw scopeDenied();
       const original = await this.call((options) =>
-        this.client.global.configRawGet(options),
+        this.client.global.configRawGet(options)
       );
       if (typeof original.content !== "string") throw unavailable();
       let restore = true,
         remove = true,
         running: Promise<void> | undefined;
-      const cleanup = (): Promise<void> => {
+      const cleanup = (reconnected: RoleRuntime = this): Promise<void> => {
+        if (
+          !(reconnected instanceof RoleRuntime) ||
+          reconnected.options.token !== this.options.token ||
+          reconnected.options.project.directory !==
+            this.options.project.directory ||
+          reconnected.options.project.dossierDirectory !==
+            this.options.project.dossierDirectory ||
+          reconnected.options.project.roleId !== this.options.project.roleId
+        )
+          return Promise.reject(scopeDenied());
         if (running) return running;
         running = (async () => {
+          await reconnected.bound();
           let failed = false;
+          const cleanupStages: string[] = [];
           if (restore)
             try {
-              await this.call((options) =>
-                this.client.global.configRawSet(
+              await reconnected.call((options) =>
+                reconnected.client.global.configRawSet(
                   { content: original.content },
-                  options,
-                ),
+                  options
+                )
               );
               restore = false;
             } catch {
               failed = true;
+              cleanupStages.push("configuration");
             }
           if (remove)
             try {
-              await this.call((options) =>
-                this.client.auth.remove({ providerID: "deepseek" }, options),
+              await reconnected.call((options) =>
+                reconnected.client.auth.remove(
+                  { providerID: "deepseek" },
+                  options
+                )
               );
               remove = false;
             } catch {
               failed = true;
+              cleanupStages.push("authentication");
             }
-          if (failed) throw unavailable();
+          if (failed) throw Object.assign(unavailable(), { cleanupStages });
           this.smokeBusy = false;
           this.smokeCleanup = undefined;
         })().finally(() => {
@@ -353,8 +377,8 @@ export class RoleRuntime {
               providerID: "deepseek",
               auth: { type: "api", key: parsed.data.token },
             },
-            options,
-          ),
+            options
+          )
         );
         await this.call((options) =>
           this.client.global.config.update(
@@ -383,21 +407,21 @@ export class RoleRuntime {
                 },
               },
             },
-            options,
-          ),
+            options
+          )
         );
         const ready = await this.call((options) =>
           this.client.provider.list(
             { directory: this.options.project.directory },
-            options,
-          ),
+            options
+          )
         );
         const model = ready.all.find((provider) => provider.id === "deepseek")
           ?.models["deepseek-v4-flash"];
         // provider.list intentionally redacts endpoint URLs; verify the trusted
         // new account's raw JSON config separately, without returning it.
         const applied = await this.call((options) =>
-          this.client.global.configRawGet(options),
+          this.client.global.configRawGet(options)
         );
         const appliedConfig = JSON.parse(applied.content);
         if (
@@ -426,8 +450,8 @@ export class RoleRuntime {
       return Object.freeze({
         configured: true as const,
         outputCap: 1024 as const,
-        cleanup: async () => {
-          await this.cleanupSmokeGateway();
+        cleanup: async (reconnected?: RoleRuntime) => {
+          await this.cleanupSmokeGateway(reconnected);
         },
       });
     } catch (error) {
@@ -437,9 +461,11 @@ export class RoleRuntime {
       this.smokeSetting = false;
     }
   }
-  async cleanupSmokeGateway(): Promise<{ cleaned: true }> {
+  async cleanupSmokeGateway(
+    reconnected?: RoleRuntime
+  ): Promise<{ cleaned: true }> {
     if (this.smokeSetting) throw scopeDenied();
-    await this.smokeCleanup?.();
+    await this.smokeCleanup?.(reconnected);
     return { cleaned: true };
   }
   async prompt(raw: unknown) {
@@ -456,8 +482,8 @@ export class RoleRuntime {
           effort: "normal",
           delegation: this.delegation,
         },
-        options,
-      ),
+        options
+      )
     );
   }
   async snapshot(sessionID: string) {
@@ -465,8 +491,8 @@ export class RoleRuntime {
     return this.call((options) =>
       this.client.runtime.snapshot(
         { directory: this.options.project.directory, sessionID },
-        options,
-      ),
+        options
+      )
     );
   }
   async messages(sessionID: string) {
@@ -474,8 +500,8 @@ export class RoleRuntime {
     return this.call((options) =>
       this.client.session.messages(
         { directory: this.options.project.directory, sessionID },
-        options,
-      ),
+        options
+      )
     );
   }
   async children(sessionID: string) {
@@ -483,8 +509,8 @@ export class RoleRuntime {
     return this.call((options) =>
       this.client.session.children(
         { directory: this.options.project.directory, sessionID },
-        options,
-      ),
+        options
+      )
     );
   }
   async capabilities() {
@@ -492,8 +518,8 @@ export class RoleRuntime {
     return this.call((options) =>
       this.client.runtime.capabilities(
         { directory: this.options.project.directory },
-        options,
-      ),
+        options
+      )
     );
   }
   async getRun(sessionID: string, runID: string) {
@@ -501,8 +527,8 @@ export class RoleRuntime {
     return this.call((options) =>
       this.client.runtime.getRun(
         { directory: this.options.project.directory, sessionID, runID },
-        options,
-      ),
+        options
+      )
     );
   }
   async replay(sessionID: string, afterSequence: number) {
@@ -512,8 +538,8 @@ export class RoleRuntime {
     return this.call((options) =>
       this.client.runtime.replay(
         { directory: this.options.project.directory, sessionID, afterSequence },
-        options,
-      ),
+        options
+      )
     );
   }
   async decide(raw: unknown) {
@@ -527,8 +553,8 @@ export class RoleRuntime {
           directory: this.options.project.directory,
           runtimeDecisionInput: parsed.data,
         },
-        options,
-      ),
+        options
+      )
     );
   }
   async cancel(sessionID: string, runID: string) {
@@ -536,14 +562,14 @@ export class RoleRuntime {
     return this.call((options) =>
       this.client.runtime.cancel(
         { directory: this.options.project.directory, sessionID, runID },
-        options,
-      ),
+        options
+      )
     );
   }
   async *subscribe(
     sessionID: string,
     afterSequence: number,
-    signal: AbortSignal,
+    signal: AbortSignal
   ) {
     if (signal.aborted) return;
     if (!Number.isSafeInteger(afterSequence) || afterSequence < 0)
@@ -582,7 +608,7 @@ export class RoleRuntime {
           onSseError: () => {
             failure ??= unavailable();
           },
-        },
+        }
       );
       for await (const event of events.stream) {
         if (active.aborted) break;
@@ -593,7 +619,7 @@ export class RoleRuntime {
           failure ??
           Object.assign(
             new Error("事件订阅已结束，需要按已提交游标重新连接。"),
-            { code: "OS_STREAM_CLOSED", status: 503 },
+            { code: "OS_STREAM_CLOSED", status: 503 }
           )
         );
     } finally {
@@ -612,7 +638,7 @@ export class RoleRuntime {
       subscribe: (
         sessionID: string,
         afterSequence: number,
-        signal: AbortSignal,
+        signal: AbortSignal
       ) => this.subscribe(sessionID, afterSequence, signal),
     });
   }
