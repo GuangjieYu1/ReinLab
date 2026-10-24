@@ -56,7 +56,7 @@ const Snapshot = z.object({
           "cancelled",
           "interrupted",
         ]),
-      }),
+      })
     )
     .max(1024),
   permissions: z
@@ -80,7 +80,7 @@ function terminalConflict(run: Record<string, any>, state: string) {
     throw new ApiFailure(
       "RUNTIME_TERMINAL_CONFLICT",
       409,
-      "终态证据与已结束的运行不一致，需要先核对。",
+      "终态证据与已结束的运行不一致，需要先核对。"
     );
 }
 async function lockedRun(client: pg.PoolClient, runId: string) {
@@ -96,14 +96,28 @@ async function finishTerminal(
   runId: string,
   state: string,
   complete: boolean,
-  previous: Record<string, any>,
+  previous: Record<string, any>
 ) {
   terminalConflict(previous, state);
   if (previous.ended_at !== null) return;
+  const expired = await client.query(
+    "update approval set state='expired' where account_id=$1 and run_id=$2 and state='pending' and kind in ('permission','question') returning id",
+    [accountId, runId]
+  );
+  if (expired.rowCount)
+    await appendEvent(client, accountId, {
+      dossierId: previous.dossier_id,
+      runId,
+      roleId: previous.role_id,
+      kind: "approval",
+      action: "runtime_approvals_expired",
+      payload: { count: expired.rowCount },
+      dedupeKey: "runtime-approvals-expired:" + runId,
+    });
   await settleObservedRun(client, accountId, runId, complete);
   await client.query(
     "update run set state=case when $2='completed' and state='paused_budget' then state else $2 end,ended_at=now() where id=$1",
-    [runId, state],
+    [runId, state]
   );
 }
 export type PendingSnapshot = {
@@ -117,21 +131,21 @@ export class ObservationStore {
     private readonly db: Database,
     private readonly onTerminal?: (
       account: string,
-      run: string,
-    ) => Promise<void>,
+      run: string
+    ) => Promise<void>
   ) {}
   async ingest(
     accountId: string,
     runId: string,
     raw: unknown,
-    pending?: PendingSnapshot,
+    pending?: PendingSnapshot
   ) {
     const parsed = Envelope.safeParse(raw);
     if (!parsed.success)
       throw new ApiFailure(
         "OS_EVENT_INVALID",
         503,
-        "内核事件缺少可核对的游标。",
+        "内核事件缺少可核对的游标。"
       );
     const event = parsed.data,
       hash = sha(raw);
@@ -146,14 +160,14 @@ export class ObservationStore {
         throw new ApiFailure("SCOPE_DENIED", 403, "事件不属于已登记的运行。");
       const old = await c.query(
         "select source_hash from os_observation where session_id=$1 and sequence=$2",
-        [binding.sessionId, event.sequence],
+        [binding.sessionId, event.sequence]
       );
       if (old.rowCount) {
         if (old.rows[0].source_hash !== hash)
           throw new ApiFailure(
             "DEDUPE_CONFLICT",
             409,
-            "同一游标的事件内容不同。",
+            "同一游标的事件内容不同。"
           );
         return binding.cursor;
       }
@@ -162,7 +176,7 @@ export class ObservationStore {
         throw new ApiFailure(
           "CURSOR_GAP",
           409,
-          "事件游标存在缺口，需要恢复快照。",
+          "事件游标存在缺口，需要恢复快照。"
         );
       const mapped = mapRuntimeEvent(raw, {
         toolGrants: binding.role.role.toolGrants,
@@ -184,13 +198,13 @@ export class ObservationStore {
           throw new ApiFailure(
             "LATE_USAGE_AFTER_TERMINAL",
             409,
-            "运行结束后收到新的费用用量，需要人工核对。",
+            "运行结束后收到新的费用用量，需要人工核对。"
           );
         if (event.type === "runtime.accepted")
           throw new ApiFailure(
             "RUNTIME_TERMINAL_CONFLICT",
             409,
-            "已结束的运行不能重新接受执行。",
+            "已结束的运行不能重新接受执行。"
           );
       }
       if (
@@ -199,13 +213,13 @@ export class ObservationStore {
       )
         await c.query(
           "update os_binding set usage_uncertain=true where run_id=$1",
-          [runId],
+          [runId]
         );
       if (mapped.usage) {
         const sourceHash = sha(part),
           prior = await c.query(
             "select source_hash from os_usage where session_id=$1 and part_id=$2",
-            [binding.sessionId, mapped.usage.partID],
+            [binding.sessionId, mapped.usage.partID]
           );
         if (prior.rowCount) {
           if (prior.rows[0].source_hash !== sourceHash) {
@@ -213,7 +227,7 @@ export class ObservationStore {
             action = "usage_conflict";
             await c.query(
               "update os_binding set usage_uncertain=true where run_id=$1",
-              [runId],
+              [runId]
             );
           } else {
             kind = "gate";
@@ -223,7 +237,7 @@ export class ObservationStore {
           const source = (
               await c.query(
                 "select pricing_context from os_binding where run_id=$1",
-                [runId],
+                [runId]
               )
             ).rows[0].pricing_context,
             priceContext = Pricing.safeParse(source);
@@ -284,7 +298,7 @@ export class ObservationStore {
             cost,
             JSON.stringify(usageInsert.metadata),
             ledger.seq,
-          ],
+          ]
         );
       if (mapped.approval) {
         const approval = mapped.approval;
@@ -298,7 +312,7 @@ export class ObservationStore {
               ).some(
                 (item) =>
                   item.id === approval.requestID &&
-                  item.sessionID === binding.sessionId,
+                  item.sessionID === binding.sessionId
               );
             await c.query(
               `insert into approval(account_id,run_id,os_request_id,os_session_id,kind,title,effects,risk,state) values($1,$2,$3,$4,$5,$6,$7::jsonb,'write',$8) on conflict do nothing`,
@@ -313,12 +327,12 @@ export class ObservationStore {
                   : "问题等待你的回答",
                 JSON.stringify([payload]),
                 live ? "pending" : "expired",
-              ],
+              ]
             );
           } else if (approval.state === "resolved")
             await c.query(
               "update approval set state=case when decision_hash is null then 'expired' else 'indeterminate' end where run_id=$1 and os_session_id=$2 and os_request_id=$3 and state='pending'",
-              [runId, binding.sessionId, approval.requestID],
+              [runId, binding.sessionId, approval.requestID]
             );
           else
             await c.query(
@@ -328,7 +342,7 @@ export class ObservationStore {
                 binding.sessionId,
                 approval.requestID,
                 approval.state === "rejected" ? "rejected" : "expired",
-              ],
+              ]
             );
         }
       }
@@ -336,7 +350,7 @@ export class ObservationStore {
         const uncertain = (
           await c.query(
             "select usage_uncertain from os_binding where run_id=$1",
-            [runId],
+            [runId]
           )
         ).rows[0].usage_uncertain;
         await finishTerminal(
@@ -345,12 +359,12 @@ export class ObservationStore {
           runId,
           mapped.runState,
           mapped.runState === "completed" && !uncertain,
-          run,
+          run
         );
       }
       await c.query(
         "insert into os_observation(account_id,run_id,session_id,sequence,source_hash,event_seq) values($1,$2,$3,$4,$5,$6)",
-        [accountId, runId, binding.sessionId, event.sequence, hash, ledger.seq],
+        [accountId, runId, binding.sessionId, event.sequence, hash, ledger.seq]
       );
       await c.query("update os_binding set cursor=$2 where run_id=$1", [
         runId,
@@ -367,9 +381,9 @@ export class ObservationStore {
         (
           await c.query(
             "select 1 from run where id=$1 and (ended_at is not null or state in ('completed','failed','cancelled','interrupted'))",
-            [runId],
+            [runId]
           )
-        ).rowCount,
+        ).rowCount
     );
     if (terminal) await this.onTerminal(accountId, runId);
   }
@@ -424,7 +438,7 @@ export class ObservationStore {
       });
       await c.query(
         "update os_binding set usage_uncertain=true where run_id=$1",
-        [runId],
+        [runId]
       );
       await settleObservedRun(c, accountId, runId, false);
       if (run.ended_at !== null)
@@ -440,7 +454,7 @@ export class ObservationStore {
       throw new ApiFailure(
         "OS_EVENT_INVALID",
         503,
-        "快照缺少可核对的运行身份。",
+        "快照缺少可核对的运行身份。"
       );
     const snapshot = parsed.data;
     return this.db.withAccount(accountId, async (c) => {
@@ -448,7 +462,7 @@ export class ObservationStore {
       const b = await bindingRow(c, runId, true),
         run = await lockedRun(c, runId);
       const matches = snapshot.runs.filter(
-        (item) => item.runID === b.receipt?.runID,
+        (item) => item.runID === b.receipt?.runID
       );
       if (
         b.phase !== "accepted" ||
@@ -463,7 +477,7 @@ export class ObservationStore {
         throw new ApiFailure(
           "CURSOR_AHEAD",
           409,
-          "快照历史落后于已提交游标，拒绝回退。",
+          "快照历史落后于已提交游标，拒绝回退。"
         );
       const actual = matches[0],
         terminal = terminalStates.has(actual.state);
@@ -490,7 +504,7 @@ export class ObservationStore {
         (
           await c.query(
             "select seq from event where account_id=$1 and dedupe_key=$2",
-            [accountId, key],
+            [accountId, key]
           )
         ).rowCount
       )
@@ -498,19 +512,19 @@ export class ObservationStore {
       if (!terminal && run.ended_at !== null) return;
       const expired = await c.query(
         `update approval set state='expired' where run_id=$1 and os_session_id=$2 and state in ('pending','indeterminate') and ((kind='permission' and not(os_request_id=any($3::text[]))) or (kind='question' and not(os_request_id=any($4::text[])))) returning id`,
-        [runId, b.sessionId, permissionIds, questionIds],
+        [runId, b.sessionId, permissionIds, questionIds]
       );
       const incomplete = terminal && snapshot.latestSequence > b.cursor;
       if (expired.rowCount || incomplete)
         await c.query(
           "update os_binding set usage_uncertain=true where run_id=$1",
-          [runId],
+          [runId]
         );
       if (!terminal && !expired.rowCount) return;
       const uncertain = (
         await c.query(
           "select usage_uncertain from os_binding where run_id=$1",
-          [runId],
+          [runId]
         )
       ).rows[0].usage_uncertain;
       await appendEvent(c, accountId, {
@@ -541,13 +555,13 @@ export class ObservationStore {
           runId,
           actual.state,
           actual.state === "completed" && !uncertain && !expired.rowCount,
-          run,
+          run
         );
       else {
         await settleObservedRun(c, accountId, runId, false);
         await c.query(
           "update run set state='interrupted',ended_at=now() where id=$1",
-          [runId],
+          [runId]
         );
       }
     });
@@ -563,7 +577,7 @@ export class ObservationStore {
         throw new ApiFailure(
           "CURSOR_AHEAD",
           409,
-          "内核历史落后于持久游标，拒绝回退。",
+          "内核历史落后于持久游标，拒绝回退。"
         );
       await appendEvent(c, accountId, {
         dossierId: b.dossierId,
@@ -581,11 +595,11 @@ export class ObservationStore {
       });
       await c.query(
         "update os_binding set cursor=$2,usage_uncertain=true where run_id=$1",
-        [runId, latest],
+        [runId, latest]
       );
       await c.query(
         "update approval set state='expired' where run_id=$1 and state='pending' and kind in ('permission','question')",
-        [runId],
+        [runId]
       );
       await settleObservedRun(c, accountId, runId, false);
       if (run.ended_at !== null)

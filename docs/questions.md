@@ -240,3 +240,22 @@ InboxAdapter只有approve/reject，无原生question的answers；因此live适�
 
 ## Q-086（第六批，推荐方案待安全评审）全局恢复的最小发现权限
 无人访问时不能靠普通JWT账户入口触发恢复。建议独立Hatchet worker用专属发现连接，只授予account.id列SELECT及该角色专属RLS SELECT策略；无账户姓名/凭据/业务表权限，无BYPASSRLS，不给reinlab_app角色继承。发现ID之后恢复仍通过原reinlab_app与SET LOCAL app.account_id执行逐账户读取和账本写入；每个account.reconcile只使用只读runtime observation，不提交prompt或重发审批/工具。全局定时由Hatchet持久cron驱动，worker断线重连后按DB游标重入。理由：需要全局发现但不扩大普通应用账户查询范围；不把管理员连接放进worker。
+
+## Q-087（第六批，Hatchet私有文件配置）自托管认证与迁移器
+锁定Hatchet SDK1.43.0、稳定服务v0.110.5和已核镜像摘要，官方server/admin可从配置目录读取database.yaml/server.yaml；不使用auth-disabled镜像或会打印worker token的脚本。CLI迁移器只支持DATABASE_URL，但固定pgx v5.11.0支持passfile：拟仅给迁移器无密码DSN与私有passfile路径，密码在0600文件内，由pgx进程读取；DSN中不得出现password。server/admin私有配置使用单独0700 named volume，worker令牌/连接串在宿主私有0600文件；stdout令牌仅内存捕获写私有文件，不输出。Hatchet与业务使用同一本地Postgres实例、独立数据库/owner；worker无管理员连接。实际启动、环境扫描和故障验证完成前不标已验。固定SDK postinstall仅版本提示，protobufjs纯JS脚本亦非本运行必需，明确不运行依赖安装脚本并用真实集成核验，不因脚本警告放开所有构建。
+
+## Q-088（第六批，真实Supabase权限差异）PUBLIC统计视图
+严格发现role预检在真实Supabase拒绝：它通过PUBLIC继承extensions.pg_stat_statements与pg_stat_statements_info的SELECT，不能宣称只有UUID读取。诊断事务已回滚，只输出对象名/权限，不读取业务值。推荐新增前置000迁移将这两个已存在统计视图的PUBLIC SELECT撤回并授pg_read_all_stats；超管/owner与显式监控角色仍可读。001发现迁移原字节不改，不把统计视图加入安全检查白名单。应用不依赖此统计视图；实际应用/回归和独立安全复核需补。理由：收紧继承权限以满足最小发现边界，而不是绕过预检。PostgreSQL默认PUBLIC系统目录元数据不是业务数据授权，保持正常数据库功能。
+
+### Q-089 宿主规划与容器 MCP 命令路径不同（第六批，本地真实验证发现）
+- 真实容器首次 MCP 角色准备失败：控制面按自身 import.meta.url 生成宿主 MCP client 绝对路径，容器按 /services/ 生成另一条路径，导致生成配置摘要不同，既有收据校验正确拒绝。此前同进程原生 fixture 共享路径，未暴露部署差异。
+- 推荐并采用：部署固定 root=/data、plugin=file:///opt/reinlab/plugin/index.js 时命令固定为 /services/account-runtime/mcp/client.mjs；本地原生fixture继续用本地模块路径。保持全部收据/文件摘要核对，不新增调用者可选路径。增加部署规划测试与真实容器验证；不得通过跳过摘要解决。
+
+### Q-090 全量并行的本地 fixture 容量（第六批）
+- 两轮全量分别1494通过/2超时、1493通过/4超时，均为不同集成测试命中原5秒限制（包括50次Python文件版本保留测试），没有校验断言不通过。原生子进程、fsync/Python与共享PG竞争资源。
+- 推荐并采用：全量文件worker上限4降至2，保持并行和全部测试/默认超时，不放宽验证；Node22/24及CI重新全量。原始红报告保留在evidence/P1-13/recovery/，不得用定向绿报告冒充全量。
+- 2 worker全量1497通过/1超时，剩余仅版本保留的52次真实Python/fsync写入加undo。该重I/O集成项单独显式30s执行时限（与已有长流程集成项一致），52次写入、保留50版本、旧undo拒绝与最后undo结果校验一字未删；不是放宽API/安全校验或接口超时。原5s失败报告保留，附实际耗时报告。其他测试默认超时不变。
+
+### Q-091 Hatchet文件加载器内部回写ENV（第六批源码核验）
+- 固定core源码pkg/config/loader/loader.go:175–188会在DATABASE_URL未设置时，用database.yaml密码构造URL并回写进程ENV；仅检查Docker Config.Env不够。推荐并采用：所有admin/server和migrate都只传无密码的公开DSN，固定passfile指向私有0600 pgpass；database.yaml不再保存数据库密码。pgx固定版本支持passfile，实际数据库连接验证后才能关闭此项。DSN本身不含密码/token，不是凭据ENV回退。
+- 临时管理容器均禁用Docker日志驱动，token CLI stdout只作为宿主内存IPC，不落日志；worker仍只接收私有配置路径。已有本任务profile做受限维护，保留数据库和签名材料，不篡改未知资源。真实模型调用仍未开始。

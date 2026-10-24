@@ -51,8 +51,10 @@ jobs:
         run: pnpm exec tsc -p packages/contracts/tsconfig.json
       - name: 控制面类型检查
         run: pnpm exec tsc -p services/control/tsconfig.json
+      - name: Worker 类型检查
+        run: pnpm exec tsc -p services/worker/tsconfig.json
       - name: 本地编排类型检查
-        run: pnpm exec tsc --noEmit --strict --skipLibCheck --esModuleInterop --moduleResolution bundler --module ESNext --target ES2022 --lib ES2022,DOM --types node tooling/local/up.ts
+        run: pnpm exec tsc --noEmit --strict --skipLibCheck --esModuleInterop --moduleResolution bundler --module ESNext --target ES2022 --lib ES2023,DOM --types node --allowJs tooling/local/up.ts tooling/local/hatchet.ts tooling/local/worker.ts
       - name: mock 构建
         run: pnpm build
       - uses: actions/upload-artifact@v4
@@ -110,6 +112,12 @@ jobs:
           pnpm exec tsx services/control/scripts/verify-inbox-live.ts
         env:
           REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-inbox
+      - name: P1-13 真 Hatchet 与无人访问账户/worker重启混沌（仅模型 fixture）
+        run: |
+          pnpm local:hatchet
+          pnpm exec tsx services/worker/scripts/verify-recovery.ts
+        env:
+          REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-recovery
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -117,6 +125,7 @@ jobs:
           path: |
             ${{ runner.temp }}/local-integration/*.json
             ${{ runner.temp }}/local-inbox/*
+            ${{ runner.temp }}/local-recovery/*
   legacy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -130,7 +139,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: 原样18场景T-REG
+      - name: 原样19场景T-REG
         run: |
           pnpm dev > /tmp/reinlab-mock-vite.log 2>&1 &
           for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:5173/ > /dev/null && break; sleep 1; done

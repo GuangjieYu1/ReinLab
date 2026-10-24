@@ -93,4 +93,5 @@ it("independent files: retains latest fifty versions and rejects expired undo", 
     await f.call("undo", { versionId: last.versionId });
     expect(await readFile(path.join(f.dir, "findings/original.md"), "utf8")).toBe("50");
   } finally { await f.close(); }
-});
+// 52 real Python/fsync writes plus undo; keep every retention/expiry assertion.
+}, 30_000);

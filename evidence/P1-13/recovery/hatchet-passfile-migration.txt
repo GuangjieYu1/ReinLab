@@ -1,0 +1,3 @@
+{"code":"HATCHET_PASSFILE_MIGRATED","databasePreserved":true,"signingMaterialPreserved":true,"modelRequests":0}
+$ tsx tooling/local/hatchet.ts
+{"code":"HATCHET_SERVER_STARTED","modelRequests":0}

@@ -127,9 +127,17 @@ def main():
     parser.add_argument('--output',required=True)
     parser.add_argument('--task-prefix',default='reinlab-p111-')
     parser.add_argument('--account-credential-root')
+    parser.add_argument('--hatchet-setup-file')
+    parser.add_argument('--runtime-capability-env-file')
     args=parser.parse_args()
     root=Path(args.root).resolve()
     values={'deepseek_key':selected_env(private_bytes(args.deepseek_file),'DEEPSEEK_API_KEY'),'mcp_signing_key':private_bytes(args.signing_key_file).decode().strip(),'mcp_fixture_token':json.loads(private_bytes(args.capability_fixture_file))['token']}
+    if args.hatchet_setup_file:
+        private=private_bytes(args.hatchet_setup_file,strict=True)
+        for key,label in [('DATABASE_PASSWORD','hatchet_database_password'),('DISCOVERY_PASSWORD','discovery_database_password'),('TOKEN','hatchet_worker_token')]:
+            values[label]=selected_env(private,key)
+    if args.runtime_capability_env_file:
+        values['runtime_mcp_token']=selected_env(private_bytes(args.runtime_capability_env_file,strict=True),'CAPABILITY_TOKEN')
     account_file_count=0
     if args.account_credential_root:
         extra,account_file_count=account_values(args.account_credential_root)

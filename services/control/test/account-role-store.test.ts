@@ -60,3 +60,14 @@ it("account store returns only the expected managed receipt and refuses caller-s
     await rm(root, { recursive: true, force: true });
   }
 });
+it('recovery verification never materializes a missing project and refuses changed files', async()=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'reinlab-verify-role-'))), body=request();
+ const fixed={root,pluginUrl:'file:///opt/reinlab/plugin/index.js',accountId:randomUUID()};
+ try {
+  await expect(roles.prepareAccountRole(body,fixed,true)).rejects.toMatchObject({code:'SCOPE_DENIED'});
+  await expect(readFile(join(root,'roles',body.dossierId,body.role.id,'AGENTS.md'))).rejects.toMatchObject({code:'ENOENT'});
+  const receipt=await roles.prepareAccountRole(body,fixed);
+  expect(await roles.prepareAccountRole(body,fixed,true)).toEqual(receipt);
+  await expect(roles.prepareAccountRole({...body,memory:'changed'},fixed,true)).rejects.toMatchObject({code:'SCOPE_DENIED'});
+ } finally {await rm(root,{recursive:true,force:true});}
+});

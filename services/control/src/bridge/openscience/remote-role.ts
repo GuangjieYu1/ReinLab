@@ -26,11 +26,11 @@ export class RemoteRoleStore {
   private readonly url: string;
   private readonly token: string;
   private readonly accountId: string;
-  constructor(options: { baseUrl: string; token: string; accountId: string }, private readonly transport: typeof fetch = fetch) {
+  constructor(options: { baseUrl: string; token: string; accountId: string; readOnly?: boolean }, private readonly transport: typeof fetch = fetch) {
     const url = new URL(options.baseUrl);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash || !/^[A-Za-z0-9_-]{43}$/.test(options.token)) throw scopeDenied();
     this.accountId = z.string().uuid().parse(options.accountId); this.token = options.token;
-    this.url = url.origin + '/reinlab/roles/prepare';
+    this.url = url.origin + (options.readOnly ? '/reinlab/roles/verify' : '/reinlab/roles/prepare');
   }
   private async check(plan: Plan) {
     try {
