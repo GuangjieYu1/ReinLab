@@ -5,3 +5,5 @@
 ToTDD：新测试最初因artifact模块缺失红灯；补实现后1/1。真实固定内核构建成功后，`REINLAB_NATIVE_REPORT=/tmp/reinlab-p113-e1-after-build-green.json pnpm test:native-after-build`先完整mock前端构建，再跑7文件原生测试31/31、0失败0跳过，并核对二进制hash未变化。均使用loopback fixture，真实模型0调用。
 
 E-4只排版LoginGate原新增分支、空格与引号，不改逻辑；真实前端build和TS检查通过。后续统一19场景回归另附。不以构建前测试代替该回归。
+
+构建后lint也须回归：仅排除根.artifacts生成目录（延续旧dist生成物边界），嵌套源码中的.artifacts仍检查，业务源码导入根生成目录明确拒绝。新增正负面测试先红后绿；test:native-after-build顺序加入lint。没有放行源码SDK或动态加载器。

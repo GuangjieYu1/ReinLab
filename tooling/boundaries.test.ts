@@ -5,6 +5,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 describe('依赖边界', () => {
+  it('E-1 excludes only root generated artifacts, while source cannot hide in or import that output', () => {
+    const root=mkdtempSync(path.join(tmpdir(),'reinlab-artifact-boundary-'));
+    try {
+      mkdirSync(path.join(root,'.artifacts/account-runtime/upstream'),{recursive:true});
+      writeFileSync(path.join(root,'.artifacts/account-runtime/upstream/generated.ts'),"import x from '@synsci/sdk'");
+      expect(checkWorkspace(root)).toEqual([]);
+      mkdirSync(path.join(root,'src/.artifacts'),{recursive:true});
+      writeFileSync(path.join(root,'src/.artifacts/hidden.ts'),"import x from '@synsci/sdk'");
+      expect(checkWorkspace(root).length).toBeGreaterThan(0);
+      expect(checkSource('services/control/src/bridge/openscience/source.ts',"import x from '../../../../../.artifacts/account-runtime/upstream/generated'")).not.toEqual([]);
+    } finally {rmSync(root,{recursive:true,force:true});}
+  });
   it.each(['tooling/escape.ts', 'escape.ts'])('仓库其他目录也必须检查 %s', file => {
     const root = mkdtempSync(path.join(tmpdir(), 'reinlab-boundaries-'));
     try {

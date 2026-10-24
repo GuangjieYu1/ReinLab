@@ -10,6 +10,7 @@ function denied(file: string, spec: string): boolean {
   if (spec.startsWith('file:') || spec.includes('%')) return true;
   if (['module', 'node:module', 'vm', 'node:vm'].includes(spec)) return true;
   const resolved = spec.startsWith('.') ? path.posix.normalize(path.posix.join(path.posix.dirname(file), spec)) : spec;
+  if (resolved === '.artifacts' || resolved.startsWith('.artifacts/')) return true;
   if (sdk(spec) && !file.startsWith('services/control/src/bridge/openscience/')) return true;
   if (file.startsWith('packages/contracts/')) return spec !== 'zod' && !spec.startsWith('zod/') && !(spec.startsWith('.') && resolved.startsWith('packages/contracts/'));
   if (file.startsWith('src/')) return spec.startsWith('/') || spec.startsWith('file:') || server(spec) || spec.startsWith('@synsci/') || (spec.startsWith('.') && !resolved.startsWith('src/') && !resolved.startsWith('packages/contracts/'));
@@ -89,6 +90,7 @@ export function checkWorkspace(root: string): string[] {
     if (!fs.existsSync(dir)) return;
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       if (['node_modules', 'dist', '.git', 'evidence'].includes(e.name)) continue;
+      if (path.resolve(dir) === path.resolve(root) && e.name === '.artifacts') continue;
       const full = path.join(dir, e.name), relative = path.relative(root, full).split(path.sep).join('/');
       if (e.isSymbolicLink()) { out.push(`${relative}: 源码树禁止符号链接绕过`); continue; }
       if (e.isDirectory()) walk(full);
