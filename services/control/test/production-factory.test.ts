@@ -33,7 +33,7 @@ afterAll(async () => {
   await pool.end();
   await admin.end();
 });
-async function fixture(kind: "fly" | "docker" = "fly") {
+async function fixture(kind: "fly" | "docker" = "fly", readOnly = false) {
   const account = randomUUID(),
     master = Buffer.alloc(32, 7),
     tokens = { auth: "a".repeat(43), container: "b".repeat(43) },
@@ -142,7 +142,7 @@ async function fixture(kind: "fly" | "docker" = "fly") {
   let receiptAccount = account;
   const transport = (async (url, init) => {
     calls++;
-    expect(String(url)).toBe(endpoint + "/reinlab/roles/prepare");
+    expect(String(url)).toBe(endpoint + (readOnly ? "/reinlab/roles/verify" : "/reinlab/roles/prepare"));
     expect(new Headers(init?.headers).get("authorization")).toBe(
       "Bearer " + tokens.auth,
     );
@@ -169,6 +169,7 @@ async function fixture(kind: "fly" | "docker" = "fly") {
       app,
       controlUrl,
       transport,
+      readOnly,
     });
   return {
     account,
@@ -344,3 +345,5 @@ it("default vault reads only an existing key and fails closed without creating a
     expect(f.mutations).toBe(0);
   }
 });
+
+it("production recovery factory uses only existing-role verification",async()=>{const f=await fixture("docker",true);expect(await f.factory()(f.account,f.role)).toBeInstanceOf(RoleRuntime);expect(f.calls).toBe(1);expect(f.mutations).toBe(0);});

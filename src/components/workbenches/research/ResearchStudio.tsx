@@ -1,6 +1,8 @@
 import {liveBackend} from '../../../data/research-live';
-import LiveResearch from './LiveResearch';
-import { useState } from 'react';
+import { liveReadAdapter } from '../../../data/read-live';
+import { liveInboxAdapter } from '../../../data/inbox-live';
+import InboxHost from '../../inbox/InboxHost';
+import { useMemo, useState } from 'react';
 import type { BenchProps } from '../WorkbenchStudio';
 import ReadMode from './read/ReadMode';
 import ResearchBench from './ResearchBench';
@@ -13,7 +15,11 @@ type Mode = 'read' | 'swarm' | 'auto';
 const MODES: { id: Mode; label: string; en: string }[] = [{ id: 'read', label: '精读', en: 'READ' }, { id: 'swarm', label: '群研', en: 'SWARM' }, { id: 'auto', label: '自研', en: 'AUTO' }];
 const DEFAULT: Mode[] = ['read', 'swarm', 'auto', 'auto'];
 
-export default function ResearchStudio(props:BenchProps){return liveBackend?<LiveResearch {...props}/>:<MockResearchStudio {...props}/>;}
+export default function ResearchStudio(props:BenchProps){return liveBackend?<LiveReadStudio {...props}/>:<MockResearchStudio {...props}/>;}
+function LiveReadStudio(props: BenchProps) {
+  const adapter = useMemo(() => liveReadAdapter(), []);
+  return <ReadMode {...props} adapter={adapter} modeSwitch={<InboxHost autoOpen adapter={liveInboxAdapter} />} onDispatch={adapter.dispatchUnavailable} />;
+}
 function MockResearchStudio(props: BenchProps) {
   const [mode, setMode] = useState<Mode>(() => DEFAULT[props.file] ?? 'read');
   const [inbox, setInbox] = useState<Record<Mode, string[]>>({ read: [], swarm: [], auto: [] });

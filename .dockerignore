@@ -7,3 +7,5 @@ evidence
 infra/supabase/.temp
 infra/supabase/.branches
 .local
+
+.artifacts

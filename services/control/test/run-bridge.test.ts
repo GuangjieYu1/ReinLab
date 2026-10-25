@@ -1,3 +1,5 @@
+import { requireNativeArtifact } from "../../account-runtime/artifact.mjs";
+requireNativeArtifact();
 import {beforeAll,afterAll,expect,it} from 'vitest';
 import pg from 'pg';
 import {randomUUID} from 'node:crypto';

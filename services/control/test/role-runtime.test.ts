@@ -1,3 +1,5 @@
+import { requireNativeArtifact } from "../../account-runtime/artifact.mjs";
+requireNativeArtifact();
 import { testEvidenceDirectory } from "./fixtures/test-evidence";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {

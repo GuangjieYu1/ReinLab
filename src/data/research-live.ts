@@ -5,6 +5,12 @@ import type {
   PromotionDecision,
 } from "../../packages/contracts/src/index";
 export const liveBackend = import.meta.env.VITE_BACKEND === "live";
+const listeners = new Set<() => void>();
+export function subscribeSession(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+const changed = () => { for (const listener of listeners) listener(); };
 let session: BrowserSession | null = null,
   expiresAt = 0,
   generation = 0,
@@ -32,6 +38,11 @@ async function jsonRequest(path: string, init: RequestInit) {
 }
 export async function login(email: string, password: string) {
   const expected = ++generation;
+  session = null;
+  expiresAt = 0;
+  refreshing = undefined;
+  intents.clear();
+  changed();
   const value = (await jsonRequest("/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -40,6 +51,7 @@ export async function login(email: string, password: string) {
   if (expected !== generation) throw Error("会话已变化，请重试。");
   session = value;
   expiresAt = Date.now() + value.expiresIn * 1000;
+  changed();
   return value.accountId;
 }
 export function logout() {
@@ -48,6 +60,7 @@ export function logout() {
   expiresAt = 0;
   refreshing = undefined;
   intents.clear();
+  changed();
 }
 async function access() {
   if (!session) throw Error("请先登录。");
@@ -108,6 +121,15 @@ export async function inbox() {
     promotions: promotions.items as InboxPromotion[],
     approvals: [...approvals.items, ...unknown.items] as InboxApproval[],
   };
+}
+/** Same-origin authenticated SSE; the token stays in memory and never enters a URL. */
+export async function readEventStream(path: string, signal: AbortSignal, after: number) {
+  const expected=generation, token=await access();
+  if(expected!==generation)throw Error('会话已变化，请重试。');
+  const response=await fetch('/backend'+path,{signal,headers:{authorization:'Bearer '+token,'Last-Event-ID':String(after)},credentials:'omit',cache:'no-store',redirect:'error'});
+  if(expected!==generation){await response.body?.cancel();throw Error('会话已变化，请重试。');}
+  if(response.status===401){await response.body?.cancel();logout();throw Error('登录已过期，请重新登录。');}
+  return response;
 }
 // Keep one key per exact intent for the lifetime of the page, including a lost HTTP response.
 const intents = new Map<string, string>();

@@ -1,0 +1,68 @@
+{
+  "commit": "a7737abc5e1f175c85179e2eb63f5b866df2143c",
+  "workflowRun": 40109294202,
+  "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40109294202",
+  "jobs": [
+    {
+      "id": 120917459660,
+      "name": "check (22)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 120917459728,
+      "name": "account-image",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 120917459734,
+      "name": "legacy",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 120917459771,
+      "name": "check (24)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 120917459834,
+      "name": "local-stack",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "tReg": {
+    "passed": 17,
+    "failed": 2,
+    "total": 19,
+    "failures": [
+      {
+        "id": "trip",
+        "goFrames": 19,
+        "backFrames": 77,
+        "minimumGo": 20,
+        "minimumBack": 15
+      },
+      {
+        "id": "trip-en",
+        "goFrames": 15,
+        "backFrames": 77,
+        "minimumGo": 20,
+        "minimumBack": 15
+      }
+    ],
+    "live": "passed",
+    "inbox": "passed"
+  },
+  "legacyArtifact": {
+    "id": 12566037887,
+    "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40109294202/artifacts/12566037887",
+    "bytes": 316261958,
+    "sha256": "056062c9ba79c5bfbe634e998b5d44eec841ae79d37af9f0308a2e17ed6a5566"
+  },
+  "realModelRequests": 0,
+  "smokeAttemptConsumed": false
+}

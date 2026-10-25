@@ -1,5 +1,7 @@
-import LiveInboxBoundary from './components/workbenches/research/LiveInbox';
-import {liveBackend} from './data/research-live';
+import LiveSessionBoundary from './data/LiveSessionBoundary';
+import { liveBackend } from './data/research-live';
+import { liveInboxAdapter } from './data/inbox-live';
+import InboxHost from './components/inbox/InboxHost';
 import React, { lazy, startTransition, Suspense, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -12,6 +14,7 @@ const WorkbenchStudio = lazy(() => import('./components/workbenches/WorkbenchStu
 const RhineSpecimen = lazy(() => import('./components/rhine/RhineSpecimen'));
 const RhineEntry = lazy(() => import('./components/entry/RhineEntry'));
 const EmblemTransit = lazy(() => import('./components/entry/EmblemTransit'));
+const InboxPreview = lazy(() => import('./components/inbox/InboxPreview'));
 
 function Page({ preview }: { preview: string | null }) {
   if (preview === '__blank') return null;
@@ -23,6 +26,8 @@ function Page({ preview }: { preview: string | null }) {
     ? <Suspense fallback={<div role="status" style={{ padding: 30 }}>正在展开工作台设计模板…</div>}><RhineSpecimen /></Suspense>
     : preview === 'entry'
     ? <Suspense fallback={null}><RhineEntry /></Suspense>
+    : preview === 'inbox'
+    ? <Suspense fallback={null}>{liveBackend ? <InboxHost autoOpen adapter={liveInboxAdapter} /> : <InboxPreview />}</Suspense>
     : preview === 'entry-compare'
     ? <Suspense fallback={<div role="status" style={{ padding: 30 }}>正在展开入口演示…</div>}><EntryComparison /></Suspense>
     : <App />;
@@ -44,7 +49,7 @@ function Root() {
   }, []);
   const withTransit = nav.preview === 'entry' || nav.preview === 'workbench' || nav.preview === '__blank';
   return <>
-    {liveBackend?<LiveInboxBoundary><Page key={nav.n} preview={nav.preview}/></LiveInboxBoundary>:<Page key={nav.n} preview={nav.preview} />}
+    {liveBackend ? <LiveSessionBoundary><Page key={nav.n} preview={nav.preview} /></LiveSessionBoundary> : <Page key={nav.n} preview={nav.preview} />}
     {withTransit && <Suspense fallback={null}><EmblemTransit /></Suspense>}
   </>;
 }

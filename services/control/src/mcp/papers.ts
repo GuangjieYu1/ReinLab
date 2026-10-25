@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { z } from "zod";
 import type { Database } from "../db/database";
 import { ApiFailure } from "../api/errors";
+import { scrub } from "../ledger";
 import { PaperHttp } from "./paper-http";
 import type { AuthorizedCapability } from "./authority";
 import type { CapabilityHandler } from "./engine";
@@ -238,12 +239,33 @@ export function paperHandlers(
         abstract: abstractText,
         sha256: digest,
       };
+    const rawWork = work as Record<string, any>;
+    const viewMetadata = {
+      title: typeof work.title === "string" ? work.title.slice(0, 1000) : null,
+      authors: Array.isArray(rawWork.authorships)
+        ? rawWork.authorships
+            .slice(0, 50)
+            .flatMap((a: any) =>
+              typeof a?.author?.display_name === "string"
+                ? [a.author.display_name.slice(0, 300)]
+                : [],
+            )
+        : [],
+      venue:
+        typeof rawWork.primary_location?.source?.display_name === "string"
+          ? rawWork.primary_location.source.display_name.slice(0, 500)
+          : null,
+      sizeBytes: bytes?.length ?? null,
+    };
     // The shared server never receives a user's volume. Only the control-plane port deposits files.
-    await deposit(context, assetId, bytes, metadata);
+    await deposit(context, assetId, bytes, {
+      ...metadata,
+      ...(scrub(viewMetadata) as object),
+    });
     const file = "papers/" + assetId + (bytes ? ".pdf" : ".json");
     await db.withAccount(context.claims.account, (c) =>
       c.query(
-        "insert into paper_asset(id,account_id,dossier_id,run_id,paper_id,source,license,status,is_open_access,sha256,path,abstract) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+        "insert into paper_asset(id,account_id,dossier_id,run_id,paper_id,source,license,status,is_open_access,sha256,path,abstract,view_metadata) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
         [
           assetId,
           context.claims.account,
@@ -257,6 +279,7 @@ export function paperHandlers(
           digest,
           file,
           abstractText,
+          JSON.stringify(scrub(viewMetadata)),
         ],
       ),
     );

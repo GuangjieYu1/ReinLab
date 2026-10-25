@@ -115,6 +115,8 @@ it("T-MCP-7 fixture OA full text preserves original PDF page anchors; non-OA rem
             JSON.stringify({
               id: "https://openalex.org/W123",
               title: "Fixture",
+              authorships: [{author: {display_name: 'Fixture Author'}}],
+              primary_location: {source: {display_name: 'Fixture Venue'}},
               open_access: { is_oa: full },
               best_oa_location: {
                 is_oa: full,
@@ -141,6 +143,9 @@ it("T-MCP-7 fixture OA full text preserves original PDF page anchors; non-OA rem
       randomUUID(),
     );
     expect(fetched.status).toBe("full_text");
+    const saved = await f.db.withAccount(f.account,c=>c.query('select view_metadata from paper_asset where id=$1',[fetched.assetId]));
+    expect(saved.rows[0].view_metadata).toMatchObject({title:'Fixture',authors:['Fixture Author'],venue:'Fixture Venue',sizeBytes:pdf().length});
+    expect(deposits[0]).toMatchObject(saved.rows[0].view_metadata);
     const result = await handlers["papers.pages"](
       context,
       { assetId: fetched.assetId, pages: [1, 2] },

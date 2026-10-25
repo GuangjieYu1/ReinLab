@@ -25,6 +25,7 @@ import { createVerifier, type JwtConfig } from "./auth";
 import { mutate, type ApiEnv } from "./context";
 import { ApiFailure, denied } from "./errors";
 import { registerLedger } from "./ledger";
+import { registerReadView } from "./read-view";
 import { registerGates } from "./gates";
 import { registerBudget } from "./budget";
 import { pricingFromEnvironment, type PricingService } from "../budget/pricing";
@@ -68,7 +69,10 @@ export async function createApp(options: {
     );
     if (!exists.rowCount)
       throw new ApiFailure("ACCOUNT_NOT_READY", 404, "账户尚未完成初始化。");
-    if (c.req.method === "GET" && options.pipeline)
+    const readOnlyView =
+      c.req.query("view") === "read" ||
+      /\/read-(state|events)$/.test(c.req.path);
+    if (c.req.method === "GET" && options.pipeline && !readOnlyView)
       try {
         await options.pipeline.recoverAccount(c.get("accountId"));
       } catch {
@@ -83,6 +87,7 @@ export async function createApp(options: {
   });
   if (options.session) registerSession(app, options.session);
   app.get("/health", (c) => c.json({ status: "ok" }));
+  registerReadView(app, database);
   app.get("/v1/me", async (c) =>
     database.withAccount(c.get("accountId"), async (client) => {
       const account = await client.query(

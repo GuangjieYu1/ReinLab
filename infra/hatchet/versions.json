@@ -1,0 +1,15 @@
+{
+  "sdk": "1.43.0",
+  "server": "v0.110.5",
+  "image": "ghcr.io/hatchet-dev/hatchet/hatchet-lite@sha256:cc81f078a5285d7d2051ec4a4fa459d033e1face4ca5983d82612b00da6e3fa3",
+  "sourceArchiveSha256": "24636deae732afbe09e59862f6f13f06ce1b22d7cd855d4935b54ac1b8414659",
+  "sdkArchiveSha256": "aa12de9efa85dc17ca57e036e79f83976f2dc0ddc7bc749f199b1e700b7db7a1",
+  "pgx": "v5.11.0",
+  "sources": [
+    "https://github.com/hatchet-dev/hatchet/releases/tag/v0.110.5",
+    "https://docs.hatchet.run/self-hosting/hatchet-lite",
+    "https://docs.hatchet.run/reference/typescript/client",
+    "https://github.com/hatchet-dev/hatchet/blob/v0.110.5/cmd/hatchet-migrate/migrate/run.go",
+    "https://github.com/jackc/pgx/blob/v5.11.0/pgconn/config.go"
+  ]
+}

@@ -213,7 +213,7 @@ export async function startAccount({
       })();
       return;
     }
-    if (req.url === "/reinlab/roles/prepare") {
+    if (["/reinlab/roles/prepare", "/reinlab/roles/verify"].includes(req.url)) {
       if (req.method !== "POST") {
         res.writeHead(405).end();
         return;
@@ -239,6 +239,7 @@ export async function startAccount({
           const receipt = await prepareAccountRole(
             JSON.parse(Buffer.concat(chunks).toString("utf8")),
             { root, pluginUrl, accountId: env.REINLAB_ACCOUNT_ID },
+            req.url === "/reinlab/roles/verify",
           );
           res
             .writeHead(200, {

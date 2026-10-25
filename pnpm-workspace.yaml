@@ -8,3 +8,7 @@ allowBuilds:
   sharp@0.32.6: true
   "@synsci/openscience@2.0.150": true
   "supabase@2.121.0": true
+  '@hatchet-dev/typescript-sdk@1.43.0': false
+  'protobufjs@7.6.6': false
+minimumReleaseAgeExclude:
+  - '@hatchet-dev/typescript-sdk@1.43.0'

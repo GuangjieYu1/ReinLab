@@ -309,6 +309,31 @@ export class CapabilityEngine {
                     ).rowCount
                   )
                     throw fail("PAPER_SCOPE_DENIED");
+                  if (saved.rowCount)
+                    await appendEvent(client, auth.claims.account, {
+                      dossierId: auth.claims.dossier,
+                      runId: auth.claims.run,
+                      roleId: auth.claims.role,
+                      kind: "tool",
+                      action: "paper_page_read",
+                      payload: {
+                        assetId: result.assetId as string,
+                        page: page.page,
+                        textSha256: createHash("sha256")
+                          .update(page.text)
+                          .digest("hex"),
+                        quote: page.text.slice(0, 300),
+                      },
+                      dedupeKey:
+                        "paper-page:" +
+                        auth.claims.run +
+                        ":" +
+                        result.assetId +
+                        ":" +
+                        page.page +
+                        ":" +
+                        createHash("sha256").update(page.text).digest("hex"),
+                    });
                 }
               },
             );
@@ -328,6 +353,34 @@ export class CapabilityEngine {
         durationMs: Date.now() - started,
         success: true,
         replay: "replay" in admission,
+        ...(request.capability === "papers.search"
+          ? {
+              summary: {
+                query: String(request.args.query).slice(0, 1000),
+                count: Array.isArray(result.papers)
+                  ? result.papers.length
+                  : null,
+              },
+            }
+          : {}),
+        ...(request.capability === "papers.fetch"
+          ? {
+              summary: {
+                assetId: result.assetId as string,
+                status: result.status as string,
+                license:
+                  typeof result.license === "string" ? result.license : null,
+              },
+            }
+          : {}),
+        ...(request.capability === "papers.pages"
+          ? {
+              summary: {
+                assetId: result.assetId as string,
+                pages: request.args.pages as number[],
+              },
+            }
+          : {}),
       });
       return result;
     } catch (error) {

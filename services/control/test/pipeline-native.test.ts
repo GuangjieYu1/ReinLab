@@ -1,3 +1,5 @@
+import { requireNativeArtifact } from "../../account-runtime/artifact.mjs";
+requireNativeArtifact();
 import { fileHandlers } from "../src/mcp/files";
 import { serve } from "@hono/node-server";
 import { generateKeyPairSync } from "node:crypto";

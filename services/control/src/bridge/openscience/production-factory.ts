@@ -15,6 +15,7 @@ import { RemoteRoleStore } from "./remote-role";
 import { RoleRuntime } from "./role-runtime";
 import type { RuntimeFactory } from "./run-bridge";
 export type ProductionFactoryOptions = {
+  readOnly?: boolean;
   driver?: AccountDriver;
   vault?: KeyVault;
   app?: string;
@@ -257,12 +258,12 @@ export function createProductionRuntimeFactory(
     const role = RoleProjectRequest.safeParse(rawRole);
     if (!role.success) throw denied();
     const connection = await resolve(accountId);
-    const store = new RemoteRoleStore(connection, options.transport);
+    const store = new RemoteRoleStore({...connection,readOnly:options.readOnly}, options.transport);
     const project = await store.prepare({
       ...role.data,
       root: "/data",
       pluginUrl: "file:///opt/reinlab/plugin/index.js",
     });
-    return new RoleRuntime({ ...connection, project });
+    return new RoleRuntime({ ...connection, project, readOnlyRecovery:options.readOnly });
   };
 }

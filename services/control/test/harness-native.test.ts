@@ -1,3 +1,5 @@
+import { requireNativeArtifact } from "../../account-runtime/artifact.mjs";
+requireNativeArtifact();
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import {
   mkdtemp,

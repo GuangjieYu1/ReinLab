@@ -1,0 +1,18 @@
+{
+  "observedAt": "2026-10-24T16:01:35.972597+00:00",
+  "timezone": "Asia/Shanghai",
+  "date": "2026-10-25",
+  "apiKeyAlias": "ReinLab",
+  "requests": 0,
+  "tokens": 0,
+  "costCny": "0.00",
+  "selectorMenuClosed": true,
+  "sourceSha256": "2eaf9a8d74382d085df997a5f6d455bf837a02d6d7ea241531ae6672d550c743",
+  "crop": [
+    750,
+    700,
+    2700,
+    1830
+  ],
+  "scope": "Today, dedicated ReinLab key; no account balance or credential selector"
+}

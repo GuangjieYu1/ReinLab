@@ -6,6 +6,7 @@ import { readRuntimeConfiguration } from "../src/configuration";
 import { readAccountCredentials } from "../../account-runtime/credentials.mjs";
 import { environmentDriver } from "../src/provisioner";
 import { readControlRecord } from "../../../tooling/local/control-process";
+import { readPrivateEnv } from "../../../tooling/local/config";
 import { localPaths } from "../../../tooling/local/paths";
 const paths = localPaths(),
   config = readRuntimeConfiguration(paths.runtime);
@@ -42,15 +43,50 @@ function capture(command: string, args: string[], env: NodeJS.ProcessEnv) {
 try {
   const env = { PATH: process.env.PATH, DOCKER_HOST: config.DOCKER_HOST },
     machines = await environmentDriver().listMachines();
-  if (machines.length !== 4 || !config.REINLAB_DOCKER_CREDENTIAL_DIR)
+  const args = process.argv.slice(2);
+  if (args.length) {
+    if (args.length !== 2 || args[0] !== "--expected-accounts")
+      throw Error("AUDIT_SCOPE_INVALID");
+    const expected = args[1].split(",");
+    if (
+      !expected.length ||
+      expected.length > 100 ||
+      new Set(expected).size !== expected.length ||
+      expected.some(
+        (id) =>
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(
+            id
+          )
+      )
+    )
+      throw Error("AUDIT_SCOPE_INVALID");
+    if (
+      JSON.stringify(expected.sort()) !==
+      JSON.stringify(
+        machines.map((m) => m.config.metadata!.reinlab_account_id).sort()
+      )
+    )
+      throw Error("AUDIT_ACCOUNT_SET_CHANGED");
+  }
+  if (
+    (!args.length && machines.length !== 4) ||
+    !config.REINLAB_DOCKER_CREDENTIAL_DIR
+  )
     throw Error("AUDIT_ACCOUNT_SET_CHANGED");
   for (const m of machines) {
     phase = "read_file";
     const id = m.config.metadata!.reinlab_account_id,
       credentials = readAccountCredentials(
         join(config.REINLAB_DOCKER_CREDENTIAL_DIR, id, "account.json"),
-        { accountId: id },
+        { accountId: id }
       );
+    if(m.state==='stopped'){
+      const logs=await capture('docker',['logs',m.id],env);
+      if(logs.includes(credentials.auth)||logs.includes(credentials.container))throw Error('AUDIT_MATCH');
+      results.push({scope:'account_stopped_no_process_environment',passed:true,processes:0});
+      results.push({scope:'account_stdout_stderr',passed:true});
+      continue;
+    }
     phase = "account_processes";
     const result = JSON.parse(
       await capture(
@@ -65,8 +101,8 @@ try {
           "-e",
           `import{readFileSync,readdirSync}from'node:fs';import{readAccountCredentials}from'/services/account-runtime/credentials.mjs';const c=readAccountCredentials('/run/reinlab-private/account.json',{accountId:process.env.REINLAB_ACCOUNT_ID,owner:1000,parentOwner:1000});let processes=0,matches=0,blocked=0;for(const pid of readdirSync('/proc').filter(v=>/^\\d+$/.test(v))){try{const b=readFileSync('/proc/'+pid+'/environ','utf8');processes++;matches+=Number(b.includes(c.auth)||b.includes(c.container));}catch(e){if(e.code==='EACCES')blocked++;else if(e.code!=='ENOENT')process.exit(1);}}console.log(JSON.stringify({processes,matches,blocked}));`,
         ],
-        env,
-      ),
+        env
+      )
     );
     if (result.matches !== 0 || result.processes < 1)
       throw Error("AUDIT_MATCH");
@@ -82,19 +118,69 @@ try {
       throw Error("AUDIT_MATCH");
     results.push({ scope: "account_stdout_stderr", passed: true });
   }
+  if (args.length) {
+    phase = "hatchet_process";
+    const privateConfig = await readPrivateEnv(
+      join(paths.state, "hatchet/setup.env")
+    );
+    const secrets = [
+      privateConfig.DATABASE_PASSWORD,
+      privateConfig.DISCOVERY_PASSWORD,
+      privateConfig.TOKEN,
+    ];
+    if (secrets.some((value) => !value || value.length < 16))
+      throw Error("AUDIT_CONFIGURATION_INVALID");
+    const name = "reinlab-hatchet-" + paths.state.split("/").at(-1);
+    const configured = JSON.parse(
+      await capture(
+        "docker",
+        ["inspect", "--format", "{{json .Config.Env}}", name],
+        env
+      )
+    ) as string[];
+    const url = new URL(
+      configured
+        .find((value) => value.startsWith("DATABASE_URL="))
+        ?.slice("DATABASE_URL=".length) ?? ""
+    );
+    if (
+      url.password ||
+      url.searchParams.get("passfile") !== "/run/reinlab-hatchet/pgpass"
+    )
+      throw Error("AUDIT_MATCH");
+    const actual = await capture(
+      "docker",
+      ["exec", name, "/bin/sh", "-c", "cat /proc/1/environ"],
+      env
+    );
+    const logs = await capture("docker", ["logs", name], env);
+    if (
+      secrets.some(
+        (value) =>
+          actual.includes(value) ||
+          JSON.stringify(configured).includes(value) ||
+          logs.includes(value)
+      )
+    )
+      throw Error("AUDIT_MATCH");
+    results.push({
+      scope: "hatchet_file_credentials_and_public_dsn",
+      passed: true,
+    });
+  }
   phase = "control_process";
   const record = await readControlRecord(paths.process);
   if (!record) throw Error("AUDIT_CONTROL_MISSING");
   const observed = await capture(
     "/bin/ps",
     ["eww", "-p", String(record.pid), "-o", "command="],
-    { PATH: process.env.PATH },
+    { PATH: process.env.PATH }
   );
   const secrets = Object.entries(config)
     .filter(
       ([key, value]) =>
         value &&
-        /(?:_KEY|_TOKEN|_SECRET|_PASSWORD)$|^DATABASE_URL(?:_|$)/.test(key),
+        /(?:_KEY|_TOKEN|_SECRET|_PASSWORD)$|^DATABASE_URL(?:_|$)/.test(key)
     )
     .map(([, value]) => value!);
   if (secrets.some((v) => observed.includes(v))) throw Error("AUDIT_MATCH");
@@ -115,6 +201,6 @@ const report = {
 };
 await writeFile(
   join(out, "runtime-credential-audit.json"),
-  JSON.stringify(report, null, 2) + "\n",
+  JSON.stringify(report, null, 2) + "\n"
 );
 console.log(JSON.stringify(report));

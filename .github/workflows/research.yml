@@ -22,6 +22,7 @@ jobs:
           --health-interval 2s --health-timeout 2s --health-retries 30
     env:
       VITE_BACKEND: mock
+      REINLAB_REQUIRE_NATIVE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,27 +35,37 @@ jobs:
       - name: PDF 文本层依赖
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: 凭据扫描器（仅合成 fixture）
-        run: python3 tooling/security/test-scan.py
+        run: |
+          python3 tooling/security/test-scan.py
+          python3 tooling/security/test-scan-p113.py
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
       - name: 构建固定源码与文件鉴权部署适配器
         run: node services/account-runtime/build.mjs
+      - name: 前端构建后原生回归（缺失禁止跳过）
+        run: pnpm test:native-after-build
+        env:
+          REINLAB_NATIVE_REPORT: native-after-build-report.json
       - name: 测试
         run: pnpm test --reporter=json --outputFile=test-report.json
       - name: 共享契约类型检查
         run: pnpm exec tsc -p packages/contracts/tsconfig.json
       - name: 控制面类型检查
         run: pnpm exec tsc -p services/control/tsconfig.json
+      - name: Worker 类型检查
+        run: pnpm exec tsc -p services/worker/tsconfig.json
       - name: 本地编排类型检查
-        run: pnpm exec tsc --noEmit --strict --skipLibCheck --esModuleInterop --moduleResolution bundler --module ESNext --target ES2022 --lib ES2022,DOM --types node tooling/local/up.ts
+        run: pnpm exec tsc --noEmit --strict --skipLibCheck --esModuleInterop --moduleResolution bundler --module ESNext --target ES2022 --lib ES2023,DOM --types node --allowJs tooling/local/up.ts tooling/local/hatchet.ts tooling/local/worker.ts
       - name: mock 构建
         run: pnpm build
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: research-test-report-node-${{ matrix.node }}
-          path: test-report.json
+          path: |
+            test-report.json
+            native-after-build-report.json
   account-image:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -103,6 +114,16 @@ jobs:
           pnpm exec tsx services/control/scripts/verify-inbox-live.ts
         env:
           REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-inbox
+      - name: P1-13 真 Hatchet 与无人访问账户/worker重启混沌（仅模型 fixture）
+        run: |
+          pnpm local:hatchet
+          pnpm exec tsx services/worker/scripts/verify-recovery.ts
+        env:
+          REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-recovery
+      - name: 精读live适配器 Auth/API/SSE/浏览器（明确合成研究数据，模型0调用）
+        run: pnpm exec tsx services/control/scripts/verify-read-live.ts
+        env:
+          REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-read
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -110,6 +131,8 @@ jobs:
           path: |
             ${{ runner.temp }}/local-integration/*.json
             ${{ runner.temp }}/local-inbox/*
+            ${{ runner.temp }}/local-recovery/*
+            ${{ runner.temp }}/local-read/*
   legacy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -123,7 +146,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: 原样18场景T-REG
+      - name: 原样20场景T-REG
         run: |
           pnpm dev > /tmp/reinlab-mock-vite.log 2>&1 &
           for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:5173/ > /dev/null && break; sleep 1; done
@@ -135,3 +158,8 @@ jobs:
         with:
           name: legacy-t-reg
           path: ${{ runner.temp }}/legacy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-t-reg-summary
+          path: ${{ runner.temp }}/legacy/report.json

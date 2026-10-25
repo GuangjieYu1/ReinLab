@@ -234,3 +234,56 @@ BACKEND_MEMORY_SESSION §13要求evidence为eventRef并能回到原对话/作答
 
 ## Q-084（第五批，局部网络故障）Docker Hub IPv6连接重置
 冷启动最终镜像构建时，宿主Docker认证客户端IPv6连接被重置；IPv4探测正常。仅构建期间使用127.0.0.1 CONNECT代理，目的地白名单auth.docker.io:443/registry-1.docker.io:443，TCP选IPv4，TLS保持端到端，不解码/记录请求；进程结束关闭。未修改项目鉴权、镜像内容或全局网络策略，试验VM hosts已恢复、临时私有Docker认证配置已删除。最终镜像真实构建、4账户稳定操作ID升级并健康；不是云端验收。
+
+## Q-085（第六批，Claude收件箱接口边界）问答与来源跳转
+InboxAdapter只有approve/reject，无原生question的answers；因此live适配器不捏造答案，question仅可reject，approve失败并保留原项。已有API问答能力不删。EvidenceView映射真实同来源eventRef原文；目前Claude组件对href点击preventDefault且未给真实对话路由，因此不设置虚假href（尤其不使用#），原文查看仍可用。后续问答输入和对话跳转由Claude决定前端接口，本批不改组件交互。旧非结构化promotion.items无法符合组件类型时明确失败，不制造依据或隐式批准。
+
+## Q-086（第六批，推荐方案待安全评审）全局恢复的最小发现权限
+无人访问时不能靠普通JWT账户入口触发恢复。建议独立Hatchet worker用专属发现连接，只授予account.id列SELECT及该角色专属RLS SELECT策略；无账户姓名/凭据/业务表权限，无BYPASSRLS，不给reinlab_app角色继承。发现ID之后恢复仍通过原reinlab_app与SET LOCAL app.account_id执行逐账户读取和账本写入；每个account.reconcile只使用只读runtime observation，不提交prompt或重发审批/工具。全局定时由Hatchet持久cron驱动，worker断线重连后按DB游标重入。理由：需要全局发现但不扩大普通应用账户查询范围；不把管理员连接放进worker。
+
+## Q-087（第六批，Hatchet私有文件配置）自托管认证与迁移器
+锁定Hatchet SDK1.43.0、稳定服务v0.110.5和已核镜像摘要，官方server/admin可从配置目录读取database.yaml/server.yaml；不使用auth-disabled镜像或会打印worker token的脚本。CLI迁移器只支持DATABASE_URL，但固定pgx v5.11.0支持passfile：拟仅给迁移器无密码DSN与私有passfile路径，密码在0600文件内，由pgx进程读取；DSN中不得出现password。server/admin私有配置使用单独0700 named volume，worker令牌/连接串在宿主私有0600文件；stdout令牌仅内存捕获写私有文件，不输出。Hatchet与业务使用同一本地Postgres实例、独立数据库/owner；worker无管理员连接。实际启动、环境扫描和故障验证完成前不标已验。固定SDK postinstall仅版本提示，protobufjs纯JS脚本亦非本运行必需，明确不运行依赖安装脚本并用真实集成核验，不因脚本警告放开所有构建。
+
+## Q-088（第六批，真实Supabase权限差异）PUBLIC统计视图
+严格发现role预检在真实Supabase拒绝：它通过PUBLIC继承extensions.pg_stat_statements与pg_stat_statements_info的SELECT，不能宣称只有UUID读取。诊断事务已回滚，只输出对象名/权限，不读取业务值。推荐新增前置000迁移将这两个已存在统计视图的PUBLIC SELECT撤回并授pg_read_all_stats；超管/owner与显式监控角色仍可读。001发现迁移原字节不改，不把统计视图加入安全检查白名单。应用不依赖此统计视图；实际应用/回归和独立安全复核需补。理由：收紧继承权限以满足最小发现边界，而不是绕过预检。PostgreSQL默认PUBLIC系统目录元数据不是业务数据授权，保持正常数据库功能。
+
+### Q-089 宿主规划与容器 MCP 命令路径不同（第六批，本地真实验证发现）
+- 真实容器首次 MCP 角色准备失败：控制面按自身 import.meta.url 生成宿主 MCP client 绝对路径，容器按 /services/ 生成另一条路径，导致生成配置摘要不同，既有收据校验正确拒绝。此前同进程原生 fixture 共享路径，未暴露部署差异。
+- 推荐并采用：部署固定 root=/data、plugin=file:///opt/reinlab/plugin/index.js 时命令固定为 /services/account-runtime/mcp/client.mjs；本地原生fixture继续用本地模块路径。保持全部收据/文件摘要核对，不新增调用者可选路径。增加部署规划测试与真实容器验证；不得通过跳过摘要解决。
+
+### Q-090 全量并行的本地 fixture 容量（第六批）
+- 两轮全量分别1494通过/2超时、1493通过/4超时，均为不同集成测试命中原5秒限制（包括50次Python文件版本保留测试），没有校验断言不通过。原生子进程、fsync/Python与共享PG竞争资源。
+- 推荐并采用：全量文件worker上限4降至2，保持并行和全部测试/默认超时，不放宽验证；Node22/24及CI重新全量。原始红报告保留在evidence/P1-13/recovery/，不得用定向绿报告冒充全量。
+- 2 worker全量1497通过/1超时，剩余仅版本保留的52次真实Python/fsync写入加undo。该重I/O集成项单独显式30s执行时限（与已有长流程集成项一致），52次写入、保留50版本、旧undo拒绝与最后undo结果校验一字未删；不是放宽API/安全校验或接口超时。原5s失败报告保留，附实际耗时报告。其他测试默认超时不变。
+
+### Q-091 Hatchet文件加载器内部回写ENV（第六批源码核验）
+- 固定core源码pkg/config/loader/loader.go:175–188会在DATABASE_URL未设置时，用database.yaml密码构造URL并回写进程ENV；仅检查Docker Config.Env不够。推荐并采用：所有admin/server和migrate都只传无密码的公开DSN，固定passfile指向私有0600 pgpass；database.yaml不再保存数据库密码。pgx固定版本支持passfile，实际数据库连接验证后才能关闭此项。DSN本身不含密码/token，不是凭据ENV回退。
+- 临时管理容器均禁用Docker日志驱动，token CLI stdout只作为宿主内存IPC，不落日志；worker仍只接收私有配置路径。已有本任务profile做受限维护，保留数据库和签名材料，不篡改未知资源。真实模型调用仍未开始。
+
+### Q-092 冒烟上游响应中的转义凭据（第六批安全复核）
+
+独立反射测试发现，仅比较响应原始字节不足以覆盖JSON Unicode转义。推荐并已采用：在每个JSON/SSE帧解析后遍历键和值检查实际凭据；解析未知、截断或上游错误也不透传原响应体，永久封住后续模型轮次。合成反射及既有守卫/私有证据共31项通过，含按SDK索引跨SSE帧累计与工具参数二次解析；不改变单次授权或预算。
+
+### Q-093 CI既有转场帧数红灯（按用户条件暂停，待决定）
+
+代码a7737ab的CI全量两版各1506绿、原生各31绿、完整本地栈与机器混沌绿；原样19场景为17绿2红：trip/go19与trip-en/go15低于原20帧门槛，back均77；live和inbox绿。本地原样19曾全绿，但这不能证明CI差异根因。推荐保留原场景/断言/前端，由Claude确认是否仅定位并改善CI图形执行环境，再按相同阈值验证。用户已明确要求非live既有场景变红时停下来报告，因此本处不套用“按推荐继续”来擅自修前端或重跑唯一真实冒烟；等待决定，当前没有消耗T-MCP-10授权。证据evidence/P1-13/ci/preflight-a7737/。
+
+### Q-094 Q-085/Q-093已由前端负责人解决，按用户授权恢复（2026-10-25）
+
+用户明确指定同步Claude更新的四个inbox文件及三个场景，七文件原样复制并记录哈希。转场断言修改来自Claude前端负责人，后端没有另改场景。原生question从既有effects的question.asked事件映射到questions，五类字段原样保留；answers二维数组不去重、排序或trim，仍交已有后端严格校验。当前LiveResearch无按run/event定位原对话的真实路由，因此source.href/evidence.href均不伪造；这已符合新接口允许留空的约定。原T-MCP-10授权仍未消费，待最新CI全绿执行一次。
+
+### Q-095 T-MCP-10单次预估失败与新授权（2026-10-25，待决定）
+
+26e4940的全部10项CI终态成功后只执行一次。新1.1.0档案创建，预估HTTP503；无run/estimate/usage、未创建守卫或模型转发标记，真实模型0调用，专用key账单0请求/0tokens/¥0.00。根因为单次临时控制面漏传文件pricing配置，已提取createSmokeApp与常规main一样显式注入，真实API/RLS fixture复现503后按原201/六位小数合同通过；只读真实models.dev预估成功。没有重启执行器。推荐先由Claude审代码与故障证据，再由用户给新的明确单次授权和新计划做真实复验；本次不假定“还没花钱就能重跑”。证据evidence/P1-13/T-MCP-10/。
+
+### Q-096 精读恢复所需数据缺口（2026-10-25，按推荐实现）
+
+现有paper_asset缺标题/作者/出版来源/字节数，paper_page_read仅数据库回执无账本事件，旧接口不提供稳定的历史分页与最新read运行快照。推荐追加公开view_metadata列（旧行空对象，缺字段如实显示未记录）、成功页回执同事务追加一次page事件；新read-state在repeatable-read readonly账户事务内取水位和快照，read-events按固定through上界分页，SSE从该水位续读。费用按真实usage与binding未知标记，不能用任意null费用事件推断收费，未观测用量仍null。引用与quiz keys保持现有服务器校验/去密，不开放文件路径读取。独立安全复核后才标通过。
+
+### Q-097 live模式范围与Claude组件生命周期（2026-10-25，按文档最小接入；前端后续）
+
+主仓库RESEARCH_LIVE_FRONTEND明确“先做精读”，因此live仅挂Claude ReadMode与原收件箱；mock三模式保留。ReadMode仍有“派给群研”的现成按钮，数据回调如实发本地“未接入，未创建运行”说明，不派模型、不切示例群研，不改界面。是否以后显示另外两个live模式入口由Claude决定。
+
+只读检查发现useRead以共享live ref代替每次effect的取消标记；React StrictMode双effect时，较早load的then也可能subscribe，旧effect已清理过而对应off尚未赋值。适配器的generation/epoch/sourceVersion保证不跨账户、不覆盖新运行；但同账户挂卸后的多余只读订阅可能持续到换账户/页面关闭。推荐Claude在useRead effect里使用局部active标记并在resolve前检查；本轮按逐字节同步约束不擅改其hook。不涉及权限放宽，也不阻精读数据恢复；未声称该前端生命周期问题已修。
+
+Q-095后续计划已整理在evidence/P1-13/T-MCP-10/NEXT_SMOKE_PLAN.md；本次没有新的真实模型授权，不执行。
