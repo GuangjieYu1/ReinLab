@@ -2,6 +2,8 @@
 
 依据主仓库design/RESEARCH_LIVE_FRONTEND.md和用户2026-10-25指令。此项与第六批PR #19一起送审；不开始P2-05/P2-06，也不重新执行T-MCP-10。
 
+后续用户决定已更新：保留精读/群研/自研三入口，live群研、自研占位由Claude补齐。代码1c064c7仍为live仅精读入口，尚待Claude调整；此前只显精读的推荐已撤回，不能视为三入口已完成。本次决策更新仅涉及文档，功能与测试结果仍对应原代码提交。
+
 ## 实现与来源
 
 source-hashes.json记录六文件逐文件原始/同步SHA256，原样同步Claude read五文件和20-read-run场景，未修改其样式/交互/断言。仅ResearchStudio接入liveReadAdapter与原收件箱，mock保留三模式；删除LiveResearch临时界面。主仓库未写入，OpenScience checkout未修改。

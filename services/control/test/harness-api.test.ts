@@ -39,14 +39,18 @@ const server = createServer((_q, r) =>
           },
         },
       },
-    }),
-  ),
+    })
+  )
 );
 beforeAll(async () => {
   await applyMigrations(admin, resolve("infra/supabase/migrations"));
   await admin.query("insert into account(id) values($1)", [a]);
   const registry = await loadToolRegistry(),
-    bundle = await loadBenchBundle({ benchId: "research", registry });
+    bundle = await loadBenchBundle({
+      benchId: "research",
+      registry,
+      version: "1.1.0",
+    });
   await publishBench(admin, bundle, registry);
   harness = new HarnessStore(db, bundle, registry);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -116,9 +120,9 @@ it("run estimate and confirmed admission bind manifest version/effective hash, c
     (
       await admin.query(
         "select version,effective_digest from run_harness where run_id=$1",
-        [run.id],
+        [run.id]
       )
-    ).rows[0],
+    ).rows[0]
   ).toEqual({
     version: "1.1.0",
     effective_digest: quote.assumptions.effectiveConfigDigest,
@@ -130,7 +134,7 @@ it("run estimate and confirmed admission bind manifest version/effective hash, c
     a,
     dossier,
     { roles: { "research-read": { tools: { literature: "ask" } } } },
-    randomUUID(),
+    randomUUID()
   );
   expect(
     (
@@ -143,7 +147,7 @@ it("run estimate and confirmed admission bind manifest version/effective hash, c
         confirmed: true,
         input: { question: "test" },
       })
-    ).status,
+    ).status
   ).toBe(409);
 });
 it("unlisted tuning fields return HTTP400 and create no proposal, override, ledger or idempotency receipt", async () => {
@@ -160,9 +164,9 @@ it("unlisted tuning fields return HTTP400 and create no proposal, override, ledg
         (
           await c.query(
             `select (select count(*) from harness_proposal where dossier_id=$1)::int proposals,(select count(*) from dossier_override where dossier_id=$1)::int overrides,(select count(*) from event where dossier_id=$1)::int events,(select count(*) from http_request)::int receipts`,
-            [dossier],
+            [dossier]
           )
-        ).rows[0],
+        ).rows[0]
     );
   const before = await count(),
     digest = (await harness.effective(a, dossier)).digest;

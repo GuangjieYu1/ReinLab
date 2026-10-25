@@ -33,7 +33,11 @@ let registry: Awaited<ReturnType<typeof loadToolRegistry>>,
 beforeAll(async () => {
   await applyMigrations(admin, resolve("infra/supabase/migrations"));
   registry = await loadToolRegistry();
-  bundle = await loadBenchBundle({ benchId: "research", registry });
+  bundle = await loadBenchBundle({
+    benchId: "research",
+    registry,
+    version: "1.1.0",
+  });
   await publishBench(admin, bundle, registry);
 });
 afterAll(async () => {
@@ -50,8 +54,8 @@ async function fixture(accepted = false) {
     foreign,
   ]);
   await admin.query(
-    "insert into dossier(id,account_id,bench,title,workspace_path) values($1,$2,'research','http',$3)",
-    [dossier, account, "/data/dossiers/" + dossier],
+    "insert into dossier(id,account_id,bench,title,workspace_path,bench_version) values($1,$2,'research','http',$3,'1.1.0')",
+    [dossier, account, "/data/dossiers/" + dossier]
   );
   const effective = initialEffective(bundle);
   await admin.query(
@@ -63,11 +67,11 @@ async function fixture(accepted = false) {
       bundle.manifest.version,
       bundle.digest,
       JSON.stringify(effective),
-    ],
+    ]
   );
   await admin.query(
     "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,'research-read','read',$4,'queued',1)",
-    [run, account, dossier, randomUUID()],
+    [run, account, dossier, randomUUID()]
   );
   await admin.query(
     "insert into run_harness(account_id,dossier_id,run_id,bench,version,effective_digest,model_route) values($1,$2,$3,$4,$5,$6,$7)",
@@ -79,7 +83,7 @@ async function fixture(accepted = false) {
       bundle.manifest.version,
       effective.digest,
       "fixture/confirmed",
-    ],
+    ]
   );
   const binding = accepted
     ? await new BindingStore(db).prepare(account, run, {
@@ -119,7 +123,7 @@ async function fixture(accepted = false) {
     ])
       await admin.query(
         "insert into approval(id,account_id,run_id,os_request_id,os_session_id,kind,title,effects,risk,state) values($1,$2,$3,$4,$5,$6,'fixture approval','[]','read','pending')",
-        [id, account, run, requestId, binding.sessionId, kind],
+        [id, account, run, requestId, binding.sessionId, kind]
       );
   const decide = vi.fn(async (input: any) => ({
       status: "resolved",
@@ -192,7 +196,7 @@ async function fixture(accepted = false) {
     path: string,
     body: unknown,
     key: string | undefined = randomUUID(),
-    auth = jwt,
+    auth = jwt
   ) =>
     app.request(path, {
       method: "POST",
@@ -251,7 +255,7 @@ it("explicit submit saves202 then calls pipeline once, including same-key replay
   expect(response.status).toBe(202);
   const body = await response.json();
   expect((await f.post("/v1/runs/" + f.run + "/submit", {}, key)).status).toBe(
-    202,
+    202
   );
   expect(f.submit).toHaveBeenCalledTimes(1);
   expect(JSON.stringify(body)).not.toContain("PRIVATE");
@@ -259,15 +263,15 @@ it("explicit submit saves202 then calls pipeline once, including same-key replay
     (
       await admin.query(
         "select count(*)::int n from event where run_id=$1 and action='runtime_submit_deferred'",
-        [f.run],
+        [f.run]
       )
-    ).rows[0].n,
+    ).rows[0].n
   ).toBe(1);
 });
 it("submit enforces exact body, idempotency, ownership and confirmed Harness binding", async () => {
   const f = await fixture();
   expect((await f.post("/v1/runs/" + f.run + "/submit", {}, "")).status).toBe(
-    400,
+    400
   );
   for (const body of [
     { role: "evil" },
@@ -276,7 +280,7 @@ it("submit enforces exact body, idempotency, ownership and confirmed Harness bin
     { approved: true },
   ])
     expect((await f.post("/v1/runs/" + f.run + "/submit", body)).status).toBe(
-      400,
+      400
     );
   expect(
     (
@@ -284,15 +288,15 @@ it("submit enforces exact body, idempotency, ownership and confirmed Harness bin
         "/v1/runs/" + f.run + "/submit",
         {},
         randomUUID(),
-        f.foreignJwt,
+        f.foreignJwt
       )
-    ).status,
+    ).status
   ).toBe(404);
   expect(f.submit).not.toHaveBeenCalled();
   const run = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,'research-read','read',$4,'queued',1)",
-    [run, f.account, f.dossier, randomUUID()],
+    [run, f.account, f.dossier, randomUUID()]
   );
   expect((await f.post("/v1/runs/" + run + "/submit", {})).status).toBe(409);
 });
@@ -302,7 +306,7 @@ it("validates questions before saving HTTP or decision intent; missing idem head
   const bad = await f.post(
     "/v1/approvals/" + f.question + "/decide",
     { decision: "approve", answers: [["bad"]] },
-    key,
+    key
   );
   expect(bad.status).toBe(400);
   expect(((await bad.json()) as any).code).toBe("INVALID_ANSWER");
@@ -311,15 +315,15 @@ it("validates questions before saving HTTP or decision intent; missing idem head
       await admin.query("select decision_hash from approval where id=$1", [
         f.question,
       ])
-    ).rows[0].decision_hash,
+    ).rows[0].decision_hash
   ).toBeNull();
   expect(
     (
       await admin.query(
         "select count(*)::int n from http_request where account_id=$1",
-        [f.account],
+        [f.account]
       )
-    ).rows[0].n,
+    ).rows[0].n
   ).toBe(0);
   expect(f.decide).not.toHaveBeenCalled();
   expect(f.snapshotCalls).toHaveBeenCalledTimes(1);
@@ -328,9 +332,9 @@ it("validates questions before saving HTTP or decision intent; missing idem head
       await f.post(
         "/v1/approvals/" + f.question + "/decide",
         { decision: "approve", answers: [["yes"]] },
-        "",
+        ""
       )
-    ).status,
+    ).status
   ).toBe(400);
   expect(f.snapshotCalls).toHaveBeenCalledTimes(1);
 });
@@ -341,14 +345,14 @@ it("decision prepare and dispatch remain idempotent across HTTP and alternate-ke
   const first = await f.post(
     "/v1/approvals/" + f.approval + "/decide",
     body,
-    key,
+    key
   );
   expect(first.status).toBe(202);
   expect(
-    (await f.post("/v1/approvals/" + f.approval + "/decide", body, key)).status,
+    (await f.post("/v1/approvals/" + f.approval + "/decide", body, key)).status
   ).toBe(202);
   expect(
-    (await f.post("/v1/approvals/" + f.approval + "/decide", body)).status,
+    (await f.post("/v1/approvals/" + f.approval + "/decide", body)).status
   ).toBe(202);
   expect(f.decide).toHaveBeenCalledTimes(1);
   expect(
@@ -356,24 +360,24 @@ it("decision prepare and dispatch remain idempotent across HTTP and alternate-ke
       await f.post(
         "/v1/approvals/" + f.approval + "/decide",
         { decision: "reject" },
-        key,
+        key
       )
-    ).status,
+    ).status
   ).toBe(409);
 });
 it("cancel records intent then uses only the durable cancellation service fence", async () => {
   const f = await fixture(true),
     key = randomUUID();
   expect((await f.post("/v1/runs/" + f.run + "/cancel", {}, key)).status).toBe(
-    202,
+    202
   );
   expect((await f.post("/v1/runs/" + f.run + "/cancel", {}, key)).status).toBe(
-    202,
+    202
   );
   expect((await f.post("/v1/runs/" + f.run + "/cancel", {})).status).toBe(202);
   expect(f.cancel).toHaveBeenCalledTimes(1);
   expect(
-    (await f.post("/v1/runs/" + f.run + "/cancel", { force: true })).status,
+    (await f.post("/v1/runs/" + f.run + "/cancel", { force: true })).status
   ).toBe(400);
   expect(
     (
@@ -381,9 +385,9 @@ it("cancel records intent then uses only the durable cancellation service fence"
         "/v1/runs/" + f.run + "/cancel",
         {},
         randomUUID(),
-        f.foreignJwt,
+        f.foreignJwt
       )
-    ).status,
+    ).status
   ).toBe(404);
 });
 it("approval state filter is exact and does not expose native request/session identities", async () => {
@@ -420,7 +424,7 @@ it("approval state filter is exact and does not expose native request/session id
       (await (
         await f.get("/v1/approvals?state=pending", f.foreignJwt)
       ).json()) as any
-    ).items,
+    ).items
   ).toEqual([]);
 });
 it("GET recovery failures are stable and never hide the requested safe data", async () => {
@@ -430,7 +434,7 @@ it("GET recovery failures are stable and never hide the requested safe data", as
   try {
     expect((await f.get("/v1/runs/" + f.run)).status).toBe(200);
     expect(log).toHaveBeenCalledWith(
-      JSON.stringify({ code: "RUNTIME_RECOVERY_DEFERRED" }),
+      JSON.stringify({ code: "RUNTIME_RECOVERY_DEFERRED" })
     );
     expect(JSON.stringify(log.mock.calls)).not.toContain("PRIVATE");
   } finally {
@@ -445,7 +449,7 @@ it("Harness HTTP patch and user approval share http idempotency transaction with
   const initial = (await summary.json()) as any;
   expect(initial.digest).toMatch(/^[a-f0-9]{64}$/);
   expect(JSON.stringify(initial)).not.toContain(
-    bundle.prompts["research-read"],
+    bundle.prompts["research-read"]
   );
   expect((await f.get(path, f.foreignJwt)).status).toBe(404);
   const key = randomUUID(),
@@ -457,9 +461,9 @@ it("Harness HTTP patch and user approval share http idempotency transaction with
     (
       await admin.query(
         "select count(*)::int n from harness_proposal where dossier_id=$1",
-        [f.dossier],
+        [f.dossier]
       )
-    ).rows[0].n,
+    ).rows[0].n
   ).toBe(1);
   const proposed = await f.post(path + "/patch", {
     roles: { "research-read": { tools: { literature: "allow" } } },
@@ -470,16 +474,16 @@ it("Harness HTTP patch and user approval share http idempotency transaction with
   const decisionPath = "/v1/harness/proposals/" + proposal.id + "/decide",
     decideKey = randomUUID();
   expect(
-    (await f.post(decisionPath, { decision: "approve" }, decideKey)).status,
+    (await f.post(decisionPath, { decision: "approve" }, decideKey)).status
   ).toBe(200);
   expect(
-    (await f.post(decisionPath, { decision: "approve" }, decideKey)).status,
+    (await f.post(decisionPath, { decision: "approve" }, decideKey)).status
   ).toBe(200);
   expect(
-    (await f.post(decisionPath, { decision: "reject" }, decideKey)).status,
+    (await f.post(decisionPath, { decision: "reject" }, decideKey)).status
   ).toBe(409);
   expect((await f.post(path + "/patch", { prompt: "override" })).status).toBe(
-    400,
+    400
   );
   expect((await f.post(decisionPath, { approved: true })).status).toBe(400);
 });
@@ -504,7 +508,7 @@ it.each([false, true])(
       digest = (
         await admin.query(
           "select effective_digest from run_harness where run_id=$1",
-          [f.run],
+          [f.run]
         )
       ).rows[0].effective_digest;
     await admin.query(
@@ -517,7 +521,7 @@ it.each([false, true])(
           model: "fixture/confirmed",
           assumptions: { effectiveConfigDigest: digest },
         }),
-      ],
+      ]
     );
     const key = randomUUID(),
       request = {
@@ -541,7 +545,7 @@ it.each([false, true])(
     expect((await app.request("/v1/runs", request)).status).toBe(201);
     expect(f.submit).toHaveBeenCalledTimes(explicit ? 0 : 1);
     expect(hook).toHaveBeenCalledTimes(explicit ? 1 : 0);
-  },
+  }
 );
 it("post-commit decision delivery failure retains the accepted receipt and stable ledger error", async () => {
   const f = await fixture(true),
@@ -553,7 +557,7 @@ it("post-commit decision delivery failure retains the accepted receipt and stabl
     const first = await f.post(
       "/v1/approvals/" + f.approval + "/decide",
       { decision: "approve" },
-      key,
+      key
     );
     expect(first.status).toBe(202);
     expect(
@@ -561,14 +565,14 @@ it("post-commit decision delivery failure retains the accepted receipt and stabl
         await f.post(
           "/v1/approvals/" + f.approval + "/decide",
           { decision: "approve" },
-          key,
+          key
         )
-      ).status,
+      ).status
     ).toBe(202);
     const rows = (
       await admin.query(
         "select payload from event where run_id=$1 and action='runtime_decision_deferred'",
-        [f.run],
+        [f.run]
       )
     ).rows;
     expect(rows).toHaveLength(1);
@@ -603,10 +607,10 @@ it("run cost uncertainty includes unpriced observed usage even with a complete e
         "a".repeat(64),
         JSON.stringify({ status: "unknown" }),
         event.seq,
-      ],
+      ]
     );
   });
   expect(
-    ((await (await f.get("/v1/runs/" + f.run)).json()) as any).usageUnknown,
+    ((await (await f.get("/v1/runs/" + f.run)).json()) as any).usageUnknown
   ).toBe(true);
 });

@@ -18,6 +18,7 @@ import { z } from "zod";
 import type { Database } from "../db/database";
 import { ApiFailure } from "../api/errors";
 import { scrub } from "../ledger";
+import { captureSearch } from "../clarify/candidates";
 import { PaperHttp } from "./paper-http";
 import type { AuthorizedCapability } from "./authority";
 import type { CapabilityHandler } from "./engine";
@@ -47,7 +48,7 @@ const deny = () =>
   new ApiFailure(
     "PAPER_SCOPE_DENIED",
     403,
-    "论文不属于本档案，或来源不在允许范围。",
+    "论文不属于本档案，或来源不在允许范围。"
   );
 function paperId(raw: unknown) {
   if (typeof raw !== "string" || !/^W[0-9]{1,30}$/.test(raw)) throw deny();
@@ -56,7 +57,7 @@ function paperId(raw: unknown) {
 function abstract(work: z.infer<typeof Work>) {
   const words = new Map<number, string>();
   for (const [word, positions] of Object.entries(
-    work.abstract_inverted_index ?? {},
+    work.abstract_inverted_index ?? {}
   ))
     for (const i of positions) words.set(i, word);
   const text = [...words]
@@ -85,7 +86,7 @@ export async function pdfPages(bytes: Buffer): Promise<string[]> {
         timeout: 15000,
         maxBuffer: 8 * 1024 * 1024,
         env: { PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" },
-      },
+      }
     );
     const pages = stdout.split("\f");
     if (pages.at(-1) === "") pages.pop();
@@ -95,7 +96,7 @@ export async function pdfPages(bytes: Buffer): Promise<string[]> {
     throw new ApiFailure(
       "PAPER_TEXT_UNAVAILABLE",
       503,
-      "PDF 文本层暂无法解析。",
+      "PDF 文本层暂无法解析。"
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -105,13 +106,13 @@ export type PaperDeposit = (
   context: AuthorizedCapability,
   assetId: string,
   bytes: Buffer | null,
-  metadata: Record<string, unknown>,
+  metadata: Record<string, unknown>
 ) => Promise<void>;
 export function paperHandlers(
   db: Database,
   cacheRoot: string,
   deposit: PaperDeposit,
-  http = new PaperHttp(),
+  http = new PaperHttp()
 ): Record<string, CapabilityHandler> {
   const cache = async (bytes: Buffer) => {
     await mkdir(cacheRoot, { recursive: true, mode: 0o700 });
@@ -126,7 +127,7 @@ export function paperHandlers(
     try {
       existing = await open(
         file,
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
       );
       const st = await existing.stat();
       if (!st.isFile() || st.nlink !== 1 || st.size > MAX_PDF) throw deny();
@@ -149,7 +150,7 @@ export function paperHandlers(
       await rename(temporary, file);
       const directory = await open(
         cacheRoot,
-        constants.O_RDONLY | constants.O_DIRECTORY,
+        constants.O_RDONLY | constants.O_DIRECTORY
       );
       try {
         await directory.sync();
@@ -169,7 +170,7 @@ export function paperHandlers(
     const response = await http.get(
       url.href,
       context.catalog.capabilities["papers.search"].egress,
-      1024 * 1024,
+      1024 * 1024
     );
     if (response.status !== 200)
       throw new ApiFailure("PAPERS_UNAVAILABLE", 503, "论文检索来源暂不可用。");
@@ -177,7 +178,7 @@ export function paperHandlers(
       .array(Work)
       .max(20)
       .parse(JSON.parse(response.bytes.toString("utf8")).results);
-    return {
+    const result = {
       papers: results.map((work) => ({
         paperId: paperId(work.id.split("/").at(-1)),
         title: work.title ?? "",
@@ -185,6 +186,9 @@ export function paperHandlers(
         isOpenAccess: work.open_access?.is_oa === true,
       })),
     };
+    if (context.claims.role === "research-clarify")
+      captureSearch(result, results);
+    return result;
   };
   handlers["papers.fetch"] = async (context, args) => {
     const id = paperId(args.paperId),
@@ -192,7 +196,7 @@ export function paperHandlers(
     const response = await http.get(
       "https://api.openalex.org/works/" + id,
       cap.egress,
-      1024 * 1024,
+      1024 * 1024
     );
     if (response.status !== 200)
       throw new ApiFailure("PAPERS_UNAVAILABLE", 503, "论文元数据暂不可用。");
@@ -248,7 +252,7 @@ export function paperHandlers(
             .flatMap((a: any) =>
               typeof a?.author?.display_name === "string"
                 ? [a.author.display_name.slice(0, 300)]
-                : [],
+                : []
             )
         : [],
       venue:
@@ -280,8 +284,8 @@ export function paperHandlers(
           file,
           abstractText,
           JSON.stringify(scrub(viewMetadata)),
-        ],
-      ),
+        ]
+      )
     );
     return {
       assetId,
@@ -299,9 +303,9 @@ export function paperHandlers(
         (
           await c.query(
             "select * from paper_asset where id=$1 and dossier_id=$2",
-            [args.assetId, context.claims.dossier],
+            [args.assetId, context.claims.dossier]
           )
-        ).rows[0],
+        ).rows[0]
     );
     if (!asset) throw deny();
     if (asset.status !== "full_text")
@@ -311,7 +315,7 @@ export function paperHandlers(
       throw deny();
     const h = await open(
       path.join(root, asset.sha256 + ".pdf"),
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
     );
     let bytes: Buffer;
     try {

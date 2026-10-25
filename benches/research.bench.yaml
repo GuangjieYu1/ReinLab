@@ -1,6 +1,6 @@
 schema: reinlab.bench/v1
 id: research
-version: 1.1.0
+version: 1.2.0
 code: RSCH
 title: 研究工作台
 ui: custom
@@ -21,8 +21,19 @@ entrypoints:
   swarm: swarm-lead
   auto: research-auto
 roles:
+  research-clarify:
+    prompt: prompts/research/research-clarify.md
+    model_slot: cheap
+    steps: 6
+    model_cap: { cny: 0.05, rounds: 6, output_tokens: 256 }
+    capability_allowlist: [papers.search]
+    tools: { literature: allow }
+    mcp: {}
+    write_targets: []
+    memory: { read: [], write: [], dossier: current, messages: own, refs: explicit }
   research-read:
-    prompt: prompts/research/research-read.md
+    capability_allowlist: [papers.fetch, papers.pages, memory.read, memory.propose, cards.card.layer, cards.card.quiz, cards.card.finding, cards.card.answer, cards.card.approval]
+    prompt: prompts/research/research-read-v1-2.md
     model_slot: strong
     steps: 48
     tools:

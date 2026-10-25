@@ -55,12 +55,12 @@ beforeAll(async () => {
   const registry = await loadToolRegistry();
   await publishBench(
     admin,
-    await loadBenchBundle({ benchId: "research", registry }),
-    registry,
+    await loadBenchBundle({ benchId: "research", registry, version: "1.1.0" }),
+    registry
   );
   await admin.query(
     "insert into account(id,monthly_budget_cny) values($1,10000),($2,300),($3,10)",
-    [A, B, C],
+    [A, B, C]
   );
   server = createServer((_req, res) => {
     res.setHeader("Content-Type", "application/json");
@@ -98,8 +98,8 @@ afterAll(async () => {
 async function dossier(account = A) {
   const id = randomUUID();
   await admin.query(
-    "insert into dossier(id,account_id,bench,title,workspace_path) values($1,$2,'research','预算测试',$3)",
-    [id, account, "/data/dossiers/" + id],
+    "insert into dossier(id,account_id,bench,title,workspace_path,bench_version) values($1,$2,'research','预算测试',$3,'1.1.0')",
+    [id, account, "/data/dossiers/" + id]
   );
   return id;
 }
@@ -108,10 +108,10 @@ async function run(budget = "10", account = A, limits = { quota: 0, gpu: 0 }) {
     id = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,quota_limit,gpu_limit) values($1,$2,$3,'research-read','read',$4,'running',$5,$6,$7)",
-    [id, account, d, randomUUID(), budget, limits.quota, limits.gpu],
+    [id, account, d, randomUUID(), budget, limits.quota, limits.gpu]
   );
   const root = await db.withAccount(account, (c) =>
-    allocateBudget(c, account, { dossierId: d, amountCny: budget }),
+    allocateBudget(c, account, { dossierId: d, amountCny: budget })
   );
   const allocation = await db.withAccount(account, (c) =>
     allocateBudget(c, account, {
@@ -119,7 +119,7 @@ async function run(budget = "10", account = A, limits = { quota: 0, gpu: 0 }) {
       amountCny: budget,
       parentId: root.id,
       runId: id,
-    }),
+    })
   );
   return { id, d, root, allocation };
 }
@@ -137,14 +137,14 @@ const hold = (
   id: string,
   maximumCny: string,
   requestId = randomUUID(),
-  extra = {},
+  extra = {}
 ) =>
   db.withAccount(A, (c) =>
-    authorizeTool(c, A, { runId: id, requestId, maximumCny, ...extra }),
+    authorizeTool(c, A, { runId: id, requestId, maximumCny, ...extra })
   );
 const pay = (holdId: string, costCny: string | null, extra = {}) =>
   db.withAccount(A, (c) =>
-    settleTool(c, A, { holdId, costCny, credentialKind: "api_key", ...extra }),
+    settleTool(c, A, { holdId, costCny, credentialKind: "api_key", ...extra })
   );
 it("定点数精确支持科学计数和六位，拒绝超精度/非有限/负数", () => {
   expect(micros("0.1") + micros("0.2")).toBe(300000n);
@@ -176,7 +176,7 @@ it("真实HTTP价目格式读取，估算有模型汇率摘要和token假设", a
 });
 it("缺模型/汇率不提供假估算", async () => {
   await expect(
-    pricingFromEnvironment({}).estimate({ mode: "read", modelTier: "strong" }),
+    pricingFromEnvironment({}).estimate({ mode: "read", modelTier: "strong" })
   ).rejects.toMatchObject({ code: "PRICING_UNAVAILABLE" });
   const wrong = new PricingService({
     catalogUrl: pricing.catalogUrl,
@@ -184,7 +184,7 @@ it("缺模型/汇率不提供假估算", async () => {
     usdCny: "7",
   });
   await expect(
-    wrong.estimate({ mode: "read", modelTier: "strong" }),
+    wrong.estimate({ mode: "read", modelTier: "strong" })
   ).rejects.toMatchObject({ code: "PRICING_UNAVAILABLE" });
 });
 it("估算持久化后确认只排队，不执行模型；跨租户与重复消费拒绝", async () => {
@@ -233,14 +233,14 @@ it("估算不能更换模式/档案/角色档，过期拒绝", async () => {
   };
   expect(
     (await post("/v1/runs", { ...input, mode: "swarm", roleId: "swarm-lead" }))
-      .status,
+      .status
   ).toBe(409);
   expect(
-    (await post("/v1/runs", { ...input, dossierId: await dossier() })).status,
+    (await post("/v1/runs", { ...input, dossierId: await dossier() })).status
   ).toBe(409);
   await admin.query(
     "update budget_estimate set expires_at=now()-interval '1 second' where id=$1",
-    [e.id],
+    [e.id]
   );
   expect((await post("/v1/runs", input)).status).toBe(409);
 });
@@ -248,7 +248,7 @@ it("账户只计根划拨，子划拨不能超父预算", async () => {
   const r = await run("10");
   const totals = await admin.query(
     "select sum(amount_cny)::text total from budget_allocation where account_id=$1 and parent_id is null and dossier_id=$2",
-    [A, r.d],
+    [A, r.d]
   );
   expect(Number(totals.rows[0].total)).toBe(10);
   await expect(
@@ -258,14 +258,14 @@ it("账户只计根划拨，子划拨不能超父预算", async () => {
         amountCny: "1",
         parentId: r.root.id,
         runId: randomUUID(),
-      }),
-    ),
+      })
+    )
   ).rejects.toThrow();
   const d = await dossier(C);
   await expect(
     db.withAccount(C, (c) =>
-      allocateBudget(c, C, { dossierId: d, amountCny: "10.000001" }),
-    ),
+      allocateBudget(c, C, { dossierId: d, amountCny: "10.000001" })
+    )
   ).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
 });
 it("跨账户父预算与run引用拒绝", async () => {
@@ -277,8 +277,8 @@ it("跨账户父预算与run引用拒绝", async () => {
         dossierId: otherDossier,
         amountCny: "1",
         parentId: r.root.id,
-      }),
-    ),
+      })
+    )
   ).rejects.toThrow();
   await expect(
     db.withAccount(B, (c) =>
@@ -286,8 +286,8 @@ it("跨账户父预算与run引用拒绝", async () => {
         runId: r.id,
         requestId: randomUUID(),
         maximumCny: "1",
-      }),
-    ),
+      })
+    )
   ).rejects.toMatchObject({ status: 404 });
 });
 it("80%只提醒一次，不暂停；100%停并创建一次预算审批", async () => {
@@ -296,7 +296,7 @@ it("80%只提醒一次，不暂停；100%停并创建一次预算审批", async 
   await pay(h.holdId!, "8");
   expect(
     (await admin.query("select state from run where id=$1", [r.id])).rows[0]
-      .state,
+      .state
   ).toBe("running");
   const h2 = await hold(r.id, "0.5");
   await pay(h2.holdId!, "0.5");
@@ -304,24 +304,24 @@ it("80%只提醒一次，不暂停；100%停并创建一次预算审批", async 
     (
       await admin.query(
         "select count(*)::int n from event where run_id=$1 and action='budget_warning'",
-        [r.id],
+        [r.id]
       )
-    ).rows[0].n,
+    ).rows[0].n
   ).toBe(1);
   const last = await hold(r.id, "1.5");
   await pay(last.holdId!, "1.5");
   expect(
     (await admin.query("select state from run where id=$1", [r.id])).rows[0]
-      .state,
+      .state
   ).toBe("paused_budget");
   expect((await hold(r.id, "0.01")).allowed).toBe(false);
   expect(
     (
       await admin.query(
         "select count(*)::int n from approval where run_id=$1 and kind='budget'",
-        [r.id],
+        [r.id]
       )
-    ).rows[0].n,
+    ).rows[0].n
   ).toBe(1);
 });
 it("并发两工具在边缘最多一个获准，真实超出保留额仍记账并说明", async () => {
@@ -335,14 +335,14 @@ it("并发两工具在边缘最多一个获准，真实超出保留额仍记账�
   const last = (
     await admin.query(
       "select payload from event where run_id=$1 and kind='cost' order by seq desc limit 1",
-      [r.id],
+      [r.id]
     )
   ).rows[0].payload;
   expect(last.overrunCny).toBe("0.050000");
   expect(last.reason).toBe("provider_report_exceeded_reservation");
   expect(
     (await admin.query("select spent_cny,state from run where id=$1", [r.id]))
-      .rows[0],
+      .rows[0]
   ).toMatchObject({ spent_cny: "1.050000", state: "paused_budget" });
 });
 it("费用保留与结算幂等，异内容冲突", async () => {
@@ -362,9 +362,9 @@ it("费用保留与结算幂等，异内容冲突", async () => {
     (
       await admin.query(
         "select count(*)::int n from event where run_id=$1 and kind='cost'",
-        [r.id],
+        [r.id]
       )
-    ).rows[0].n,
+    ).rows[0].n
   ).toBe(1);
 });
 it("未知API费用保持null并暂停，加预算不能当作已对账", async () => {
@@ -375,19 +375,19 @@ it("未知API费用保持null并暂停，加预算不能当作已对账", async 
     (
       await admin.query(
         "select cost_cny from event where run_id=$1 and kind='cost'",
-        [r.id],
+        [r.id]
       )
-    ).rows[0].cost_cny,
+    ).rows[0].cost_cny
   ).toBeNull();
   await db.withAccount(A, (c) => increaseRunBudget(c, A, r.id, "1"));
   expect(
     (await admin.query("select state from run where id=$1", [r.id])).rows[0]
-      .state,
+      .state
   ).toBe("paused_budget");
   await pay(h.holdId!, "0.75");
   expect(
     (await admin.query("select spent_cny from run where id=$1", [r.id])).rows[0]
-      .spent_cny,
+      .spent_cny
   ).toBe("0.750000");
 });
 it("会员额度与GPU秒独立预留结算，不折成人民币", async () => {
@@ -406,9 +406,9 @@ it("会员额度与GPU秒独立预留结算，不折成人民币", async () => {
     (
       await admin.query(
         "select spent_cny,quota_runs,gpu_seconds,state from run where id=$1",
-        [r.id],
+        [r.id]
       )
-    ).rows[0],
+    ).rows[0]
   ).toMatchObject({
     spent_cny: "0.000000",
     quota_runs: "1",
@@ -425,7 +425,7 @@ it("会员额度与GPU秒独立预留结算，不折成人民币", async () => {
     gpuSeconds: 30,
   });
   expect(
-    (await hold(r.id, "0", randomUUID(), { maximumQuota: 1 })).allowed,
+    (await hold(r.id, "0", randomUUID(), { maximumQuota: 1 })).allowed
   ).toBe(false);
 });
 it("明确追加预算后恢复已暂停运行，根/子限额同步增加", async () => {
@@ -436,11 +436,11 @@ it("明确追加预算后恢复已暂停运行，根/子限额同步增加", asy
   expect(response.status).toBe(200);
   expect(
     (await admin.query("select state,budget_cny from run where id=$1", [r.id]))
-      .rows[0],
+      .rows[0]
   ).toMatchObject({ state: "running", budget_cny: "3.000000" });
   const nodes = await admin.query(
     "select amount_cny from budget_allocation where dossier_id=$1",
-    [r.d],
+    [r.d]
   );
   expect(nodes.rows.every((x) => x.amount_cny === "3.000000")).toBe(true);
 });
@@ -448,7 +448,7 @@ it("跨月先停，不自动动用新月额度", async () => {
   const r = await run();
   await admin.query(
     "update budget_allocation set period=(date_trunc('month',now())-interval '1 month')::date where dossier_id=$1",
-    [r.d],
+    [r.d]
   );
   expect(await hold(r.id, "1")).toMatchObject({
     allowed: false,
@@ -456,7 +456,7 @@ it("跨月先停，不自动动用新月额度", async () => {
   });
   expect(
     (await admin.query("select state from run where id=$1", [r.id])).rows[0]
-      .state,
+      .state
   ).toBe("paused_budget");
 });
 it("父运行不能花掉已给子运行的保留预算", async () => {
@@ -464,7 +464,7 @@ it("父运行不能花掉已给子运行的保留预算", async () => {
     child = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,parent_run_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,$4,'swarm-reader','swarm',$5,'running',8)",
-    [child, A, r.d, r.id, randomUUID()],
+    [child, A, r.d, r.id, randomUUID()]
   );
   await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -472,7 +472,7 @@ it("父运行不能花掉已给子运行的保留预算", async () => {
       amountCny: "8",
       parentId: r.allocation.id,
       runId: child,
-    }),
+    })
   );
   expect(await hold(r.id, "3")).toMatchObject({
     allowed: false,
@@ -492,7 +492,7 @@ it("新增预算表强制RLS，跨租户读取零行", async () => {
   for (const table of ["budget_estimate", "budget_allocation", "budget_hold"]) {
     const flags = await admin.query(
       "select relrowsecurity,relforcerowsecurity from pg_class where oid=$1::regclass",
-      [table],
+      [table]
     );
     expect(flags.rows[0]).toEqual({
       relrowsecurity: true,
@@ -501,9 +501,9 @@ it("新增预算表强制RLS，跨租户读取零行", async () => {
     expect(
       (
         await db.withAccount(B, (c) =>
-          c.query(`select * from ${table} where account_id=$1`, [A]),
+          c.query(`select * from ${table} where account_id=$1`, [A])
         )
-      ).rowCount,
+      ).rowCount
     ).toBe(0);
   }
   await expect(
@@ -512,8 +512,8 @@ it("新增预算表强制RLS，跨租户读取零行", async () => {
         holdId: h.holdId!,
         costCny: "1",
         credentialKind: "api_key",
-      }),
-    ),
+      })
+    )
   ).rejects.toMatchObject({ status: 404 });
 });
 it("追加子预算优先用父未划拨余额，不重复占账户月额度", async () => {
@@ -521,10 +521,10 @@ it("追加子预算优先用父未划拨余额，不重复占账户月额度", a
     id = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,'research-read','read',$4,'running',5)",
-    [id, A, d, randomUUID()],
+    [id, A, d, randomUUID()]
   );
   const root = await db.withAccount(A, (c) =>
-    allocateBudget(c, A, { dossierId: d, amountCny: "10" }),
+    allocateBudget(c, A, { dossierId: d, amountCny: "10" })
   );
   await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -532,16 +532,16 @@ it("追加子预算优先用父未划拨余额，不重复占账户月额度", a
       amountCny: "5",
       parentId: root.id,
       runId: id,
-    }),
+    })
   );
   await db.withAccount(A, (c) => increaseRunBudget(c, A, id, "1"));
   expect(
     (
       await admin.query(
         "select amount_cny from budget_allocation where id=$1",
-        [root.id],
+        [root.id]
       )
-    ).rows[0].amount_cny,
+    ).rows[0].amount_cny
   ).toBe("10.000000");
 });
 it("跨档案委托从明确父划拨支出，账户不重复计费", async () => {
@@ -551,14 +551,14 @@ it("跨档案委托从明确父划拨支出，账户不重复计费", async () =
     id = randomUUID();
   await admin.query(
     "insert into delegation(id,account_id,from_dossier,to_bench,to_dossier,budget_cny,request,state) values($1,$2,$3,'research',$4,5,'{}','pending')",
-    [delegationId, A, from, to],
+    [delegationId, A, from, to]
   );
   await admin.query(
     "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,'research-read','read',$4,'running',4)",
-    [id, A, to, randomUUID()],
+    [id, A, to, randomUUID()]
   );
   const root = await db.withAccount(A, (c) =>
-    allocateBudget(c, A, { dossierId: from, amountCny: "10" }),
+    allocateBudget(c, A, { dossierId: from, amountCny: "10" })
   );
   const delegated = await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -566,7 +566,7 @@ it("跨档案委托从明确父划拨支出，账户不重复计费", async () =
       amountCny: "5",
       parentId: root.id,
       delegationId,
-    }),
+    })
   );
   await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -574,7 +574,7 @@ it("跨档案委托从明确父划拨支出，账户不重复计费", async () =
       amountCny: "4",
       parentId: delegated.id,
       runId: id,
-    }),
+    })
   );
   const h = await hold(id, "4");
   await pay(h.holdId!, "4");
@@ -583,16 +583,16 @@ it("跨档案委托从明确父划拨支出，账户不重复计费", async () =
       await admin.query("select spent_cny from budget_allocation where id=$1", [
         root.id,
       ])
-    ).rows[0].spent_cny,
+    ).rows[0].spent_cny
   ).toBe("4.000000");
   await db.withAccount(A, (c) => increaseRunBudget(c, A, id, "2"));
   expect(
     (
       await admin.query(
         "select amount_cny from budget_allocation where id=$1",
-        [root.id],
+        [root.id]
       )
-    ).rows[0].amount_cny,
+    ).rows[0].amount_cny
   ).toBe("10.000000");
 });
 it("结算事件失败时累计费用/保留收据/审批整体回滚，修复后可重试", async () => {
@@ -601,28 +601,28 @@ it("结算事件失败时累计费用/保留收据/审批整体回滚，修复�
     suffix = randomUUID().replaceAll("-", ""),
     name = "budget_fault_" + suffix;
   await admin.query(
-    `create function ${name}() returns trigger language plpgsql as $$ begin if NEW.run_id='${r.id}'::uuid and NEW.action='usage_reported' then raise exception 'injected cost event failure'; end if; return NEW; end $$; create trigger ${name} before insert on event for each row execute function ${name}();`,
+    `create function ${name}() returns trigger language plpgsql as $$ begin if NEW.run_id='${r.id}'::uuid and NEW.action='usage_reported' then raise exception 'injected cost event failure'; end if; return NEW; end $$; create trigger ${name} before insert on event for each row execute function ${name}();`
   );
   try {
     await expect(pay(h.holdId!, "1")).rejects.toThrow();
     expect(
       (await admin.query("select spent_cny,state from run where id=$1", [r.id]))
-        .rows[0],
+        .rows[0]
     ).toMatchObject({ spent_cny: "0.000000", state: "running" });
     expect(
       (
         await admin.query("select state,receipt from budget_hold where id=$1", [
           h.holdId,
         ])
-      ).rows[0],
+      ).rows[0]
     ).toEqual({ state: "reserved", receipt: null });
     expect(
       (
         await admin.query(
           "select count(*)::int n from approval where run_id=$1",
-          [r.id],
+          [r.id]
         )
-      ).rows[0].n,
+      ).rows[0].n
     ).toBe(0);
   } finally {
     await admin.query(`drop trigger ${name} on event;drop function ${name}()`);
@@ -630,7 +630,7 @@ it("结算事件失败时累计费用/保留收据/审批整体回滚，修复�
   await pay(h.holdId!, "1");
   expect(
     (await admin.query("select spent_cny,state from run where id=$1", [r.id]))
-      .rows[0],
+      .rows[0]
   ).toMatchObject({ spent_cny: "1.000000", state: "paused_budget" });
 });
 it("账户和档案预算视图只计根，已知费用与未知分列", async () => {
@@ -648,10 +648,10 @@ it("账户和档案预算视图只计根，已知费用与未知分列", async (
     })
   ).json();
   expect(
-    Number(after.budget.allocatedCny) - Number(before.budget.allocatedCny),
+    Number(after.budget.allocatedCny) - Number(before.budget.allocatedCny)
   ).toBe(10);
   expect(
-    Number(after.budget.spentKnownCny) - Number(before.budget.spentKnownCny),
+    Number(after.budget.spentKnownCny) - Number(before.budget.spentKnownCny)
   ).toBe(3);
   const detail = await (
     await app.request("/v1/dossiers/" + r.d, {
@@ -677,7 +677,7 @@ it("双零或非法目录价格拒绝，非目标embedding记录不影响正常�
         catalogUrl: pricing.catalogUrl,
         routes: { strong: "probe/probe-model" },
         usdCny: "7",
-      }).estimate({ mode: "read", modelTier: "strong" }),
+      }).estimate({ mode: "read", modelTier: "strong" })
     ).rejects.toMatchObject({ code: "PRICING_UNAVAILABLE" });
   } finally {
     Object.assign(cost, saved);
@@ -692,7 +692,7 @@ it("双零或非法目录价格拒绝，非目标embedding记录不影响正常�
           routes: { strong: "probe/probe-model" },
           usdCny: "7",
         }).estimate({ mode: "swarm", size: 8, modelTier: "strong" })
-      ).estimatedCny,
+      ).estimatedCny
     ).toBe("10.752000");
   } finally {
     delete models.embedding;
@@ -709,8 +709,8 @@ it("估算表不可更新，运行输入落库且过滤凭据字段", async () =
     ).json();
   await expect(
     db.withAccount(A, (c) =>
-      c.query("update budget_estimate set quote=quote where id=$1", [e.id]),
-    ),
+      c.query("update budget_estimate set quote=quote where id=$1", [e.id])
+    )
   ).rejects.toThrow();
   const result = await post("/v1/runs", {
     dossierId: d,
@@ -724,8 +724,7 @@ it("估算表不可更新，运行输入落库且过滤凭据字段", async () =
   expect(result.status).toBe(201);
   const id = (await result.json()).id;
   expect(
-    (await admin.query("select input from run where id=$1", [id])).rows[0]
-      .input,
+    (await admin.query("select input from run where id=$1", [id])).rows[0].input
   ).toEqual({ question: "真实输入", password: "[REDACTED]" });
 });
 it("子运行追加需要父预算增长时，父运行限额同步且不重复增加子限额", async () => {
@@ -733,7 +732,7 @@ it("子运行追加需要父预算增长时，父运行限额同步且不重复�
     child = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,parent_run_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,$4,'swarm-reader','swarm',$5,'running',8)",
-    [child, A, r.d, r.id, randomUUID()],
+    [child, A, r.d, r.id, randomUUID()]
   );
   await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -741,16 +740,16 @@ it("子运行追加需要父预算增长时，父运行限额同步且不重复�
       amountCny: "8",
       parentId: r.allocation.id,
       runId: child,
-    }),
+    })
   );
   await db.withAccount(A, (c) => increaseRunBudget(c, A, child, "5"));
   expect(
     (await admin.query("select budget_cny from run where id=$1", [r.id]))
-      .rows[0].budget_cny,
+      .rows[0].budget_cny
   ).toBe("13.000000");
   expect(
     (await admin.query("select budget_cny from run where id=$1", [child]))
-      .rows[0].budget_cny,
+      .rows[0].budget_cny
   ).toBe("13.000000");
 });
 it("用户可单独追加会员额度和GPU分钟，零追加被拒绝", async () => {
@@ -761,11 +760,11 @@ it("用户可单独追加会员额度和GPU分钟，零追加被拒绝", async (
     quota: 1,
   });
   expect(
-    (await post("/v1/runs/" + r.id + "/budget", { quotaRuns: 2 })).status,
+    (await post("/v1/runs/" + r.id + "/budget", { quotaRuns: 2 })).status
   ).toBe(200);
   expect(
     (await admin.query("select quota_limit,state from run where id=$1", [r.id]))
-      .rows[0],
+      .rows[0]
   ).toMatchObject({ quota_limit: "3", state: "running" });
   const hg = await hold(r.id, "0", randomUUID(), { maximumGpuSeconds: 60 });
   await pay(hg.holdId!, null, {
@@ -773,14 +772,14 @@ it("用户可单独追加会员额度和GPU分钟，零追加被拒绝", async (
     gpuSeconds: 60,
   });
   expect(
-    (await post("/v1/runs/" + r.id + "/budget", { gpuMinutes: 1 })).status,
+    (await post("/v1/runs/" + r.id + "/budget", { gpuMinutes: 1 })).status
   ).toBe(200);
   expect(
     (await admin.query("select gpu_limit,state from run where id=$1", [r.id]))
-      .rows[0],
+      .rows[0]
   ).toMatchObject({ gpu_limit: "120", state: "running" });
   expect((await post("/v1/runs/" + r.id + "/budget", { cny: 0 })).status).toBe(
-    400,
+    400
   );
 });
 it("跨月暂停后用户明确确认新月预算，同一运行保留历史费用后继续", async () => {
@@ -788,7 +787,7 @@ it("跨月暂停后用户明确确认新月预算，同一运行保留历史费�
     clock = vi
       .spyOn(Date, "now")
       .mockReturnValue(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15),
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15)
       );
   let r: Awaited<ReturnType<typeof run>>;
   try {
@@ -805,9 +804,9 @@ it("跨月暂停后用户明确确认新月预算，同一运行保留历史费�
     (
       await admin.query(
         "select state,budget_cny,spent_cny from run where id=$1",
-        [r!.id],
+        [r!.id]
       )
-    ).rows[0],
+    ).rows[0]
   ).toMatchObject({
     state: "running",
     budget_cny: "8.000000",
@@ -821,7 +820,7 @@ it("父运行在途费用必须扣除后才能划拨子预算", async () => {
   const id = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,parent_run_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,$4,'swarm-reader','swarm',$5,'running',10)",
-    [id, A, r.d, r.id, randomUUID()],
+    [id, A, r.d, r.id, randomUUID()]
   );
   await expect(
     db.withAccount(A, (c) =>
@@ -830,8 +829,8 @@ it("父运行在途费用必须扣除后才能划拨子预算", async () => {
         amountCny: "10",
         parentId: r.allocation.id,
         runId: id,
-      }),
-    ),
+      })
+    )
   ).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
 });
 it("会员及GPU子预算不能绕过父级已在途上限", async () => {
@@ -843,7 +842,7 @@ it("会员及GPU子预算不能绕过父级已在途上限", async () => {
   const id = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,parent_run_id,role_id,mode,request_id,state,budget_cny,quota_limit,gpu_limit) values($1,$2,$3,$4,'swarm-reader','swarm',$5,'running',2,2,120)",
-    [id, A, r.d, r.id, randomUUID()],
+    [id, A, r.d, r.id, randomUUID()]
   );
   await expect(
     db.withAccount(A, (c) =>
@@ -852,8 +851,8 @@ it("会员及GPU子预算不能绕过父级已在途上限", async () => {
         amountCny: "2",
         parentId: r.allocation.id,
         runId: id,
-      }),
-    ),
+      })
+    )
   ).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
 });
 it("子运行会员/GPU实际用量向祖先累计，达到父上限整体暂停且不重复计费", async () => {
@@ -861,7 +860,7 @@ it("子运行会员/GPU实际用量向祖先累计，达到父上限整体暂停
     id = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,parent_run_id,role_id,mode,request_id,state,budget_cny,quota_limit,gpu_limit) values($1,$2,$3,$4,'swarm-reader','swarm',$5,'running',2,2,120)",
-    [id, A, r.d, r.id, randomUUID()],
+    [id, A, r.d, r.id, randomUUID()]
   );
   await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -869,7 +868,7 @@ it("子运行会员/GPU实际用量向祖先累计，达到父上限整体暂停
       amountCny: "2",
       parentId: r.allocation.id,
       runId: id,
-    }),
+    })
   );
   const h = await hold(id, "0", randomUUID(), {
     maximumQuota: 2,
@@ -884,17 +883,17 @@ it("子运行会员/GPU实际用量向祖先累计，达到父上限整体暂停
     (
       await admin.query(
         "select quota_runs,gpu_seconds,state from run where id=$1",
-        [r.id],
+        [r.id]
       )
-    ).rows[0],
+    ).rows[0]
   ).toEqual({ quota_runs: "2", gpu_seconds: "120", state: "paused_budget" });
   expect(
     (
       await admin.query(
         "select count(*)::int n from event where run_id=any($1::uuid[]) and kind='cost'",
-        [[r.id, id]],
+        [[r.id, id]]
       )
-    ).rows[0].n,
+    ).rows[0].n
   ).toBe(1);
 });
 it("三维子追加先用父剩余，不足才同步父上限，每次决定只提升一次版本", async () => {
@@ -902,7 +901,7 @@ it("三维子追加先用父剩余，不足才同步父上限，每次决定只�
     id = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,parent_run_id,role_id,mode,request_id,state,budget_cny,quota_limit,gpu_limit) values($1,$2,$3,$4,'swarm-reader','swarm',$5,'running',2,1,60)",
-    [id, A, r.d, r.id, randomUUID()],
+    [id, A, r.d, r.id, randomUUID()]
   );
   await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -910,7 +909,7 @@ it("三维子追加先用父剩余，不足才同步父上限，每次决定只�
       amountCny: "2",
       parentId: r.allocation.id,
       runId: id,
-    }),
+    })
   );
   await hold(r.id, "0", randomUUID(), {
     maximumQuota: 1,
@@ -918,23 +917,23 @@ it("三维子追加先用父剩余，不足才同步父上限，每次决定只�
   });
   expect(
     (await post("/v1/runs/" + id + "/budget", { quotaRuns: 2, gpuMinutes: 2 }))
-      .status,
+      .status
   ).toBe(200);
   expect(
     (
       await admin.query(
         "select quota_limit,gpu_limit,budget_revision from run where id=$1",
-        [r.id],
+        [r.id]
       )
-    ).rows[0],
+    ).rows[0]
   ).toEqual({ quota_limit: "4", gpu_limit: "240", budget_revision: 1 });
   expect(
     (
       await admin.query(
         "select quota_limit,gpu_limit,budget_revision from run where id=$1",
-        [id],
+        [id]
       )
-    ).rows[0],
+    ).rows[0]
   ).toEqual({ quota_limit: "3", gpu_limit: "180", budget_revision: 1 });
 });
 it("子额度达到父上限后，用户追加同时重新核准祖先再继续", async () => {
@@ -942,7 +941,7 @@ it("子额度达到父上限后，用户追加同时重新核准祖先再继续"
     id = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,parent_run_id,role_id,mode,request_id,state,budget_cny,quota_limit,gpu_limit) values($1,$2,$3,$4,'swarm-reader','swarm',$5,'running',2,1,60)",
-    [id, A, r.d, r.id, randomUUID()],
+    [id, A, r.d, r.id, randomUUID()]
   );
   await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -950,7 +949,7 @@ it("子额度达到父上限后，用户追加同时重新核准祖先再继续"
       amountCny: "2",
       parentId: r.allocation.id,
       runId: id,
-    }),
+    })
   );
   const h = await hold(id, "0", randomUUID(), {
     maximumQuota: 1,
@@ -963,11 +962,11 @@ it("子额度达到父上限后，用户追加同时重新核准祖先再继续"
   });
   expect(
     (await post("/v1/runs/" + id + "/budget", { quotaRuns: 1, gpuMinutes: 1 }))
-      .status,
+      .status
   ).toBe(200);
   expect(
     (await admin.query("select state from run where id=$1", [r.id])).rows[0]
-      .state,
+      .state
   ).toBe("running");
   expect(
     (
@@ -975,14 +974,14 @@ it("子额度达到父上限后，用户追加同时重新核准祖先再继续"
         maximumQuota: 1,
         maximumGpuSeconds: 60,
       })
-    ).allowed,
+    ).allowed
   ).toBe(true);
 });
 it("合法单次费用极端超额仍完整累计，两笔在途真实回报不因总额大而丢账", async () => {
   const accountId = randomUUID();
   await admin.query(
     "insert into account(id,monthly_budget_cny) values($1,300)",
-    [accountId],
+    [accountId]
   );
   const r = await run("1", accountId),
     authorize = () =>
@@ -991,7 +990,7 @@ it("合法单次费用极端超额仍完整累计，两笔在途真实回报不�
           runId: r.id,
           requestId: randomUUID(),
           maximumCny: "0.1",
-        }),
+        })
       ),
     a = await authorize(),
     b = await authorize();
@@ -1001,19 +1000,19 @@ it("合法单次费用极端超额仍完整累计，两笔在途真实回报不�
         holdId,
         costCny: "600000",
         credentialKind: "api_key",
-      }),
+      })
     );
   expect(
     (await admin.query("select spent_cny,state from run where id=$1", [r.id]))
-      .rows[0],
+      .rows[0]
   ).toEqual({ spent_cny: "1200000.000000", state: "paused_budget" });
   expect(
     (
       await admin.query(
         "select sum(cost_cny)::text total from event where run_id=$1 and kind='cost'",
-        [r.id],
+        [r.id]
       )
-    ).rows[0].total,
+    ).rows[0].total
   ).toBe("1200000.000000");
 });
 it("预算与工具收据身份不能改写，数据库拒绝双节点来源环", async () => {
@@ -1023,13 +1022,13 @@ it("预算与工具收据身份不能改写，数据库拒绝双节点来源环"
     db.withAccount(A, (c) =>
       c.query("update budget_allocation set parent_id=null where id=$1", [
         r.allocation.id,
-      ]),
-    ),
+      ])
+    )
   ).rejects.toMatchObject({ code: "42501" });
   await expect(
     db.withAccount(A, (c) =>
-      c.query("update budget_hold set maximum_cny=0 where id=$1", [h.holdId]),
-    ),
+      c.query("update budget_hold set maximum_cny=0 where id=$1", [h.holdId])
+    )
   ).rejects.toMatchObject({ code: "42501" });
   const x = randomUUID(),
     y = randomUUID(),
@@ -1038,15 +1037,15 @@ it("预算与工具收据身份不能改写，数据库拒绝双节点来源环"
   for (const id of [x, y])
     await admin.query(
       "insert into run(id,account_id,dossier_id,parent_run_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,$4,'swarm-reader','swarm',$5,'running',1)",
-      [id, A, r.d, r.id, randomUUID()],
+      [id, A, r.d, r.id, randomUUID()]
     );
   await expect(
     db.withAccount(A, (c) =>
       c.query(
         "insert into budget_allocation(id,account_id,dossier_id,parent_id,run_id,period,amount_cny,quota_limit,gpu_limit) values($1,$2,$3,$4,$5,date_trunc('month',now())::date,1,0,0),($4,$2,$3,$1,$6,date_trunc('month',now())::date,1,0,0)",
-        [a, A, r.d, b, x, y],
-      ),
-    ),
+        [a, A, r.d, b, x, y]
+      )
+    )
   ).rejects.toMatchObject({ code: "23514" });
 });
 it("显式根额度也可经用户追加向上核准，不捏造账户月配额", async () => {
@@ -1054,7 +1053,7 @@ it("显式根额度也可经用户追加向上核准，不捏造账户月配额"
     id = randomUUID();
   await admin.query(
     "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,quota_limit,gpu_limit) values($1,$2,$3,'research-read','read',$4,'running',5,1,60)",
-    [id, A, d, randomUUID()],
+    [id, A, d, randomUUID()]
   );
   const root = await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -1062,7 +1061,7 @@ it("显式根额度也可经用户追加向上核准，不捏造账户月配额"
       amountCny: "10",
       quotaRuns: 2,
       gpuSeconds: 120,
-    }),
+    })
   );
   await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -1070,19 +1069,19 @@ it("显式根额度也可经用户追加向上核准，不捏造账户月配额"
       amountCny: "5",
       parentId: root.id,
       runId: id,
-    }),
+    })
   );
   expect(
     (await post("/v1/runs/" + id + "/budget", { quotaRuns: 2, gpuMinutes: 2 }))
-      .status,
+      .status
   ).toBe(200);
   expect(
     (
       await admin.query(
         "select quota_limit,gpu_limit from budget_allocation where id=$1",
-        [root.id],
+        [root.id]
       )
-    ).rows[0],
+    ).rows[0]
   ).toEqual({ quota_limit: "3", gpu_limit: "180" });
 });
 it("委托携带的会员/GPU只能从来源运行划拨，目标不能多取", async () => {
@@ -1099,7 +1098,7 @@ it("委托携带的会员/GPU只能从来源运行划拨，目标不能多取", 
       r.id,
       target,
       JSON.stringify({ budget: { cny: 5, quotaRuns: 1, gpuMinutes: 1 } }),
-    ],
+    ]
   );
   const source = await db.withAccount(A, (c) =>
     allocateBudget(c, A, {
@@ -1107,11 +1106,11 @@ it("委托携带的会员/GPU只能从来源运行划拨，目标不能多取", 
       amountCny: "5",
       parentId: r.allocation.id,
       delegationId,
-    }),
+    })
   );
   await admin.query(
     "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,quota_limit,gpu_limit) values($1,$2,$3,'research-read','read',$4,'running',2,2,120)",
-    [id, A, target, randomUUID()],
+    [id, A, target, randomUUID()]
   );
   await expect(
     db.withAccount(A, (c) =>
@@ -1120,8 +1119,8 @@ it("委托携带的会员/GPU只能从来源运行划拨，目标不能多取", 
         amountCny: "2",
         parentId: source.id,
         runId: id,
-      }),
-    ),
+      })
+    )
   ).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
   await admin.query("update run set quota_limit=1,gpu_limit=60 where id=$1", [
     id,
@@ -1132,7 +1131,7 @@ it("委托携带的会员/GPU只能从来源运行划拨，目标不能多取", 
       amountCny: "2",
       parentId: source.id,
       runId: id,
-    }),
+    })
   );
   const h = await hold(id, "0", randomUUID(), {
     maximumQuota: 1,
@@ -1148,17 +1147,17 @@ it("委托携带的会员/GPU只能从来源运行划拨，目标不能多取", 
       await admin.query("select quota_runs,gpu_seconds from run where id=$1", [
         r.id,
       ])
-    ).rows[0],
+    ).rows[0]
   ).toEqual({ quota_runs: "1", gpu_seconds: "60" });
   expect(
     (await post("/v1/runs/" + id + "/budget", { quotaRuns: 1, gpuMinutes: 1 }))
-      .status,
+      .status
   ).toBe(200);
   expect(
     (
       await admin.query("select request from delegation where id=$1", [
         delegationId,
       ])
-    ).rows[0].request.budget,
+    ).rows[0].request.budget
   ).toMatchObject({ quotaRuns: 2, gpuMinutes: 2 });
 });

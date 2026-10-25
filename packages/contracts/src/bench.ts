@@ -31,6 +31,18 @@ export const BenchRole = z
     prompt: z.string().min(1).max(300),
     model_slot: name,
     steps: z.number().int().min(1).max(512),
+    capability_allowlist: z
+      .array(z.string().regex(/^[a-z][a-z0-9_.-]+$/))
+      .max(128)
+      .optional(),
+    model_cap: z
+      .object({
+        cny: z.literal(0.05),
+        rounds: z.literal(6),
+        output_tokens: z.literal(256),
+      })
+      .strict()
+      .optional(),
     tools,
     mcp: z.record(name, names).default({}),
     write_targets: z.array(z.string().min(1).max(300)).max(64),
@@ -56,7 +68,7 @@ export const ToolRegistry = z
           availability: z.enum(["native", "implemented", "planned"]),
           description: z.string().max(1000).optional(),
         })
-        .strict(),
+        .strict()
     ),
     mcp: z
       .record(
@@ -66,7 +78,7 @@ export const ToolRegistry = z
             capabilities: names,
             availability: z.enum(["implemented", "planned"]),
           })
-          .strict(),
+          .strict()
       )
       .default({}),
     delegations: z
@@ -83,7 +95,7 @@ const Manifest = z
     version: z
       .string()
       .regex(
-        /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[a-zA-Z0-9.-]+)?$/,
+        /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[a-zA-Z0-9.-]+)?$/
       ),
     code: z.string().regex(/^[A-Z][A-Z0-9]{1,11}$/),
     title: z.string().min(1).max(100),
@@ -102,7 +114,7 @@ const Manifest = z
       .record(name, BenchRole)
       .refine(
         (value) =>
-          Object.keys(value).length > 0 && Object.keys(value).length <= 64,
+          Object.keys(value).length > 0 && Object.keys(value).length <= 64
       ),
     gates: z.record(
       name,
@@ -112,16 +124,16 @@ const Manifest = z
           [requiredArtifactsField]: z
             .record(
               name,
-              z.array(z.string().regex(/^artifact:[a-z][a-z0-9_-]*$/)),
+              z.array(z.string().regex(/^artifact:[a-z][a-z0-9_-]*$/))
             )
             .default({}),
           approve: z.literal("user"),
         })
-        .strict(),
+        .strict()
     ),
     engines: z.record(
       name,
-      z.object({ adapter: name, capabilities: names }).strict(),
+      z.object({ adapter: name, capabilities: names }).strict()
     ),
     delegations: z
       .object({
@@ -139,7 +151,7 @@ const Manifest = z
           ui: z.string().regex(/^[A-Za-z][A-Za-z0-9]{0,79}$/),
           tool: name,
         })
-        .strict(),
+        .strict()
     ),
     budget: BenchBudget,
     tunable: z.array(z.string().min(1).max(120)).max(32),
@@ -198,7 +210,7 @@ export const BenchPatch = z
               .optional(),
             dossier_note: z.string().max(32768).optional(),
           })
-          .strict(),
+          .strict()
       )
       .optional(),
   })

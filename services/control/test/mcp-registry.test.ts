@@ -62,25 +62,29 @@ it("planned capabilities fail explicitly and the independent capability revision
   const planned = structuredClone(catalog);
   planned.capabilities["files.write"].availability = "planned";
   expect(() => requireImplemented(planned, "files.write")).toThrow(
-    expect.objectContaining({ code: "NOT_IMPLEMENTED", status: 501 }),
+    expect.objectContaining({ code: "NOT_IMPLEMENTED", status: 501 })
   );
   expect(() => requireImplemented(catalog, "not.registered")).toThrow(
-    expect.objectContaining({ code: "CAPABILITY_DENIED" }),
+    expect.objectContaining({ code: "CAPABILITY_DENIED" })
   );
   for (const inherited of ["constructor", "toString", "__proto__"])
     expect(() => requireImplemented(catalog, inherited)).toThrow(
-      expect.objectContaining({ code: "CAPABILITY_DENIED" }),
+      expect.objectContaining({ code: "CAPABILITY_DENIED" })
     );
 });
 
 it("legacy alias grants are narrowed and literature fetch cannot acquire write permission without approval", async () => {
   const registry = await loadToolRegistry(),
     catalog = await loadCapabilityCatalog();
-  const bundle = await loadBenchBundle({ benchId: "research", registry });
+  const bundle = await loadBenchBundle({
+    benchId: "research",
+    registry,
+    version: "1.1.0",
+  });
   const role = structuredClone(bundle.manifest.roles["research-read"]);
   const grants = compileCapabilityGrants(role, catalog);
   expect(grants.find((g) => g.name === "papers.search")?.permission).toBe(
-    "allow",
+    "allow"
   );
   expect(grants.find((g) => g.name === "papers.fetch")?.permission).toBe("ask");
   expect(grants.find((g) => g.name === "files.write")).toEqual({
@@ -91,9 +95,7 @@ it("legacy alias grants are narrowed and literature fetch cannot acquire write p
   role.tools = { finding_record: "allow" };
   role.write_targets = ["findings/", "results/"];
   expect(
-    compileCapabilityGrants(role, catalog).find(
-      (g) => g.name === "files.write",
-    ),
+    compileCapabilityGrants(role, catalog).find((g) => g.name === "files.write")
   ).toEqual({
     name: "files.write",
     permission: "ask",
@@ -113,6 +115,6 @@ it("extended capability metadata does not rewrite the frozen v1 registry core", 
     delegations: table.delegations,
   });
   expect(createHash("sha256").update(canonical(core)).digest("hex")).toBe(
-    "35f5aaf3682f03ab094c30074beacef5a76071b08ed0bab49188800d39fa906e",
+    "35f5aaf3682f03ab094c30074beacef5a76071b08ed0bab49188800d39fa906e"
   );
 });

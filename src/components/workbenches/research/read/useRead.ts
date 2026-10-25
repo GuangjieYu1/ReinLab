@@ -12,7 +12,7 @@ const upsert = <T extends { id: string }>(list: T[], item: T) => {
 };
 /** 工具和审批按 id 更新同一行；其他事件追加。 */
 const log = (l: ReadEvent[], e: ReadEvent) => {
-  if ((e.type === 'tool' || e.type === 'approval' || e.type === 'agent' || e.type === 'user') && l.some(x => x.type === e.type && x.id === e.id)) return l.map(x => (x.type === e.type && x.id === e.id ? e : x));
+  if ((e.type === 'tool' || e.type === 'approval' || e.type === 'agent' || e.type === 'user' || e.type === 'pick') && l.some(x => x.type === e.type && x.id === e.id)) return l.map(x => (x.type === e.type && x.id === e.id ? e : x));
   return [...l, e];
 };
 
@@ -33,13 +33,18 @@ function reduce(s: ReadState, a: Action): ReadState {
 
 export function useRead(adapter: ReadAdapter) {
   const [state, dispatch] = useReducer(reduce, null);
-  const live = useRef(true);
+  const mounted = useRef(true);
   useEffect(() => {
-    live.current = true;
-    let off = () => {};
-    adapter.load().then(s => { if (!live.current) return; dispatch({ t: 'load', s }); off = adapter.subscribe(e => live.current && dispatch({ t: 'event', e })); });
-    return () => { live.current = false; off(); };
+    // 每次 effect 用自己的取消标记：卸载（或 StrictMode 二次执行）后才 resolve 的 load 不再订阅，避免留下没人关的事件流（Q-097）
+    let active = true, off: (() => void) | null = null;
+    mounted.current = true;
+    adapter.load().then(s => {
+      if (!active) return;
+      dispatch({ t: 'load', s });
+      off = adapter.subscribe(e => { if (active) dispatch({ t: 'event', e }); });
+    }).catch(() => {});
+    return () => { active = false; mounted.current = false; off?.(); };
   }, [adapter]);
-  const reload = useCallback(() => adapter.load().then(s => live.current && dispatch({ t: 'load', s })), [adapter]);
+  const reload = useCallback(() => adapter.load().then(s => { if (mounted.current) dispatch({ t: 'load', s }); }), [adapter]);
   return { state, reload };
 }

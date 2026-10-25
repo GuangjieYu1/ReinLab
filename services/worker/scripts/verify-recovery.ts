@@ -153,16 +153,48 @@ try {
     }
     return (await r.json()) as any;
   };
-  const dossier = await api("/v1/dossiers", {
+  stage = "legacy_fixture_setup";
+  // New public dossiers must retain the production default. Recovery below
+  // exercises the already-published 1.1 workflow, not the new human paper pick.
+  const currentDossier = await api("/v1/dossiers", {
     bench: "research",
-    title: "P1-13 独立账户机器重启混沌（fixture）",
+    title: "P1-13 默认版本验证（fixture）",
   });
-  report.dossierId = dossier.id;
+  const currentVersion = await db.withAccount(session.id, async (c) =>
+    (
+      await c.query("select bench_version from dossier where id=$1", [
+        currentDossier.id,
+      ])
+    ).rows[0].bench_version
+  );
+  assert.equal(currentVersion, "1.2.0");
+  report.newDossierBenchVersion = currentVersion;
   const registry = await loadToolRegistry(),
-    bundle = await loadBenchBundle({ benchId: "research", registry }),
-    harness = new HarnessStore(db, bundle, registry),
-    effective = await harness.effective(session.id, dossier.id);
+    bundle = await loadBenchBundle({
+      benchId: "research",
+      version: "1.1.0",
+      registry,
+    }),
+    harness = new HarnessStore(db, bundle, registry);
+  // Tenant-scoped test data only: create an old-version dossier from the frozen
+  // release, never accept a client-selected version or repin a production row.
+  const dossier = { id: randomUUID() };
+  await db.withAccount(session.id, (c) =>
+    c.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path,bench_version) values($1,$2,'research',$3,$4,$5)",
+      [
+        dossier.id,
+        session.id,
+        "P1-13 独立账户机器重启混沌（fixture）",
+        "/data/dossiers/" + dossier.id,
+        bundle.manifest.version,
+      ]
+    )
+  );
+  report.dossierId = dossier.id;
+  const effective = await harness.effective(session.id, dossier.id);
   assert.equal(effective.manifest.version, "1.1.0");
+  report.fixtureBenchVersion = effective.manifest.version;
   const role = materializeHarnessRole(effective, registry, {
     dossierId: dossier.id,
     roleId: "research-read",

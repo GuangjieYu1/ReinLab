@@ -9,6 +9,13 @@ import type {
 } from "../components/workbenches/research/read/readTypes";
 export type ReadWire = {
   dossier: { id: string; title: string };
+  clarification?: {
+    chosen: any;
+    spentCny: number;
+    capCny: number;
+    unknownCost: boolean;
+    history: ReadEvent[];
+  };
   cursor: number;
   run: any;
   papers: any[];
@@ -28,11 +35,11 @@ const label: Record<string, string> = {
 export function projectReading(
   data: ReadWire,
   events: any[],
-  selectedAsset?: string,
+  selectedAsset?: string
 ): ReadSnapshot {
   const r = data.run;
   const candidates = data.papers.filter(
-    (p) => !r || p.runId === r.id || data.pages.some((x) => x.assetId === p.id),
+    (p) => !r || p.runId === r.id || data.pages.some((x) => x.assetId === p.id)
   );
   const p = candidates.find((p) => p.id === selectedAsset) ?? candidates[0];
   const pages = data.pages.filter((x) => p && x.assetId === p.id);
@@ -60,7 +67,7 @@ export function projectReading(
           a.paperId !== p?.id ||
           !sections.has(a.page) ||
           typeof a.quote !== "string" ||
-          !a.quote.trim(),
+          !a.quote.trim()
       )
     )
       return null;
@@ -182,8 +189,8 @@ export function projectReading(
           (typeof s.query === "string"
             ? "：" + s.query
             : typeof asset?.title === "string"
-              ? " · " + asset.title
-              : ""),
+            ? " · " + asset.title
+            : ""),
         state: v.success === true ? "done" : "failed",
         detail: detail || undefined,
         ...(Number.isFinite(v.durationMs) ? { ms: v.durationMs } : {}),
@@ -255,10 +262,10 @@ export function projectReading(
           !["running", "waiting"].includes(r.state) || r.endedAt
             ? "运行已结束，审批不可再次执行"
             : a.kind === "question"
-              ? "请在收件箱回答原生问题"
-              : a.state === "expired"
-                ? "审批已过期"
-                : "审批结果待核对，不能重复执行",
+            ? "请在收件箱回答原生问题"
+            : a.state === "expired"
+            ? "审批已过期"
+            : "审批结果待核对，不能重复执行",
         state: a.state === "expired" ? "failed" : "running",
       });
   }
@@ -286,6 +293,14 @@ export function projectReading(
           : {}),
       }
     : { state: "idle", budgetCny: 5, spentCny: null };
+  if (data.clarification) {
+    run.chosen = data.clarification.chosen ?? undefined;
+    run.clarifySpentCny = data.clarification.spentCny;
+    run.clarifyCapCny = data.clarification.capCny;
+    history.unshift(...data.clarification.history);
+    if (data.clarification.unknownCost)
+      run.message = "澄清另有待核用量，费用不按零记账。";
+  }
   const paper: PaperView | null = p
     ? {
         id: p.id,
@@ -295,7 +310,7 @@ export function projectReading(
         access: p.access,
         license: p.license ?? undefined,
         sections: [...sections.values()].sort(
-          (a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)),
+          (a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1))
         ),
       }
     : null;

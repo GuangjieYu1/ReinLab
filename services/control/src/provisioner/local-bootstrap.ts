@@ -13,11 +13,11 @@ export async function bootstrapLocalDatabase(
     anonKey: string;
     jwtSecret: string;
   },
-  passwords: { app: string; provisioner: string },
+  passwords: { app: string; provisioner: string }
 ) {
   if (
     ![passwords.app, passwords.provisioner].every((value) =>
-      /^[A-Za-z0-9_-]{32,100}$/.test(value),
+      /^[A-Za-z0-9_-]{32,100}$/.test(value)
     )
   )
     throw new Error("LOCAL_PASSWORD_INVALID");
@@ -40,19 +40,19 @@ export async function bootstrapLocalDatabase(
   try {
     const applied = await applyMigrations(
       pool,
-      resolve("infra/supabase/migrations"),
+      resolve("infra/supabase/migrations")
     );
     const registry = await loadToolRegistry();
-    for (const version of ["1.0.0", undefined])
+    for (const version of ["1.0.0", "1.1.0", undefined])
       await publishBench(
         pool,
         await loadBenchBundle({ benchId: "research", registry, version }),
-        registry,
+        registry
       );
     // Generated base64url values are validated above; DDL has no parameter form.
     await pool.query(`alter role reinlab_app password '${passwords.app}'`);
     await pool.query(
-      `alter role reinlab_provisioner password '${passwords.provisioner}'`,
+      `alter role reinlab_provisioner password '${passwords.provisioner}'`
     );
     const app = new URL(status.databaseUrl);
     app.username = "reinlab_app";

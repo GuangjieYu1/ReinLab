@@ -22,13 +22,14 @@ import { cny, micros } from "../budget/money";
 import { requireDossier, appendEvent, scrub } from "../ledger";
 import { mutate, type ApiEnv } from "./context";
 import { ApiFailure, denied } from "./errors";
+import { currentChoice } from "../clarify/candidates";
 
 export function registerBudget(
   app: Hono<ApiEnv>,
   database: Database,
   pricing: PricingService,
   harness: HarnessStore,
-  onRunQueued?: (accountId: string, runId: string) => Promise<void>,
+  onRunQueued?: (accountId: string, runId: string) => Promise<void>
 ) {
   app.post("/v1/runs/estimate", (c) =>
     mutate(c, database, EstimateRequest, async (client, input) => {
@@ -36,7 +37,7 @@ export function registerBudget(
       const effective = await harness.effectiveClient(
           client,
           c.get("accountId"),
-          input.dossierId,
+          input.dossierId
         ),
         role =
           effective.manifest.roles[effective.manifest.entrypoints[input.mode]],
@@ -45,21 +46,38 @@ export function registerBudget(
         throw new ApiFailure(
           "ESTIMATE_MISMATCH",
           409,
-          "模型档与有效工作台配置不一致。",
+          "模型档与有效工作台配置不一致。"
+        );
+      const selected =
+        input.mode === "read" && effective.manifest.version === "1.2.0"
+          ? await currentChoice(client, input.dossierId)
+          : undefined;
+      if (
+        input.mode === "read" &&
+        effective.manifest.version === "1.2.0" &&
+        (!selected ||
+          input.candidateId !== selected.id ||
+          input.size !== undefined)
+      )
+        throw new ApiFailure(
+          "SELECTION_REQUIRED",
+          409,
+          "请先由你选定论文；不接受客户端伪造页数。"
         );
       const baseQuote = await pricing.estimate(
         { mode: input.mode, modelTier: tier, size: input.size },
         {
           modelTier: tier,
+          ...(selected ? { pages: selected.metadata.pages ?? 32 } : {}),
           defaultBudgetCny:
             effective.manifest.budget.by_mode[input.mode] === null
               ? null
               : cny(
                   effective.manifest.budget.by_mode[input.mode] ??
                     effective.manifest.budget.default_cny ??
-                    0,
+                    0
                 ),
-        },
+        }
       );
       const quote = {
         ...baseQuote,
@@ -67,6 +85,18 @@ export function registerBudget(
           ...baseQuote.assumptions,
           benchVersion: effective.manifest.version,
           effectiveConfigDigest: effective.digest,
+          ...(selected
+            ? {
+                candidateId: selected.id,
+                chosenPaperId: selected.paperId,
+                selectionRevision: selected.revision,
+                knownPages: selected.metadata.pages ?? null,
+                estimatedPages: selected.metadata.pages ?? 32,
+                pagesSource: selected.metadata.pages
+                  ? "bibliographic-range"
+                  : "unknown-conservative",
+              }
+            : {}),
         },
       };
       const id = randomUUID(),
@@ -79,7 +109,7 @@ export function registerBudget(
             input.mode,
             quote.modelTier,
             JSON.stringify(quote),
-          ],
+          ]
         );
       return {
         status: 201,
@@ -89,7 +119,7 @@ export function registerBudget(
           expiresAt: result.rows[0].expires_at.toISOString(),
         }),
       };
-    }),
+    })
   );
   app.post("/v1/runs", async (c) => {
     let created = false;
@@ -104,18 +134,47 @@ export function registerBudget(
         await requireDossier(client, input.dossierId);
         const found = await client.query(
           "select *,expires_at>now() valid from budget_estimate where id=$1",
-          [input.estimateId],
+          [input.estimateId]
         );
         if (!found.rowCount) throw denied();
         const estimate = found.rows[0];
         const effective = await harness.effectiveClient(
             client,
             accountId,
-            input.dossierId,
+            input.dossierId
           ),
           expectedRole = effective.manifest.entrypoints[input.mode];
         const role = effective.manifest.roles[expectedRole],
           tier = effective.manifest.model_slots[role.model_slot];
+        const selected =
+          input.mode === "read" && effective.manifest.version === "1.2.0"
+            ? await currentChoice(client, input.dossierId)
+            : undefined;
+        if (
+          input.mode === "read" &&
+          effective.manifest.version === "1.2.0" &&
+          (!selected ||
+            estimate.quote.assumptions.candidateId !== selected.id ||
+            estimate.quote.assumptions.selectionRevision !==
+              selected.revision ||
+            input.input.chosenCandidateId !== selected.id)
+        )
+          throw new ApiFailure(
+            "SELECTION_CHANGED",
+            409,
+            "选择已变化或未经人类选定，请重新预估。"
+          );
+        const admittedInput = selected
+          ? {
+              ...input.input,
+              chosenCandidateId: selected.id,
+              chosenPaperId: selected.paperId,
+              selectionRevision: selected.revision,
+              query: selected.metadata.title,
+              question: `请精读用户已选定的论文${selected.paperId}：${selected.metadata.title}。第一步papers.fetch等待用户单次批准；不得检索或改选。随后papers.pages读取原文再写分层讲解、检查题和发现；引用必须来自本run已读取的asset/page/原句。`,
+              memoryRefs: [],
+            }
+          : input.input;
         if (
           !estimate.valid ||
           estimate.dossier_id !== input.dossierId ||
@@ -128,7 +187,7 @@ export function registerBudget(
           throw new ApiFailure(
             "ESTIMATE_MISMATCH",
             409,
-            "估算已过期，或工作台有效配置已变化。",
+            "估算已过期，或工作台有效配置已变化。"
           );
         if (
           (
@@ -140,7 +199,7 @@ export function registerBudget(
           throw new ApiFailure(
             "ESTIMATE_CONSUMED",
             409,
-            "该估算已经用于一个运行，请重新预估。",
+            "该估算已经用于一个运行，请重新预估。"
           );
         const quota = input.budget.quotaRuns ?? 0,
           gpu = (input.budget.gpuMinutes ?? 0) * 60;
@@ -152,7 +211,7 @@ export function registerBudget(
           throw new ApiFailure(
             "INVALID_INPUT",
             400,
-            "GPU预算必须能换算为整数秒，额度不得溢出。",
+            "GPU预算必须能换算为整数秒，额度不得溢出。"
           );
         if (micros(amount) <= 0n)
           throw new ApiFailure("INVALID_INPUT", 400, "运行预算必须大于零。");
@@ -160,7 +219,7 @@ export function registerBudget(
             client,
             accountId,
             input.dossierId,
-            amount,
+            amount
           ),
           id = randomUUID(),
           requestId = randomUUID();
@@ -177,8 +236,8 @@ export function registerBudget(
             quota,
             gpu,
             input.estimateId,
-            JSON.stringify(scrub(input.input)),
-          ],
+            JSON.stringify(scrub(admittedInput)),
+          ]
         );
         await client.query(
           "insert into run_harness(account_id,dossier_id,run_id,bench,version,effective_digest,model_route) values($1,$2,$3,$4,$5,$6,$7)",
@@ -190,9 +249,17 @@ export function registerBudget(
             effective.manifest.version,
             effective.digest,
             estimate.quote.model,
-          ],
+          ]
         );
-        await bindRunCapabilities(client, accountId, id, effective, input.roleId, input.input, await loadCapabilityCatalog());
+        await bindRunCapabilities(
+          client,
+          accountId,
+          id,
+          effective,
+          input.roleId,
+          admittedInput,
+          await loadCapabilityCatalog()
+        );
         await allocateBudget(client, accountId, {
           dossierId: input.dossierId,
           runId: id,
@@ -231,7 +298,7 @@ export function registerBudget(
             gpuSeconds: 0,
           }),
         };
-      },
+      }
     );
     if (created && onRunQueued && response.status === 201) {
       const receipt = (await response.clone().json()) as { id: string };
@@ -268,9 +335,9 @@ export function registerBudget(
           client,
           c.get("accountId"),
           c.req.param("id"),
-          input,
-        ),
+          input
+        )
       ),
-    })),
+    }))
   );
 }

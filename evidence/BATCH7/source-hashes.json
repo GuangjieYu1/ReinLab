@@ -1,0 +1,54 @@
+{
+  "time": "2026-10-25T08:13:30.792686+00:00",
+  "sourceRoot": "/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab",
+  "files": [
+    {
+      "file": "src/components/workbenches/research/read/readTypes.ts",
+      "previousSha256": "ff988772543142d3e0a0e586426f63a331b077cc739c6077421b8072705d1205",
+      "sourceSha256": "2dc9bc0ca9ff195f024c304313c33e1682b4c04bb56472e68cc42d08610ce377",
+      "syncedSha256": "2dc9bc0ca9ff195f024c304313c33e1682b4c04bb56472e68cc42d08610ce377"
+    },
+    {
+      "file": "src/components/workbenches/research/read/useRead.ts",
+      "previousSha256": "60bae1deb75c912a320de1fbaa1c95c6566c594067cb3fa5c09f9a7dd6f02468",
+      "sourceSha256": "c3c4009f01f57a051a7f488d973fc877c847b3e5ee64563db47d650f1d40efd1",
+      "syncedSha256": "c3c4009f01f57a051a7f488d973fc877c847b3e5ee64563db47d650f1d40efd1"
+    },
+    {
+      "file": "src/components/workbenches/research/read/mockRead.ts",
+      "previousSha256": "e7ef1485d8ecdca1f42837a2b2756d3a9592529a82dace03c33c2c08854da9ab",
+      "sourceSha256": "6bf569abe68420c82cea6c8c6b96d00906f80e56789fa598f9de7131c4eade84",
+      "syncedSha256": "6bf569abe68420c82cea6c8c6b96d00906f80e56789fa598f9de7131c4eade84"
+    },
+    {
+      "file": "src/components/workbenches/research/read/ReadMode.tsx",
+      "previousSha256": "6376f48e959d23a25c420204b5317c2296f65b23a388cebef3266c093d2df321",
+      "sourceSha256": "46e88c36b6bb22397ebc55b366a8b0c7dd27a000a79e70efe63f1fd9806309ea",
+      "syncedSha256": "46e88c36b6bb22397ebc55b366a8b0c7dd27a000a79e70efe63f1fd9806309ea"
+    },
+    {
+      "file": "src/components/workbenches/research/read/read.css",
+      "previousSha256": "aa77506b444f108e61f63f427122fae5ff5940b28427afe8cf749e987f6c90ca",
+      "sourceSha256": "90fae3ed7965248c1c7000fd05bdcaf57751446c697055444ae4b9f19fbedb11",
+      "syncedSha256": "90fae3ed7965248c1c7000fd05bdcaf57751446c697055444ae4b9f19fbedb11"
+    },
+    {
+      "file": "src/components/workbenches/research/ResearchStudio.tsx",
+      "previousSha256": "857de4b50b58179b42e8126f4a5eba740b1d78d12ba38cb2af0e0787fc062576",
+      "sourceSha256": "4c09bac8e3f7549077e3be0f6e6942cc02a67051dd036af18bafbb7f4608754d",
+      "syncedSha256": "4c09bac8e3f7549077e3be0f6e6942cc02a67051dd036af18bafbb7f4608754d"
+    },
+    {
+      "file": "src/components/inbox/InboxPanel.tsx",
+      "previousSha256": "48695733e2f86e5129e4f54c400238da2ba7b63eeeac04b617c2a60f3dcd601a",
+      "sourceSha256": "0974e04296845ffe834a05a5d4d94b10f097cf898579cb858678a7378517bc14",
+      "syncedSha256": "0974e04296845ffe834a05a5d4d94b10f097cf898579cb858678a7378517bc14"
+    },
+    {
+      "file": "e2e/legacy/scenarios/20-read-run.mjs",
+      "previousSha256": "b33ec12395d737dff392caf4918e6f6da82c7b58a1f6e8edf53cb76e6fe4fcbf",
+      "sourceSha256": "82b3d97d0ba5f23d7a5f71f5f6e00d1fcf8cca5ae62ad9deceb667c446752f45",
+      "syncedSha256": "82b3d97d0ba5f23d7a5f71f5f6e00d1fcf8cca5ae62ad9deceb667c446752f45"
+    }
+  ]
+}

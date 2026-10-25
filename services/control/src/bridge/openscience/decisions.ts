@@ -1,3 +1,4 @@
+import { prepareHumanPaperChoice } from "../../clarify/candidates";
 import {
   bridgeMcpDecision,
   pendingMcpApproval,
@@ -54,7 +55,7 @@ const Question = z.object({
           .max(64),
         multiple: z.boolean().optional(),
         custom: z.boolean().optional(),
-      }),
+      })
     )
     .min(1)
     .max(64),
@@ -65,7 +66,7 @@ const unavailable = () =>
   new ApiFailure(
     "OS_UNAVAILABLE",
     503,
-    "执行内核暂时不可用，请核对已保存的决定收据。",
+    "执行内核暂时不可用，请核对已保存的决定收据。"
   );
 const hash = (input: Intent) =>
   createHash("sha256").update(canonical(input)).digest("hex");
@@ -109,7 +110,7 @@ function questionsValid(raw: unknown, answers: string[][]) {
       (question.custom === false &&
         selected.some(
           (answer) =>
-            !question.options.some((option) => option.label === answer),
+            !question.options.some((option) => option.label === answer)
         ))
     )
       throw bad();
@@ -117,7 +118,7 @@ function questionsValid(raw: unknown, answers: string[][]) {
 }
 function verifySnapshot(
   binding: Binding,
-  snapshot: Awaited<ReturnType<DecisionRuntimePort["snapshot"]>>,
+  snapshot: Awaited<ReturnType<DecisionRuntimePort["snapshot"]>>
 ) {
   if (
     !snapshot ||
@@ -128,7 +129,7 @@ function verifySnapshot(
   )
     throw denied();
   const run = snapshot.runs.find(
-    (item) => item.runID === binding.receipt?.runID,
+    (item) => item.runID === binding.receipt?.runID
   );
   if (
     run &&
@@ -141,12 +142,12 @@ function verifySnapshot(
 export class DecisionService {
   constructor(
     private readonly db: Database,
-    private readonly access: DecisionRuntimeAccess,
+    private readonly access: DecisionRuntimeAccess
   ) {}
   private async load(
     client: pg.PoolClient,
     accountId: string,
-    approvalId: string,
+    approvalId: string
   ) {
     if (!uuid.safeParse(approvalId).success) throw denied();
     await lockBudget(client, accountId);
@@ -178,7 +179,7 @@ export class DecisionService {
         `select a.id,a.run_id,a.kind,a.title,a.effects,a.risk,a.state,a.decision_sent from approval a
         join os_binding b on b.run_id=a.run_id and b.account_id=a.account_id and b.session_id=a.os_session_id
         where a.account_id=$1 and a.kind in ('permission','question') and a.state in ('pending','indeterminate') and a.os_request_id is not null and b.phase='accepted' and b.receipt is not null order by a.id limit 200`,
-        [accountId],
+        [accountId]
       );
       return rows.rows.map((row) => ({
         id: row.id,
@@ -196,7 +197,7 @@ export class DecisionService {
     binding: Binding,
     row: Record<string, any>,
     input: Intent,
-    pending: unknown,
+    pending: unknown
   ) {
     if (row.kind === "question" && input.decision === "approve")
       questionsValid(pending, input.answers!);
@@ -215,7 +216,7 @@ export class DecisionService {
           .map((e) => pendingMcpApproval(e?.properties ?? e))
           .find(Boolean);
         const grant = binding.role.mcp?.grants.find(
-          (g) => g.name === requested?.capability,
+          (g) => g.name === requested?.capability
         );
         if (
           !requested ||
@@ -228,7 +229,7 @@ export class DecisionService {
           throw new ApiFailure(
             "MCP_APPROVAL_INVALID",
             403,
-            "内核批准与冻结的能力请求不一致。",
+            "内核批准与冻结的能力请求不一致。"
           );
         return;
       }
@@ -239,7 +240,7 @@ export class DecisionService {
         throw new ApiFailure(
           "SCOPE_DENIED",
           403,
-          "该权限不在本角色可批准的范围。",
+          "该权限不在本角色可批准的范围。"
         );
     }
   }
@@ -247,10 +248,10 @@ export class DecisionService {
   async validate(
     accountId: string,
     approvalId: string,
-    raw: unknown,
+    raw: unknown
   ): Promise<void> {
     const { row, binding } = await this.db.withAccount(accountId, (client) =>
-        this.load(client, accountId, approvalId),
+        this.load(client, accountId, approvalId)
       ),
       input = normalize(raw, row.kind);
     if (row.decision_hash) {
@@ -259,7 +260,7 @@ export class DecisionService {
         throw new ApiFailure(
           "IDEMPOTENCY_CONFLICT",
           409,
-          "此决定已经保存了不同的用户意图。",
+          "此决定已经保存了不同的用户意图。"
         );
       return; // A repeated immutable intent must retain its original delivery receipt.
     }
@@ -272,7 +273,7 @@ export class DecisionService {
       row.kind === "permission" ? snapshot.permissions : snapshot.questions
     ).find(
       (item) =>
-        item.id === row.os_request_id && item.sessionID === binding.sessionId,
+        item.id === row.os_request_id && item.sessionID === binding.sessionId
     );
     if (!run || terminal.has(run.state) || !pending)
       throw new ApiFailure("DECISION_EXPIRED", 409, "该请求已不再等待决定。");
@@ -283,7 +284,7 @@ export class DecisionService {
     client: pg.PoolClient,
     accountId: string,
     approvalId: string,
-    raw: unknown,
+    raw: unknown
   ): Promise<DecisionReceipt> {
     const { row } = await this.load(client, accountId, approvalId),
       input = normalize(raw, row.kind),
@@ -296,7 +297,7 @@ export class DecisionService {
         throw new ApiFailure(
           "IDEMPOTENCY_CONFLICT",
           409,
-          "此决定已经保存了不同的用户意图。",
+          "此决定已经保存了不同的用户意图。"
         );
       return row.decision_receipt;
     }
@@ -308,8 +309,9 @@ export class DecisionService {
       row.run_id,
       row.effects,
       input.decision,
-      input.scope,
+      input.scope
     );
+    await prepareHumanPaperChoice(client, accountId, row, input);
     const receipt: DecisionReceipt = {
       approvalId,
       status: "prepared",
@@ -318,7 +320,7 @@ export class DecisionService {
     };
     await client.query(
       "update approval set decision_hash=$2,decision_input=$3::jsonb,decision_receipt=$4::jsonb where id=$1",
-      [approvalId, digest, JSON.stringify(input), JSON.stringify(receipt)],
+      [approvalId, digest, JSON.stringify(input), JSON.stringify(receipt)]
     );
     return receipt;
   }
@@ -339,7 +341,7 @@ export class DecisionService {
   private async finish(
     accountId: string,
     approvalId: string,
-    status: "resolved" | "indeterminate" | "expired",
+    status: "resolved" | "indeterminate" | "expired"
   ): Promise<DecisionReceipt> {
     return this.db.withAccount(accountId, async (client) => {
       const { row } = await this.load(client, accountId, approvalId),
@@ -367,29 +369,29 @@ export class DecisionService {
             : status,
           JSON.stringify(receipt),
           input.scope,
-        ],
+        ]
       );
       if (status === "expired")
         await client.query(
           "update run set state='interrupted',ended_at=now() where id=$1 and state not in ('completed','failed','cancelled')",
-          [row.run_id],
+          [row.run_id]
         );
       return receipt;
     });
   }
   async dispatch(
     accountId: string,
-    approvalId: string,
+    approvalId: string
   ): Promise<DecisionReceipt> {
     const prepared = await this.db.withAccount(accountId, (client) =>
-      this.load(client, accountId, approvalId),
+      this.load(client, accountId, approvalId)
     );
     const { row, binding } = prepared;
     if (!row.decision_hash)
       throw new ApiFailure(
         "DECISION_NOT_PREPARED",
         409,
-        "请先保存明确的用户决定。",
+        "请先保存明确的用户决定。"
       );
     const input = savedIntent(row);
     if (["resolved", "expired"].includes(row.decision_receipt?.status))
@@ -401,7 +403,7 @@ export class DecisionService {
       row.kind === "permission" ? snapshot.permissions : snapshot.questions
     ).find(
       (item) =>
-        item.id === row.os_request_id && item.sessionID === binding.sessionId,
+        item.id === row.os_request_id && item.sessionID === binding.sessionId
     );
     if (!run || terminal.has(run.state) || !pending || row.state === "expired")
       return this.finish(accountId, approvalId, "expired");
@@ -425,18 +427,18 @@ export class DecisionService {
             scope: input.scope,
             code: "DECISION_UNCONFIRMED",
           }),
-        ],
+        ]
       );
       return true;
     });
     if (!claimed) {
       const current = await this.db.withAccount(accountId, (client) =>
-        this.load(client, accountId, approvalId),
+        this.load(client, accountId, approvalId)
       );
       return this.finish(
         accountId,
         approvalId,
-        current.row.state === "expired" ? "expired" : "indeterminate",
+        current.row.state === "expired" ? "expired" : "indeterminate"
       );
     }
     let resolved = false;
@@ -450,17 +452,17 @@ export class DecisionService {
               reply: input.decision === "reject" ? "reject" : input.scope,
             }
           : input.decision === "reject"
-            ? {
-                kind: "question_reject",
-                sessionID: binding.sessionId,
-                requestID: row.os_request_id,
-              }
-            : {
-                kind: "question",
-                sessionID: binding.sessionId,
-                requestID: row.os_request_id,
-                answers: input.answers!,
-              },
+          ? {
+              kind: "question_reject",
+              sessionID: binding.sessionId,
+              requestID: row.os_request_id,
+            }
+          : {
+              kind: "question",
+              sessionID: binding.sessionId,
+              requestID: row.os_request_id,
+              answers: input.answers!,
+            }
       );
       resolved =
         result?.status === "resolved" &&
@@ -469,11 +471,25 @@ export class DecisionService {
     } catch {
       /* An ambiguous mutation must never be automatically resent. */
     }
-    return this.finish(
+    const receipt = await this.finish(
       accountId,
       approvalId,
-      resolved ? "resolved" : "indeterminate",
+      resolved ? "resolved" : "indeterminate"
     );
+    if (resolved && input.decision === "approve") {
+      const selected = await this.db.withAccount(
+        accountId,
+        async (c) =>
+          (
+            await c.query(
+              "select 1 from read_clarification s join read_clarify_run cr on cr.account_id=s.account_id and cr.dossier_id=s.dossier_id where s.chosen_approval=$1 and s.chosen_id is not null and cr.run_id=$2 and cr.closed",
+              [approvalId, row.run_id]
+            )
+          ).rowCount
+      );
+      if (selected) await this.cancel(accountId, row.run_id).catch(() => {});
+    }
+    return receipt;
   }
   async cancel(accountId: string, runId: string): Promise<CancelReceipt> {
     const get = async (client: pg.PoolClient) => {
@@ -488,7 +504,7 @@ export class DecisionService {
       const raw = (
         await client.query(
           "select cancel_sent,cancel_receipt from os_binding where run_id=$1",
-          [runId],
+          [runId]
         )
       ).rows[0];
       return { binding, raw };
@@ -505,7 +521,7 @@ export class DecisionService {
           return current.raw.cancel_receipt;
         await client.query(
           "update os_binding set cancel_receipt=$2::jsonb where run_id=$1",
-          [runId, JSON.stringify(receipt)],
+          [runId, JSON.stringify(receipt)]
         );
         return receipt;
       });
@@ -521,7 +537,7 @@ export class DecisionService {
         return false;
       await client.query(
         'update os_binding set cancel_sent=true,cancel_receipt=\'{"status":"indeterminate"}\' where run_id=$1',
-        [runId],
+        [runId]
       );
       return true;
     });
@@ -529,7 +545,7 @@ export class DecisionService {
     try {
       const result = await runtime.cancel(
         binding.sessionId,
-        binding.receipt!.runID,
+        binding.receipt!.runID
       );
       if (
         result &&

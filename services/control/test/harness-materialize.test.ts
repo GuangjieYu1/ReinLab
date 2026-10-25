@@ -24,7 +24,7 @@ const options = () => ({
 beforeAll(async () => {
   registry = await loadToolRegistry();
   effective = initialEffective(
-    await loadBenchBundle({ benchId: "research", registry }),
+    await loadBenchBundle({ benchId: "research", registry, version: "1.1.0" })
   );
 });
 it("materializes all ten actual research roles without role_def", () => {
@@ -46,7 +46,7 @@ it("materializes all ten actual research roles without role_def", () => {
         ...result,
         root: "/data",
         pluginUrl: "file:///opt/reinlab/plugin/index.js",
-      }).project.roleId,
+      }).project.roleId
     ).toBe(roleId);
   }
 });
@@ -64,7 +64,7 @@ it("routes models only through effective slot tiers and appends only own notes",
       },
     },
     registry,
-    100,
+    100
   ).candidate;
   const request = materializeHarnessRole(candidate, registry, options());
   expect(request.model).toBe("fixture/cheap");
@@ -75,11 +75,11 @@ it("routes models only through effective slot tiers and appends only own notes",
 it("allows only strictly bounded step tightening", () => {
   expect(
     materializeHarnessRole(effective, registry, { ...options(), maxSteps: 1 })
-      .role.steps,
+      .role.steps
   ).toBe(1);
   for (const maxSteps of [0, 49, 1.5, NaN])
     expect(() =>
-      materializeHarnessRole(effective, registry, { ...options(), maxSteps }),
+      materializeHarnessRole(effective, registry, { ...options(), maxSteps })
     ).toThrow();
 });
 it("strips wildcard and applies task/danger deny while preserving registry risks", () => {
@@ -104,13 +104,13 @@ it("rejects unknown role, missing route, changed registry and snapshot corruptio
     materializeHarnessRole(effective, registry, {
       ...options(),
       roleId: "unknown",
-    }),
+    })
   ).toThrow();
   expect(() =>
     materializeHarnessRole(effective, registry, {
       ...options(),
       modelRoutes: {},
-    }),
+    })
   ).toThrow();
   const changed = structuredClone(registry);
   changed.tools.read.risk = "danger";
@@ -118,7 +118,7 @@ it("rejects unknown role, missing route, changed registry and snapshot corruptio
   const changedEffective = structuredClone(effective);
   changedEffective.prompts["research-read"] = "forged";
   expect(() =>
-    materializeHarnessRole(changedEffective, registry, options()),
+    materializeHarnessRole(changedEffective, registry, options())
   ).toThrow();
 });
 it("rejects unsafe prompt templates and unsupported MCP even in a sealed snapshot", () => {
@@ -137,7 +137,7 @@ it("rejects unsafe prompt templates and unsupported MCP even in a sealed snapsho
 it("rejects interpolated or oversized server memory and oversized effective notes", () => {
   for (const memory of ["{file:/fixture}", "x".repeat(131073)])
     expect(() =>
-      materializeHarnessRole(effective, registry, { ...options(), memory }),
+      materializeHarnessRole(effective, registry, { ...options(), memory })
     ).toThrow();
   const raw = structuredClone(effective);
   raw.dossierNotes["research-read"] = "x".repeat(32768);

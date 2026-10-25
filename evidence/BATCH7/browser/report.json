@@ -1,0 +1,47 @@
+{
+  "realInfrastructure": true,
+  "syntheticStudyData": true,
+  "fixturePricing": true,
+  "nativeRuntime": true,
+  "clarificationNative": true,
+  "formalStudySynthetic": true,
+  "fixtureModelHttpRequests": 2,
+  "realModelRequests": 0,
+  "runPosts": 1,
+  "passed": 8,
+  "failed": 0,
+  "results": [
+    {
+      "name": "real_auth",
+      "passed": true
+    },
+    {
+      "name": "human_pick_submit",
+      "passed": true
+    },
+    {
+      "name": "selected_pages_estimate_without_formal_dispatch",
+      "passed": true
+    },
+    {
+      "name": "confirmed_once_waiting_approval",
+      "passed": true
+    },
+    {
+      "name": "real_sse_synthetic_paper_cards",
+      "passed": true
+    },
+    {
+      "name": "honest_unwired_and_no_answers",
+      "passed": true
+    },
+    {
+      "name": "reload_recovers_from_real_ledger",
+      "passed": true
+    },
+    {
+      "name": "audit_export",
+      "passed": true
+    }
+  ]
+}

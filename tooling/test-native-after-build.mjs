@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { requireNativeArtifact } from '../services/account-runtime/artifact.mjs';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-const files = ['independent-role', 'harness-native', 'runtime-recovery', 'role-runtime', 'runtime-smoke-native', 'pipeline-native', 'run-bridge'];
+const files = ['independent-role', 'harness-native', 'runtime-recovery', 'role-runtime', 'runtime-smoke-native', 'pipeline-native', 'run-bridge', 'batch7-native'];
 const hash = () => createHash('sha256').update(readFileSync(requireNativeArtifact())).digest('hex');
 const before = hash();
 const env = { ...process.env, VITE_BACKEND: 'mock', REINLAB_REQUIRE_NATIVE: '1' };

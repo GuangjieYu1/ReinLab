@@ -23,7 +23,7 @@ export class BenchManifestError extends Error {
   readonly code = "BENCH_MANIFEST_INVALID";
   readonly status = 503;
   constructor(
-    readonly issues: Array<{ path: Array<string | number>; message: string }>,
+    readonly issues: Array<{ path: Array<string | number>; message: string }>
   ) {
     super("工作台清单或引用未通过验证。");
   }
@@ -45,9 +45,7 @@ function relative(value: string) {
       .split("/")
       .every(
         (part, i, all) =>
-          part !== "." &&
-          part !== ".." &&
-          (part !== "" || i === all.length - 1),
+          part !== "." && part !== ".." && (part !== "" || i === all.length - 1)
       )
   );
 }
@@ -55,7 +53,7 @@ function checkedTree(
   value: unknown,
   field: Array<string | number> = [],
   depth = 0,
-  state = { nodes: 0 },
+  state = { nodes: 0 }
 ) {
   if (depth > 24 || ++state.nodes > 20000)
     failure(field.length ? field : ["manifest"], "配置超过结构上限");
@@ -81,7 +79,7 @@ function checkedTree(
       item,
       [...field, Array.isArray(value) ? Number(key) : key],
       depth + 1,
-      state,
+      state
     );
   }
 }
@@ -125,7 +123,7 @@ async function ancestors(root: string, relativeFile: string) {
 async function bytes(
   root: string,
   relativeFile: string,
-  maximum: number,
+  maximum: number
 ): Promise<Buffer> {
   if (!relative(relativeFile) || relativeFile.endsWith("/"))
     failure([relativeFile], "引用必须是bundle内相对普通文件");
@@ -135,7 +133,7 @@ async function bytes(
     const file = path.join(root, relativeFile);
     handle = await open(
       file,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
     );
     const stat = await handle.stat();
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > maximum)
@@ -181,12 +179,12 @@ function frozen<T>(value: T): T {
   return value;
 }
 export async function loadRegistryDocument(
-  root = repositoryRoot,
+  root = repositoryRoot
 ): Promise<CapabilityRegistryDocument> {
   const base = await rootPath(root),
     raw = parseDocumentStrict(
       decode(await bytes(base, "tools/registry.json", 262144), "registry"),
-      "registry",
+      "registry"
     );
   const parsed = CapabilityRegistryDocument.safeParse(raw);
   if (!parsed.success)
@@ -194,23 +192,42 @@ export async function loadRegistryDocument(
       parsed.error.issues.map((issue) => ({
         path: ["registry", ...issue.path],
         message: "工具注册表字段无效",
-      })),
+      }))
     );
   return frozen(parsed.data);
 }
 export async function loadToolRegistry(
-  root = repositoryRoot,
+  root = repositoryRoot
 ): Promise<ToolRegistry> {
   return frozen(legacyRegistryCore(await loadRegistryDocument(root)));
 }
 /** Universal non-overridable policy; reuse after merging trusted patches. */
 export function assertBenchSafety(
   manifest: BenchManifest,
-  registry: ToolRegistry,
+  registry: ToolRegistry
 ) {
   checkedTree(manifest);
   checkedTree(registry);
   for (const [role, definition] of Object.entries(manifest.roles)) {
+    if (
+      definition.model_cap &&
+      (definition.steps > 6 ||
+        definition.model_slot !== "cheap" ||
+        manifest.model_slots[definition.model_slot] !== "cheap" ||
+        definition.write_targets.length ||
+        definition.memory.read.length ||
+        definition.memory.write.length ||
+        JSON.stringify(definition.capability_allowlist) !==
+          JSON.stringify(["papers.search"]) ||
+        definition.tools.literature !== "allow" ||
+        Object.entries(definition.tools).some(
+          ([key, value]) => key !== "literature" && value !== "deny"
+        ))
+    )
+      failure(
+        ["roles", role, "model_cap"],
+        "澄清硬限额角色必须便宜档、最多6轮、仅检索且无文件/记忆权限"
+      );
     for (const [tool, permission] of Object.entries(definition.tools)) {
       const field = ["roles", role, "tools", tool];
       if (tool === "*" || tool === "task") {
@@ -226,7 +243,7 @@ export function assertBenchSafety(
       if (!relative(target))
         failure(
           ["roles", role, "write_targets", index],
-          "写目标必须是档案内纯相对路径",
+          "写目标必须是档案内纯相对路径"
         );
     for (const [server, capabilities] of Object.entries(definition.mcp))
       for (const capability of capabilities)
@@ -261,8 +278,9 @@ export async function loadBenchBundle(options: {
   const root = await rootPath(options.root ?? repositoryRoot),
     manifestFile = "benches/" + options.benchId + ".bench.yaml";
   const sourceFile =
-    options.benchId === "research" && options.version === "1.0.0"
-      ? "benches/releases/research@1.0.0.bench.yaml"
+    options.benchId === "research" &&
+    ["1.0.0", "1.1.0"].includes(options.version ?? "")
+      ? "benches/releases/research@" + options.version + ".bench.yaml"
       : manifestFile;
   const data = await bytes(root, sourceFile, 1048576),
     raw = parseDocumentStrict(decode(data, "manifest"), "manifest");
@@ -272,7 +290,7 @@ export async function loadBenchBundle(options: {
       parsed.error.issues.map((issue) => ({
         path: issue.path.length ? issue.path : ["manifest"],
         message: "清单字段无效",
-      })),
+      }))
     );
   const manifest = parsed.data;
   if (options.version && manifest.version !== options.version)
@@ -305,20 +323,20 @@ export async function loadBenchBundle(options: {
     prompts[role] = await reference(
       definition.prompt,
       "prompts/" + manifest.id + "/",
-      32768,
+      32768
     );
   }
   for (const definition of Object.values(manifest.cards)) {
     if (
       !/^schemas\/[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*\.json$/.test(
-        definition.schema,
+        definition.schema
       )
     )
       failure(["cards"], "卡片schema引用格式无效");
     const text = await reference(
       definition.schema,
       "schemas/" + manifest.id + "/",
-      131072,
+      131072
     );
     try {
       checkedTree(JSON.parse(text));

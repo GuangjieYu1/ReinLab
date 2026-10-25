@@ -10,14 +10,14 @@ const canonical = (value) =>
   Array.isArray(value)
     ? "[" + value.map(canonical).join(",") + "]"
     : value && typeof value === "object"
-      ? "{" +
-        Object.entries(value)
-          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-          .map(([k, v]) => JSON.stringify(k) + ":" + canonical(v))
-          .join(",") +
-        "}"
-      : JSON.stringify(value);
-async function configuration(runId, root) {
+    ? "{" +
+      Object.entries(value)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([k, v]) => JSON.stringify(k) + ":" + canonical(v))
+        .join(",") +
+      "}"
+    : JSON.stringify(value);
+export async function configuration(runId, root) {
   if (!/^[a-f0-9-]{36}$/.test(runId ?? "")) fail();
   const file = path.join(root, "mcp-clients", runId + ".json"),
     parent = await lstat(path.dirname(file));
@@ -29,7 +29,7 @@ async function configuration(runId, root) {
     fail();
   const h = await open(
     file,
-    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
   );
   try {
     const s = await h.stat();
@@ -61,7 +61,7 @@ export function mcpTools(policy, verify) {
           if (!allowed.includes(input.capability)) fail();
           const config = await configuration(
               policy.mcp.runId,
-              path.resolve(policy.dossierDirectory, "../.."),
+              path.resolve(policy.dossierDirectory, "../..")
             ),
             base = new URL(config.controlUrl);
           if (
@@ -110,7 +110,7 @@ export function mcpTools(policy, verify) {
             if (!/^[a-f0-9-]{36}$/.test(approvalId ?? "")) fail();
             const argsHash = createHash("sha256")
               .update(
-                canonical({ capability: input.capability, args: input.args }),
+                canonical({ capability: input.capability, args: input.args })
               )
               .digest("hex");
             await context.ask({
@@ -132,7 +132,7 @@ export function mcpTools(policy, verify) {
             throw new Error(
               typeof result.error.message === "string"
                 ? result.error.message
-                : "MCP_FAILED",
+                : "MCP_FAILED"
             );
           return {
             output: JSON.stringify(result.result.structuredContent),
@@ -140,6 +140,6 @@ export function mcpTools(policy, verify) {
           };
         },
       }),
-    ]),
+    ])
   );
 }

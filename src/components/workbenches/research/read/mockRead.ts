@@ -1,15 +1,33 @@
 import { LAYERS, PAPER, QA, QUIZ } from './paper';
-import type { Estimate, FindingCard, Grade, PaperView, ReadAdapter, ReadEvent, ReadSnapshot, RunView } from './readTypes';
+import type { Estimate, FindingCard, Grade, PaperCandidate, PaperView, ReadAdapter, ReadEvent, ReadSnapshot, RunView } from './readTypes';
+
+/** 示例论文库：检索按关键词匹配。只有 Attention 备了完整讲解；其他几篇选中后如实说明「要在真实模式下生成」。 */
+const CATALOG: (PaperCandidate & { arxiv: string; keys: string[]; size: string; pages: number })[] = [
+  { id: 'arxiv-2210.03629', pages: 33, arxiv: '2210.03629', title: 'ReAct: Synergizing Reasoning and Acting in Language Models', authors: 'Yao 等 · Princeton / Google', venue: 'ICLR 2023', access: 'full', size: '1.4 MB', keys: ['react', 'reasoning', 'acting', 'agent', '推理', '行动', '智能体'] },
+  { id: 'arxiv-1706.03762', pages: 15, arxiv: '1706.03762', title: PAPER.title, authors: PAPER.authors, venue: PAPER.venue, access: 'full', size: '2.1 MB', keys: ['attention', 'transformer', '注意力', 'all you need'] },
+  { id: 'arxiv-2106.09685', pages: 26, arxiv: '2106.09685', title: 'LoRA: Low-Rank Adaptation of Large Language Models', authors: 'Hu 等 · Microsoft', venue: 'ICLR 2022', access: 'full', size: '1.6 MB', keys: ['lora', 'low-rank', '低秩', '微调', 'fine-tun'] },
+  { id: 'arxiv-2309.14717', pages: 16, arxiv: '2309.14717', title: 'QA-LoRA: Quantization-Aware Low-Rank Adaptation of Large Language Models', authors: 'Xu 等', venue: 'ICLR 2024', access: 'full', size: '0.7 MB', keys: ['qa-lora', 'quantization', '量化', 'lora'] },
+  { id: 'arxiv-2101.03961', pages: 40, arxiv: '2101.03961', title: 'Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity', authors: 'Fedus, Zoph, Shazeer · Google', venue: 'JMLR 2022', access: 'full', size: '1.9 MB', keys: ['switch', 'moe', 'mixture', 'sparse', '专家', '稀疏', 'routing', '路由'] },
+  { id: 'arxiv-2302.04761', pages: 17, arxiv: '2302.04761', title: 'Toolformer: Language Models Can Teach Themselves to Use Tools', authors: 'Schick 等 · Meta AI', venue: 'NeurIPS 2023', access: 'full', size: '1.1 MB', keys: ['toolformer', 'tool', '工具', 'agent', '智能体'] },
+];
+function search(query: string) {
+  const q = query.toLowerCase();
+  return CATALOG.map(p => ({ p, score: p.keys.filter(k => q.includes(k)).length * 2 + (q.includes(p.arxiv) ? 10 : 0) + (p.title.toLowerCase().includes(q.trim()) && q.trim().length > 2 ? 3 : 0) }))
+    .filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 4).map(x => x.p);
+}
 
 // 精读的 mock 数据源：剧本回放。
-// 开局是「已经读完的一次精读」（原来的示例）；「新建精读」会从空档案开始，完整回放一次运行：
-// 检索 → 下载全文要你批准 → 逐页读 → 分层讲解一层层长出来 → 检查题 → 发现卡 → 结算。
-// 任何输入都回放同一篇示例论文；不连接模型，费用是示例数字。
+// 开局是「已经读完的一次精读」（原来的示例）；「新建精读」从空档案开始：
+// 先在对话里说想读什么 → 助手检索、拿不准就追问 → 候选卡片里选一篇 → 按页数预估 → 你确认 →
+// 下载全文要你批准 → 逐页读 → 分层讲解一层层长出来 → 检查题 → 发现卡 → 结算。
+// 论文库是 6 篇真实论文，只有 Attention 备了讲解；选别的会如实说明。不连接模型，费用是示例数字。
 
 const clock = () => new Date().toISOString();
 const PAPER_VIEW: PaperView = { id: 'arxiv-1706.03762', title: PAPER.title, authors: PAPER.authors, venue: PAPER.venue, code: PAPER.code, access: 'full', license: 'arXiv · 开放获取', sections: PAPER.sections };
 const FINDING: FindingCard = { id: 'f1', n: 1, text: '√dₖ 缩放不是细节：不缩放时 softmax 几乎退化成 one-hot，梯度消失，训练无法稳定。', refs: ['s321'], confidence: 'high', status: 'supported', at: clock() };
 const ESTIMATE: Estimate = { id: 'est-demo', model: 'deepseek-v4-flash', maxCny: 0.82, steps: 48, note: '按每轮约 1 万输入 / 3 千输出 token、2 倍余量估算' };
+const estimateFor = (pages: number): Estimate => ({ id: `est-${pages}`, model: 'deepseek-v4-flash', maxCny: +(0.2 + pages * 0.04).toFixed(2), steps: 48, note: `按 ${pages} 页、每轮约 1 万输入 / 3 千输出 token、2 倍余量估算` });
+const CLARIFY_CAP = 0.05, CLARIFY_STEP = 0.003;
 const INTRO: ReadEvent = { type: 'agent', id: 'intro', text: `我读完了《${PAPER.title}》。左边是原文目录，中间是五层解析，从一句话开始。有任何地方没懂，直接问我，比如「为什么要除以根号 d」。` };
 
 function done(): ReadSnapshot {
@@ -20,13 +38,14 @@ function done(): ReadSnapshot {
   };
 }
 function empty(n: number): ReadSnapshot {
-  return { dossier: { id: `d-read-new-${n}`, title: '新的精读' }, paper: null, layers: [], quizzes: [], findings: [], anims: [], hasRepro: false, history: [], run: { state: 'idle', budgetCny: 5, spentCny: null } };
+  return { dossier: { id: `d-read-new-${n}`, title: '新的精读' }, paper: null, layers: [], quizzes: [], findings: [], anims: [], hasRepro: false, history: [], run: { state: 'idle', budgetCny: 5, spentCny: null, clarifySpentCny: 0, clarifyCapCny: CLARIFY_CAP } };
 }
 
 export function mockReadAdapter(opts: { reduced?: boolean } = {}): ReadAdapter {
   let snap = done(), n = 0;
   const subs = new Set<(e: ReadEvent) => void>();
   let timers: number[] = [];
+  let chosen: (typeof CATALOG)[number] | null = null;
   const emit = (e: ReadEvent) => {
     // 同步到快照，刷新或切换后能恢复
     if (e.type === 'run') snap = { ...snap, run: { ...snap.run, ...e.run } as RunView };
@@ -59,18 +78,54 @@ export function mockReadAdapter(opts: { reduced?: boolean } = {}): ReadAdapter {
     async load() { return structuredClone(snap); },
     subscribe(on) { subs.add(on); return () => { subs.delete(on); }; },
     async newReading() { stop(); n += 1; snap = empty(n); },
-    async estimate(query, budgetCny) {
-      emit({ type: 'run', run: { state: 'estimating', query, budgetCny } });
+    async clarify(text) {
+      emit({ type: 'user', id: `u${Date.now()}`, text });
+      const spent = snap.run.clarifySpentCny ?? 0;
+      if (spent + CLARIFY_STEP > CLARIFY_CAP) { emit({ type: 'agent', id: `a${Date.now()}`, text: `澄清对话已经用到 ¥${CLARIFY_CAP} 的上限，我先停下。能直接给我完整标题或 arXiv 编号吗？` }); return; }
+      emit({ type: 'tool', id: `s${Date.now()}`, action: 'papers.search', label: `检索：${text}`, state: 'done', ms: 900, detail: '只检索公开元数据，不下载' });
+      emit({ type: 'run', run: { clarifySpentCny: +(spent + CLARIFY_STEP).toFixed(3) } });
+      await new Promise(r => setTimeout(r, opts.reduced ? 30 : 800));
+      const found = search(text);
+      const id = `pick-${Date.now()}`;
+      const cands: PaperCandidate[] = found.map(({ id, title, authors, venue, access, pages }) => ({ id, title, authors, venue, access, pages, note: id === PAPER_VIEW.id ? undefined : '示例未备讲解' }));
+      if (!found.length) { emit({ type: 'agent', id: `a${Date.now()}`, text: `没找到和「${text}」对得上的论文。能多说一点吗？比如完整标题、作者、年份，或者它讲的是什么问题。` }); return; }
+      const ambiguous = /^\s*react\s*$/i.test(text);
+      emit({ type: 'agent', id: `a${Date.now()}`, text: ambiguous
+        ? '你说的 react，是指让语言模型「边推理边行动」的 ReAct 论文，还是前端框架 React？前端框架不是论文，研究台读不了；如果是前者，就是下面这篇。'
+        : found.length === 1 ? '找到一篇，是这篇吗？' : `找到 ${found.length} 篇，点你要读的那篇；都不是就再描述一下。` });
+      emit({ type: 'pick', id, query: text, candidates: cands, state: 'pending' });
+    },
+    async pick(id, candidateId) {
+      const pk = snap.history.find(e => e.type === 'pick' && e.id === id);
+      if (!pk || pk.type !== 'pick' || pk.state !== 'pending') return;
+      emit({ ...pk, state: 'answered', chosen: candidateId ?? undefined });
+      if (!candidateId) { emit({ type: 'agent', id: `a${Date.now()}`, text: '好，那再描述一下？作者、年份、讲的问题，或者你在哪里看到它的，都可以。' }); return; }
+      const p = CATALOG.find(x => x.id === candidateId)!;
+      chosen = p;
+      const { id: cid, title, authors, venue, access, pages } = p;
+      emit({ type: 'run', run: { chosen: { id: cid, title, authors, venue, access, pages }, query: title, state: 'idle', estimate: undefined } });
+      emit({ type: 'agent', id: `a${Date.now()}`, text: `好，读《${title}》（${pages} 页）。中间可以按这篇的长度预估费用了。` });
+    },
+    async unchoose() {
+      chosen = null;
+      emit({ type: 'run', run: { chosen: undefined, state: 'idle', estimate: undefined } });
+      emit({ type: 'agent', id: `a${Date.now()}`, text: '好，换一篇。想读什么？' });
+    },
+    async estimate(candidateId, budgetCny) {
+      const p = CATALOG.find(x => x.id === candidateId);
+      emit({ type: 'run', run: { state: 'estimating', budgetCny } });
       await new Promise(r => setTimeout(r, opts.reduced ? 30 : 700));
-      emit({ type: 'run', run: { state: 'confirm', estimate: ESTIMATE } });
-      return ESTIMATE;
+      const est = p ? (p.id === PAPER_VIEW.id ? ESTIMATE : estimateFor(p.pages)) : ESTIMATE;
+      emit({ type: 'run', run: { state: 'confirm', estimate: est } });
+      return est;
     },
     async start(_id, budgetCny) {
+      const p = chosen; if (!p) return;
       emit({ type: 'run', run: { id: `run-${Date.now()}`, state: 'queued', budgetCny, spentCny: 0, unknownCost: false, step: '排队' } });
-      let t = 0; const step = (ms: number, fn: () => void) => at((t += ms), fn);
-      step(500, () => { emit({ type: 'run', run: { state: 'running', step: '检索论文' } }); emit({ type: 'tool', id: 'search', action: 'papers.search', label: `检索：${snap.run.query ?? PAPER.title}`, state: 'running' }); });
-      step(1200, () => emit({ type: 'tool', id: 'search', action: 'papers.search', label: `检索：${snap.run.query ?? PAPER.title}`, state: 'done', ms: 1200, detail: `命中《${PAPER.title}》· ${PAPER.venue} · 开放获取` }));
-      step(400, () => { emit({ type: 'approval', id: 'ap-fetch', action: 'papers.fetch', title: '下载全文到档案', effects: ['来源：arXiv 1706.03762（开放获取）', '约 2.1 MB，写入 papers/attention.pdf', '只写这一个文件，可以在档案里撤销'], risk: 'write', state: 'pending' }); emit({ type: 'run', run: { state: 'waiting', step: '等你批准下载全文', spentCny: 0.01 } }); });
+      at(500, () => {
+        emit({ type: 'approval', id: 'ap-fetch', action: 'papers.fetch', title: '下载全文到档案', effects: [`来源：arXiv ${p.arxiv}（开放获取）`, `约 ${p.size}，写入 papers/${p.arxiv}.pdf`, '只写这一个文件，可以在档案里撤销'], risk: 'write', state: 'pending' });
+        emit({ type: 'run', run: { state: 'waiting', step: '等你批准下载全文', spentCny: 0 } });
+      });
     },
     async cancel() {
       stop();
@@ -80,13 +135,18 @@ export function mockReadAdapter(opts: { reduced?: boolean } = {}): ReadAdapter {
       const ap = snap.history.find(e => e.type === 'approval' && e.id === id);
       if (!ap || ap.type !== 'approval' || ap.state !== 'pending') return;
       emit({ ...ap, state: approve ? 'approved' : 'rejected' });
-      if (approve) { emit({ type: 'run', run: { state: 'running', step: '下载全文' } }); readAfterFetch(); }
-      else emit({ type: 'run', run: { state: 'done', step: undefined, spentCny: 0.01, message: '你没有批准下载全文，这次只保留了检索结果。可以改为「只读摘要」再开始一次。' } });
+      if (approve && chosen && chosen.id !== PAPER_VIEW.id) {
+        const c = chosen;
+        emit({ type: 'tool', id: 'fetch', action: 'papers.fetch', label: `下载全文 · arXiv ${c.arxiv}`, state: 'done', ms: 800, detail: `${c.size} · 写入 papers/${c.arxiv}.pdf · 开放获取` });
+        emit({ type: 'paper', paper: { id: c.id, title: c.title, authors: c.authors, venue: c.venue, access: c.access, license: 'arXiv · 开放获取', sections: [] } });
+        emit({ type: 'run', run: { state: 'done', step: undefined, spentCny: 0.02, message: `示例数据只为《${PAPER.title}》准备了讲解内容。《${c.title}》的分层讲解、检查题和发现，要在真实模式下由模型生成。` } });
+        emit({ type: 'agent', id: 'demo-only', text: `示例到此为止：这篇论文的讲解要在真实模式下生成。想看完整的示例流程，可以新建精读，选《${PAPER.title}》。` });
+      } else if (approve) { emit({ type: 'run', run: { state: 'running', step: '下载全文' } }); readAfterFetch(); }
+      else emit({ type: 'run', run: { state: 'done', step: undefined, spentCny: 0, message: '你没有批准下载全文，这次没有读。可以换一篇再开始。' } });
     },
     async ask(text) {
       emit({ type: 'user', id: `u${Date.now()}`, text });
       await new Promise(r => setTimeout(r, opts.reduced ? 30 : 700));
-      if (!snap.paper) { emit({ type: 'agent', id: `a${Date.now()}`, text: '先开始一次精读，读完再问我。' }); return; }
       const hit = QA.find(x => x.keys.test(text));
       emit(hit ? { type: 'agent', id: `a${Date.now()}`, text: hit.answer, refs: hit.refs, anim: hit.anim }
         : { type: 'agent', id: `a${Date.now()}`, text: '这个问题论文里没有直接回答。可以派给群研去查后续工作。' });

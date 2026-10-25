@@ -1,4 +1,5 @@
-import { getuid } from 'node:process';
+import { getuid } from "node:process";
+import { smokeOperatorArguments, smokeFetchArguments } from "./smoke-policy";
 /** Explicit one-workflow operator CLI; never imported by CI. Key stays in host memory. */
 import assert from "node:assert/strict";
 import { randomUUID, randomBytes } from "node:crypto";
@@ -39,13 +40,16 @@ import {
 } from "../../../tooling/local/private-evidence";
 import { cleanupSmoke } from "../../../tooling/local/smoke-cleanup";
 import { startMcpSmokeGuard } from "../../../tooling/local/mcp-smoke-guard";
+const cli = smokeOperatorArguments(process.argv.slice(2));
 const paths = localPaths(),
   config = readRuntimeConfiguration(paths.runtime),
   directory = join(paths.state, "mcp10-authorized-20261024");
 const out =
   process.env.REINLAB_EVIDENCE_OUT ?? join(paths.state, "mcp10-evidence");
 const report: Record<string, any> = {
-  authorization: "第六批用户明确授权T-MCP-10（都要）",
+  authorization: cli.authorization,
+  executor: cli.executor,
+  expectedApprovals: ["papers.fetch", "files.write", "cards.card.finding"],
   realModel: true,
   attempts: 1,
   budgetCny: 1,
@@ -72,7 +76,6 @@ const environment = {
 };
 const normalized = (s: string) => s.replace(/\s+/gu, " ").trim();
 try {
-  assert.deepEqual(process.argv.slice(2), ["--execute-once"]);
   assert.equal(process.env.DEEPSEEK_API_KEY, undefined);
   assert.notEqual(process.env.NODE_ENV, "test");
   lock = await acquireStartupLock();
@@ -172,10 +175,12 @@ try {
   pipeline = new RuntimePipeline(db, {
     pricingContext,
     prepareCapabilities: async (a, r) => {
-      assert.equal(a,session.id);
-      const token=await authority.issue(a,r);
-      await writePrivateEnv(join(directory,'capability-'+r+'.env'),{CAPABILITY_TOKEN:token});
-      await port.bootstrap(a,r,token,config.REINLAB_CONTROL_URL);
+      assert.equal(a, session.id);
+      const token = await authority.issue(a, r);
+      await writePrivateEnv(join(directory, "capability-" + r + ".env"), {
+        CAPABILITY_TOKEN: token,
+      });
+      await port.bootstrap(a, r, token, config.REINLAB_CONTROL_URL);
     },
     cleanupCapabilities: async (a, r) => {
       await port.cleanup(a, r);
@@ -184,13 +189,16 @@ try {
   stage = "trusted_control";
   await stopOwnedControl(paths.process, resolve("tooling/local/control.ts"));
   controlStopped = true;
-  const app = await createSmokeApp({
-    pool,
-    harness,
-    pipeline,
-    mcp,
-    auth: { issuer: config.SUPABASE_URL + "/auth/v1" },
-  }, config);
+  const app = await createSmokeApp(
+    {
+      pool,
+      harness,
+      pipeline,
+      mcp,
+      auth: { issuer: config.SUPABASE_URL + "/auth/v1" },
+    },
+    config
+  );
   server = serve({ fetch: app.fetch, hostname: "0.0.0.0", port: 3001 });
   await new Promise<void>((done) =>
     server!.listening ? done() : server!.once("listening", done)
@@ -220,7 +228,7 @@ try {
   stage = "fresh_1_1_dossier";
   const dossier = await api("/v1/dossiers", {
     bench: "research",
-    title: "T-MCP-10 单次真实研究链路（第六批授权）",
+    title: "T-MCP-10 单次真实研究链路（显式新授权）",
   });
   report.dossierId = dossier.id;
   const effective = await harness.effective(session.id, dossier.id);
@@ -250,11 +258,17 @@ try {
     join(homedir(), ".config/reinlab/local.env")
   );
   assert.ok(secrets.DEEPSEEK_API_KEY);
-  const usageScope=await readPrivateEnv(join(paths.state,'mcp10-usage-scope.env'));
-  assert.equal(usageScope.ALIAS,'ReinLab');
-  const mask=/^(sk-[A-Za-z0-9]+)\*+([A-Za-z0-9]+)$/.exec(usageScope.MASK);assert.ok(mask);
-  assert.ok(secrets.DEEPSEEK_API_KEY.startsWith(mask[1])&&secrets.DEEPSEEK_API_KEY.endsWith(mask[2]));
-  report.keyMatchesBillingAlias=true;
+  const usageScope = await readPrivateEnv(
+    join(paths.state, "mcp10-usage-scope.env")
+  );
+  assert.equal(usageScope.ALIAS, "ReinLab");
+  const mask = /^(sk-[A-Za-z0-9]+)\*+([A-Za-z0-9]+)$/.exec(usageScope.MASK);
+  assert.ok(mask);
+  assert.ok(
+    secrets.DEEPSEEK_API_KEY.startsWith(mask[1]) &&
+      secrets.DEEPSEEK_API_KEY.endsWith(mask[2])
+  );
+  report.keyMatchesBillingAlias = true;
   const temporaryToken = randomBytes(32).toString("base64url");
   guard = await startMcpSmokeGuard({
     incomingToken: temporaryToken,
@@ -376,7 +390,21 @@ try {
         hash({ capability: input.capability, args: input.args }),
         metadata.argsHash
       );
-      if (metadata.requestId === ids.write) {
+      assert.equal(metadata.capability, input.capability);
+      if (metadata.requestId === ids.fetch) {
+        assert.equal(input.capability, "papers.fetch");
+        assert.deepEqual(
+          input.args,
+          smokeFetchArguments(tools, ids.search, "W4387156572")
+        );
+        report.fetchApproval = {
+          scope: "once",
+          capability: "papers.fetch",
+          requestId: ids.fetch,
+          argsHash: metadata.argsHash,
+          args: input.args,
+        };
+      } else if (metadata.requestId === ids.write) {
         assert.equal(input.capability, "files.write");
         assert.deepEqual(input.args, fileArgs);
         report.fileApproval = {

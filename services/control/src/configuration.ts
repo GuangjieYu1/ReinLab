@@ -16,7 +16,7 @@ const unsafe = () => Error("RUNTIME_CONFIG_UNSAFE");
 
 /** Protected service input; never assigns credentials to process.env or echoes parser errors. */
 export function readRuntimeConfiguration(
-  file: string,
+  file: string
 ): Readonly<Record<string, string>> {
   let fd: number | undefined;
   let bytes: Buffer | undefined;
@@ -31,7 +31,7 @@ export function readRuntimeConfiguration(
       throw unsafe();
     fd = openSync(
       file,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
     );
     const stat = fstatSync(fd);
     if (
@@ -50,9 +50,9 @@ export function readRuntimeConfiguration(
     return Object.freeze(
       Object.fromEntries(
         Object.entries(values).filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string",
-        ),
-      ),
+          (entry): entry is [string, string] => typeof entry[1] === "string"
+        )
+      )
     );
   } catch {
     throw unsafe();
@@ -63,6 +63,7 @@ export function readRuntimeConfiguration(
 }
 
 const publicNames = new Set([
+  "REINLAB_CLARIFY_AUTHORIZATION_FILE",
   "PORT",
   "SUPABASE_URL",
   "STORAGE_BUCKET",
@@ -87,15 +88,15 @@ const publicNames = new Set([
 
 /** Environment carries only public configuration and the protected configuration file path. */
 export function runtimeConfiguration(
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = process.env
 ): RuntimeConfiguration {
   if (env.REINLAB_RUNTIME_CONFIG_FILE)
     return readRuntimeConfiguration(env.REINLAB_RUNTIME_CONFIG_FILE);
   return Object.freeze(
     Object.fromEntries(
       Object.entries(env).filter(
-        ([key, value]) => publicNames.has(key) && value !== undefined,
-      ),
-    ),
+        ([key, value]) => publicNames.has(key) && value !== undefined
+      )
+    )
   );
 }

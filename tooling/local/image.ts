@@ -15,6 +15,7 @@ export const ACCOUNT_IMAGE_INPUTS = [
   "infra/fly/account-health.mjs",
   "plugins/reinlab-os-plugin/index.js",
   "plugins/reinlab-os-plugin/mcp-tools.js",
+  "plugins/reinlab-os-plugin/clarify-model.js",
   "services/account-runtime/mcp/files.py",
   "services/account-runtime/mcp/client.mjs",
   "services/account-runtime/mcp/store.mjs",
@@ -29,7 +30,7 @@ export const ACCOUNT_IMAGE_INPUTS = [
   "plugins/reinlab-os-plugin/package.json",
 ] as const;
 export async function accountImageTag(
-  read: (path: string) => Promise<Buffer> = (path) => readFile(path),
+  read: (path: string) => Promise<Buffer> = (path) => readFile(path)
 ) {
   const hash = createHash("sha256");
   for (const file of ACCOUNT_IMAGE_INPUTS) {
@@ -51,15 +52,15 @@ export type ImageObservation = {
 };
 /** No resource operations: a mutable tag never substitutes a saved immutable image identity. */
 export function decideLocalImage(
-  input: ImageObservation,
+  input: ImageObservation
 ): "reuse" | "pin" | "build" {
   if (
     !imageName.test(input.image) ||
     [input.currentId, input.pinnedId].some(
-      (v) => v !== null && !digest.test(v),
+      (v) => v !== null && !digest.test(v)
     ) ||
     input.containers.some(
-      (c) => typeof c.reference !== "string" || !digest.test(c.imageId),
+      (c) => typeof c.reference !== "string" || !digest.test(c.imageId)
     )
   )
     throw failure("LOCAL_IMAGE_METADATA_INVALID");
@@ -70,7 +71,7 @@ export function decideLocalImage(
   }
   if (
     input.containers.some(
-      (c) => c.reference === input.image && c.imageId !== input.currentId,
+      (c) => c.reference === input.image && c.imageId !== input.currentId
     )
   )
     throw failure("LOCAL_IMAGE_REFERENCE_CONFLICT");
@@ -79,12 +80,12 @@ export function decideLocalImage(
 }
 export type LocalImageRunner = (
   args: string[],
-  timeoutMs: number,
+  timeoutMs: number
 ) => Promise<string>;
 async function safeRun(
   run: LocalImageRunner,
   args: string[],
-  timeoutMs = 15000,
+  timeoutMs = 15000
 ) {
   try {
     return await run(args, timeoutMs);
@@ -92,7 +93,7 @@ async function safeRun(
     throw failure(
       args[0] === "build"
         ? "LOCAL_IMAGE_BUILD_FAILED"
-        : "LOCAL_IMAGE_READ_FAILED",
+        : "LOCAL_IMAGE_READ_FAILED"
     );
   }
 }
@@ -215,7 +216,7 @@ export async function ensureLocalAccountImage(input: {
     await safeRun(
       input.run,
       ["build", "-f", "infra/fly/account.Dockerfile", "-t", input.image, "."],
-      900000,
+      900000
     );
   const finalId = await currentImageId(input.image, input.run);
   if (finalId === null) throw failure("LOCAL_IMAGE_PIN_MISSING");

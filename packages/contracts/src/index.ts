@@ -1,5 +1,9 @@
 import { z } from "zod";
-export { Capability, CapabilityRegistryDocument, legacyRegistryCore } from "./capabilities";
+export {
+  Capability,
+  CapabilityRegistryDocument,
+  legacyRegistryCore,
+} from "./capabilities";
 export { UsageAccountingSource, GatewayUsageCallback } from "./usage";
 export {
   BenchManifest,
@@ -31,7 +35,7 @@ export const Json: z.ZodType<JsonValue> = z.lazy(() =>
     z.null(),
     z.array(Json),
     z.record(Json),
-  ]),
+  ])
 );
 
 export const Risk = z.enum(["read", "write", "danger"]);
@@ -208,7 +212,7 @@ export const ResearchFindingsV1 = z
           fit: text,
           confidence: z.enum(["high", "mid", "low"]),
         })
-        .strict(),
+        .strict()
     ),
     routes: z.array(
       z
@@ -219,7 +223,7 @@ export const ResearchFindingsV1 = z
           why: text,
           picked: z.boolean(),
         })
-        .strict(),
+        .strict()
     ),
     negatives: z.array(z.object({ what: text, how: text }).strict()),
     nextPlan: text,
@@ -234,7 +238,7 @@ export const RunToken = z
     osSessionId: text,
     roleId: text,
     grants: z.array(
-      z.object({ tool: text, risk: z.enum(["read", "write"]) }).strict(),
+      z.object({ tool: text, risk: z.enum(["read", "write"]) }).strict()
     ),
     readScope: z
       .object({
@@ -316,8 +320,8 @@ export const ReadLayerWrite = z
           .refine(
             (item) =>
               item.kind === "interpretation" || item.citations.length > 0,
-            "作者声称必须带引用",
-          ),
+            "作者声称必须带引用"
+          )
       )
       .min(1),
   })
@@ -371,7 +375,7 @@ export const SwarmTools = {
     .strict()
     .refine(
       (value) => value.negative === true || value.citations.length > 0,
-      "交付必须附引用，负结果须写检索过程",
+      "交付必须附引用，负结果须写检索过程"
     ),
   help: z.object({ text, taskId: text.optional() }).strict(),
   handoff: z.object({ to: text, taskId: text, artifactRef: Ref }).strict(),
@@ -426,6 +430,7 @@ export const EstimateRequest = z
     dossierId: id,
     mode: Mode,
     size: count.positive().max(32).optional(),
+    candidateId: id.optional(),
     modelTier: z.enum(["cheap", "mid", "strong"]).optional(),
   })
   .strict();
@@ -450,7 +455,7 @@ export const BudgetAppend = z
   .refine(
     (v) =>
       (v.cny ?? 0) > 0 || (v.quotaRuns ?? 0) > 0 || (v.gpuMinutes ?? 0) > 0,
-    "至少追加一种预算",
+    "至少追加一种预算"
   );
 export const CnyAmount = z.string().regex(/^\d+\.\d{6}$/);
 export const BudgetEstimate = z
@@ -575,7 +580,7 @@ export const DossierDetail = z
     gates: z.array(
       z
         .object({ id, subject: text, state: GateState, revision: count })
-        .strict(),
+        .strict()
     ),
     activeRuns: z.array(RunSummary),
     budget: z.object({ allocatedCny: money, spentCny: money }).strict(),
@@ -584,7 +589,36 @@ export const DossierDetail = z
 export type DossierDetail = z.infer<typeof DossierDetail>;
 
 /** P1-12 browser DTOs contain no credential or runtime routing identity. */
-export type InboxSource = { bench: string; dossierId: string; dossierTitle: string; runId: string; roleId: string };
-export type InboxPromotion = { id: string; target: PromotionTarget; items: JsonValue; reason: string; createdAt: string; expiresAt: string; source: InboxSource };
-export type InboxApproval = { id: string; runId: string; kind: string; title: string; effects: JsonValue; risk: Risk; state: 'pending'|'indeterminate'; sent: boolean; source: InboxSource };
-export type BrowserSession = { accessToken:string; refreshToken:string; expiresIn:number; accountId:string };
+export type InboxSource = {
+  bench: string;
+  dossierId: string;
+  dossierTitle: string;
+  runId: string;
+  roleId: string;
+};
+export type InboxPromotion = {
+  id: string;
+  target: PromotionTarget;
+  items: JsonValue;
+  reason: string;
+  createdAt: string;
+  expiresAt: string;
+  source: InboxSource;
+};
+export type InboxApproval = {
+  id: string;
+  runId: string;
+  kind: string;
+  title: string;
+  effects: JsonValue;
+  risk: Risk;
+  state: "pending" | "indeterminate";
+  sent: boolean;
+  source: InboxSource;
+};
+export type BrowserSession = {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  accountId: string;
+};

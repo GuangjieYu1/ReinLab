@@ -79,7 +79,7 @@ function manifest() {
 }
 async function fixture(value: unknown = manifest()) {
   const root = await realpath(
-    await mkdtemp(join(tmpdir(), "reinlab-bench-manifest-")),
+    await mkdtemp(join(tmpdir(), "reinlab-bench-manifest-"))
   );
   roots.push(root);
   await mkdir(join(root, "benches"));
@@ -87,7 +87,7 @@ async function fixture(value: unknown = manifest()) {
   await mkdir(join(root, "tools"));
   await writeFile(
     join(root, "benches/fixture.bench.yaml"),
-    JSON.stringify(value),
+    JSON.stringify(value)
   );
   await writeFile(join(root, "prompts/fixture/read.md"), "fixture prompt\n");
   await writeFile(join(root, "tools/registry.json"), JSON.stringify(registry));
@@ -104,7 +104,7 @@ it("loads a strict declarative bench and binds prompt bytes into its digest", as
   expect(a.prompts.reader).toBe("fixture prompt\n");
   expect(a.digest).toMatch(/^[a-f0-9]{64}$/);
   expect(a.referencedHashes["prompts/fixture/read.md"]).toMatch(
-    /^[a-f0-9]{64}$/,
+    /^[a-f0-9]{64}$/
   );
   await writeFile(join(f.root, "prompts/fixture/read.md"), "changed prompt\n");
   const b = await f.load();
@@ -127,7 +127,7 @@ it.each(["wildcard", "task", "danger", "escape", "file", "env"] as const)(
     expect(error.code).toBe("BENCH_MANIFEST_INVALID");
     expect(error.issues.length).toBeGreaterThan(0);
     expect(error.issues[0].path.length).toBeGreaterThan(0);
-  },
+  }
 );
 it("also rejects prompt templates, nonexisting registry tools, mismatched entrypoints and schema extras", async () => {
   for (const change of [
@@ -145,7 +145,7 @@ it("also rejects prompt templates, nonexisting registry tools, mismatched entryp
   const f = await fixture();
   await writeFile(
     join(f.root, "prompts/fixture/read.md"),
-    "{file:/fixture-private}",
+    "{file:/fixture-private}"
   );
   await expect(f.load()).rejects.toMatchObject({
     code: "BENCH_MANIFEST_INVALID",
@@ -202,12 +202,10 @@ it("refuses cross-bundle paths and symlink/hardlink/missing referenced files", a
 it("validates patches against declared roles/slots and never accepts prompt, gate or step overrides", () => {
   const schema = benchPatchFor(BenchManifest.parse(manifest()));
   expect(
-    schema.safeParse({ roles: { reader: { tools: { read: "deny" } } } })
-      .success,
+    schema.safeParse({ roles: { reader: { tools: { read: "deny" } } } }).success
   ).toBe(true);
   expect(
-    schema.safeParse({ roles: { reader: { tools: { write: "ask" } } } })
-      .success,
+    schema.safeParse({ roles: { reader: { tools: { write: "ask" } } } }).success
   ).toBe(true); // New known tools are a resolver approval, not immediate authority.
   for (const value of [
     { roles: { other: { tools: { read: "deny" } } } },
@@ -221,7 +219,12 @@ it("validates patches against declared roles/slots and never accepts prompt, gat
 it("migrates the actual ten role prompts byte-for-byte and keeps unavailable tools visibly planned", async () => {
   const root = resolve("."),
     registry = await loadToolRegistry(root),
-    bundle = await loadBenchBundle({ root, benchId: "research", registry });
+    bundle = await loadBenchBundle({
+      root,
+      benchId: "research",
+      registry,
+      version: "1.1.0",
+    });
   expect(Object.keys(bundle.manifest.roles)).toHaveLength(10);
   expect(bundle.manifest.entrypoints).toEqual({
     read: "research-read",
@@ -230,20 +233,25 @@ it("migrates the actual ten role prompts byte-for-byte and keeps unavailable too
   });
   for (const [id, role] of Object.entries(bundle.manifest.roles)) {
     expect(bundle.prompts[id]).toBe(
-      await readFile(join(root, "services/control/roles", id + ".md"), "utf8"),
+      await readFile(join(root, "services/control/roles", id + ".md"), "utf8")
     );
     for (const tool of Object.keys(role.tools))
       expect(registry.tools[tool].availability).toBe("planned");
   }
   expect(bundle.manifest.budget.by_mode.auto).toBeNull();
-  expect(Object.keys(bundle.manifest.cards).sort()).toEqual(["answer","finding","layer","quiz"]);
+  expect(Object.keys(bundle.manifest.cards).sort()).toEqual([
+    "answer",
+    "finding",
+    "layer",
+    "quiz",
+  ]);
   const sql = await readFile(
     join(root, "infra/supabase/migrations/202610190002_roles.sql"),
-    "utf8",
+    "utf8"
   );
   const seeds = [
     ...sql.matchAll(
-      /\('([^']+)','([^']+)','([^']+)','([^']+)','([^']+)','([^']+)','([^']+)',(\d+)\)/g,
+      /\('([^']+)','([^']+)','([^']+)','([^']+)','([^']+)','([^']+)','([^']+)',(\d+)\)/g
     ),
   ];
   expect(seeds).toHaveLength(10);
@@ -256,8 +264,8 @@ it("migrates the actual ten role prompts byte-for-byte and keeps unavailable too
         Object.entries(original).map(([tool, value]) => [
           tool,
           (value as any).permission,
-        ]),
-      ),
+        ])
+      )
     );
     expect(role.steps).toBe(Number(steps));
     expect(role.write_targets).toEqual(JSON.parse(targets));
@@ -284,15 +292,15 @@ it("includes registry and real schema content in the bundle hash without resolvi
   await mkdir(join(f.root, "schemas/fixture"), { recursive: true });
   await writeFile(
     join(f.root, "schemas/fixture/result.json"),
-    JSON.stringify({ type: "object" }),
+    JSON.stringify({ type: "object" })
   );
   const first = await f.load();
   expect(first.referencedHashes["schemas/fixture/result.json"]).toMatch(
-    /^[a-f0-9]{64}$/,
+    /^[a-f0-9]{64}$/
   );
   await writeFile(
     join(f.root, "schemas/fixture/result.json"),
-    JSON.stringify({ type: "string" }),
+    JSON.stringify({ type: "string" })
   );
   expect((await f.load()).digest).not.toBe(first.digest);
   const changed = structuredClone(registry);
@@ -304,14 +312,14 @@ it("includes registry and real schema content in the bundle hash without resolvi
         benchId: "fixture",
         registry: changed,
       })
-    ).registryHash,
+    ).registryHash
   ).not.toBe(first.registryHash);
 });
 it("accepts only deny for wildcard/task and rejects alternate escaping write-target forms", async () => {
   const good: any = manifest();
   good.roles.reader.tools = { "*": "deny", task: "deny" };
   expect(
-    (await (await fixture(good)).load()).manifest.roles.reader.tools.task,
+    (await (await fixture(good)).load()).manifest.roles.reader.tools.task
   ).toBe("deny");
   for (const target of [
     "/outside",

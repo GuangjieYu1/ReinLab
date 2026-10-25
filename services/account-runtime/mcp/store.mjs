@@ -37,6 +37,27 @@ export async function bootstrapMcp(root, body, controlUrl) {
   )
     fail();
   const dir = root + "/mcp-clients";
+  if (body.modelToken !== undefined) {
+    if (typeof body.modelToken !== "string" || body.modelToken.length > 4096)
+      fail();
+    try {
+      const model = JSON.parse(
+        Buffer.from(body.modelToken.split(".")[1], "base64url")
+      );
+      if (
+        claims.role !== "research-clarify" ||
+        model.aud !== "reinlab-clarify-model" ||
+        model.run !== claims.run ||
+        model.account !== claims.account ||
+        model.dossier !== claims.dossier ||
+        model.jti !== claims.jti ||
+        model.exp !== claims.exp
+      )
+        fail();
+    } catch {
+      fail();
+    }
+  }
   await mkdir(dir, { mode: 0o700 }).catch((e) => {
     if (e.code !== "EEXIST") throw e;
   });
@@ -51,11 +72,16 @@ export async function bootstrapMcp(root, body, controlUrl) {
       constants.O_CREAT |
       constants.O_EXCL |
       constants.O_NOFOLLOW,
-    0o600,
+    0o600
   );
   try {
     await h.writeFile(
-      JSON.stringify({ controlUrl, token: body.token, expiresAt: claims.exp }),
+      JSON.stringify({
+        controlUrl,
+        token: body.token,
+        expiresAt: claims.exp,
+        ...(body.modelToken ? { modelToken: body.modelToken } : {}),
+      })
     );
     await h.sync();
   } finally {
@@ -67,13 +93,13 @@ export async function bootstrapMcp(root, body, controlUrl) {
 export async function accountFiles(root, body) {
   if (
     Object.keys(body).some(
-      (k) => !["dossier", "operation", "args", "writeTargets"].includes(k),
+      (k) => !["dossier", "operation", "args", "writeTargets"].includes(k)
     ) ||
     !body.args ||
     typeof body.args !== "object" ||
     !uuid(body.dossier) ||
     !["list", "read", "write", "patch", "undo", "importPaper"].includes(
-      body.operation,
+      body.operation
     ) ||
     !Array.isArray(body.writeTargets) ||
     body.writeTargets.some((t) => typeof t !== "string")
@@ -86,7 +112,7 @@ export async function accountFiles(root, body) {
       {
         env: { PATH: "/usr/local/bin:/usr/bin:/bin" },
         stdio: ["pipe", "pipe", "ignore"],
-      },
+      }
     );
     const chunks = [];
     let size = 0;
@@ -133,7 +159,7 @@ export async function cleanupMcp(root) {
     try {
       h = await open(
         file,
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
       );
       const s = await h.stat();
       if (!s.isFile() || s.nlink !== 1 || s.size > 32768) continue;

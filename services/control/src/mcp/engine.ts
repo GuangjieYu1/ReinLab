@@ -9,6 +9,7 @@ import type { JsonValue, Capability } from "@reinlab/contracts";
 import { CapabilityAuthority, type AuthorizedCapability } from "./authority";
 import { requireImplemented } from "./registry";
 import { hash } from "./token";
+import { publishSearch } from "../clarify/candidates";
 const Request = z
   .object({
     capability: z
@@ -27,14 +28,14 @@ export type CapabilityRequest = z.infer<typeof Request>;
 export type CapabilityHandler = (
   context: AuthorizedCapability,
   args: Record<string, unknown>,
-  requestId: string,
+  requestId: string
 ) => Promise<Record<string, unknown>>;
 const fail = (code: string, status: 400 | 403 | 409 | 503 = 403) =>
   new ApiFailure(code, status, "能力请求被拒绝。");
 const ajv = new Ajv({ strict: true, allErrors: false, validateFormats: true });
 ajv.addFormat(
   "uuid",
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 );
 function conforms(schema: Record<string, unknown>, value: unknown) {
   try {
@@ -65,12 +66,12 @@ function approvalSummary(request: CapabilityRequest): JsonValue {
 export class CapabilityEngine {
   constructor(
     readonly authority: CapabilityAuthority,
-    private readonly handlers: Readonly<Record<string, CapabilityHandler>>,
+    private readonly handlers: Readonly<Record<string, CapabilityHandler>>
   ) {}
   /** Advertise the schema frozen for this run, never the current working-tree manifest. */
   async inputSchema(
     auth: AuthorizedCapability,
-    name: string,
+    name: string
   ): Promise<Record<string, unknown> | null> {
     const input = structuredClone(auth.catalog.capabilities[name].input);
     if (!name.startsWith("cards.card.")) return input;
@@ -81,7 +82,7 @@ export class CapabilityEngine {
         const row = (
           await client.query(
             `select e.snapshot,v.bundle from run_harness h join bench_effective e on e.account_id=h.account_id and e.digest=h.effective_digest join bench_version v on v.bench=h.bench and v.version=h.version where h.run_id=$1`,
-            [auth.claims.run],
+            [auth.claims.run]
           )
         ).rows[0];
         const declaration = row?.snapshot?.manifest?.cards?.[cardName];
@@ -100,7 +101,7 @@ export class CapabilityEngine {
         } catch {
           throw fail("CARD_SCHEMA_INVALID", 503);
         }
-      },
+      }
     );
     if (!schema) return null;
     return {
@@ -117,9 +118,11 @@ export class CapabilityEngine {
     argsHash: string,
     action: "capability.call" | "capability.denied",
     payload: Record<string, JsonValue>,
+    before?: (client: import("pg").PoolClient) => Promise<void>
   ) {
     await this.authority.db.withAccount(auth.claims.account, async (client) => {
       await lockBudget(client, auth.claims.account);
+      if (before) await before(client);
       return appendEvent(client, auth.claims.account, {
         dossierId: auth.claims.dossier,
         runId: auth.claims.run,
@@ -142,14 +145,14 @@ export class CapabilityEngine {
     await this.authority.db.withAccount(randomUUID(), (c) =>
       c.query(
         "insert into mcp_anonymous_denial(id,action,reason,server) values($1,'capability.denied','CAPABILITY_TOKEN_INVALID',$2)",
-        [randomUUID(), server],
-      ),
+        [randomUUID(), server]
+      )
     );
   }
   async call(
     server: "files" | "memory" | "cards" | "papers",
     rawToken: unknown,
-    raw: unknown,
+    raw: unknown
   ) {
     let auth: AuthorizedCapability;
     try {
@@ -168,17 +171,41 @@ export class CapabilityEngine {
         throw new ApiFailure(
           "CAPABILITY_TOO_LARGE",
           413,
-          "能力参数超过大小限制。",
+          "能力参数超过大小限制。"
         );
       if (!request.capability.startsWith(server + "."))
         throw fail("CAPABILITY_DENIED");
       const grant = auth.scope.grants.find(
-        (g) => g.name === request!.capability,
+        (g) => g.name === request!.capability
       );
       if (!grant) throw fail("CAPABILITY_DENIED");
       const capability = requireImplemented(auth.catalog, request.capability);
       if (!conforms(capability.input, request.args))
         throw fail("CAPABILITY_INPUT_INVALID", 400);
+      if (
+        auth.claims.version === "1.2.0" &&
+        auth.claims.role === "research-read" &&
+        ["papers.fetch", "papers.pages"].includes(request.capability)
+      ) {
+        await this.authority.db.withAccount(auth.claims.account, async (c) => {
+          const run = (
+            await c.query("select input from run where id=$1", [
+              auth!.claims.run,
+            ])
+          ).rows[0];
+          const id =
+            request!.capability === "papers.fetch"
+              ? request!.args.paperId
+              : (
+                  await c.query(
+                    "select paper_id from paper_asset where id=$1 and dossier_id=$2",
+                    [request!.args.assetId, auth!.claims.dossier]
+                  )
+                ).rows[0]?.paper_id;
+          if (!run?.input?.chosenPaperId || id !== run.input.chosenPaperId)
+            throw fail("PAPER_SCOPE_DENIED");
+        });
+      }
       if (
         (capability.idempotent ||
           grant.permission === "ask" ||
@@ -195,13 +222,13 @@ export class CapabilityEngine {
           await this.authority.validateClient(client, rawToken);
           await client.query(
             "select pg_advisory_xact_lock(hashtextextended($1,0))",
-            ["mcp-invocation:" + auth.claims.run + ":" + requestId],
+            ["mcp-invocation:" + auth.claims.run + ":" + requestId]
           );
           if (capability.idempotent) {
             const old = (
               await client.query(
                 "select * from mcp_invocation where run_id=$1 and request_id=$2",
-                [auth.claims.run, requestId],
+                [auth.claims.run, requestId]
               )
             ).rows[0];
             if (old) {
@@ -222,7 +249,7 @@ export class CapabilityEngine {
               request!,
               requestId,
               argsHash,
-              capability,
+              capability
             );
             if (approval.required) return { approvalId: approval.id };
           }
@@ -237,10 +264,10 @@ export class CapabilityEngine {
                 request!.capability,
                 argsHash,
                 request!.approvalId ?? null,
-              ],
+              ]
             );
           return {};
-        },
+        }
       );
       if ("approvalId" in admission) {
         throw Object.assign(fail("APPROVAL_REQUIRED", 409), {
@@ -269,7 +296,7 @@ export class CapabilityEngine {
             if (
               result.assetId !== request.args.assetId ||
               !pages.every((page) =>
-                (request!.args.pages as number[]).includes(page.page),
+                (request!.args.pages as number[]).includes(page.page)
               )
             )
               throw fail("PAPER_SCOPE_DENIED");
@@ -291,7 +318,7 @@ export class CapabilityEngine {
                       page.page,
                       createHash("sha256").update(page.text).digest("hex"),
                       page.text,
-                    ],
+                    ]
                   );
                   if (
                     !saved.rowCount &&
@@ -304,7 +331,7 @@ export class CapabilityEngine {
                           result.assetId,
                           page.page,
                           createHash("sha256").update(page.text).digest("hex"),
-                        ],
+                        ]
                       )
                     ).rowCount
                   )
@@ -335,7 +362,7 @@ export class CapabilityEngine {
                         createHash("sha256").update(page.text).digest("hex"),
                     });
                 }
-              },
+              }
             );
           }
           if (capability.idempotent)
@@ -347,41 +374,61 @@ export class CapabilityEngine {
           throw error;
         }
       }
-      await this.event(auth, request.capability, argsHash, "capability.call", {
-        resultHash: hash(result),
-        approvalId: request.approvalId ?? null,
-        durationMs: Date.now() - started,
-        success: true,
-        replay: "replay" in admission,
-        ...(request.capability === "papers.search"
-          ? {
-              summary: {
-                query: String(request.args.query).slice(0, 1000),
-                count: Array.isArray(result.papers)
-                  ? result.papers.length
-                  : null,
-              },
+      await this.event(
+        auth,
+        request.capability,
+        argsHash,
+        "capability.call",
+        {
+          resultHash: hash(result),
+          approvalId: request.approvalId ?? null,
+          durationMs: Date.now() - started,
+          success: true,
+          replay: "replay" in admission,
+          ...(request.capability === "papers.search"
+            ? {
+                summary: {
+                  query: String(request.args.query).slice(0, 1000),
+                  count: Array.isArray(result.papers)
+                    ? result.papers.length
+                    : null,
+                },
+              }
+            : {}),
+          ...(request.capability === "papers.fetch"
+            ? {
+                summary: {
+                  assetId: result.assetId as string,
+                  status: result.status as string,
+                  license:
+                    typeof result.license === "string" ? result.license : null,
+                },
+              }
+            : {}),
+          ...(request.capability === "papers.pages"
+            ? {
+                summary: {
+                  assetId: result.assetId as string,
+                  pages: request.args.pages as number[],
+                },
+              }
+            : {}),
+        },
+        request.capability === "papers.search" &&
+          auth.claims.role === "research-clarify"
+          ? async (client) => {
+              await this.authority.validateClient(client, rawToken);
+              await publishSearch(
+                client,
+                auth!.claims.account,
+                auth!.claims.dossier,
+                auth!.claims.run,
+                requestId,
+                result
+              );
             }
-          : {}),
-        ...(request.capability === "papers.fetch"
-          ? {
-              summary: {
-                assetId: result.assetId as string,
-                status: result.status as string,
-                license:
-                  typeof result.license === "string" ? result.license : null,
-              },
-            }
-          : {}),
-        ...(request.capability === "papers.pages"
-          ? {
-              summary: {
-                assetId: result.assetId as string,
-                pages: request.args.pages as number[],
-              },
-            }
-          : {}),
-      });
+          : undefined
+      );
       return result;
     } catch (error) {
       const code =
@@ -400,7 +447,7 @@ export class CapabilityEngine {
           durationMs: Date.now() - started,
           success: false,
           reason: code,
-        },
+        }
       );
       await this.event(
         auth,
@@ -415,7 +462,7 @@ export class CapabilityEngine {
           approvalId: request?.approvalId ?? null,
           durationMs: Date.now() - started,
           success: false,
-        },
+        }
       );
       if (error instanceof ApiFailure) throw error;
       throw fail("CAPABILITY_FAILED", 503);
@@ -425,7 +472,7 @@ export class CapabilityEngine {
     auth: AuthorizedCapability,
     requestId: string,
     state: "succeeded" | "indeterminate",
-    result: Record<string, unknown> | null,
+    result: Record<string, unknown> | null
   ) {
     await this.authority.db.withAccount(auth.claims.account, (c) =>
       c.query(
@@ -435,8 +482,8 @@ export class CapabilityEngine {
           requestId,
           state,
           result === null ? null : JSON.stringify(result),
-        ],
-      ),
+        ]
+      )
     );
   }
   private async approval(
@@ -445,12 +492,12 @@ export class CapabilityEngine {
     request: CapabilityRequest,
     requestId: string,
     argsHash: string,
-    capability: Capability,
+    capability: Capability
   ) {
     let row = (
       await client.query(
         "select * from mcp_approval where run_id=$1 and request_id=$2 for update",
-        [auth.claims.run, requestId],
+        [auth.claims.run, requestId]
       )
     ).rows[0];
     if (!row) {
@@ -472,7 +519,7 @@ export class CapabilityEngine {
             summary: approvalSummary(request),
           }),
           capability.risk,
-        ],
+        ]
       );
       await client.query(
         "insert into mcp_approval(id,account_id,dossier_id,run_id,capability,request_id,args_hash,scope_digest) values($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -485,7 +532,7 @@ export class CapabilityEngine {
           requestId,
           argsHash,
           auth.claims.scopeDigest,
-        ],
+        ]
       );
       await appendEvent(client, auth.claims.account, {
         dossierId: auth.claims.dossier,
@@ -526,17 +573,17 @@ export class CapabilityEngine {
   async decide(
     account: string,
     approvalId: string,
-    decision: "approve" | "reject",
+    decision: "approve" | "reject"
   ) {
     return this.authority.db.withAccount(account, (client) =>
-      this.decideClient(client, account, approvalId, decision),
+      this.decideClient(client, account, approvalId, decision)
     );
   }
   async decideClient(
     client: pg.PoolClient,
     account: string,
     approvalId: string,
-    decision: "approve" | "reject",
+    decision: "approve" | "reject"
   ) {
     await lockBudget(client, account);
     const row = (
@@ -548,7 +595,7 @@ export class CapabilityEngine {
     const run = (
       await client.query(
         "select state,ended_at from run where id=$1 for share",
-        [row.run_id],
+        [row.run_id]
       )
     ).rows[0];
     if (!run || !["running", "waiting"].includes(run.state) || run.ended_at)
@@ -562,7 +609,7 @@ export class CapabilityEngine {
     ]);
     await client.query(
       "update approval set state=$2,decided_scope='once',decided_at=coalesce(decided_at,now()) where id=$1",
-      [approvalId, decision === "approve" ? "approved" : "rejected"],
+      [approvalId, decision === "approve" ? "approved" : "rejected"]
     );
     if (!alreadyDecided) {
       const source = (

@@ -16,7 +16,7 @@ COPY services/worker/package.json services/worker/package.json
 COPY services/account-runtime/package.json services/account-runtime/package.json
 COPY plugins/reinlab-os-plugin/package.json plugins/reinlab-os-plugin/package.json
 RUN npm install -g pnpm@11.5.2 --no-audit --no-fund && pnpm install --frozen-lockfile --prod --filter @reinlab/account-runtime && mkdir -p /opt/os /opt/reinlab /services/control && ln -s /workspace/services/account-runtime/node_modules /opt/os/node_modules && ln -s /workspace/services/account-runtime/node_modules /opt/reinlab/node_modules && ln -s /workspace/services/account-runtime/node_modules /services/control/node_modules
-COPY plugins/reinlab-os-plugin/index.js plugins/reinlab-os-plugin/mcp-tools.js /opt/reinlab/plugin/
+COPY plugins/reinlab-os-plugin/index.js plugins/reinlab-os-plugin/mcp-tools.js plugins/reinlab-os-plugin/clarify-model.js /opt/reinlab/plugin/
 COPY services/account-runtime/mcp/files.py services/account-runtime/mcp/client.mjs services/account-runtime/mcp/store.mjs /services/account-runtime/mcp/
 RUN ln -s /services/account-runtime/mcp /opt/reinlab/mcp
 RUN echo '{"type":"module"}' > /opt/reinlab/plugin/package.json
