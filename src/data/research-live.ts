@@ -122,6 +122,15 @@ export async function inbox() {
     approvals: [...approvals.items, ...unknown.items] as InboxApproval[],
   };
 }
+/** Same-origin authenticated SSE; the token stays in memory and never enters a URL. */
+export async function readEventStream(path: string, signal: AbortSignal, after: number) {
+  const expected=generation, token=await access();
+  if(expected!==generation)throw Error('会话已变化，请重试。');
+  const response=await fetch('/backend'+path,{signal,headers:{authorization:'Bearer '+token,'Last-Event-ID':String(after)},credentials:'omit',cache:'no-store',redirect:'error'});
+  if(expected!==generation){await response.body?.cancel();throw Error('会话已变化，请重试。');}
+  if(response.status===401){await response.body?.cancel();logout();throw Error('登录已过期，请重新登录。');}
+  return response;
+}
 // Keep one key per exact intent for the lifetime of the page, including a lost HTTP response.
 const intents = new Map<string, string>();
 export async function decide(

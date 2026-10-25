@@ -1,0 +1,40 @@
+{
+  "realInfrastructure": true,
+  "syntheticStudyData": true,
+  "fixturePricing": true,
+  "nativeRuntime": false,
+  "modelRequests": 0,
+  "runPosts": 1,
+  "passed": 7,
+  "failed": 0,
+  "results": [
+    {
+      "name": "real_auth",
+      "passed": true
+    },
+    {
+      "name": "new_1_1_estimate_without_dispatch",
+      "passed": true
+    },
+    {
+      "name": "confirmed_once_waiting_approval",
+      "passed": true
+    },
+    {
+      "name": "real_sse_synthetic_paper_cards",
+      "passed": true
+    },
+    {
+      "name": "honest_unwired_and_no_answers",
+      "passed": true
+    },
+    {
+      "name": "reload_recovers_from_real_ledger",
+      "passed": true
+    },
+    {
+      "name": "audit_export",
+      "passed": true
+    }
+  ]
+}

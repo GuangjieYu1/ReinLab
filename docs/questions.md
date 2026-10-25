@@ -275,3 +275,15 @@ InboxAdapter只有approve/reject，无原生question的answers；因此live适�
 ### Q-095 T-MCP-10单次预估失败与新授权（2026-10-25，待决定）
 
 26e4940的全部10项CI终态成功后只执行一次。新1.1.0档案创建，预估HTTP503；无run/estimate/usage、未创建守卫或模型转发标记，真实模型0调用，专用key账单0请求/0tokens/¥0.00。根因为单次临时控制面漏传文件pricing配置，已提取createSmokeApp与常规main一样显式注入，真实API/RLS fixture复现503后按原201/六位小数合同通过；只读真实models.dev预估成功。没有重启执行器。推荐先由Claude审代码与故障证据，再由用户给新的明确单次授权和新计划做真实复验；本次不假定“还没花钱就能重跑”。证据evidence/P1-13/T-MCP-10/。
+
+### Q-096 精读恢复所需数据缺口（2026-10-25，按推荐实现）
+
+现有paper_asset缺标题/作者/出版来源/字节数，paper_page_read仅数据库回执无账本事件，旧接口不提供稳定的历史分页与最新read运行快照。推荐追加公开view_metadata列（旧行空对象，缺字段如实显示未记录）、成功页回执同事务追加一次page事件；新read-state在repeatable-read readonly账户事务内取水位和快照，read-events按固定through上界分页，SSE从该水位续读。费用按真实usage与binding未知标记，不能用任意null费用事件推断收费，未观测用量仍null。引用与quiz keys保持现有服务器校验/去密，不开放文件路径读取。独立安全复核后才标通过。
+
+### Q-097 live模式范围与Claude组件生命周期（2026-10-25，按文档最小接入；前端后续）
+
+主仓库RESEARCH_LIVE_FRONTEND明确“先做精读”，因此live仅挂Claude ReadMode与原收件箱；mock三模式保留。ReadMode仍有“派给群研”的现成按钮，数据回调如实发本地“未接入，未创建运行”说明，不派模型、不切示例群研，不改界面。是否以后显示另外两个live模式入口由Claude决定。
+
+只读检查发现useRead以共享live ref代替每次effect的取消标记；React StrictMode双effect时，较早load的then也可能subscribe，旧effect已清理过而对应off尚未赋值。适配器的generation/epoch/sourceVersion保证不跨账户、不覆盖新运行；但同账户挂卸后的多余只读订阅可能持续到换账户/页面关闭。推荐Claude在useRead effect里使用局部active标记并在resolve前检查；本轮按逐字节同步约束不擅改其hook。不涉及权限放宽，也不阻精读数据恢复；未声称该前端生命周期问题已修。
+
+Q-095后续计划已整理在evidence/P1-13/T-MCP-10/NEXT_SMOKE_PLAN.md；本次没有新的真实模型授权，不执行。

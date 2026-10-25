@@ -120,6 +120,10 @@ jobs:
           pnpm exec tsx services/worker/scripts/verify-recovery.ts
         env:
           REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-recovery
+      - name: 精读live适配器 Auth/API/SSE/浏览器（明确合成研究数据，模型0调用）
+        run: pnpm exec tsx services/control/scripts/verify-read-live.ts
+        env:
+          REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-read
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -128,6 +132,7 @@ jobs:
             ${{ runner.temp }}/local-integration/*.json
             ${{ runner.temp }}/local-inbox/*
             ${{ runner.temp }}/local-recovery/*
+            ${{ runner.temp }}/local-read/*
   legacy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -141,7 +146,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: 原样19场景T-REG
+      - name: 原样20场景T-REG
         run: |
           pnpm dev > /tmp/reinlab-mock-vite.log 2>&1 &
           for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:5173/ > /dev/null && break; sleep 1; done
