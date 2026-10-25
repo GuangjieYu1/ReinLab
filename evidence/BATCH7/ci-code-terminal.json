@@ -1,6 +1,5 @@
 {
   "schemaVersion": 1,
-  "verifiedAt": "2026-10-26T03:38:00+08:00",
   "codeRevision": "a08935c3f6494343c97ac6f9c1c4cd4e744c6537",
   "pullRequest": "https://github.com/GuangjieYu1/ReinLab/pull/20",
   "checks": [
@@ -75,5 +74,6 @@
       "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225662169/job/121266351894"
     }
   ],
-  "realModelCallsThisBatch": 0
+  "realModelCallsThisBatch": 0,
+  "verifiedOnAsiaShanghai": "2026-10-26"
 }
