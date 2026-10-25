@@ -28,6 +28,6 @@ try:
  (source/'hatchet.env').chmod(0o644);result=command(args);checks['public_optional_rejected']=result.returncode==1 and result.stdout.strip()=='{"code": "CREDENTIAL_SCAN_FAILED"}';(source/'hatchet.env').chmod(0o600)
  os.link(source/'runtime.env',source/'alias');result=command(args);checks['hardlink_optional_rejected']=result.returncode==1;os.unlink(source/'alias')
  original=source/'runtime.env';original.rename(source/'runtime-original.env');original.symlink_to(source/'runtime-original.env');result=command(args);checks['symlink_optional_rejected']=result.returncode==1
- assert all(checks.values())
+ assert all(checks.values()),json.dumps(checks)
  print(json.dumps({'checks':checks,'passed':len(checks),'realCredentialReads':0}))
 finally:shutil.rmtree(base)

@@ -189,6 +189,7 @@ def main():
     report={'schemaVersion':1,'method':'exact raw values + JSON escaped variants; streaming byte scan','selectedValues':len(values),'accountCredentialFiles':account_file_count,'scopes':scopes,'excluded':['third-party node_modules','protected source credential/config files outside scan scopes'],'limitations':['No OCR of historic screenshots; byte scan only','Only selected current values are tested; rotated historic keys and all historic capability tokens are not claimed covered','Process ENV absence is verified separately, not inferred from this byte scan','codex/log and codex/logs are optional layouts; availability is reported explicitly, sessions and shell_snapshots are required'],'status':audit_status(scopes)}
     publish_report(args.output,report)
     print(json.dumps({'status':report['status'],'scopes':{k:{key:v[key] for key in ('matchingFiles','readErrors','available','required')} for k,v in scopes.items()}}))
+    if report['status']!='passed':sys.exit(2)
 if __name__=="__main__":
     try:main()
     except Exception:
