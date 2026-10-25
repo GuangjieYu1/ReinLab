@@ -84,6 +84,8 @@ export function createLiveReadAdapter(
   const current = () => {
     if (generation !== ports.generation()) throw unavailable();
   };
+  const forThisAccount = (value: ReadSnapshot) => generation === ports.generation()
+    ? value : empty('会话已变化，请重新登录后读取档案。');
   const emit = (e: ReadEvent) => {
     current();
     if (e.type === "run")
@@ -356,14 +358,16 @@ export function createLiveReadAdapter(
       work = (async () => {
         try {
           const result = await fetchSnapshot();
+          current();
           if (version !== epoch && loading && loading !== work)
-            return await loading;
+            return forThisAccount(await loading);
           listen();
           return result;
         } catch {
+          if(generation !== ports.generation())return forThisAccount(snapshot);
           if (version !== epoch && loading && loading !== work)
-            return await loading;
-          if (version === epoch && sourceVersion !== before) return snapshot;
+            return forThisAccount(await loading);
+          if (version === epoch && sourceVersion !== before) return forThisAccount(snapshot);
           const failed = empty("档案读取失败或会话已变化，请重新登录后刷新。");
           if (version === epoch) {
             snapshot = failed;
@@ -410,6 +414,9 @@ export function createLiveReadAdapter(
       )
         throw unavailable();
       if (!dossier && !(await newDossier())) throw unavailable();
+      // Initial load can have no dossier, so subscribe() could not open SSE yet.
+      // An explicit estimate may create that first dossier without a UI reload.
+      listen();
       const expected = dossier,
         version = ++quoteVersion;
       emit({

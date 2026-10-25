@@ -16,10 +16,12 @@ source-hashes.json记录六文件逐文件原始/同步SHA256，原样同步Clau
 
 - read-state-red.json：缺接口404红；read-state-green.json：同API断言转绿。
 - read-adapter-red.json：模块尚不存在的收集红，不能当成行为红；其后真实数据/费用/确认幂等断言通过。
+- read-first-account-red.json：首次无档案预估后未订阅SSE红；在明确预估创建档案后开启订阅，保留只读load不自动创建。
+- read-cached-generation-red.json：并发新run快照更新后logout，迟到load的缓存返回分支曾透出旧账户快照；所有缓存/await分支返回前重核generation后转绿，独立评审追加通过。
 - read-create-red.json：新建丢响应后错误回落旧档案红；保留key并阻旧档案预估后转绿。
 - 独立read-security-final.md记录5绿1红→6绿的取消目标并发复现，连同2个既有文件亲跑9/9；review只覆盖安全与迁移，不冒称全量。
 - read-page-events.test.ts实测成功回执事件一次、重放不重复、事件插入故障回滚页回执。read-lifecycle包含SSE分帧/重连/去重、换账户、迟到响应、未知提交不重发、审批状态、双论文p1、到期预估等；browser-session补SSE header/401/旧账户响应取消。
-- read-full-node22.json为较早1530/0/0全量预检，后补3个用例后，最终HEAD结果以最新CI和最终报告为准；不得用预检数冒充最新HEAD。
+- read-full-node22.json为较早1530/0/0全量预检，read-full-node24与read-final-node22为1533/0/0预检；再补首次档案及缓存会话2例后，最终HEAD结果以最新CI和最终报告为准；不得用预检数冒充最新HEAD。
 
 browser/使用真实本地Supabase Auth、RLS、生产API/事件投影/SSE和Claude组件；研究内容与价格明确为合成fixture，测试API无RuntimePipeline，modelRequests=0，nativeRuntime=false。验证7/7：预估不派发、确认一次/审批、结果卡/原文、未接入、刷新恢复与真实账本导出；截图和ledger均在目录。**此验证不证明原生模型/papers/files/cards真实链路通过**。inbox-regression/为原有真实Auth/API浏览器9/9回归。
 

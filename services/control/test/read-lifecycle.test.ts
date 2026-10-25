@@ -27,6 +27,16 @@ const harness = {
   entrypoints: { read: "research-read" },
   roles: { "research-read": { steps: 48 } },
 };
+it('first account without dossiers subscribes when estimate explicitly creates its first dossier',async()=>{
+ const api=vi.fn(async(p:string,b?:unknown)=>{if(p==='/v1/dossiers?view=read')return{items:[]};if(p==='/v1/dossiers'&&b)return{id:dossier,title:'created'};if(p.includes('/harness'))return harness;if(p==='/v1/runs/estimate')return estimate();if(p.includes('/read-state'))return idle();throw Error('unexpected '+p);});
+ const stream=vi.fn(async()=>new Response(new ReadableStream()));const a=createLiveReadAdapter(undefined,{api,generation:()=>1,decide:vi.fn(),stream} as any);await a.load();const off=a.subscribe(()=>{});expect(stream).not.toHaveBeenCalled();await a.estimate('first actual query',5);expect(stream).toHaveBeenCalledTimes(1);expect(stream.mock.calls[0][0]).toContain(dossier+'/events?view=read&after=0');off();
+});
+it('logout after a newer run snapshot cannot return cached prior-account data to a delayed load',async()=>{
+ const gate=deferred<any>();let generation=1,hold=false,accepted=false;
+ const privateState=()=>({...idle(),dossier:{id:dossier,title:'PRIVATE_PRIOR_ACCOUNT'},run:{id:accepted?run:'old-run',state:accepted?'queued':'completed',budgetCny:5,spentCny:null}});
+ const api=vi.fn(async(p:string)=>{if(p.includes('/read-state')){if(hold){hold=false;return gate.promise;}return privateState();}if(p.includes('/harness'))return harness;if(p==='/v1/runs/estimate')return estimate();if(p==='/v1/runs'){accepted=true;return{id:run};}throw Error('unexpected');});
+ const a=createLiveReadAdapter(dossier,{api,generation:()=>generation,decide:vi.fn(),stream:vi.fn()} as any);await a.load();const q=await a.estimate('query',5);hold=true;const earlier=a.load();await vi.waitFor(()=>expect(api.mock.calls.filter(c=>c[0].includes('/read-state'))).toHaveLength(2));await a.start(q.id,5);generation++;gate.resolve(privateState());expect(JSON.stringify(await earlier)).not.toContain('PRIVATE_PRIOR_ACCOUNT');
+});
 it("unknown dossier creation cannot silently estimate on the previous dossier", async () => {
   const api = vi.fn(async (p: string) => {
     if (p === "/v1/dossiers") throw Error("lost create");

@@ -52,3 +52,11 @@ estimate不创建模型run，start才confirmed POST；intent在请求前设置�
 本轮亲跑node_modules/.bin/vitest run services/control/test/read-state.test.ts services/control/test/read-page-events.test.ts：2文件2/2通过，约1秒。read-state新断言验证公开files effect可见、原始args答案字符串不可见；page事件重复与回滚断言通过。全部login:false/unset DEEPSEEK_API_KEY/Node22，仅55432合成账户，未读真实凭据/浏览器。
 
 增量未发现必要安全问题；不扩大一般功能评审。本轮未重跑全量/E2E，也不冒称已验证真实模型行为。
+
+## 冻结前复合会话竞态增量（通过）
+
+只检查本次指定修复，未扩大一般功能评审。已只读核对/tmp/reinlab-read-cached-generation-red.json，success=false/failedTests=1；这是主agent原红灯报告，不冒称本agent执行旧实现。
+
+当前load在await fetchSnapshot成功后current()；catch首先判断generation，缓存分支与await latest loading返回均经forThisAccount再次核代次。代次变化统一返回空失败快照，而非sourceVersion已更新的旧账户snapshot。sourceVersion/expectedRun原围栏保留，所以关闭“旧load挂起→新run成功更新缓存→logout→旧load返回cached data”的复合泄露，且不重新引入旧run取消定向风险。单纯listen普通缺陷未扩作评审。
+
+本agent实际定向运行：read-lifecycle.test.ts -t指定logout复合竞态，1/1通过（其余11项未选择）；read-security.test.ts完整6/6通过。共7项通过，旧run cancel红绿回归仍绿。命令login:false/unset DEEPSEEK_API_KEY/指定Node22，PG仅原合成fixture；未读真实凭据、浏览器或模型。未新增/修改实现或测试。
