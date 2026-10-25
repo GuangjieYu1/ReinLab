@@ -299,7 +299,7 @@ export function projectReading(
     run.clarifyCapCny = data.clarification.capCny;
     history.unshift(...data.clarification.history);
     if (data.clarification.unknownCost)
-      run.message = "澄清另有在途或未知用量，已停止新转发；不按零记账。";
+      run.message = "澄清另有待核用量，费用不按零记账。";
   }
   const paper: PaperView | null = p
     ? {

@@ -5,7 +5,7 @@
 - 同步前端8文件SHA256：source-hashes.json；只注入live adapter/available=[read]，原样三入口/收件箱/精读。
 - research@1.2.0：澄清search-only、cheap、6实际HTTP、每档案0.05硬上限；人工question选择、按公开页数预估/缺失32页明确假设、换篇拒旧报价；正式run先fetch批准，不再search。
 - 1.0/1.1冻结；1.1归档与上一个HEAD逐字节一致。六份迁移全部追加、RLS不关闭。
-- tests/：Node22/24全量1565/1565，0跳过；独立安全15/15；先构建再测的必需原生33/33，0跳过。浏览器8/8包含真实Supabase/Auth/API/RLS/SSE/原生fixture澄清，正式研究卡片为显式合成。T-REG20/20原报告。
+- tests/：Node22/24全量1567/1567，0跳过；独立安全16/16；先构建再测的必需原生33/33，0跳过。浏览器8/8包含真实Supabase/Auth/API/RLS/SSE/原生fixture澄清，正式研究卡片为显式合成。T-REG20/20原报告。
 - 凭据39个实际选定值、16账户配置，工作树/证据/Git历史/Codex sessions/logs/shell snapshots/任务日志0命中，见credential-scan.json。含DeepSeek key、实际签名私钥、MCP和新model audience令牌、Hatchet与账户凭据。只覆盖选定当前值；未声称扫描所有历史已轮换凭据或对截图OCR。
 - T-MCP-10：原链路fetch待批准中止的事实不改；Claude实际2请求导出核账¥0.00488924，详见T-MCP-10/。本批不执行真实复验；下一次必须新授权、新目录/窗口提交、CI通过后单次执行。
 - Q-098用户待决定事项优先：目前无阻断开发的新决定；真实模型体验/第三次T-MCP-10需另行授权。云端统一“云端补验”。追问/评分仍待P2-05/P2-06。

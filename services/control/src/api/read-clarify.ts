@@ -105,7 +105,7 @@ export async function clarificationView(c: any, dossier: string) {
     history.push({
       type: "agent",
       id: "clarify-unknown",
-      text: "另有澄清在途或未知用量，已停止新转发；未知费用不按零记账。",
+      text: fence.blocked ? "另有澄清在途或未知用量，已停止新转发；未知费用不按零记账。" : "澄清账本另有待核用量；预算按已验证回执的保守上界计，不按零记账。",
     });
   if (fence.rounds >= 6 || fence.reserved >= 50000)
     history.push({

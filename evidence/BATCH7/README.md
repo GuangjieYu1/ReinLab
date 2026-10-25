@@ -8,6 +8,6 @@ source-hashes.json记录8文件复制前/来源/复制后SHA256。WorkbenchStudi
 
 候选只来自同一次实际检索成功回执；公开书目页数注明未下载核验，缺失按32页保守估价并明确说明。估算绑定candidate和selection revision；换篇使旧估算无效。正式角色移除search、服务器绑定已选paperId，fetch仍必须批准。
 
-测试原始JSON见tests/；Node22/24全量均1565通过、0失败/跳过；独立安全15通过。原样T-REG20/20见T-REG/report.json。真实Supabase Auth/API/RLS/SSE、原生2.0.150澄清与Claude组件浏览器8/8见browser/，其中2次模型HTTP均fixture，正式精读卡片明确合成，不替代真实模型端到端。必需原生构建后33/33，CI终态补在HANDOFF。
+测试原始JSON见tests/；Node22/24全量均1567通过、0失败/跳过；独立安全16通过。原样T-REG20/20见T-REG/report.json。真实Supabase Auth/API/RLS/SSE、原生2.0.150澄清与Claude组件浏览器8/8见browser/，其中2次模型HTTP均fixture，正式精读卡片明确合成，不替代真实模型端到端。必需原生构建后33/33，CI终态补在HANDOFF。
 
 T-MCP-10原链路仍未通过，真实复验等新授权；历史Claude2调用供应商导出已核¥0.00488924，原未知账本保留，详见T-MCP-10/。云端补验不冒称完成。
