@@ -280,9 +280,11 @@ InboxAdapter只有approve/reject，无原生question的answers；因此live适�
 
 现有paper_asset缺标题/作者/出版来源/字节数，paper_page_read仅数据库回执无账本事件，旧接口不提供稳定的历史分页与最新read运行快照。推荐追加公开view_metadata列（旧行空对象，缺字段如实显示未记录）、成功页回执同事务追加一次page事件；新read-state在repeatable-read readonly账户事务内取水位和快照，read-events按固定through上界分页，SSE从该水位续读。费用按真实usage与binding未知标记，不能用任意null费用事件推断收费，未观测用量仍null。引用与quiz keys保持现有服务器校验/去密，不开放文件路径读取。独立安全复核后才标通过。
 
-### Q-097 live模式范围与Claude组件生命周期（2026-10-25，按文档最小接入；前端后续）
+### Q-097 live三入口与Claude组件生命周期（2026-10-25，用户已决定；前端待处理）
 
-主仓库RESEARCH_LIVE_FRONTEND明确“先做精读”，因此live仅挂Claude ReadMode与原收件箱；mock三模式保留。ReadMode仍有“派给群研”的现成按钮，数据回调如实发本地“未接入，未创建运行”说明，不派模型、不切示例群研，不改界面。是否以后显示另外两个live模式入口由Claude决定。
+用户后续明确回复：“保留三入口，由 Claude 补未接入占位”。此决定覆盖此前建议的live暂只显示精读入口。目标是mock/live均保留精读、群研、自研三入口；live仅精读连接真实ReadAdapter，群研、自研由Claude提供“未接入”占位，不能回退展示示例数据或派发模型。
+
+送审代码1c064c7当前仍是live仅挂ReadMode与原收件箱，与新决定存在待调整项；不能写成三入口已恢复。入口恢复及占位界面由Claude完成，后端等待其组件再核对数据适配。现有“派给群研”回调只显示本地“未接入，未创建运行”，不派模型、不切示例群研。本轮只记录决定，保持送审停止状态。
 
 只读检查发现useRead以共享live ref代替每次effect的取消标记；React StrictMode双effect时，较早load的then也可能subscribe，旧effect已清理过而对应off尚未赋值。适配器的generation/epoch/sourceVersion保证不跨账户、不覆盖新运行；但同账户挂卸后的多余只读订阅可能持续到换账户/页面关闭。推荐Claude在useRead effect里使用局部active标记并在resolve前检查；本轮按逐字节同步约束不擅改其hook。不涉及权限放宽，也不阻精读数据恢复；未声称该前端生命周期问题已修。
 
