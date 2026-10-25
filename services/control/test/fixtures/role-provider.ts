@@ -5,9 +5,7 @@ import { mkdir, writeFile, realpath, chmod } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
-// @ts-expect-error reviewed runtime JS module
 import { requireNativeArtifact } from "../../../account-runtime/artifact.mjs";
-// @ts-expect-error reviewed runtime JS module
 import { accountGlobalConfiguration } from "../../../../infra/fly/account-entrypoint.mjs";
 
 export interface FixtureCall {

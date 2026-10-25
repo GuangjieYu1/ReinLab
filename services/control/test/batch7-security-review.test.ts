@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { mcpFixture } from './mcp-fixture';
 import { CapabilitySigner, verifyCapabilityToken, verifyModelToken } from '../src/mcp/token';
+import { prepareHumanPaperChoice, currentChoice } from '../src/clarify/candidates';
 import { DEEPSEEK_PRICING_VERSION } from '../src/bridge/openscience/deepseek-pricing';
 
 async function fixture() {
@@ -109,4 +110,30 @@ it('legacy synthetic rows release only a fully valid completed receipt without a
     for (const state of ['forwarding', 'unknown']) expect(await reservation({ ...row, state })).toBe(30000);
     expect((await f.admin.query('select count(*)::int n from clarify_model_request where account_id=$1', [f.account])).rows[0].n).toBe(0);
   } finally { await f.close(); }
+}, 30000);
+
+
+it('shared human paper choice rejects unknown/cross-dossier answers and never exposes an unconfirmed choice', async () => {
+  const f = await fixture(), other = await fixture(), approval = randomUUID(), candidate = randomUUID();
+  const effects = (paper: string) => JSON.stringify([{ questions: [{ header: 'REINLAB_PAPER_PICK', multiple: false, custom: false, options: [{ label: paper }, { label: '都不是' }] }] }]);
+  const attempt = (paper: string, answers: string[][]) => f.db.withAccount(f.account, async c => {
+    const a = (await c.query('select * from approval where id=$1', [approval])).rows[0];
+    await prepareHumanPaperChoice(c, f.account, { ...a, effects: JSON.parse(effects(paper)) }, { decision: 'approve', answers });
+  });
+  try {
+    await f.admin.query("update run set role_id='research-clarify',state='waiting',ended_at=null where id=$1", [f.run]);
+    await f.admin.query("insert into read_candidate(id,account_id,dossier_id,run_id,request_id,paper_id,metadata)values($1,$2,$3,$4,'fixture','W321',$5)", [candidate, f.account, f.dossier, f.run, JSON.stringify({ paperId: 'W321', title: 'Fixture' })]);
+    await f.admin.query("insert into read_candidate(id,account_id,dossier_id,run_id,request_id,paper_id,metadata)values($1,$2,$3,$4,'fixture','W999','{}')", [randomUUID(), other.account, other.dossier, other.run]);
+    await f.admin.query("insert into approval(id,account_id,run_id,kind,title,effects,risk)values($1,$2,$3,'question','fixture',$4,'read')", [approval, f.account, f.run, effects('W321')]);
+    for (const [paper, answers] of [['W321', [['W404']]], ['W999', [['W999']]], ['W321', [['W321', '都不是']]]] as [string, string[][]][]) {
+      await expect(attempt(paper, answers)).rejects.toMatchObject({ code: 'CLARIFY_CONFLICT' });
+      expect((await f.admin.query('select chosen_id,closed from read_clarification where dossier_id=$1', [f.dossier])).rows[0]).toEqual({ chosen_id: null, closed: false });
+    }
+    await attempt('W321', [['W321']]);
+    expect((await f.admin.query('select closed from read_clarify_run where run_id=$1', [f.run])).rows[0].closed).toBe(true);
+    expect(await f.db.withAccount(f.account, c => currentChoice(c, f.dossier))).toBeUndefined();
+    await f.admin.query("update approval set state='indeterminate' where id=$1", [approval]);
+    expect(await f.db.withAccount(f.account, c => currentChoice(c, f.dossier))).toBeUndefined();
+    await expect(attempt('W321', [['W321']])).rejects.toMatchObject({ code: 'CLARIFY_CONFLICT' });
+  } finally { await other.close(); await f.close(); }
 }, 30000);

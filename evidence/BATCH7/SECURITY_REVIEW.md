@@ -79,3 +79,21 @@ A/B在下列最终复核前均已修复；早期8/8及全额maximum累计表述�
 - 候选endpoint从在线MCP授权的同account/run真实read_candidate构造最多5候选，并固定追加“都不是”。故options.length===1明确表示零真实候选；plugin将其强制改REINLAB_CLARIFY、单选、唯一“补充说明”及custom=true。不能由模型构造W-ID成为已选论文，非空候选路径仍custom=false及真人paper pick，后端原归属约束保持。空结果补充文字不等于论文选择。
 
 亲跑原两独立文件再次15/15通过，最后耗时7.51秒；未调用模型、未读取真实凭据。主agent报告native fixture2/2及provider=deepseek/route=byok，本次只读核到该fixture确有相应断言，未将其记作本agent亲跑。上述三处增量未发现必要安全问题；本轮范围冻结。
+
+
+## 2026-10-26 扫描器CLI退出码窄复核
+
+只读核scan-mcp-credentials.py结尾与test-scan-p113.py合成fixture。报告正常写入与脱敏计数stdout之后，所有status != passed均sys.exit(2)；SystemExit不被except Exception吞掉；异常仍固定CREDENTIAL_SCAN_FAILED且exit1。仅passed返回0，消除“已发现泄漏但CI仍成功”的错误。未放宽匹配规则、私有输入读取或原子报告规则。
+
+亲跑python3 tooling/security/test-scan.py：9/9通过；亲跑python3 tooling/security/test-scan-p113.py：7个布尔检查全通过，包括model audience合成私有fixture纳入8个精确值、干净返回0、worktree命中返回非零，以及公开权限/硬链接/符号链接拒绝。测试隔离HOME/CODEX_HOME与临时git仓库；失败断言只包含布尔checks，不输出匹配值。没有真实配置或凭据读取，无模型调用。此CLI更严格退出变更未发现必要安全问题。
+
+
+## 2026-10-26 Inbox与ReadPick共用真人选择增量
+
+仅读clarify/candidates.ts、bridge/openscience/decisions.ts、api/read-clarify.ts接线，并核既有决定入口调用上下文。DecisionService.load仍在账户事务/ledger锁下校验approval所属账户、同run binding/session、accepted receipt；normalize仍拒问题缺答案、非once及非法输入。只有已认证真人决定prepare调用prepareHumanPaperChoice，模型事件/question.replied没有新chosen写入通道。
+
+共用helper锁定同run澄清gate和同dossier clarification，核research-clarify、未closed/ended、仅running/waiting、无在场正式run；pickView由原生问题选项与DB同run/dossier真实候选核对，再严格单问题/单答案。未知选项和其它scope候选拒绝；“都不是”不产生chosen。候选意图、approval intent与ledger事件同事务，错误回滚。候选存在时先关闭澄清gate；currentChoice仍仅返回approved对应choice，prepared/indeterminate不会伪装完成选择。dispatch保留先持久sent再发一次、unknown不重发；只有精确resolved回执才走共用取消，cancel仍持久一次围栏。ReadPick已删除重复chosen写入，交共用prepare；旧permission/question授权规则保持。
+
+新增仅一项独立安全测试到原batch7-security-review.test.ts：未知答案、其它账户/档案候选及多选均拒，且chosen/closed保持未写；合法意图关闭gate但pending/indeterminate的currentChoice均为空，关闭后不能重选。此项直接验证helper/DB投影，不冒称完整API未知transport覆盖；未知不重发结论另由dispatch源码核验。
+
+亲跑原两安全文件及batch7-api.test.ts：3文件19/19通过（独立16项+现有API3项，7.38秒），包括research/inbox两入口参数化正向一致性。未改生产代码、未读真实凭据/浏览器、未调用真实模型。此增量未发现必要安全问题；独立测试再次冻结。

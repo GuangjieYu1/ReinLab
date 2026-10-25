@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { randomUUID } from "node:crypto";
-import { scrub } from "../ledger";
+import { scrub, appendEvent } from "../ledger";
 import { ApiFailure } from "../api/errors";
 
 export type CandidateMetadata = {
@@ -145,4 +145,80 @@ export async function pickView(c: pg.PoolClient, dossier: string, a: any) {
       .map((id: string) => candidateView(rows.find((r) => r.paper_id === id))),
     state: a.state === "pending" && !a.sent ? "pending" : "answered",
   };
+}
+
+/** Shared human-decision admission for the read panel and existing native inbox.
+ * Never called by model events or question.replied: only the authenticated decision service.
+ */
+export async function prepareHumanPaperChoice(
+  c: pg.PoolClient,
+  account: string,
+  a: any,
+  input: { decision: string; answers?: string[][] }
+) {
+  if (
+    a.kind !== "question" ||
+    input.decision !== "approve" ||
+    nativeQuestions(a.effects)[0]?.header !== "REINLAB_PAPER_PICK"
+  )
+    return;
+  const run = (
+    await c.query(
+      "select r.id,r.dossier_id,r.role_id,r.state,r.ended_at,cr.closed from run r join read_clarify_run cr on cr.account_id=r.account_id and cr.run_id=r.id where r.id=$1 for update of cr",
+      [a.run_id]
+    )
+  ).rows[0];
+  if (!run || run.role_id !== "research-clarify") return;
+  const reject = () =>
+    new ApiFailure(
+      "CLARIFY_CONFLICT",
+      409,
+      "论文选择不属于当前原生问题，或结果尚未核对。"
+    );
+  if (run.closed || run.ended_at || !["running", "waiting"].includes(run.state))
+    throw reject();
+  if (
+    (
+      await c.query(
+        "select id from run where dossier_id=$1 and role_id<>'research-clarify' and state in ('queued','running','waiting','paused_budget')",
+        [run.dossier_id]
+      )
+    ).rowCount
+  )
+    throw reject();
+  const view = await pickView(c, run.dossier_id, a),
+    answer = input.answers;
+  if (!view || answer?.length !== 1 || answer[0].length !== 1) throw reject();
+  const selected = answer[0][0],
+    candidate = view.candidates.find((p: any) => p.paperId === selected);
+  if (selected !== "都不是" && !candidate) throw reject();
+  const state = (
+    await c.query(
+      "select * from read_clarification where dossier_id=$1 for update",
+      [run.dossier_id]
+    )
+  ).rows[0];
+  if (!state || state.closed || state.chosen_id) throw reject();
+  await c.query(
+    "update read_clarification set chosen_id=$2,chosen_approval=$3,closed=$4,selection_revision=selection_revision+1 where dossier_id=$1",
+    [
+      run.dossier_id,
+      candidate?.id ?? null,
+      candidate ? a.id : null,
+      !!candidate,
+    ]
+  );
+  if (candidate)
+    await c.query("update read_clarify_run set closed=true where run_id=$1", [
+      run.id,
+    ]);
+  await appendEvent(c, account, {
+    dossierId: run.dossier_id,
+    runId: run.id,
+    roleId: "research-clarify",
+    kind: "message",
+    action: "clarify_pick_intent",
+    payload: { pickId: a.id, candidateId: candidate?.id ?? null },
+    dedupeKey: "clarify-pick:" + a.id,
+  });
 }

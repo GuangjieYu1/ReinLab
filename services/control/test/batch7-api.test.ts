@@ -137,188 +137,206 @@ it("explicit clarification queues search-only cheap run once without confirmatio
     await f.close();
   }
 });
-it("grounded native question requires a human receipt; page quote binds revision, unchoose invalidates it and never reopens old model authority", async () => {
-  const f = await fixture();
-  try {
-    await f.admin.query("update run set state='queued' where id=$1", [f.run]);
-    await f.admin.query(
-      "insert into read_clarification(account_id,dossier_id)values($1,$2)",
-      [f.account, f.dossier]
-    );
-    await f.admin.query(
-      "insert into read_clarify_run(account_id,dossier_id,run_id)values($1,$2,$3)",
-      [f.account, f.dossier, f.run]
-    );
-    const role = materializeHarnessRole(f.effective, await loadToolRegistry(), {
-      dossierId: f.dossier,
-      roleId: "research-clarify",
-      modelRoutes: { cheap: "deepseek/deepseek-v4-flash" },
-      memory: "",
-    });
-    const b = await new BindingStore(f.db).prepare(f.account, f.run, {
-      role,
-      message: "fixture",
-    });
-    await f.admin.query(
-      "update os_binding set phase='accepted',receipt=$2 where run_id=$1",
-      [f.run, { runID: "native_" + f.run, acceptedAt: 1 }]
-    );
-    await f.admin.query("update run set state='waiting' where id=$1", [f.run]);
-    const result = {},
-      work = {
-        id: "https://openalex.org/W1",
-        title: "Attention Fixture",
-        authorships: [{ author: { display_name: "A" } }],
-        biblio: { first_page: "10", last_page: "21" },
-        open_access: { is_oa: true },
-        primary_location: { source: { display_name: "Fixture Venue" } },
-      };
-    captureSearch(result, [work]);
-    await f.db.withAccount(f.account, (c) =>
-      publishSearch(c, f.account, f.dossier, f.run, "fixture-search", result)
-    );
-    const approval = randomUUID(),
-      req = "que_" + randomUUID(),
-      question = {
-        id: req,
-        sessionID: b.sessionId,
-        questions: [
-          {
-            header: "REINLAB_PAPER_PICK",
-            question: "请选择论文",
-            multiple: false,
-            custom: false,
-            options: [
-              { label: "W1", description: "Attention Fixture" },
-              { label: "都不是", description: "继续描述" },
-            ],
-          },
-        ],
-      };
-    await f.db.withAccount(f.account, (c) =>
-      c.query(
-        "insert into approval(id,account_id,run_id,os_request_id,os_session_id,kind,title,effects,risk)values($1,$2,$3,$4,$5,'question','请选择论文',$6,'read')",
-        [
-          approval,
-          f.account,
-          f.run,
-          req,
-          b.sessionId,
-          JSON.stringify([{ properties: question }]),
-        ]
-      )
-    );
-    const runtime = {
-      snapshot: vi.fn(async () => ({
-        sessionID: b.sessionId,
-        runs: [
-          {
-            runID: "native_" + f.run,
-            sessionID: b.sessionId,
-            requestID: b.requestId,
-            messageID: "msg_fixture",
-            state: "running",
-            acceptedAt: 1,
-            updatedAt: 1,
-          },
-        ],
-        oldestSequence: 0,
-        latestSequence: 0,
-        permissions: [],
-        questions: [question],
-        decisionScope: "connected_runtime",
-      })),
-      decide: vi.fn(async () => ({
-        sessionID: b.sessionId,
-        requestID: req,
-        status: "resolved",
-        decidedAt: 1,
-      })),
-      cancel: vi.fn(async () => ({
-        runID: "native_" + f.run,
-        sessionID: b.sessionId,
-        requestID: b.requestId,
-        messageID: "msg_fixture",
-        state: "cancelled",
-        acceptedAt: 1,
-        updatedAt: 1,
-      })),
-    };
-    f.setNative(runtime);
-    let snap = await (await f.state()).json();
-    expect(snap.clarification.chosen).toBeNull();
-    const pick = snap.clarification.history.find((e: any) => e.type === "pick"),
-      candidate = pick.candidates[0];
-    expect(candidate).toMatchObject({
-      title: work.title,
-      authors: "A",
-      pages: 12,
-    });
-    expect(
-      (
-        await f.post("/v1/runs/estimate", {
+it.each(["research", "inbox"])(
+  "%s native question requires a human receipt; page quote binds revision and unchoose never reopens old authority",
+  async (entry) => {
+    const f = await fixture();
+    try {
+      await f.admin.query("update run set state='queued' where id=$1", [f.run]);
+      await f.admin.query(
+        "insert into read_clarification(account_id,dossier_id)values($1,$2)",
+        [f.account, f.dossier]
+      );
+      await f.admin.query(
+        "insert into read_clarify_run(account_id,dossier_id,run_id)values($1,$2,$3)",
+        [f.account, f.dossier, f.run]
+      );
+      const role = materializeHarnessRole(
+        f.effective,
+        await loadToolRegistry(),
+        {
           dossierId: f.dossier,
-          mode: "read",
-          candidateId: candidate.id,
-        })
-      ).status
-    ).toBe(409);
-    expect(
-      (
-        await f.post("/v1/dossiers/" + f.dossier + "/read/pick", {
-          pickId: approval,
-          candidateId: randomUUID(),
-        })
-      ).status
-    ).toBe(409);
-    expect(runtime.decide).not.toHaveBeenCalled();
-    const key = randomUUID(),
-      path = "/v1/dossiers/" + f.dossier + "/read/pick",
-      payload = { pickId: approval, candidateId: candidate.id };
-    const selected = await f.post(path, payload, key);
-    expect(selected.status).toBe(202);
-    expect((await f.post(path, payload, key)).status).toBe(202);
-    expect(runtime.decide).toHaveBeenCalledTimes(1);
-    snap = await (await f.state()).json();
-    expect(snap.clarification.chosen?.id).toBe(candidate.id);
-    const estimate = await f.post("/v1/runs/estimate", {
-      dossierId: f.dossier,
-      mode: "read",
-      candidateId: candidate.id,
-    });
-    expect(estimate.status).toBe(201);
-    const quote = await estimate.json();
-    expect(quote.assumptions).toMatchObject({
-      estimatedPages: 12,
-      candidateId: candidate.id,
-      knownPages: 12,
-      pagesSource: "bibliographic-range",
-    });
-    expect(
-      (await f.post("/v1/dossiers/" + f.dossier + "/read/unchoose", {})).status
-    ).toBe(200);
-    expect(
-      (
-        await f.admin.query(
-          "select closed from read_clarify_run where run_id=$1",
-          [f.run]
+          roleId: "research-clarify",
+          modelRoutes: { cheap: "deepseek/deepseek-v4-flash" },
+          memory: "",
+        }
+      );
+      const b = await new BindingStore(f.db).prepare(f.account, f.run, {
+        role,
+        message: "fixture",
+      });
+      await f.admin.query(
+        "update os_binding set phase='accepted',receipt=$2 where run_id=$1",
+        [f.run, { runID: "native_" + f.run, acceptedAt: 1 }]
+      );
+      await f.admin.query("update run set state='waiting' where id=$1", [
+        f.run,
+      ]);
+      const result = {},
+        work = {
+          id: "https://openalex.org/W1",
+          title: "Attention Fixture",
+          authorships: [{ author: { display_name: "A" } }],
+          biblio: { first_page: "10", last_page: "21" },
+          open_access: { is_oa: true },
+          primary_location: { source: { display_name: "Fixture Venue" } },
+        };
+      captureSearch(result, [work]);
+      await f.db.withAccount(f.account, (c) =>
+        publishSearch(c, f.account, f.dossier, f.run, "fixture-search", result)
+      );
+      const approval = randomUUID(),
+        req = "que_" + randomUUID(),
+        question = {
+          id: req,
+          sessionID: b.sessionId,
+          questions: [
+            {
+              header: "REINLAB_PAPER_PICK",
+              question: "请选择论文",
+              multiple: false,
+              custom: false,
+              options: [
+                { label: "W1", description: "Attention Fixture" },
+                { label: "都不是", description: "继续描述" },
+              ],
+            },
+          ],
+        };
+      await f.db.withAccount(f.account, (c) =>
+        c.query(
+          "insert into approval(id,account_id,run_id,os_request_id,os_session_id,kind,title,effects,risk)values($1,$2,$3,$4,$5,'question','请选择论文',$6,'read')",
+          [
+            approval,
+            f.account,
+            f.run,
+            req,
+            b.sessionId,
+            JSON.stringify([{ properties: question }]),
+          ]
         )
-      ).rows[0].closed
-    ).toBe(true);
-    expect(
-      (
-        await f.post("/v1/runs", {
-          dossierId: f.dossier,
-          mode: "read",
-          roleId: "research-read",
-          estimateId: quote.id,
-          budget: { cny: 5 },
-          confirmed: true,
-          input: { chosenCandidateId: candidate.id },
-        })
-      ).status
-    ).toBe(409);
-  } finally {
-    await f.close();
+      );
+      const runtime = {
+        snapshot: vi.fn(async () => ({
+          sessionID: b.sessionId,
+          runs: [
+            {
+              runID: "native_" + f.run,
+              sessionID: b.sessionId,
+              requestID: b.requestId,
+              messageID: "msg_fixture",
+              state: "running",
+              acceptedAt: 1,
+              updatedAt: 1,
+            },
+          ],
+          oldestSequence: 0,
+          latestSequence: 0,
+          permissions: [],
+          questions: [question],
+          decisionScope: "connected_runtime",
+        })),
+        decide: vi.fn(async () => ({
+          sessionID: b.sessionId,
+          requestID: req,
+          status: "resolved",
+          decidedAt: 1,
+        })),
+        cancel: vi.fn(async () => ({
+          runID: "native_" + f.run,
+          sessionID: b.sessionId,
+          requestID: b.requestId,
+          messageID: "msg_fixture",
+          state: "cancelled",
+          acceptedAt: 1,
+          updatedAt: 1,
+        })),
+      };
+      f.setNative(runtime);
+      let snap = await (await f.state()).json();
+      expect(snap.clarification.chosen).toBeNull();
+      const pick = snap.clarification.history.find(
+          (e: any) => e.type === "pick"
+        ),
+        candidate = pick.candidates[0];
+      expect(candidate).toMatchObject({
+        title: work.title,
+        authors: "A",
+        pages: 12,
+      });
+      expect(
+        (
+          await f.post("/v1/runs/estimate", {
+            dossierId: f.dossier,
+            mode: "read",
+            candidateId: candidate.id,
+          })
+        ).status
+      ).toBe(409);
+      expect(
+        (
+          await f.post("/v1/dossiers/" + f.dossier + "/read/pick", {
+            pickId: approval,
+            candidateId: randomUUID(),
+          })
+        ).status
+      ).toBe(409);
+      expect(runtime.decide).not.toHaveBeenCalled();
+      const key = randomUUID(),
+        path =
+          entry === "inbox"
+            ? "/v1/approvals/" + approval + "/decide"
+            : "/v1/dossiers/" + f.dossier + "/read/pick",
+        payload =
+          entry === "inbox"
+            ? { decision: "approve", scope: "once", answers: [["W1"]] }
+            : { pickId: approval, candidateId: candidate.id };
+      const selected = await f.post(path, payload, key);
+      expect(selected.status).toBe(202);
+      expect((await f.post(path, payload, key)).status).toBe(202);
+      expect(runtime.decide).toHaveBeenCalledTimes(1);
+      snap = await (await f.state()).json();
+      expect(snap.clarification.chosen?.id).toBe(candidate.id);
+      const estimate = await f.post("/v1/runs/estimate", {
+        dossierId: f.dossier,
+        mode: "read",
+        candidateId: candidate.id,
+      });
+      expect(estimate.status).toBe(201);
+      const quote = await estimate.json();
+      expect(quote.assumptions).toMatchObject({
+        estimatedPages: 12,
+        candidateId: candidate.id,
+        knownPages: 12,
+        pagesSource: "bibliographic-range",
+      });
+      expect(
+        (await f.post("/v1/dossiers/" + f.dossier + "/read/unchoose", {}))
+          .status
+      ).toBe(200);
+      expect(
+        (
+          await f.admin.query(
+            "select closed from read_clarify_run where run_id=$1",
+            [f.run]
+          )
+        ).rows[0].closed
+      ).toBe(true);
+      expect(
+        (
+          await f.post("/v1/runs", {
+            dossierId: f.dossier,
+            mode: "read",
+            roleId: "research-read",
+            estimateId: quote.id,
+            budget: { cny: 5 },
+            confirmed: true,
+            input: { chosenCandidateId: candidate.id },
+          })
+        ).status
+      ).toBe(409);
+    } finally {
+      await f.close();
+    }
   }
-});
+);

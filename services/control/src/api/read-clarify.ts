@@ -356,7 +356,7 @@ export function registerReadClarify(
   app.post("/v1/dossiers/:id/read/pick", async (c) => {
     const account = c.get("accountId"),
       dossier = c.req.param("id");
-    let approval: string | undefined, run: string | undefined;
+    let approval: string | undefined;
     const rawPick = Pick.safeParse(await c.req.json().catch(() => null));
     if (rawPick.success && pipeline) {
       const selection = await db.withAccount(account, async (client) => {
@@ -417,40 +417,11 @@ export function registerReadClarify(
         scope: "once",
         answers: [[candidate?.paperId ?? "都不是"]],
       });
-      await client.query(
-        "update read_clarification set chosen_id=$2,chosen_approval=$3,selection_revision=selection_revision+1,closed=$4 where dossier_id=$1",
-        [
-          dossier,
-          input.candidateId,
-          input.candidateId ? row.id : null,
-          input.candidateId !== null,
-        ]
-      );
-      if (input.candidateId)
-        await client.query(
-          "update read_clarify_run set closed=true where run_id=$1",
-          [row.runId]
-        );
-      await appendEvent(client, account, {
-        dossierId: dossier,
-        runId: row.runId,
-        roleId: "research-clarify",
-        kind: "message",
-        action: "clarify_pick_intent",
-        payload: { pickId: row.id, candidateId: input.candidateId },
-        dedupeKey: "clarify-pick:" + row.id,
-      });
       approval = row.id;
-      run = row.runId;
       return { status: 202, body: { accepted: true, pickId: row.id } };
     });
     if (approval) {
       await pipeline!.decisions.dispatch(account, approval).catch(() => {});
-      const chosen = await db.withAccount(account, (client) =>
-        currentChoice(client, dossier)
-      );
-      if (chosen && run)
-        await pipeline!.decisions.cancel(account, run).catch(() => {});
     }
     return response;
   });
