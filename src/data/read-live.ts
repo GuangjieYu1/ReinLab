@@ -44,7 +44,7 @@ export function createLiveReadAdapter(
     decide,
     generation: sessionGeneration,
     stream: readEventStream,
-  },
+  }
 ): LiveReadAdapter {
   const generation = ports.generation(),
     subs = new Set<(e: ReadEvent) => void>();
@@ -64,6 +64,7 @@ export function createLiveReadAdapter(
         role: string;
         steps: number;
         dossier: string;
+        candidateId?: string;
       }
     | undefined;
   let intent:
@@ -75,6 +76,23 @@ export function createLiveReadAdapter(
         accepted?: string;
       }
     | undefined;
+  let pendingMutation: { path: string; body: string; key: string } | undefined;
+  async function clarifyMutation(path: string, body: unknown) {
+    const encoded = JSON.stringify(body);
+    if (
+      pendingMutation &&
+      (pendingMutation.path !== path || pendingMutation.body !== encoded)
+    )
+      throw unavailable();
+    const request = (pendingMutation ??= {
+      path,
+      body: encoded,
+      key: crypto.randomUUID(),
+    });
+    await ports.api(path, body, request.key);
+    current();
+    if (pendingMutation === request) pendingMutation = undefined;
+  }
   let refreshQueue = Promise.resolve();
   let quoteVersion = 0,
     sourceVersion = 0,
@@ -84,8 +102,10 @@ export function createLiveReadAdapter(
   const current = () => {
     if (generation !== ports.generation()) throw unavailable();
   };
-  const forThisAccount = (value: ReadSnapshot) => generation === ports.generation()
-    ? value : empty('会话已变化，请重新登录后读取档案。');
+  const forThisAccount = (value: ReadSnapshot) =>
+    generation === ports.generation()
+      ? value
+      : empty("会话已变化，请重新登录后读取档案。");
   const emit = (e: ReadEvent) => {
     current();
     if (e.type === "run")
@@ -110,7 +130,7 @@ export function createLiveReadAdapter(
     current();
     if (createKey) {
       snapshot = empty(
-        "新档案创建结果未知，未切回旧档案运行；请再次新建以核对同一收据。",
+        "新档案创建结果未知，未切回旧档案运行；请再次新建以核对同一收据。"
       );
       return snapshot;
     }
@@ -125,7 +145,7 @@ export function createLiveReadAdapter(
       "/v1/dossiers/" +
         encodeURIComponent(dossier) +
         "/read-state" +
-        (runId ? "?runId=" + encodeURIComponent(runId) : ""),
+        (runId ? "?runId=" + encodeURIComponent(runId) : "")
     )) as ReadWire;
     current();
     if (
@@ -148,7 +168,7 @@ export function createLiveReadAdapter(
           "/read-events?after=" +
           after +
           "&through=" +
-          data.cursor,
+          data.cursor
       );
       current();
       if (
@@ -180,6 +200,21 @@ export function createLiveReadAdapter(
     runId = data.run?.id;
     cursor = data.cursor;
     snapshot = projectReading(data, events, snapshot.paper?.id);
+    // Committed clarification events may arrive after the estimate response.
+    // Preserve a still-valid quote for the same selection; never let SSE reset its confirmation.
+    if (
+      !data.run &&
+      quote &&
+      quote.dossier === dossier &&
+      quote.expires > Date.now() &&
+      (!quote.candidateId || snapshot.run.chosen?.id === quote.candidateId)
+    )
+      snapshot.run = {
+        ...snapshot.run,
+        state: "confirm",
+        estimate: quote.view,
+        query: quote.query,
+      };
     snapshot.history.push(...local);
     if (intent && data.run?.estimateId === intent.estimate) {
       intent.accepted = data.run.id;
@@ -226,7 +261,7 @@ export function createLiveReadAdapter(
               "/events?view=read&after=" +
               cursor,
             abort.signal,
-            cursor,
+            cursor
           );
           current();
           if (!response?.ok || !response.body) throw unavailable();
@@ -296,6 +331,7 @@ export function createLiveReadAdapter(
     if (creating) return creating;
     if (
       intent?.unknown ||
+      pendingMutation ||
       ["queued", "running", "waiting"].includes(snapshot.run.state)
     ) {
       emit({
@@ -313,7 +349,7 @@ export function createLiveReadAdapter(
       const created = await ports.api(
         "/v1/dossiers",
         { bench: "research", title: "新的精读" },
-        createKey,
+        createKey
       );
       current();
       if (expected !== epoch) throw unavailable();
@@ -364,10 +400,12 @@ export function createLiveReadAdapter(
           listen();
           return result;
         } catch {
-          if(generation !== ports.generation())return forThisAccount(snapshot);
+          if (generation !== ports.generation())
+            return forThisAccount(snapshot);
           if (version !== epoch && loading && loading !== work)
             return forThisAccount(await loading);
-          if (version === epoch && sourceVersion !== before) return forThisAccount(snapshot);
+          if (version === epoch && sourceVersion !== before)
+            return forThisAccount(snapshot);
           const failed = empty("档案读取失败或会话已变化，请重新登录后刷新。");
           if (version === epoch) {
             snapshot = failed;
@@ -400,6 +438,67 @@ export function createLiveReadAdapter(
           });
       }
     },
+    async clarify(text) {
+      current();
+      try {
+        if (creating && !(await creating)) return;
+        current();
+        if (!dossier && !(await newDossier())) return;
+        listen();
+        await clarifyMutation("/v1/dossiers/" + dossier + "/read/clarify", {
+          text,
+        });
+        await refresh();
+      } catch {
+        if (generation === ports.generation()) {
+          const e: ReadEvent = {
+            type: "agent",
+            id: "clarify-status:" + crypto.randomUUID(),
+            text: "澄清未受理或结果尚未核对，请只读刷新账本；没有自动重试或提高预算。",
+          };
+          local.push(e);
+          emit(e);
+        }
+      }
+    },
+    async pick(pickId, candidateId) {
+      current();
+      try {
+        if (!dossier) throw unavailable();
+        await clarifyMutation("/v1/dossiers/" + dossier + "/read/pick", {
+          pickId,
+          candidateId,
+        });
+        quote = undefined;
+        quoteVersion++;
+        await refresh();
+      } catch {
+        if (generation === ports.generation())
+          emit({
+            type: "agent",
+            id: "pick-status:" + pickId,
+            text: "选择结果尚未核对，请刷新；未代选、未重复提交。",
+          });
+      }
+    },
+    async unchoose() {
+      current();
+      try {
+        if (!dossier) return;
+        await clarifyMutation("/v1/dossiers/" + dossier + "/read/unchoose", {});
+        quote = undefined;
+        intent = undefined;
+        quoteVersion++;
+        await refresh();
+      } catch {
+        if (generation === ports.generation())
+          emit({
+            type: "agent",
+            id: "unchoose-status",
+            text: "换篇结果尚未核对，请刷新；未自动重开澄清或精读。",
+          });
+      }
+    },
     async estimate(query, budget) {
       current();
       if (
@@ -425,21 +524,28 @@ export function createLiveReadAdapter(
       });
       try {
         const harness = await ports.api(
-          "/v1/dossiers/" + dossier + "/harness?view=read",
+          "/v1/dossiers/" + dossier + "/harness?view=read"
         );
         current();
         if (
           version !== quoteVersion ||
           dossier !== expected ||
-          harness.version !== "1.1.0"
+          !["1.1.0", "1.2.0"].includes(harness.version)
         )
           throw Error("旧工作台档案请新建精读，不会静默升级。");
+        const candidateId = harness.version === "1.2.0" ? query : undefined;
+        if (candidateId && snapshot.run.chosen?.id !== candidateId)
+          throw unavailable();
         const role = harness.entrypoints.read,
           steps = harness.roles[role].steps;
         const value = await ports.api(
           "/v1/runs/estimate",
-          { dossierId: dossier, mode: "read" },
-          crypto.randomUUID(),
+          {
+            dossierId: dossier,
+            mode: "read",
+            ...(candidateId ? { candidateId } : {}),
+          },
+          crypto.randomUUID()
         );
         current();
         if (
@@ -458,7 +564,14 @@ export function createLiveReadAdapter(
           model: value.model,
           maxCny: Number(value.estimatedCny),
           steps,
-          note: "这是预估，不是实际结算；未知用量不会记成零。",
+          note: candidateId
+            ? (snapshot.run.chosen?.pages
+                ? "按公开书目估计的 " +
+                  snapshot.run.chosen.pages +
+                  " 页预估，尚未下载核验。"
+                : "公开元数据缺少可靠页数，按32页保守预估。") +
+              "这是预估，不是实际结算；澄清另行计费。"
+            : "这是预估，不是实际结算；未知用量不会记成零。",
         };
         quote = {
           view,
@@ -467,6 +580,7 @@ export function createLiveReadAdapter(
           role,
           steps,
           dossier: dossier!,
+          candidateId,
         };
         intent = undefined;
         emit({
@@ -510,11 +624,18 @@ export function createLiveReadAdapter(
         estimateId: id,
         confirmed: true,
         input: {
+          ...(quote.candidateId
+            ? { chosenCandidateId: quote.candidateId }
+            : {}),
           query,
           question:
-            "请精读以下论文查询：" +
+            (quote.candidateId
+              ? "请精读已选论文，第一步请求papers.fetch批准："
+              : "请精读以下论文查询：") +
             query +
-            "。先用papers.search查找，使用papers.fetch和papers.pages取得可核对原文。只有摘要时明确标记，不编造页码。按实际证据用read_layer_write写分层讲解、read_quiz_write出检查题、finding_record记录发现。引用必须使用本次已读资产和真实页码原句；需要审批时等待用户决定。最后简要总结结果与不确定性。",
+            (quote.candidateId
+              ? "。不再检索；等待用户批准下载。"
+              : "。先用papers.search查找，使用papers.fetch和papers.pages取得可核对原文。只有摘要时明确标记，不编造页码。按实际证据用read_layer_write写分层讲解、read_quiz_write出检查题、finding_record记录发现。引用必须使用本次已读资产和真实页码原句；需要审批时等待用户决定。最后简要总结结果与不确定性。"),
           limits: { maxSteps: quote.steps },
           memoryRefs: [],
         },
@@ -561,7 +682,7 @@ export function createLiveReadAdapter(
         await ports.api(
           "/v1/runs/" + runId + "/cancel",
           {},
-          crypto.randomUUID(),
+          crypto.randomUUID()
         );
         current();
         await refresh();

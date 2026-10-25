@@ -1,0 +1,4 @@
+execution,real_requests,ledger_known_cny,provider_cny,inferred_previously_unknown_cny,status
+Codex_estimate_503,0,0,0,0,historical_zero_only
+Claude_authorized_2026-10-25,2,0.004198,0.00488924,0.00069124,provider_export_reconciled_original_unknown_retained
+BATCH7,0,0,0,0,no_real_model_calls

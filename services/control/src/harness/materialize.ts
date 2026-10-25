@@ -16,13 +16,13 @@ const invalid = () =>
   new ApiFailure(
     "HARNESS_MATERIALIZATION_FAILED",
     503,
-    "工作台角色配置无法安全生成。",
+    "工作台角色配置无法安全生成。"
   );
 /** Server-side translation. Caller supplies already scope-filtered memory and trusted routes. */
 export function materializeHarnessRole(
   effective: EffectiveBench,
   registry: ToolRegistry,
-  options: MaterializeRoleOptions,
+  options: MaterializeRoleOptions
 ): z.infer<typeof RoleProjectRequest> {
   try {
     const trusted = ToolRegistry.parse(registry),
@@ -61,6 +61,8 @@ export function materializeHarnessRole(
       };
     }
     toolGrants.task = { risk: "danger", permission: "deny" };
+    if (role.model_cap)
+      toolGrants.question = { risk: "read", permission: "allow" };
     const note = verified.dossierNotes[options.roleId];
     if (note !== undefined && typeof note !== "string") throw invalid();
     const prompt =
@@ -74,6 +76,7 @@ export function materializeHarnessRole(
         toolGrants,
         writeTargets: [...role.write_targets],
         steps,
+        ...(role.model_cap ? { modelCap: role.model_cap } : {}),
       },
       model: options.modelRoutes[tier],
       memory: options.memory,

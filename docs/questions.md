@@ -272,9 +272,13 @@ InboxAdapter只有approve/reject，无原生question的answers；因此live适�
 
 用户明确指定同步Claude更新的四个inbox文件及三个场景，七文件原样复制并记录哈希。转场断言修改来自Claude前端负责人，后端没有另改场景。原生question从既有effects的question.asked事件映射到questions，五类字段原样保留；answers二维数组不去重、排序或trim，仍交已有后端严格校验。当前LiveResearch无按run/event定位原对话的真实路由，因此source.href/evidence.href均不伪造；这已符合新接口允许留空的约定。原T-MCP-10授权仍未消费，待最新CI全绿执行一次。
 
-### Q-095 T-MCP-10单次预估失败与新授权（2026-10-25，待决定）
+### Q-095 T-MCP-10两次不同执行、已消费锁与待核账（2026-10-25，更正）
 
-26e4940的全部10项CI终态成功后只执行一次。新1.1.0档案创建，预估HTTP503；无run/estimate/usage、未创建守卫或模型转发标记，真实模型0调用，专用key账单0请求/0tokens/¥0.00。根因为单次临时控制面漏传文件pricing配置，已提取createSmokeApp与常规main一样显式注入，真实API/RLS fixture复现503后按原201/六位小数合同通过；只读真实models.dev预估成功。没有重启执行器。推荐先由Claude审代码与故障证据，再由用户给新的明确单次授权和新计划做真实复验；本次不假定“还没花钱就能重跑”。证据evidence/P1-13/T-MCP-10/。
+Codex先前在26e4940 CI全绿后执行的那次，仅创建1.1.0档案即预估503；无run/usage、守卫未建，模型0调用，其零调用证据只属于该次。该缺陷已通过共用createSmokeApp与文件价格装配修复。
+
+随后Claude在用户新的独立明确授权下执行34348f8。依据主仓库design/reviews/T-MCP-10_CLAUDE_RUN.md及仓库外report.json：真实DeepSeek调用2次；第一笔¥0.004198，第二笔取消后用量未知，hold=unpriced；papers.search成功，papers.fetch按规则等待批准，执行器漏列fetch审批而中止。旧mcp10-authorized-20261024/RUN_KEY和model-forwarded.marker来自这次Claude真实执行，锁已消费，绝不删除或复用。旧报告写死的“第六批授权”不是Claude这次实际授权来源，以审查方执行记录为准。前文Q-094“尚未消费”仅是当时状态，已被本条更新。
+
+本批只修执行器/计划与记录，零真实模型。后续必须新授权、新命名空间、新窗口、显式授权来源与执行人参数；逐项核对papers.fetch/files.write/cards.card.finding后once批准，fetch目标由本run实际search成功回执确定。专用key的这次Claude账单核实在evidence/BATCH7/T-MCP-10/记录，未知费用保持未知，不能将先前0调用报告当成这次核账。
 
 ### Q-096 精读恢复所需数据缺口（2026-10-25，按推荐实现）
 
@@ -289,3 +293,31 @@ InboxAdapter只有approve/reject，无原生question的answers；因此live适�
 只读检查发现useRead以共享live ref代替每次effect的取消标记；React StrictMode双effect时，较早load的then也可能subscribe，旧effect已清理过而对应off尚未赋值。适配器的generation/epoch/sourceVersion保证不跨账户、不覆盖新运行；但同账户挂卸后的多余只读订阅可能持续到换账户/页面关闭。推荐Claude在useRead effect里使用局部active标记并在resolve前检查；本轮按逐字节同步约束不擅改其hook。不涉及权限放宽，也不阻精读数据恢复；未声称该前端生命周期问题已修。
 
 Q-095后续计划已整理在evidence/P1-13/T-MCP-10/NEXT_SMOKE_PLAN.md；本次没有新的真实模型授权，不执行。
+
+### Q-098 第七批需要用户决定的项（2026-10-25）
+
+目前没有必须阻断开发的新决定。真实模型体验/第三次T-MCP-10仍需新授权；本批绝不执行。10-26只读导出已核Claude两请求总额¥0.00488924；原账本未知状态保留，差额推算与原件范围见Q-102及evidence/BATCH7/T-MCP-10。
+
+### Q-099 第七批版本、候选页数与原样组件接线（按推荐继续）
+
+BATCH7明确发布1.2.0，覆盖RESEARCH_LIVE_FRONTEND方法表残留的“新建1.1.0”；默认新档案1.2，旧档案/旧bundle字节不改。原生question是人类控制交互，业务能力仍只papers.search；固定清单声明模型硬限额/只读能力收窄，由compiler显式生成question权限并强制missing_authority防原生推荐自动选择。共享search输出闭合schema不扩字段，从同一真实OpenAlex响应保存成功回执sidecar作候选，模型不能填写权威元数据。
+
+OpenAlex不保证实际PDF页数，且澄清禁止下载。推荐有可靠书目页码范围时注明书目估计；缺失则pages不填，估价明确按保守32页算，不冒称已知页数、不在确认前偷下PDF。每页输入1万/输出3千token、2倍余量沿用Q-025假设按页线性放大；正式预算仍由用户确认，估价绑定持久chosen版本。
+
+ResearchStudio原样同步后经外部data wrapper传available/read adapter（原组件已有props spread），不改八文件字节。原收件箱宿主保留在已有chrome插槽，不另写占位或改CSS。
+
+### Q-100 澄清硬限额的上游接口缺口（按推荐继续）
+
+已有RunBridge只预留整个run，无法靠事后cancel保证0.05上限。新增按档案累计、逐实际HTTP转发前持久预留的宿主网关；最多6轮，完整wire字节保守输入上界+固定协议余量、输出256token、取峰值/CNY与USD×7.2较高价；预算不足即拒转发，不保证用满6轮。失败/未知/崩溃在途不重试、不释放预留。clarify项目只有公开placeholder、不可解析的.invalid回退地址与可信插件网关接线，无真实模型key；模型key只在已明确授权的宿主配置文件中读取到内存，本批不创建授权文件，真实出口关闭。
+
+### Q-101 后续冒烟版本及历史事实（按推荐继续）
+
+Claude新授权执行与Codex先前503失败分开记录；旧目录RUN_KEY/marker来自Claude真实2调用，不可删改。未来smoke工厂显式用冻结1.1.0 harness创建专用档案，正式工厂默认1.2.0；POST档案以可信工厂bundle版本写pin，客户端不提供版本权限。保留共用createApp与文件价格装配。补fetch批准并将授权来源/执行人作为显式参数，本批不执行。
+
+Q-100补充：原生fixture表明连续按每轮全量最坏预留累计，会在首次检索后提前停下。推荐仅对已收齐终态且usage完整/非零/不超本次输入与输出上界的响应，落库不可变receipt，按峰价算costUpperMicros替换该轮多余预留。数据库独立校验计算式、0<costUpper<=本轮maximum，累计采用已知保守成本+新请求最坏预留；失败/未知/在途仍保留全部maximum，6轮一律计数。实际结算仍走原用量账本，costUpper不冒称实账。无需改变角色提示词或缩减守卫上界。
+
+Q-100出站分类补充：原生将loopback模型URL归为local，不能冒称API现金用量。澄清项目改用固定https://reinlab-clarify.invalid/v1（保留公开placeholder，无真实凭据）；可信插件只拦截这一精确origin/path并交宿主能力网关。插件缺失时不可解析.invalid，不能回落真实供应商。原生fixture断言normalized usage的provider=deepseek、route=byok，仍以真实上游usage/账本为结算依据，不把预算costUpper当实账。本批无真实模型请求。
+
+### Q-102 历史账单汇总与导出差异（2026-10-26，已核）
+
+用户清理凭据页面后只读Safari。10-25/ReinLab汇总UI显示0，但同筛选导出4条amount记录（2请求）和1条cost记录，专用key与当前文件匹配为真。以可核对导出为准：总¥0.00488924；已知¥0.004198之外差额¥0.00069124，为小时聚合推算，不冒称逐请求ID匹配。原账本未知记录不改；原导出含api_key/user_id，仅留仓库外受保护原件，仓库CSV去除这两列。本批模型0调用。只读配置时另发现~/.config/reinlab目录755、文件600；已将本机本人目录收紧700，未改变文件值或导入ENV。

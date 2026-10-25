@@ -149,7 +149,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
       <header className="ibx-head">
         <span className="ibx-mark">INBOX</span>
         <div className="ibx-title"><strong>上线时待批准</strong>
-          <span>{entries === null ? '正在读取…' : `你离开期间：${promos.length} 条提议记住 · ${approvals.length} 个动作等你确认`}</span></div>
+          <span>{entries === null ? '正在读取…' : entries.length === 0 ? '你离开期间没有新的待办' : `你离开期间：${promos.length} 条提议记住 · ${approvals.length} 个动作等你确认`}</span></div>
         <div className="ibx-progress" aria-label={`已处理 ${handled} / ${total}`}>{actionable.map(e => <i key={idOf(e)} data-on={done[idOf(e)] ? true : undefined} data-cur={idOf(e) === sel || undefined} />)}<small>{handled} / {total}</small></div>
         <button className="ibx-later" onClick={onClose}>稍后处理<kbd>Esc</kbd></button>
       </header>
@@ -165,7 +165,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
 
         <article className="ibx-detail" aria-live="polite">
           {entries === null ? <p className="ibx-loading">正在读取收件箱…</p>
-            : allDone && !cur ? <div className="ibx-clear"><span className="ibx-bigstamp">已清空</span><p>处理了 {handled} 件事。批准的内容从下一次读取开始生效，驳回的不会再提。</p><button className="ibx-go" onClick={onClose}>进入终端</button></div>
+            : allDone && !cur ? <div className="ibx-clear"><span className="ibx-bigstamp">{handled ? '已清空' : '无待办'}</span><p>{handled ? `处理了 ${handled} 件事。批准的内容从下一次读取开始生效，驳回的不会再提。` : '你离开期间没有需要你决定的事。AI 提议记住什么、或者有动作要你确认时，会出现在这里。'}</p><button className="ibx-go" onClick={onClose}>进入终端</button></div>
             : cur?.kind === 'promotion' ? <PromotionView p={cur.p} d={done[cur.p.id]} editing={editing} setEditing={setEditing} openEv={openEv} toggle={toggleEvidence} old={old} />
             : cur?.kind === 'approval' ? <ApprovalView a={cur.a} d={done[cur.a.id]} answers={answers[cur.a.id] ?? []} setAnswers={v => setAnswers(m => ({ ...m, [cur.a.id]: v }))} />
             : <p className="ibx-loading">选一条开始处理。</p>}

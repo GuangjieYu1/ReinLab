@@ -15,6 +15,14 @@ try:
  for args in [['git','-C',str(root),'add','.'],['git','-C',str(root),'-c','user.name=Fixture','-c','user.email=fixture@invalid','commit','-m','fixture']]:subprocess.run(args,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
  args=['/usr/bin/python3',scanner,'--root',str(root),'--deepseek-file',str(source/'model.env'),'--signing-key-file',str(source/'signing.pem'),'--capability-fixture-file',str(source/'capability.json'),'--hatchet-setup-file',str(source/'hatchet.env'),'--runtime-capability-env-file',str(source/'runtime.env'),'--task-prefix',base.name,'--output',str(base/'report.json')]
  result=command(args);report=json.loads((base/'report.json').read_text());checks['clean_seven_selected']=result.returncode==0 and report['selectedValues']==7 and report['status']=='passed'
+
+ model_value='synthetic_clarify_model_token_00001'
+ (source/'model-capability.json').write_text(json.dumps({'modelToken':model_value}));(source/'model-capability.json').chmod(0o600)
+ model_args=args+['--model-capability-fixture-file',str(source/'model-capability.json')]
+ result=command(model_args);report=json.loads((base/'report.json').read_text());checks['model_audience_exact_clean']=result.returncode==0 and report['selectedValues']==8
+ (root/'plain.txt').write_text(model_value)
+ result=command(model_args);report=json.loads((base/'report.json').read_text());checks['model_audience_exact_hit']=result.returncode!=0 and report['scopes']['worktree']['occurrences']['clarify_model_token']>0
+ (root/'plain.txt').write_text('fixture only')
  (codex/'sessions'/'fixture.jsonl').write_text(values['database']+' '+values['runtime'])
  result=command(args);report=json.loads((base/'report.json').read_text());hits=report['scopes']['codex_sessions']['occurrences'];checks['optional_exact_values_detected']=report['status']=='legacy_hits' and hits['runtime_mcp_token']>0 and hits['hatchet_database_password']>0
  (source/'hatchet.env').chmod(0o644);result=command(args);checks['public_optional_rejected']=result.returncode==1 and result.stdout.strip()=='{"code": "CREDENTIAL_SCAN_FAILED"}';(source/'hatchet.env').chmod(0o600)

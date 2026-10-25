@@ -71,6 +71,8 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
   const { paper, layers, quizzes, findings, run } = state;
   const dispatch = (to: 'swarm' | 'auto', text: string) => { onDispatch(to, text); };
   const ask = (text: string) => { setAsking(true); void adapter.ask(text).catch(() => setAsking(false)); };
+  // 还没开始读时，对话就是「澄清想读哪篇」
+  const talk = (text: string) => { if (paper) return ask(text); setAsking(true); void adapter.clarify(text).finally(() => setAsking(false)); };
   const runRepro = () => {
     if (ran === 'running') return;
     setRan('running'); window.setTimeout(() => setRan('done'), reduced ? 60 : 2600);
@@ -81,13 +83,18 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
     if (e.type === 'user') return { id: e.id, kind: 'user', text: e.text, at: at(e.id) };
     if (e.type === 'agent') return { id: e.id, kind: 'agent', at: at(e.id), text: <><p>{e.text}</p>{(e.refs?.length || (e.anim && state.anims.includes(e.anim))) && <p>{e.refs?.map(r => <b key={r} className="ad-ref" onClick={() => { setFace('explain'); cite([r]); }}>{paper?.sections.find(s => s.id === r)?.no ?? r}</b>)}{e.anim && state.anims.includes(e.anim) && <> · <b className="ad-ref" onClick={() => openAnim(e.anim as Anim)}>打开动画</b></>}</p>}</> };
     if (e.type === 'tool') return { id: e.id, kind: 'tool', action: e.action, label: e.label, state: e.state, detail: e.detail, ms: e.ms };
+    if (e.type === 'pick') return { id: e.id, kind: 'card', body: <PickCard e={e} onPick={c => void adapter.pick(e.id, c)} /> };
     if (e.type === 'approval') return { id: e.id, kind: 'approval', action: e.action, title: e.title, effects: e.effects, risk: e.risk, state: e.state, onApprove: () => void adapter.decide(e.id, true), onReject: () => void adapter.decide(e.id, false) };
     return null;
   }).filter((x): x is DockEvent => x !== null);
   const pending = state.log.filter((e): e is Extract<ReadEvent, { type: 'approval' }> => e.type === 'approval' && e.state === 'pending');
 
   const okCount = Object.values(understood).filter(v => v === 'ok').length;
-  const suggestions: Suggestion[] = !paper ? [] : face === 'lab' ? [
+  const suggestions: Suggestion[] = !paper ? (run.chosen || active(run) ? [] : [
+    { id: 'e1', label: '讲智能体边推理边行动的那篇', onClick: () => talk('讲智能体边推理边行动的那篇') },
+    { id: 'e2', label: 'react', onClick: () => talk('react') },
+    { id: 'e3', label: 'Transformer 的原始论文', onClick: () => talk('Transformer 的原始论文 attention') },
+  ]) : face === 'lab' ? [
     { id: 'a', label: '为什么要除以根号 d？', onClick: () => ask('为什么要除以根号 d？') },
     { id: 'b', label: '位置编码怎么表达顺序？', onClick: () => ask('位置编码怎么表达顺序？') },
   ] : [
@@ -107,18 +114,18 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
   ];
   const dock = <AgentDock name="精读助手" target={paper ? `${paper.title} · ${paper.venue}` : state.dossier.title} plan={{ stages: ['解析', '动画', '复现', '检验'], current: ['explain', 'lab', 'repro', 'check'].indexOf(face) }}
     loop={active(run) ? { stages: ['检索', '读原文', '写讲解', '出题'], current: !paper ? 0 : !layers.length ? 1 : !quizzes.length ? 2 : 3 } : null}
-    suggestions={suggestions} events={events} busy={asking || run.state === 'estimating'} onSend={ask} placeholder={paper ? '哪里没懂？例如：为什么要除以根号 d' : '先在中间说要读哪篇'} />;
+    suggestions={suggestions} events={events} busy={asking || run.state === 'estimating'} onSend={talk} placeholder={paper ? '哪里没懂？例如：为什么要除以根号 d' : '想读哪篇？说得模糊也行，例如：讲智能体边推理边行动的那篇'} />;
 
   return <BenchFrame code="RSCH" section="002" file={file} reduced={reduced} chrome={chrome} face={face} onFace={id => setFace(id as Face)}
     faces={[{ id: 'explain', label: '解析', en: 'EXPLAIN' }, { id: 'lab', label: '动画', en: 'LAB' }, { id: 'repro', label: '复现', en: 'REPRODUCE', badge: ran === 'done' ? 3 : 0 }, { id: 'check', label: '检验', en: 'CHECK', badge: okCount }]}
     strip={<>READ <i>·</i> {paper?.venue ?? '新档案'} <i>·</i> 理解 {okCount}/{quizzes.length}</>} tools={modeSwitch}
     shutterLines={f => [`> open dossier · ${state.dossier.title.toLowerCase()}`, `> face · ${f.en.toLowerCase()}`, '> ready']}
-    status={<><span><i className="en-sq" />精读</span><span>{paper?.title ?? state.dossier.title}</span><span>解析 {Math.min(depth, layers.length)}/{layers.length || 5} 层</span><span>理解 {okCount}/{quizzes.length}</span><span>{RUN_TEXT[run.state]} · {money(run.spentCny)}{run.unknownCost ? ' + 未知' : ''}</span><span>{adapter.kind === 'mock' ? '示例数据 · 不连接模型' : '真实数据'}</span></>}>
+    status={<><span><i className="en-sq" />精读</span><span>{paper?.title ?? state.dossier.title}</span><span>解析 {Math.min(depth, layers.length)}/{layers.length || 5} 层</span><span>理解 {okCount}/{quizzes.length}</span><span>{RUN_TEXT[run.state]} · {money(run.spentCny)}{run.unknownCost ? ' + 未知' : ''}</span>{!paper && <span>澄清 {money(run.clarifySpentCny ?? 0)} / ¥{run.clarifyCapCny ?? 0.05}</span>}<span>{adapter.kind === 'mock' ? '示例数据 · 不连接模型' : '真实数据'}</span></>}>
     <XpHost sections={sections} title={paper?.venue ?? '新档案'}>
       <section className="rd-center" data-wb-panel>
         {(run.state !== 'idle' && paper) && <RunBar run={run} onStop={() => void adapter.cancel()} pending={pending.length} />}
         {!paper ? <Start run={run} adapter={adapter} pending={pending} onNew={newReading} />
-          : face === 'explain' ? <Explain paper={paper} layers={layers} findings={findings} running={active(run)} depth={depth} setDepth={setDepth} focus={focus} ping={ping} cite={cite} openAnim={state.anims.length ? openAnim : undefined} dispatch={dispatch} />
+          : face === 'explain' ? <Explain paper={paper} layers={layers} findings={findings} running={active(run)} note={run.message} onNew={newReading} depth={depth} setDepth={setDepth} focus={focus} ping={ping} cite={cite} openAnim={state.anims.length ? openAnim : undefined} dispatch={dispatch} />
           : face === 'lab' ? (state.anims.length ? <Lab anim={anim} setAnim={setAnim} dispatch={dispatch} /> : <Later title="交互动画" text="真实模式下，解释动画由 OpenMAIC 课堂引擎按这篇论文生成，在研究台第二期接入。现在可以先在「解析」里看文字讲解。" />)
           : face === 'repro' ? (state.hasRepro ? <Repro ran={ran} onRun={runRepro} dispatch={dispatch} /> : <Later title="最小复现" text="真实模式下，复现会先给出计划和费用，你批准后在沙盒里跑（研究台第二期 P2-09）。论文里需要大规模算力的结论，可以交给自研排期。" />)
           : <Check quizzes={quizzes} understood={understood} grade={async (id, a) => { const g = await adapter.grade(id, a); setUnderstood(u => ({ ...u, [id]: g })); }}
@@ -148,46 +155,66 @@ function RunBar({ run, onStop, pending }: { run: RunView; onStop: () => void; pe
   </div>;
 }
 
-/* ———— 空档案：说要读哪篇 → 预估 → 你确认 → 开始 ———— */
+/* ———— 空档案：先在右边对话里说清读哪篇 → 选定 → 按这篇预估 → 你确认 → 开始 ———— */
 function Start({ run, adapter, pending, onNew }: { run: RunView; adapter: ReadAdapter; pending: Extract<ReadEvent, { type: 'approval' }>[]; onNew?: () => void }) {
-  const [query, setQuery] = useState(run.query ?? '');
   const [budget, setBudget] = useState(run.budgetCny || 5);
   const [err, setErr] = useState('');
-  const est = run.estimate;
+  const est = run.estimate, c = run.chosen;
   async function estimate() {
-    if (!query.trim()) { setErr('先写要读哪篇。'); return; }
+    if (!c) return;
     if (!(budget > 0 && budget <= 50)) { setErr('预算填 0 到 50 元之间。'); return; }
-    setErr(''); try { await adapter.estimate(query.trim(), budget); } catch { setErr('预估没有成功，稍后再试。'); }
+    setErr(''); try { await adapter.estimate(c.id, budget); } catch { setErr('预估没有成功，稍后再试。'); }
   }
+  const before = run.state === 'idle' || run.state === 'estimating' || run.state === 'confirm';
   return <div className="rd-start">
     <div className="rd-start-card">
       <span className="rh-micro">NEW READING · 新的精读</span>
-      <h2>这次读哪篇？</h2>
-      {(run.state === 'idle' || run.state === 'estimating' || run.state === 'confirm') && <>
-        <label className="rd-start-q"><span>论文</span><input value={query} onChange={e => { setQuery(e.target.value); setErr(''); }} placeholder="标题、arXiv 编号、DOI 或链接" disabled={run.state !== 'idle'} onKeyDown={e => { if (e.key === 'Enter' && run.state === 'idle') void estimate(); }} /></label>
-        {run.state === 'idle' && <div className="rd-start-eg">{['Attention Is All You Need', 'arXiv 2309.14717', 'Sparse MoE routing'].map(x => <button key={x} onClick={() => setQuery(x)}>{x}</button>)}</div>}
-        <label className="rd-start-b"><span>预算上限</span><b>¥</b><input type="number" min={0.5} max={50} step={0.5} value={budget} onChange={e => setBudget(Number(e.target.value))} disabled={run.state !== 'idle' && run.state !== 'confirm'} /><small>默认 ¥5，超过就停下问你</small></label>
+      {!c && before && <>
+        <h2>想读哪篇？</h2>
+        <p className="rd-start-lead">在右边告诉精读助手，说得模糊也没关系，比如「讲智能体边推理边行动的那篇」。它会检索，拿不准就问你，再把候选论文列出来让你选。</p>
+        <ol className="rd-start-steps"><li data-now><b>01</b>对话说清读哪篇</li><li><b>02</b>按这篇预估费用</li><li><b>03</b>你确认后开始读</li></ol>
+        <small className="rd-start-note">澄清对话用便宜档模型，上限 ¥{run.clarifyCapCny ?? 0.05}，不单独确认；已用 {money(run.clarifySpentCny ?? 0)}。</small>
+      </>}
+      {c && before && <>
+        <h2>读这篇</h2>
+        <div className="rd-chosen"><span><b>{c.title}</b><small>{c.authors} · {c.venue}{c.pages ? ` · ${c.pages} 页` : ''} · {c.access === 'full' ? '有开放全文' : '只有摘要'}</small></span>
+          {run.state !== 'estimating' && <button className="rh-btn" onClick={() => void adapter.unchoose()}>换一篇</button>}</div>
+        <label className="rd-start-b"><span>预算上限</span><b>¥</b><input type="number" min={0.5} max={50} step={0.5} value={budget} onChange={e => setBudget(Number(e.target.value))} disabled={run.state === 'estimating'} /><small>默认 ¥5，超过就停下问你</small></label>
         {err && <p className="rd-start-err" role="alert">{err}</p>}
         {run.state === 'idle' && <button className="rd-go" onClick={() => void estimate()}>预估费用</button>}
-        {run.state === 'estimating' && <p className="rd-start-wait"><i className="rd-pulse" aria-hidden="true" />正在预估这次大约要花多少…</p>}
+        {run.state === 'estimating' && <p className="rd-start-wait"><i className="rd-pulse" aria-hidden="true" />正在按这篇的长度预估…</p>}
         {run.state === 'confirm' && est && <div className="rd-estimate">
           <dl><div><dt>模型</dt><dd>{est.model}</dd></div><div><dt>最多</dt><dd>{est.steps} 步</dd></div><div><dt>最多约</dt><dd className="is-big">¥{est.maxCny.toFixed(2)}</dd></div><div><dt>预算上限</dt><dd>¥{budget}</dd></div></dl>
           {est.note && <small>{est.note}。实际花费以用量为准，跑完会和账单核对。</small>}
-          {est.maxCny > budget && <p className="rd-start-err">预估上限超过了预算。可以调高预算，或者换一篇短一点的论文。</p>}
+          {est.maxCny > budget && <p className="rd-start-err">预估上限超过了预算。可以调高预算，或者换一篇短一点的。</p>}
           <div className="rd-estimate-act"><button className="rd-go" disabled={est.maxCny > budget} onClick={() => void adapter.start(est.id, budget)}>确认开始</button></div>
         </div>}
       </>}
       {(run.state === 'queued' || run.state === 'running' || run.state === 'waiting') && <div className="rd-start-run">
-        <p><i className="rd-pulse" aria-hidden="true" /><span><b>{run.step ?? RUN_TEXT[run.state]}</b><small>《{run.query}》· 预算 ¥{run.budgetCny} · 已花 {money(run.spentCny)}</small></span></p>
+        <h2>开始读</h2>
+        <p><i className="rd-pulse" aria-hidden="true" /><span><b>{run.step ?? RUN_TEXT[run.state]}</b><small>《{c?.title ?? run.query}》· 预算 ¥{run.budgetCny} · 已花 {money(run.spentCny)}</small></span></p>
         {pending.map(a => <div key={a.id} className="rd-start-ap"><b>等你批准：{a.title}</b><ul>{a.effects.map(x => <li key={x}>{x}</li>)}</ul>
           <div><button className="rh-btn" onClick={() => void adapter.decide(a.id, false)}>不下载</button><button className="rd-go" onClick={() => void adapter.decide(a.id, true)}>批准</button></div></div>)}
         <button className="rh-btn" onClick={() => void adapter.cancel()}>停止</button>
       </div>}
       {(run.state === 'done' || run.state === 'cancelled' || run.state === 'failed') && <div className="rd-start-run">
-        <p><span><b>{RUN_TEXT[run.state]}</b><small>{run.message ?? ''} 已花 {money(run.spentCny)}{run.unknownCost ? '，另有未知用量' : ''}。</small></span></p>
+        <h2>{RUN_TEXT[run.state]}</h2>
+        <p><span><small>{run.message ?? ''} 已花 {money(run.spentCny)}{run.unknownCost ? '，另有未知用量' : ''}。</small></span></p>
         {onNew && <button className="rd-go" onClick={onNew}>重新开始</button>}
       </div>}
     </div>
+  </div>;
+}
+
+/** 对话里的候选论文卡片：你点一篇才算选定，AI 不替你决定。 */
+function PickCard({ e, onPick }: { e: Extract<ReadEvent, { type: 'pick' }>; onPick: (id: string | null) => void }) {
+  const done = e.state !== 'pending';
+  return <div className="rd-pick" data-done={done || undefined}>
+    <b>候选 · 「{e.query}」</b>
+    <ul>{e.candidates.map(c => <li key={c.id}><button disabled={done} aria-pressed={e.chosen === c.id} onClick={() => onPick(c.id)}>
+      <span><b>{c.title}</b><small>{c.authors} · {c.venue}{c.pages ? ` · ${c.pages} 页` : ''} · {c.access === 'full' ? '有开放全文' : '只有摘要'}</small></span>{c.note && <em>{c.note}</em>}</button></li>)}</ul>
+    {!done && <button className="rh-btn" onClick={() => onPick(null)}>都不是</button>}
+    {done && <small>{e.chosen ? '已选定' : '都不是'}</small>}
   </div>;
 }
 
@@ -196,8 +223,8 @@ function Later({ title, text }: { title: string; text: string }) {
 }
 
 /* ———— 01 解析 ———— */
-function Explain({ paper, layers, findings, running, depth, setDepth, focus, ping, cite, openAnim, dispatch }: {
-  paper: PaperView; layers: LayerCard[]; findings: FindingCard[]; running: boolean; depth: number; setDepth: (n: number) => void; focus: string[]; ping: number;
+function Explain({ paper, layers, findings, running, note, onNew, depth, setDepth, focus, ping, cite, openAnim, dispatch }: {
+  paper: PaperView; layers: LayerCard[]; findings: FindingCard[]; running: boolean; note?: string; onNew?: () => void; depth: number; setDepth: (n: number) => void; focus: string[]; ping: number;
   cite: (r: string[]) => void; openAnim?: (a: Anim) => void; dispatch: (to: 'swarm' | 'auto', t: string) => void;
 }) {
   const src = useRef<HTMLDivElement>(null);
@@ -219,6 +246,7 @@ function Explain({ paper, layers, findings, running, depth, setDepth, focus, pin
         </div>)}
       </article>)}
       {running && <div className="rd-writing"><i /><span>正在写第 {String(layers.length + 1).padStart(2, '0')} 层…</span></div>}
+      {!running && layers.length === 0 && <div className="rd-empty"><b>这篇还没有讲解</b><p>{note ?? '运行结束了，但没有生成讲解。'}</p>{onNew && <button className="rd-go" onClick={onNew}>新建精读</button>}</div>}
       {!running && depth < layers.length && <button className="rd-deeper" onClick={() => setDepth(depth + 1)}><span>更深一层</span><b>{layers[depth].no} · {layers[depth].title}</b><i>↓</i></button>}
       {findings.length > 0 && <section className="rd-findings"><header><span className="rh-micro">FINDINGS · 发现</span><small>每条都能回到原文</small></header>
         {findings.map(f => <article key={f.id} className="rd-finding" data-status={f.status}><em>#{f.n}</em><p>{f.text}</p>

@@ -19,7 +19,7 @@ export type CapabilityGrant = {
 const unavailable = () =>
   new ApiFailure("CAPABILITY_REGISTRY_INVALID", 503, "能力目录未通过验证。");
 export async function loadCapabilityCatalog(
-  root?: string,
+  root?: string
 ): Promise<CapabilityCatalog> {
   const registry = await loadRegistryDocument(root);
   if (
@@ -31,7 +31,7 @@ export async function loadCapabilityCatalog(
   const validator = new Ajv({ strict: true, validateFormats: true });
   validator.addFormat(
     "uuid",
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
   );
   try {
     for (const cap of Object.values(registry.capabilities)) {
@@ -73,10 +73,12 @@ function intersection(targets: string[], prefix?: string) {
  * Aliases never turn a specialized tool into unrestricted files.write. */
 export function compileCapabilityGrants(
   role: BenchRole,
-  catalog: CapabilityCatalog,
+  catalog: CapabilityCatalog
 ): CapabilityGrant[] {
   const grants = new Map<string, CapabilityGrant>();
   const add = (name: string, permission: "allow" | "ask", prefix?: string) => {
+    if (role.capability_allowlist && !role.capability_allowlist.includes(name))
+      return;
     const cap = Object.hasOwn(catalog.capabilities, name)
       ? catalog.capabilities[name]
       : undefined;
@@ -113,7 +115,7 @@ export function compileCapabilityGrants(
         permission === "ask" || mapping.minimumPermission === "ask"
           ? "ask"
           : "allow",
-        mapping.pathPrefix,
+        mapping.pathPrefix
       );
   }
   for (const [server, capabilities] of Object.entries(role.mcp))

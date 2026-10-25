@@ -1,4 +1,5 @@
 import { mcpTools } from "./mcp-tools.js";
+import { clarificationHooks, humanQuestion } from "./clarify-model.js";
 import path from "node:path";
 import { constants } from "node:fs";
 import { open, realpath, readdir } from "node:fs/promises";
@@ -11,7 +12,7 @@ const inside = (parent, file) => file.startsWith(parent + path.sep);
 async function regular(file) {
   const h = await open(
     file,
-    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
   );
   try {
     const s = await h.stat();
@@ -26,7 +27,7 @@ async function singleLink(file) {
   try {
     h = await open(
       file,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
     );
     const s = await h.stat();
     if ((!s.isFile() && !s.isDirectory()) || (s.isFile() && s.nlink !== 1))
@@ -78,8 +79,8 @@ export const ReinLabPlugin = async ({ directory }) => {
         (await readdir(directory)).some(
           (name) =>
             !["openscience.json", "AGENTS.md", ".role-policy.json"].includes(
-              name,
-            ),
+              name
+            )
         )
       )
         denied();
@@ -99,6 +100,7 @@ export const ReinLabPlugin = async ({ directory }) => {
   };
   await verify();
   return {
+    ...clarificationHooks(policy, verify),
     tool: mcpTools(policy, verify),
     "experimental.chat.system.transform": async () => {
       await verify();
@@ -123,6 +125,7 @@ export const ReinLabPlugin = async ({ directory }) => {
           denied();
         await singleLink(target);
       }
+      if (tool === "question") await humanQuestion(policy, verify, args);
       if (["write", "edit", "patch", "apply_patch", "multiedit"].includes(tool))
         denied();
     },

@@ -1,0 +1,5 @@
+start_time_iso,end_time_iso,model,name,type,price,amount,computed_cost_cny
+2026-10-25T02:00:00+08:00,2026-10-25T03:00:00+08:00,deepseek-flash,deepseek-flash,output_tokens,0.000004,235,0.000940
+2026-10-25T02:00:00+08:00,2026-10-25T03:00:00+08:00,deepseek-flash,deepseek-flash,input_cache_miss_tokens,0.000001,3875,0.003875
+2026-10-25T02:00:00+08:00,2026-10-25T03:00:00+08:00,deepseek-flash,deepseek-flash,request_count,,2,
+2026-10-25T02:00:00+08:00,2026-10-25T03:00:00+08:00,deepseek-flash,deepseek-flash,input_cache_hit_tokens,0.00000002,3712,0.00007424

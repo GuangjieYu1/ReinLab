@@ -5,7 +5,9 @@ import { mkdir, writeFile, realpath, chmod } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
+// @ts-expect-error reviewed runtime JS module
 import { requireNativeArtifact } from "../../../account-runtime/artifact.mjs";
+// @ts-expect-error reviewed runtime JS module
 import { accountGlobalConfiguration } from "../../../../infra/fly/account-entrypoint.mjs";
 
 export interface FixtureCall {
@@ -55,9 +57,8 @@ export async function startRoleProvider(options: {bindHost?: "127.0.0.1" | "0.0.
       );
       return;
     }
-    const lastUser = body.messages.findLastIndex(
-      (message) => message.role === "user",
-    );
+    let lastUser=body.messages.length-1;
+    while(lastUser>=0&&body.messages[lastUser].role!=="user")lastUser--;
     const user = JSON.stringify(body.messages[lastUser]);
     const paused = [...delays].find(([marker]) => user.includes(marker));
     if (paused) {

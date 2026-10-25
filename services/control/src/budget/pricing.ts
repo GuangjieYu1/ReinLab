@@ -14,7 +14,7 @@ const unavailable = () =>
   new ApiFailure(
     "PRICING_UNAVAILABLE",
     503,
-    "尚无可验证的模型价格、模型路由或人民币汇率，请先配置。",
+    "尚无可验证的模型价格、模型路由或人民币汇率，请先配置。"
   );
 export class PricingService {
   readonly catalogUrl: string;
@@ -76,7 +76,11 @@ export class PricingService {
   }
   async estimate(
     raw: Pick<z.input<typeof EstimateRequest>, "mode" | "modelTier" | "size">,
-    policy?: { modelTier: Tier; defaultBudgetCny: string | null },
+    policy?: {
+      modelTier: Tier;
+      defaultBudgetCny: string | null;
+      pages?: number;
+    }
   ) {
     const input = EstimateRequest.omit({ dossierId: true }).parse(raw),
       tier = input.modelTier ?? policy?.modelTier;
@@ -125,7 +129,8 @@ export class PricingService {
       throw unavailable();
     }
     if (inputPrice === 0n && outputPrice === 0n) throw unavailable();
-    const size = input.size ?? (input.mode === "swarm" ? 8 : 1),
+    const size =
+        policy?.pages ?? input.size ?? (input.mode === "swarm" ? 8 : 1),
       rounds = input.mode === "auto" ? 16 : input.mode === "swarm" ? 4 : 1;
     const inputTokens = 10000 * size * rounds,
       outputTokens = 3000 * size * rounds;
@@ -160,7 +165,7 @@ export class PricingService {
   }
 }
 export function pricingFromEnvironment(
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = process.env
 ): PricingService {
   return new PricingService({
     catalogUrl: "https://models.dev/api.json",

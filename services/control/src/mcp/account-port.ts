@@ -11,7 +11,7 @@ export function accountPort(db: Database) {
   const post = async (
     account: string,
     endpoint: string,
-    body: Record<string, unknown>,
+    body: Record<string, unknown>
   ) => {
     const connection = await resolve(account);
     const response = await fetch(connection.baseUrl + endpoint, {
@@ -43,7 +43,7 @@ export function accountPort(db: Database) {
           "files." + operation,
           async (context, args) => {
             const grant = context.scope.grants.find(
-              (g) => g.name === "files." + operation,
+              (g) => g.name === "files." + operation
             );
             if (!grant) throw unavailable();
             return post(context.claims.account, "/reinlab/mcp/files", {
@@ -53,8 +53,8 @@ export function accountPort(db: Database) {
               writeTargets: grant.writeTargets,
             });
           },
-        ] as [string, CapabilityHandler],
-    ),
+        ] as [string, CapabilityHandler]
+    )
   );
   const deposit: PaperDeposit = async (context, assetId, bytes, metadata) => {
     if (!context.scope.grants.some((g) => g.name === "papers.fetch"))
@@ -80,7 +80,7 @@ export function accountPort(db: Database) {
         !writeTargets.some(
           (prefix) =>
             prefix === "read/quizzes/" ||
-            (prefix.endsWith("/") && target.startsWith(prefix)),
+            (prefix.endsWith("/") && target.startsWith(prefix))
         )
       )
         throw unavailable();
@@ -98,6 +98,13 @@ export function accountPort(db: Database) {
       runId: string,
       token: string,
       controlUrl: string,
-    ) => post(account, "/reinlab/mcp/bootstrap", { runId, token, controlUrl }),
+      modelToken?: string
+    ) =>
+      post(account, "/reinlab/mcp/bootstrap", {
+        runId,
+        token,
+        controlUrl,
+        ...(modelToken ? { modelToken } : {}),
+      }),
   };
 }

@@ -49,11 +49,15 @@ afterAll(async () => {
 /** Real API/auth/native protocol, test-only loopback provider; no real model credentials or claims. */
 it("ES256 authenticated confirmation binds Harness and model, native usage reaches ledger as unknown exactly once", async () => {
   const root = await realpath(
-      await mkdtemp(join(tmpdir(), "reinlab-pipeline-native-")),
+      await mkdtemp(join(tmpdir(), "reinlab-pipeline-native-"))
     ),
     account = randomUUID(),
     registry = await loadToolRegistry(),
-    bundle = await loadBenchBundle({ benchId: "research", registry });
+    bundle = await loadBenchBundle({
+      benchId: "research",
+      registry,
+      version: "1.1.0",
+    });
   let provider: Awaited<ReturnType<typeof startRoleProvider>> | undefined,
     native: Awaited<ReturnType<typeof startNativeRoleServer>> | undefined,
     local: Server | undefined,
@@ -87,7 +91,7 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
                 },
               },
             },
-          }),
+          })
         );
       else res.writeHead(404).end("{}");
     });
@@ -127,7 +131,7 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
     expect(native.version).toBe("2.0.150");
     const authority = new CapabilityAuthority(
       db,
-      new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
+      new CapabilitySigner(generateKeyPairSync("ed25519").privateKey)
     );
     const mcp = new CapabilityEngine(authority, {
       ...dataHandlers(db),
@@ -145,7 +149,7 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
             token: await authority.issue(accountId, runId),
             controlUrl: mcpUrl,
           },
-          mcpUrl,
+          mcpUrl
         );
       },
       factory: async (_account, role) =>
@@ -156,7 +160,7 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
             ...role,
             root,
             pluginUrl: pathToFileURL(
-              resolve("plugins/reinlab-os-plugin/index.js"),
+              resolve("plugins/reinlab-os-plugin/index.js")
             ).href,
           }),
         }),
@@ -239,18 +243,18 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
           pendingApproval = (
             await admin.query(
               "select id from approval where run_id=$1 and os_request_id is not null and state='pending'",
-              [run.id],
+              [run.id]
             )
           ).rows[0]?.id;
           return Boolean(pendingApproval);
         },
-        { timeout: 30000 },
+        { timeout: 30000 }
       )
       .toBe(true);
     await expect(
       readFile(
-        join(root, "dossiers", dossier.id, "findings/native-approved.md"),
-      ),
+        join(root, "dossiers", dossier.id, "findings/native-approved.md")
+      )
     ).rejects.toMatchObject({ code: "ENOENT" });
     const decided = await post("/v1/approvals/" + pendingApproval + "/decide", {
       decision: "approve",
@@ -263,34 +267,34 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
           (
             await admin.query(
               "select ended_at is not null ended from run where id=$1",
-              [run.id],
+              [run.id]
             )
           ).rows[0]?.ended,
-        { timeout: 30000 },
+        { timeout: 30000 }
       )
       .toBe(true);
     const binding = (
       await admin.query(
         "select b.*,h.bench,h.version,h.effective_digest,h.model_route from os_binding b join run_harness h on h.run_id=b.run_id where b.run_id=$1",
-        [run.id],
+        [run.id]
       )
     ).rows[0];
     const usage = (
       await admin.query(
         "select part_id,cost_cny,metadata from os_usage where run_id=$1",
-        [run.id],
+        [run.id]
       )
     ).rows;
     const events = (
       await admin.query(
         "select kind,action,cost_cny,payload from event where run_id=$1 order by seq",
-        [run.id],
+        [run.id]
       )
     ).rows;
     const hold = (
       await admin.query(
         "select state,actual_cny from budget_hold where id=$1",
-        [binding.hold_id],
+        [binding.hold_id]
       )
     ).rows[0];
     await expect
@@ -314,49 +318,49 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
     expect(hold).toEqual({ state: "unpriced", actual_cny: null });
     expect(events.some((event) => event.action === "run_queued")).toBe(true);
     expect(events.some((event) => event.action === "runtime_admitted")).toBe(
-      true,
+      true
     );
     expect(
-      events.some((event) => event.kind === "cost" && event.cost_cny === null),
+      events.some((event) => event.kind === "cost" && event.cost_cny === null)
     ).toBe(true);
     expect(
-      events.some((event) => event.action === "run_admission_deferred"),
+      events.some((event) => event.action === "run_admission_deferred")
     ).toBe(false);
     expect(provider.requests).toHaveLength(1);
     expect(
       await readFile(
         join(root, "dossiers", dossier.id, "findings/native-approved.md"),
-        "utf8",
-      ),
+        "utf8"
+      )
     ).toBe("MCP_NATIVE_APPROVED_FIXTURE");
     expect(
       events.some(
         (event) =>
           event.action === "capability.call" &&
           event.payload.capability === "memory.read" &&
-          event.payload.success === true,
-      ),
+          event.payload.success === true
+      )
     ).toBe(true);
     expect(
       events.some(
         (event) =>
           event.action === "capability.call" &&
           event.payload.capability === "files.write" &&
-          event.payload.success === true,
-      ),
+          event.payload.success === true
+      )
     ).toBe(true);
     const system = provider.requests
       .flatMap((request) =>
-        request.messages.filter((message) => message.role === "system"),
+        request.messages.filter((message) => message.role === "system")
       )
       .map((message) =>
         typeof message.content === "string"
           ? message.content
-          : JSON.stringify(message.content),
+          : JSON.stringify(message.content)
       )
       .join("\n");
     expect(system).toContain(
-      await readFile(resolve("prompts/research/research-read.md"), "utf8"),
+      await readFile(resolve("prompts/research/research-read.md"), "utf8")
     );
     expect((await post("/v1/runs", input, key)).status).toBe(201);
     await pipeline.recoverAccount(account);
@@ -365,14 +369,16 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
       (
         await admin.query(
           "select count(*)::int n from os_usage where run_id=$1",
-          [run.id],
+          [run.id]
         )
-      ).rows[0].n,
+      ).rows[0].n
     ).toBe(1);
     const evidence = await testEvidenceDirectory("pipeline-native");
     await writeFile(
       join(evidence, "mcp-ledger.jsonl"),
-      events.map((event) => JSON.stringify({ ...event, fixtureOnly: true })).join("\n") + "\n",
+      events
+        .map((event) => JSON.stringify({ ...event, fixtureOnly: true }))
+        .join("\n") + "\n"
     );
     await writeFile(
       join(evidence, "pipeline-native-evidence.json"),
@@ -400,8 +406,8 @@ it("ES256 authenticated confirmation binds Harness and model, native usage reach
           requestBodies: provider.requests,
         },
         null,
-        2,
-      ).replaceAll(root, "<FIXTURE_ROOT>") + "\n",
+        2
+      ).replaceAll(root, "<FIXTURE_ROOT>") + "\n"
     );
   } finally {
     await pipeline?.shutdown();

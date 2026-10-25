@@ -1,12 +1,12 @@
 # T-MCP-10 后续单次执行计划修订（尚未授权，禁止执行）
 
-2026-10-25：本轮只实现精读适配器和修订计划，不运行真实模型。历史PLAN/report/execution-facts/空ledger及零调用核账保留不变。上次授权对应的执行已在预估503失败，不能因实际模型0调用而复用。
+2026-10-25：本轮只实现精读适配器和修订计划，不运行真实模型。历史PLAN/report/execution-facts/空ledger与零调用核账只描述Codex先前预估503那次，原报告保留。之后Claude于10-25在用户另一次明确授权下实际转发2次：已知¥0.004198，另1笔未知，fetch审批处因执行器漏列而取消；旧目录RUN_KEY/marker已由Claude这次消费，不可删除或复用。详见主仓库design/reviews/T-MCP-10_CLAUDE_RUN.md与evidence/BATCH7/T-MCP-10/。
 
 ## 先决条件与失败处理
 
 1. Claude审查本PR并确认最新HEAD全部CI终态成功。单次控制面必须使用createSmokeApp显式注入受保护文件中的路由与汇率，先跑真实API/RLS的估价fixture回归；模型key尚不读取。生产API与单次API都不得回落到空ENV配置。
 2. 完成零真实模型的原生SDK/MCP/守卫演练：research@1.1.0新档案，真实papers引用校验与once权限边界，检验出站thinking.type=disabled存在、串行限轮、请求大小和输出token上限、失败/未知/重启不再转发。精读适配器的Auth/API/SSE浏览器测试使用合成研究数据，**不替代这项原生链路演练**。
-3. 用户再明确授权一次后，才分配新的授权命名空间、requestID、独立marker与限时窗口；保留旧mcp10-authorized-20261024状态，只读审计，绝不删除/覆盖旧锁或marker。现smoke-mcp.ts绑定历史授权目录与窗口，不能直接复跑；授权后先将新绑定与拒绝旧绑定的测试提交、CI全绿，再开始唯一一次执行。
+3. 用户再明确授权一次后，才分配新的授权命名空间、requestID、独立marker与限时窗口；保留旧mcp10-authorized-20261024状态，只读审计，绝不删除/覆盖旧锁或marker。现smoke-mcp.ts仍绑定已消费的历史目录与过期窗口，不能直接复跑；入口强制显式--authorization-source与--executor非凭据参数，不再写死授权来源；授权后先将新绑定与拒绝旧绑定的测试提交、CI全绿，再开始唯一一次执行。
 4. 任何阶段失败或结果未知都停止；只读定位原run/收据、保留证据，不换requestID重发，不发第二次模型流程。清理恢复控制面，单独记录清理失败。
 
 ## 单次最小真实链路与批准
@@ -14,6 +14,8 @@
 新账户、新research@1.1.0档案。产品三档deepseek/deepseek-v4-flash，wire deepseek-flash；SDK与守卫双方强制thinking:{type:'disabled'}。
 
 papers.search → papers.fetch → papers.pages(1) → 用户批准的files.write一次 → cards.card.finding一次 → 结束。样本预检只查公开元数据/PDF，不算run内已读。必须在此次run生成paper_page_read后引用实际asset/page/原文句子；只有摘要、许可不足、页读取失败就停，不编造页码/引用。
+
+预期审批必须包含papers.fetch、files.write、cards.card.finding。papers.fetch必须核能力名、requestId、argsHash与完整args={paperId:本run实际search成功回执返回的ID}后仅批准once；计划样本W4387156572必须与真实search返回值相同，否则停止。不得拿预检或常量取代本run检索回执。
 
 写路径只准本次findings/mcp10-<新UUID>.md，内容预先核对，无敏感值。批准前同时核实际能力名、requestId、argsHash和完整预先参数，只授权once；其他权限或原生问题不自动答复。此最小MCP链路不能被描述为完整精读layer/quiz/多层UI已经真实模型验证。
 

@@ -120,10 +120,16 @@ jobs:
           pnpm exec tsx services/worker/scripts/verify-recovery.ts
         env:
           REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-recovery
-      - name: 精读live适配器 Auth/API/SSE/浏览器（明确合成研究数据，模型0调用）
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: 精读澄清fixture所需固定原生产物
+        run: node services/account-runtime/build.mjs
+      - name: 精读live Auth/API/SSE/原生澄清/浏览器（fixture模型，真实模型0调用）
         run: pnpm exec tsx services/control/scripts/verify-read-live.ts
         env:
           REINLAB_EVIDENCE_OUT: ${{ runner.temp }}/local-read
+          NODE_ENV: test
       - uses: actions/upload-artifact@v4
         if: always()
         with:

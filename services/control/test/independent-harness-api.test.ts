@@ -40,14 +40,18 @@ const server = createServer((_q, r) =>
           },
         },
       },
-    }),
-  ),
+    })
+  )
 );
 beforeAll(async () => {
   await applyMigrations(admin, resolve("infra/supabase/migrations"));
   await admin.query("insert into account(id) values($1)", [a]);
   const registry = await loadToolRegistry(),
-    bundle = await loadBenchBundle({ benchId: "research", registry });
+    bundle = await loadBenchBundle({
+      benchId: "research",
+      registry,
+      version: "1.1.0",
+    });
   await publishBench(admin, bundle, registry);
   harness = new HarnessStore(db, bundle, registry);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -133,9 +137,9 @@ it("independent postcommit callback sees durable run and HTTP idempotent replay 
       (
         await admin.query(
           "select model_route from run_harness where run_id=$1",
-          [run],
+          [run]
         )
-      ).rows[0],
+      ).rows[0]
     ).toEqual({ model_route: "fixture/model" });
   });
   const one = await samePost("/v1/runs", f.body, key),
@@ -155,7 +159,7 @@ it("independent postcommit callback failure preserves successful durable admissi
   expect(one.status).toBe(201);
   const saved = await one.json();
   expect(
-    (await admin.query("select id from run where id=$1", [saved.id])).rowCount,
+    (await admin.query("select id from run where id=$1", [saved.id])).rowCount
   ).toBe(1);
   const two = await samePost("/v1/runs", f.body, key);
   expect(two.status).toBe(201);
@@ -164,7 +168,7 @@ it("independent postcommit callback failure preserves successful durable admissi
   const errors = (
     await admin.query(
       "select payload from event where run_id=$1 and action='run_admission_deferred'",
-      [saved.id],
+      [saved.id]
     )
   ).rows;
   expect(errors).toEqual([{ payload: { code: "ADMISSION_DEFERRED" } }]);
@@ -182,7 +186,7 @@ it("independent quote tier/default policy comes from current manifest config, st
       model_slots: { [slot]: "cheap" },
       budget: { default_cny: 4, by_mode: { read: 3 } },
     },
-    randomUUID(),
+    randomUUID()
   );
   const q = await (
     await post("/v1/runs/estimate", { dossierId: d.id, mode: "read" })
@@ -193,7 +197,7 @@ it("independent quote tier/default policy comes from current manifest config, st
     a,
     d.id,
     { budget: { by_mode: { read: 2 } } },
-    randomUUID(),
+    randomUUID()
   );
   const before = (
     await admin.query("select count(*)::int n from run where dossier_id=$1", [
@@ -215,7 +219,7 @@ it("independent quote tier/default policy comes from current manifest config, st
       await admin.query("select count(*)::int n from run where dossier_id=$1", [
         d.id,
       ])
-    ).rows[0].n,
+    ).rows[0].n
   ).toBe(before);
 });
 
@@ -251,8 +255,8 @@ it("independent server route change at the same manifest tier rejects the old qu
     (
       await admin.query(
         "select count(*)::int n from run where estimate_id=$1",
-        [f.body.estimateId],
+        [f.body.estimateId]
       )
-    ).rows[0].n,
+    ).rows[0].n
   ).toBe(0);
 });
