@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-26T03:38:00+08:00",
+  "codeRevision": "a08935c3f6494343c97ac6f9c1c4cd4e744c6537",
+  "pullRequest": "https://github.com/GuangjieYu1/ReinLab/pull/20",
+  "checks": [
+    {
+      "id": 121266364625,
+      "name": "account-image",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225666325/job/121266364625"
+    },
+    {
+      "id": 121266364622,
+      "name": "check (22)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225666325/job/121266364622"
+    },
+    {
+      "id": 121266364602,
+      "name": "check (24)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225666325/job/121266364602"
+    },
+    {
+      "id": 121266364595,
+      "name": "local-stack",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225666325/job/121266364595"
+    },
+    {
+      "id": 121266364420,
+      "name": "legacy",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225666325/job/121266364420"
+    },
+    {
+      "id": 121266352338,
+      "name": "check (24)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225662169/job/121266352338"
+    },
+    {
+      "id": 121266352214,
+      "name": "check (22)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225662169/job/121266352214"
+    },
+    {
+      "id": 121266352120,
+      "name": "account-image",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225662169/job/121266352120"
+    },
+    {
+      "id": 121266352095,
+      "name": "local-stack",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225662169/job/121266352095"
+    },
+    {
+      "id": 121266351894,
+      "name": "legacy",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/40225662169/job/121266351894"
+    }
+  ],
+  "realModelCallsThisBatch": 0
+}
