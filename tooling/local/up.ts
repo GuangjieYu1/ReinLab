@@ -171,6 +171,7 @@ try {
   });
   await stopOwnedControl(paths.process, resolve("tooling/local/control.ts"));
   if (realModels) {
+    step("LOCAL_REAL_ACCOUNT_IMAGES_UPGRADING");
     const upgrade = await upgradeLocalRealAccounts(paths.runtime, paths.setup);
     console.log(
       JSON.stringify({
@@ -219,12 +220,15 @@ try {
   );
 } catch (error) {
   const message = (error as Error)?.message;
+  const failureCode = (error as { code?: unknown })?.code;
   console.error(
     JSON.stringify({
       code:
         typeof message === "string" && /^LOCAL_[A-Z_]+$/.test(message)
           ? message
-          : "LOCAL_UP_FAILED",
+          : typeof failureCode === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(failureCode)
+            ? failureCode
+            : "LOCAL_UP_FAILED",
       message: "本地环境尚未就绪；不会用fixture替代。",
     }),
   );

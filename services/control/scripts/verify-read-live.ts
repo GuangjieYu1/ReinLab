@@ -41,7 +41,6 @@ await mkdir(out, { recursive: true });
 const pool = new pg.Pool({ connectionString: config.DATABASE_URL_APP, max: 2 }),
   db = new Database(pool);
 const results: { name: string; passed: boolean }[] = [];
-const apiOperations: {path:string;method:string;status:number}[]=[];
 let stage = "setup",
   modelRequests = 0,
   runPosts = 0,
@@ -369,7 +368,6 @@ try {
       viewport: { width: 1440, height: 1000 },
     }),
     page = await context.newPage();
-  page.on("response",response=>{const url=new URL(response.url());if(url.pathname.startsWith("/backend/v1/"))apiOperations.push({path:url.pathname,method:response.request().method(),status:response.status()});});
   let pageErrors = 0;
   page.on("pageerror", () => pageErrors++);
   const signIn = async () => {
@@ -574,8 +572,6 @@ try {
   check(stage);
   await context.close();
 } catch (error) {
-  if(stage !== "setup" && stage !== "real_auth")try{await browser?.contexts()[0]?.pages()[0]?.screenshot({path:join(out,"fixture-failure.png")});}catch{}
-  await writeFile(join(out,"fixture-api-operations.json"),JSON.stringify(apiOperations,null,2));
   console.log(
     JSON.stringify({
       failureStage: stage,
