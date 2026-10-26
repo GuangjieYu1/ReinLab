@@ -1,5 +1,10 @@
 import { getuid } from "node:process";
-import { smokeOperatorArguments, smokeFetchArguments } from "./smoke-policy";
+import {
+  smokeOperatorArguments,
+  smokeFetchArguments,
+  smokeReadReceipt,
+} from "./smoke-policy";
+import { thirdSmokeBinding, validateSmokeBinding } from "./smoke-binding";
 /** Explicit one-workflow operator CLI; never imported by CI. Key stays in host memory. */
 import assert from "node:assert/strict";
 import { randomUUID, randomBytes } from "node:crypto";
@@ -41,13 +46,19 @@ import {
 import { cleanupSmoke } from "../../../tooling/local/smoke-cleanup";
 import { startMcpSmokeGuard } from "../../../tooling/local/mcp-smoke-guard";
 const cli = smokeOperatorArguments(process.argv.slice(2));
+const binding = validateSmokeBinding(thirdSmokeBinding, Date.now());
+assert.equal(cli.authorization, binding.authorization, "MCP10_BINDING_INVALID");
+assert.equal(cli.executor, binding.executor, "MCP10_BINDING_INVALID");
 const paths = localPaths(),
   config = readRuntimeConfiguration(paths.runtime),
-  directory = join(paths.state, "mcp10-authorized-20261024");
+  directory = join(paths.state, binding.directory);
 const out =
-  process.env.REINLAB_EVIDENCE_OUT ?? join(paths.state, "mcp10-evidence");
+  process.env.REINLAB_EVIDENCE_OUT ??
+  join(paths.state, binding.directory + "-evidence");
 const report: Record<string, any> = {
   authorization: cli.authorization,
+  authorizationLabel: binding.authorizationLabel,
+  authorizationBinding: binding,
   executor: cli.executor,
   expectedApprovals: ["papers.fetch", "files.write", "cards.card.finding"],
   realModel: true,
@@ -83,13 +94,10 @@ try {
   process.env.REINLAB_RUNTIME_CONFIG_FILE = paths.runtime;
   // Official CNY table and Safari's key-filtered account verified before invocation.
   const now = Date.now(),
-    end = Date.parse("2026-10-25T16:00:00.000Z");
-  assert.ok(
-    now >= Date.parse("2026-10-23T16:00:00.000Z") && now + 600_000 < end
-  );
+    end = Date.parse(validateSmokeBinding(binding, now).validUntil);
   const pricingContext = {
     currency: "CNY" as const,
-    window: "offpeak" as const,
+    window: "peak" as const,
     usdCnyRate: "7.2" as const,
     pricingVersion: DEEPSEEK_PRICING_VERSION,
     validFrom: now - 60_000,
@@ -129,7 +137,7 @@ try {
       email: identity.EMAIL,
       password: identity.PASSWORD,
       registered: identity.REGISTERED === "true",
-    }
+    },
   );
   identity.REGISTERED = "true";
   identity.ACCOUNT_ID = session.id;
@@ -143,25 +151,29 @@ try {
         (
           await c.query(
             "select 1 from account_machine where account_id=$1 and state='ready' and image=$2 and os_version='2.0.150'",
-            [session.id, config.ACCOUNT_IMAGE]
+            [session.id, config.ACCOUNT_IMAGE],
           )
-        ).rowCount
-      )
+        ).rowCount,
+      ),
     );
     if (ready) break;
     await delay(1000);
   }
   assert.ok(ready);
   const registry = await loadToolRegistry(),
-    bundle = await loadBenchBundle({ benchId: "research", registry }),
+    bundle = await loadBenchBundle({
+      benchId: "research",
+      version: binding.version,
+      registry,
+    }),
     harness = new HarnessStore(db, bundle, registry),
     port = accountPort(db);
   const authority = new CapabilityAuthority(
     db,
     await ensureSigningKey(
       config.REINLAB_MCP_SIGNING_KEY_FILE ??
-        join(homedir(), ".config/reinlab/mcp/signing.pem")
-    )
+        join(homedir(), ".config/reinlab/mcp/signing.pem"),
+    ),
   );
   const mcp = new CapabilityEngine(authority, {
     ...port.handlers,
@@ -169,7 +181,7 @@ try {
     ...paperHandlers(
       db,
       join(homedir(), ".local/state/reinlab/papers"),
-      port.deposit
+      port.deposit,
     ),
   });
   pipeline = new RuntimePipeline(db, {
@@ -197,16 +209,16 @@ try {
       mcp,
       auth: { issuer: config.SUPABASE_URL + "/auth/v1" },
     },
-    config
+    config,
   );
   server = serve({ fetch: app.fetch, hostname: "0.0.0.0", port: 3001 });
   await new Promise<void>((done) =>
-    server!.listening ? done() : server!.once("listening", done)
+    server!.listening ? done() : server!.once("listening", done),
   );
   const api = async (
     path: string,
     body?: unknown,
-    key: string = randomUUID()
+    key: string = randomUUID(),
   ) => {
     const r = await fetch("http://127.0.0.1:3001" + path, {
       method: body === undefined ? "GET" : "POST",
@@ -255,18 +267,18 @@ try {
   report.estimateId = quote.id;
   stage = "protected_key";
   const secrets = await readPrivateEnv(
-    join(homedir(), ".config/reinlab/local.env")
+    join(homedir(), ".config/reinlab/local.env"),
   );
   assert.ok(secrets.DEEPSEEK_API_KEY);
   const usageScope = await readPrivateEnv(
-    join(paths.state, "mcp10-usage-scope.env")
+    join(paths.state, "mcp10-usage-scope.env"),
   );
   assert.equal(usageScope.ALIAS, "ReinLab");
   const mask = /^(sk-[A-Za-z0-9]+)\*+([A-Za-z0-9]+)$/.exec(usageScope.MASK);
   assert.ok(mask);
   assert.ok(
     secrets.DEEPSEEK_API_KEY.startsWith(mask[1]) &&
-      secrets.DEEPSEEK_API_KEY.endsWith(mask[2])
+      secrets.DEEPSEEK_API_KEY.endsWith(mask[2]),
   );
   report.keyMatchesBillingAlias = true;
   const temporaryToken = randomBytes(32).toString("base64url");
@@ -274,6 +286,7 @@ try {
     incomingToken: temporaryToken,
     upstreamKey: secrets.DEEPSEEK_API_KEY,
     markerPath: join(directory, "model-forwarded.marker"),
+    authorizationEndsAt: Date.parse(binding.validUntil),
   });
   delete secrets.DEEPSEEK_API_KEY;
   configured = await runtime.configureSmokeGateway({
@@ -302,12 +315,13 @@ try {
   }。3. 必须full_text，再literature/papers.pages读取assetId第1页（pages:[1]），requestId=${
     ids.pages
   }；无全文立即停止。4. finding_record/files.write，args=${JSON.stringify(
-    fileArgs
+    fileArgs,
   )}，requestId=${
     ids.write
   }，等待仅一次批准。5. 成功后finding_record/cards.card.finding，requestId=${
     ids.card
   }，args.card={text:简短的论文方法发现,evidence:[{paperId:真实assetId,page:1,quote:刚读取的逐字原文短句（不超过25个英文词）}],confidence:"low",status:"hypothesis"}。严禁编造引用或添加字段。6. 卡片成功后只回复一句完成，不再调用工具。只用上述别名，所有调用显式传capability及args。`;
+  validateSmokeBinding(binding, Date.now());
   admission.RUN_KEY = randomUUID();
   admission.ESTIMATE_ID = quote.id;
   await writePrivateEnv(admissionFile, admission);
@@ -324,7 +338,7 @@ try {
       confirmed: true,
       input: { question, limits: { maxSteps: 6 }, memoryRefs: [] },
     },
-    admission.RUN_KEY
+    admission.RUN_KEY,
   );
   admission.RUN_ID = run.id;
   await writePrivateEnv(admissionFile, admission);
@@ -338,7 +352,7 @@ try {
     if (binding.receipt && !reader) {
       reader = await createProductionRuntimeFactory(db, { readOnly: true })(
         session.id,
-        binding.role
+        binding.role,
       );
       await reader.restoreSession(binding.sessionId);
       sessionId = binding.sessionId;
@@ -349,19 +363,19 @@ try {
         run: (
           await c.query(
             "select state,ended_at,spent_cny::text from run where id=$1",
-            [run.id]
+            [run.id],
           )
         ).rows[0],
         pending: (
           await c.query(
             "select id,effects,kind,decision_sent from approval where run_id=$1 and state='pending' and os_request_id is not null",
-            [run.id]
+            [run.id],
           )
         ).rows,
         failed: (
           await c.query(
             "select 1 from event where run_id=$1 and action='capability.denied' and payload->>'reason'<>'APPROVAL_REQUIRED' limit 1",
-            [run.id]
+            [run.id],
           )
         ).rowCount,
       }));
@@ -388,14 +402,14 @@ try {
       assert.ok(input);
       assert.equal(
         hash({ capability: input.capability, args: input.args }),
-        metadata.argsHash
+        metadata.argsHash,
       );
       assert.equal(metadata.capability, input.capability);
       if (metadata.requestId === ids.fetch) {
         assert.equal(input.capability, "papers.fetch");
         assert.deepEqual(
           input.args,
-          smokeFetchArguments(tools, ids.search, "W4387156572")
+          smokeFetchArguments(tools, ids.search, "W4387156572"),
         );
         report.fetchApproval = {
           scope: "once",
@@ -407,6 +421,14 @@ try {
       } else if (metadata.requestId === ids.write) {
         assert.equal(input.capability, "files.write");
         assert.deepEqual(input.args, fileArgs);
+        const read = smokeReadReceipt(tools, ids.fetch, ids.pages);
+        const actualRead: { rows: Array<{ page_text: string }> } = await db.withAccount(session.id, (c) =>
+          c.query(
+            "select page_text from paper_page_read where account_id=$1 and dossier_id=$2 and run_id=$3 and asset_id=$4 and page=1",
+            [session.id, dossier.id, run.id, read.assetId],
+          ),
+        );
+        assert.equal(actualRead.rows[0]?.page_text, read.text);
         report.fileApproval = {
           scope: "once",
           requestId: ids.write,
@@ -415,6 +437,16 @@ try {
       } else {
         assert.equal(metadata.requestId, ids.card);
         assert.equal(input.capability, "cards.card.finding");
+        const read = smokeReadReceipt(tools, ids.fetch, ids.pages);
+        assert.ok(report.fileApproval);
+        const write = tools.filter(
+          (p: any) =>
+            p.state?.status === "completed" &&
+            p.state?.input?.requestId === ids.write &&
+            p.state.input.capability === "files.write",
+        );
+        assert.equal(write.length, 1);
+        assert.deepEqual(write[0].state.input.args, fileArgs);
         const card = input.args.card;
         assert.deepEqual(Object.keys(card).sort(), [
           "confidence",
@@ -425,14 +457,14 @@ try {
         assert.ok(
           typeof card.text === "string" &&
             card.text.trim().length > 0 &&
-            card.text.length <= 20000
+            card.text.length <= 20000,
         );
         assert.ok(["low", "mid", "high"].includes(card.confidence));
         assert.ok(["hypothesis", "supported", "refuted"].includes(card.status));
         assert.ok(
           Array.isArray(card.evidence) &&
             card.evidence.length >= 1 &&
-            card.evidence.length <= 64
+            card.evidence.length <= 64,
         );
         for (const anchor of card.evidence) {
           assert.deepEqual(Object.keys(anchor).sort(), [
@@ -441,16 +473,17 @@ try {
             "quote",
           ]);
           assert.equal(anchor.page, 1);
+          assert.equal(anchor.paperId, read.assetId);
           assert.ok(
             /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
-              anchor.paperId
-            )
+              anchor.paperId,
+            ),
           );
           assert.ok(
             typeof anchor.quote === "string" &&
               normalized(anchor.quote).length > 0 &&
               anchor.quote.length <= 300 &&
-              normalized(anchor.quote).split(" ").length <= 25
+              normalized(anchor.quote).split(" ").length <= 25,
           );
           const page = await db.withAccount(
             session.id,
@@ -458,13 +491,13 @@ try {
               (
                 await c.query(
                   "select page_text from paper_page_read where account_id=$1 and dossier_id=$2 and run_id=$3 and asset_id=$4 and page=$5",
-                  [session.id, dossier.id, run.id, anchor.paperId, anchor.page]
+                  [session.id, dossier.id, run.id, anchor.paperId, anchor.page],
                 )
-              ).rows[0]
+              ).rows[0],
           );
           assert.ok(
             page &&
-              normalized(page.page_text).includes(normalized(anchor.quote))
+              normalized(page.page_text).includes(normalized(anchor.quote)),
           );
         }
         report.cardApproval = {
@@ -485,9 +518,9 @@ try {
   }
   assert.ok(report.run?.ended_at);
   assert.equal(report.run.state, "completed");
-  assert.ok(report.fileApproval && report.cardApproval);
+  assert.ok(report.fetchApproval && report.fileApproval && report.cardApproval);
   assert.ok(
-    guard.status().forwardCount >= 1 && guard.status().forwardCount <= 6
+    guard.status().forwardCount >= 1 && guard.status().forwardCount <= 6,
   );
   const calls = await db.withAccount(
     session.id,
@@ -495,9 +528,9 @@ try {
       (
         await c.query(
           "select payload->>'capability' capability,payload->>'success' success from event where run_id=$1 and action='capability.call'",
-          [run.id]
+          [run.id],
         )
-      ).rows
+      ).rows,
   );
   report.calls = calls;
   for (const capability of [
@@ -510,7 +543,7 @@ try {
     assert.equal(
       calls.filter((c) => c.capability === capability && c.success === "true")
         .length,
-      1
+      1,
     );
   stage = "browser_card_event";
   const browser = await chromium.launch({ headless: true });
@@ -520,7 +553,7 @@ try {
     // A real browser receives the existing live ledger SSE through the same-origin backend proxy.
     const received = (await page.evaluate(
       `async ({token,dossier})=>{const response=await fetch('/backend/v1/dossiers/'+dossier+'/events?after=0',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(20000)});if(!response.ok||!response.body)throw Error('BROWSER_SSE_FAILED');const reader=response.body.getReader(),decoder=new TextDecoder();let text='';const end=Date.now()+20000;try{while(Date.now()<end){const part=await reader.read();if(part.done)break;text+=decoder.decode(part.value,{stream:true});const lines=text.split('\\n');text=lines.pop()??'';for(const line of lines)if(line.startsWith('data:')){const event=JSON.parse(line.slice(5));if(event.kind==='card'&&event.payload?.cardType==='finding')return{received:true,kind:event.kind,cardType:event.payload.cardType,seq:event.seq};}}return{received:false};}finally{await reader.cancel();}}`,
-      { token: session.token, dossier: dossier.id }
+      { token: session.token, dossier: dossier.id },
     )) as { received: boolean };
     report.browserCard = received;
     assert.equal(received.received, true);
@@ -529,7 +562,7 @@ try {
   }
   const ledger = await fetch(
     "http://127.0.0.1:3001/v1/dossiers/" + dossier.id + "/audit",
-    { headers: { authorization: "Bearer " + session.token } }
+    { headers: { authorization: "Bearer " + session.token } },
   );
   assert.equal(ledger.status, 200);
   await writePrivateEvidence(join(out, "ledger.jsonl"), await ledger.text());
@@ -568,9 +601,9 @@ try {
                 (
                   await c.query(
                     "select id from run where account_id=$1 and dossier_id=$2 and estimate_id=$3",
-                    [report.accountId, report.dossierId, report.estimateId]
+                    [report.accountId, report.dossierId, report.estimateId],
                   )
-                ).rows
+                ).rows,
             );
             assert.ok(rows.length <= 1);
             if (rows.length === 1) {
@@ -598,18 +631,18 @@ try {
                   await c.query("select ended_at from run where id=$1", [
                     report.runId,
                   ])
-                ).rows[0]?.ended_at
-              )
+                ).rows[0]?.ended_at,
+              ),
             );
           if (await terminal()) return;
           const b = await new BindingStore(db).get(
             report.accountId,
-            report.runId
+            report.runId,
           );
           if (!b.receipt) throw Error("CANCELLATION_INDETERMINATE");
           const r = await createProductionRuntimeFactory(db)(
             report.accountId,
-            b.role
+            b.role,
           );
           await r.restoreSession(b.sessionId);
           await r.cancel(b.sessionId, b.receipt.runID);
@@ -642,8 +675,8 @@ try {
         if (server)
           await new Promise<void>((done, fail) =>
             server!.close((error) =>
-              error ? fail(Error("MCP10_HTTP_CLOSE_FAILED")) : done()
-            )
+              error ? fail(Error("MCP10_HTTP_CLOSE_FAILED")) : done(),
+            ),
           );
       },
     },
@@ -671,28 +704,28 @@ try {
               run: (
                 await c.query(
                   "select state,ended_at,spent_cny::text from run where id=$1",
-                  [report.runId]
+                  [report.runId],
                 )
               ).rows[0],
               usage: (
                 await c.query(
                   "select part_id,cost_cny::text,metadata from os_usage where run_id=$1",
-                  [report.runId]
+                  [report.runId],
                 )
               ).rows,
               holds: (
                 await c.query(
                   "select state,maximum_cny::text,actual_cny::text from budget_hold where run_id=$1",
-                  [report.runId]
+                  [report.runId],
                 )
               ).rows,
               events: (
                 await c.query(
                   "select seq,at,kind,action,payload,cost_cny::text from event where run_id=$1 order by seq",
-                  [report.runId]
+                  [report.runId],
                 )
               ).rows,
-            })
+            }),
           );
       },
     },
@@ -710,7 +743,7 @@ try {
     try {
       await writePrivateEvidence(
         join(out, "report.json"),
-        JSON.stringify(report, null, 2) + "\n"
+        JSON.stringify(report, null, 2) + "\n",
       );
     } finally {
       await lock.release();
@@ -722,6 +755,6 @@ try {
       stage: report.failure?.stage,
       forwardCount: report.guard?.forwardCount,
       realModel: true,
-    })
+    }),
   );
 }

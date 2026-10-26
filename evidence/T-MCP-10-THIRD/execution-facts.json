@@ -1,0 +1,23 @@
+{
+  "authorization": "user-third-authorization-20261026",
+  "attempts": 1,
+  "workflowPassed": false,
+  "successfulCapabilities": [
+    "papers.search",
+    "papers.fetch",
+    "papers.pages",
+    "files.write",
+    "cards.card.finding"
+  ],
+  "approvalsOnce": [
+    "mcp10-9c81d7b2-6c0b-4afc-bb93-ce7e4cfc83b3-fetch",
+    "mcp10-9c81d7b2-6c0b-4afc-bb93-ce7e4cfc83b3-write",
+    "mcp10-9c81d7b2-6c0b-4afc-bb93-ce7e4cfc83b3-card"
+  ],
+  "actualModelRequests": 6,
+  "failure": "seventh model HTTP request rejected by six-round guard",
+  "ledgerUsageCount": 6,
+  "providerCostCny": "0.0215938400000000",
+  "holdUnpricedPreserved": true,
+  "cleanupFailures": []
+}
