@@ -350,6 +350,33 @@ it("ended runs carry the reason the UI writes as the title", () => {
   // 正常读完
   expect(projectReading(base(ended), []).run.endReason).toBe("completed");
 });
+it("clarification spend and cap survive projection even when the clarify run ended cancelled", () => {
+  const snap = projectReading(
+    {
+      ...idle(),
+      clarification: {
+        chosen: null,
+        spentCny: 0.013354,
+        capCny: 0.5,
+        unknownCost: false,
+        history: [],
+        selectionRevision: 2,
+      },
+      run: {
+        id: run,
+        query: "q",
+        state: "cancelled",
+        budgetCny: 5,
+        spentCny: null,
+        endedAt: "2026-10-27T00:00:00.000Z",
+      },
+    } as any,
+    []
+  );
+  expect(snap.run.clarifySpentCny).toBe(0.013354);
+  expect(snap.run.clarifyCapCny).toBe(0.5);
+  expect(snap.run.endReason).toBe("cancelled");
+});
 it("creating a dossier with an unknown response retains exactly the same idempotency key", async () => {
   const keys: string[] = [];
   let count = 0;

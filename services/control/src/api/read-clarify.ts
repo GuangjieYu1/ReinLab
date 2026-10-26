@@ -261,7 +261,13 @@ export function registerReadClarify(
             [dossier]
           )
         ).rows[0];
-        if (input.selectionRevision !== undefined && input.selectionRevision !== s.selection_revision)
+        // 回答一个已经存在的问题以 approvalId 为准；只有新开一段澄清才需要选中代次一致，
+        // 否则界面刷新慢一拍就会把用户的补充挡掉（run7 C3）。
+        if (
+          input.selectionRevision !== undefined &&
+          input.selectionRevision !== s.selection_revision &&
+          !input.approvalId
+        )
           throw conflict('澄清已切换或停止，旧输入未另建运行。');
         if (s.chosen_id) throw conflict("请先换一篇，再重新澄清。");
         const active = (

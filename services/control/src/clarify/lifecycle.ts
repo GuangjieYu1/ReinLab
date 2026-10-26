@@ -32,9 +32,19 @@ export async function closeClarifications(db: Database, account: string, dossier
           exists(select 1 from os_usage where run_id=$1 and cost_cny is null) unknown`,[r.id])).rows[0];
         const complete=!unknownRequests && (row.ended_at !== null || outcome?.status==='resolved') &&
           (!row.usage_uncertain || (Number(proof.calls)>0 && proof.calls===proof.usages && !proof.unknown));
-        const settlement=await settleObservedRun(c,account,r.id,complete);
+        // 结算与关闭分开：已经结清/内容不同的旧账本不改写，也不让一次结算冲突挡住关闭
+        // （否则 cancel-clarify / 换一篇 会以 409 失败，界面以为澄清没结束）。
+        let settlement: Awaited<ReturnType<typeof settleObservedRun>> | undefined;
+        try {
+          settlement = await settleObservedRun(c,account,r.id,complete);
+        } catch (error) {
+          const code = error instanceof Error && /^[A-Z_]{1,64}$/.test((error as any).code ?? '') ? (error as any).code : 'SETTLEMENT_DEFERRED';
+          await appendEvent(c,account,{dossierId:dossier,runId:r.id,roleId:'research-clarify',kind:'gate',action:'clarify_settle_deferred',payload:{code},dedupeKey:'clarify-settle-deferred:'+r.id+':'+code});
+        }
+        if (settlement) {
         if (settlement.settled && complete && row.usage_uncertain)
           await appendEvent(c,account,{dossierId:dossier,runId:r.id,roleId:'research-clarify',kind:'gate',action:'clarify_usage_reconciled',payload:{settlementEventSeq:settlement.eventSeq,calls:Number(proof.calls),usages:Number(proof.usages)},dedupeKey:'clarify-reconciled:'+r.id+':'+settlement.eventSeq});
+        }
       }
       const unstarted = !row.hold_id && !row.receipt && row.phase !== 'submitting' && !unknownRequests;
       const state = row.ended_at !== null ? row.state : outcome?.status === 'resolved' ? outcome.state : unstarted ? 'cancelled' : 'interrupted';

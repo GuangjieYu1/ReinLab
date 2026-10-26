@@ -379,7 +379,18 @@ export function createLiveReadAdapter(
       return false;
     }
     const work = (async () => {
-      await cancelClarification();
+      // 关旧澄清只是清理：失败（例如旧账已结清的结算冲突）也要继续建新档案，
+      // 否则新档案发不出话（run7 C3b）。
+      try {
+        await cancelClarification();
+      } catch {
+        if (generation === ports.generation())
+          emit({
+            type: "agent",
+            id: "cancel-before-new:" + crypto.randomUUID(),
+            text: "上一段澄清没能关闭（结算待核对），新档案照常新建；旧账没有被改写。",
+          });
+      }
       stop();
       quoteVersion++;
       const expected = epoch;
@@ -487,10 +498,14 @@ export function createLiveReadAdapter(
         listen();
         await refreshSerially();
         const pending = wire?.clarification?.pendingQuestion;
+        // 回答已经存在的问题由 approvalId 定身份；再带上滞后的选中代次只会被挡掉。
         await clarifyMutation("/v1/dossiers/" + dossier + "/read/clarify", {
           text,
-          ...(pending ? { approvalId: pending.approvalId } : {}),
-          ...(wire?.clarification?.selectionRevision !== undefined ? { selectionRevision: wire.clarification.selectionRevision } : {}),
+          ...(pending
+            ? { approvalId: pending.approvalId }
+            : wire?.clarification?.selectionRevision !== undefined
+              ? { selectionRevision: wire.clarification.selectionRevision }
+              : {}),
         });
         accepted = true;
         await refreshSerially();
