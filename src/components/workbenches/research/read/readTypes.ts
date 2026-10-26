@@ -26,7 +26,17 @@ export type RunView = {
   /** 对话澄清后你选定的论文；有了它才能预估。 */
   chosen?: PaperCandidate;
   /** 澄清对话（便宜档模型）已花 / 上限。上限内不单独确认，超过就停下问你。 */
-  clarifySpentCny?: number; clarifyCapCny?: number; clarifyUnknownCost?: boolean;
+  clarifySpentCny?: number; clarifyCapCny?: number;
+  /** 澄清有在途用量未核对。true 时金额后面写「+ 未知」，不当作 0。 */
+  clarifyUnknownCost?: boolean;
+  /** 澄清发不出去了：cap = 用到上限；stuck = 上一段澄清没结束 / 用量未核对。text 是给人看的原因。界面据此给出「加预算」或「结束这段澄清」。 */
+  clarifyBlocked?: { reason: 'cap' | 'stuck'; text: string };
+  /** 运行为什么结束（state 为 done / cancelled / failed 时）。界面按它写标题，不再一律「已完成」：
+   *  completed 读完；rejected 你没批准下载；cancelled 你点了停止；budget 预算用完；abstract_only 拿不到全文；failed 出错。 */
+  endReason?: 'completed' | 'rejected' | 'cancelled' | 'budget' | 'abstract_only' | 'failed';
+  /** 费用结算状态：pending 待核对 / settled 已核齐 / unknown 有调用缺用量。knownCny 是已核明细合计，
+   *  totalCny 只在核齐时有值；界面据此写「费用待核对」，不把缺项当 0。 */
+  accounting?: { status: 'pending' | 'settled' | 'unknown'; knownCny: number | null; totalCny: number | null; reason?: string };
 };
 
 export type Grade = 'ok' | 'part' | 'miss';
@@ -65,9 +75,11 @@ export interface ReadAdapter {
   readonly kind: 'mock' | 'live';
   load(): Promise<ReadSnapshot>;
   subscribe(on: (e: ReadEvent) => void): () => void;
-  /** 第一步：在对话里说想读什么。助手检索、必要时追问，候选以 pick 事件出现在对话里。便宜档，上限 ¥0.05，不单独确认。 */
+  /** 第一步：在对话里说想读什么。助手检索、必要时追问，候选以 pick 事件出现在对话里。便宜档，默认上限 ¥0.5（按每轮最坏 8k 输出预留，实际通常几分钱），不单独确认；不够可 raiseBudget。 */
   clarify(text: string): Promise<void>;
-  /** 结束当前档案的澄清；已知费用保留，未知用量保持未知。 */
+  /** 加预算：scope 为 clarify 加澄清上限，为 read 加这次精读的预算（运行中也可以加）。只在你点按钮时调用，点了就算确认。没实现时界面显示「尚未接入」。 */
+  raiseBudget?(scope: 'clarify' | 'read', addCny: number): Promise<void>;
+  /** 结束卡住的澄清（clarifyBlocked.reason = stuck）：照实结算已用的，关闭这段对话，之后可以重新说。 */
   cancelClarify?(): Promise<void>;
   /** 换一篇：清掉已选定的论文，回到对话澄清。 */
   unchoose(): Promise<void>;
@@ -76,7 +88,8 @@ export interface ReadAdapter {
   start(estimateId: string, budgetCny: number): Promise<void>;
   cancel(): Promise<void>;
   decide(approvalId: string, approve: boolean): Promise<void>;
-  /** 选论文：candidateId 为 null 表示「都不是」，助手会请你再描述一下。 */
+  /** 选论文：candidateId 为 null 表示「都不是」，助手会请你再描述一下。
+   *  「换一篇」之后，已经答过的候选卡也可以直接改选另一篇：不再调用模型，只把选定换掉。 */
   pick(pickId: string, candidateId: string | null): Promise<void>;
   /** 读完之后的追问：回答以 agent 事件回来。 */
   ask(text: string): Promise<void>;

@@ -6,6 +6,7 @@ import { ApiFailure, denied } from "./errors";
 import { requireDossier, readEvents, parseCursor, scrub } from "../ledger";
 import { pendingMcpApproval } from "../mcp/approval-bridge";
 import { clarificationView } from "./read-clarify";
+import { runAccounting } from "../budget";
 
 /** This view never exports quiz answers, including legacy nested tool payloads. */
 export function publicReadValue(value: any): any {
@@ -263,6 +264,7 @@ export function registerReadView(app: Hono<ApiEnv>, db: Database) {
                 budgetCny: Number(run.budgetCny),
                 spentCny: run.usageCount && (!run.usageUnknown || Number(run.knownSpentCny)>0) ? Number(run.knownSpentCny) : null,
                 usageUnknown: run.usageUnknown,
+                accounting: await runAccounting(client, c.get("accountId"), run.id),
                 query:
                   typeof run.input?.query === "string"
                     ? run.input.query

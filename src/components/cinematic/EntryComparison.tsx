@@ -1,4 +1,5 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { navigate } from '../../nav';
 import { LayoutGroup, useReducedMotion } from 'motion/react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, ChevronLeft, ChevronRight, Play, RotateCcw, SkipForward, X } from 'lucide-react';
 import ArchiveField, { type ArchiveFieldHandle, type FieldStatus } from './ArchiveField';
@@ -18,7 +19,6 @@ import './files-editorial.css';
 import FilePreview, { type SlipAnchor } from '../entry/FilePreview';
 import { startTransit, transitActive, TRANSIT_END } from '../entry/transitStore';
 import '../entry/entry-shell.css';
-import { navigate } from '../../nav';
 
 type Variant = 'files' | 'workbenches';
 type Stage = 'opening' | 'global' | 'chooser' | 'module' | 'detail';
@@ -403,7 +403,12 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
       window.setTimeout(() => { if (waitExtract.current) reveal(); }, 1600);
       return;
     }
-    if (entry || picked.id === 'curriculum') { setPreviewNote(null); setDetailClosing(false); setStage('detail'); return; }
+    if (entry || picked.id === 'curriculum') {
+      setPreviewNote(null); setDetailClosing(false); setStage('detail');
+      // 减少动态效果：不播抽取，小票直接放出来。
+      if (entry) { setPreviewOrigin(boxRect()); cardReadyRef.current = true; setCardReady(true); }
+      return;
+    }
     goWorkbench(index);
   }
   function goWorkbench(index = fileIndex) {

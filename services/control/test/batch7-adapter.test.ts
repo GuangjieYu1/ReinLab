@@ -37,7 +37,7 @@ function wire() {
     },
   };
 }
-it("live clarification and human choice use receipt projection; estimate passes candidate only and confirmation never asks for another search", async () => {
+it.each(["1.2.0", "1.2.2"])("live clarification and human choice use receipt projection (%s); estimate passes candidate only and confirmation never asks for another search", async (benchVersion) => {
   const data = wire(),
     calls: any[] = [];
   const api = vi.fn(async (path: string, body?: any, key?: string) => {
@@ -52,7 +52,7 @@ it("live clarification and human choice use receipt projection; estimate passes 
     }
     if (path.endsWith("/harness?view=read"))
       return {
-        version: "1.2.0",
+        version: benchVersion,
         entrypoints: { read: "research-read" },
         roles: { "research-read": { steps: 48 } },
       };

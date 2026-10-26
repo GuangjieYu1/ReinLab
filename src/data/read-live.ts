@@ -104,7 +104,9 @@ export function createLiveReadAdapter(
     sourceVersion = 0,
     createKey: string | undefined,
     creating: Promise<boolean> | undefined,
-    loading: Promise<ReadSnapshot> | undefined;
+    loading: Promise<ReadSnapshot> | undefined,
+    // 「换一篇」把上一次的选择清掉后，界面回到起始卡：旧 run 的标题不再挡着改选。
+    dropped = false;
   const current = () => {
     if (generation !== ports.generation()) throw unavailable();
   };
@@ -206,6 +208,19 @@ export function createLiveReadAdapter(
     runId = data.run?.id;
     cursor = data.cursor;
     snapshot = projectReading(data, events, snapshot.paper?.id);
+    if (dropped && !snapshot.run.chosen && !snapshot.paper)
+      snapshot = {
+        ...snapshot,
+        run: {
+          state: "idle",
+          budgetCny: snapshot.run.budgetCny ?? 5,
+          spentCny: snapshot.run.spentCny ?? null,
+          clarifySpentCny: snapshot.run.clarifySpentCny,
+          clarifyCapCny: snapshot.run.clarifyCapCny,
+          clarifyUnknownCost: snapshot.run.clarifyUnknownCost,
+        },
+      };
+    else if (snapshot.run.chosen || snapshot.paper) dropped = false;
     // Committed clarification events may arrive after the estimate response.
     // Preserve a still-valid quote for the same selection; never let SSE reset its confirmation.
     if (
@@ -495,12 +510,14 @@ export function createLiveReadAdapter(
       current();
       try {
         if (!dossier) throw unavailable();
+        // 已回答过的候选卡也能改选：后端从 read_candidate 里换，不调模型。
         await clarifyMutation("/v1/dossiers/" + dossier + "/read/pick", {
           pickId,
           candidateId,
         });
         quote = undefined;
         quoteVersion++;
+        dropped = false;
         await refreshSerially();
       } catch {
         if (generation === ports.generation())
@@ -519,6 +536,7 @@ export function createLiveReadAdapter(
         quote = undefined;
         intent = undefined;
         quoteVersion++;
+        dropped = true;
         await refreshSerially();
       } catch {
         if (generation === ports.generation())
@@ -557,13 +575,18 @@ export function createLiveReadAdapter(
           "/v1/dossiers/" + dossier + "/harness?view=read"
         );
         current();
+        // 用数值比较，别再写死版本列表：1.2.x 起预估必须带人工选定的 candidateId。
+        const [major, minor] = String(harness.version)
+            .split(".")
+            .map(Number),
+          chosenFlow = major > 1 || (major === 1 && minor >= 2);
         if (
           version !== quoteVersion ||
           dossier !== expected ||
-          !["1.1.0", "1.2.0"].includes(harness.version)
+          !(major > 1 || (major === 1 && minor >= 1))
         )
           throw Error("旧工作台档案请新建精读，不会静默升级。");
-        const candidateId = harness.version === "1.2.0" ? query : undefined;
+        const candidateId = chosenFlow ? query : undefined;
         if (candidateId && snapshot.run.chosen?.id !== candidateId)
           throw unavailable();
         const role = harness.entrypoints.read,

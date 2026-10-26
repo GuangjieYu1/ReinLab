@@ -183,7 +183,7 @@ export class CapabilityEngine {
       if (!conforms(capability.input, request.args))
         throw fail("CAPABILITY_INPUT_INVALID", 400);
       if (
-        ["1.2.0", "1.2.1"].includes(auth.claims.version) &&
+        ["1.2.0", "1.2.1", "1.2.2"].includes(auth.claims.version) &&
         auth.claims.role === "research-read" &&
         ["papers.fetch", "papers.pages"].includes(request.capability)
       ) {

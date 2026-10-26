@@ -282,10 +282,39 @@ export function projectReading(
     cancelled: "cancelled",
     interrupted: "failed",
   };
+  // 运行为什么结束：界面据此写标题（不再一律「已完成」）。
+  const ended =
+      !!r &&
+      (Boolean(r.endedAt) ||
+        ["completed", "failed", "cancelled", "interrupted"].includes(r.state)),
+    rejectedDownload = data.approvals.some(
+      (a: any) =>
+        a.runId === r?.id &&
+        a.state === "rejected" &&
+        String(a.action ?? "").startsWith("papers.")
+    ),
+    endReason: NonNullable<RunView["endReason"]> | undefined = !ended
+      ? undefined
+      : r!.state === "failed" || r!.state === "interrupted"
+      ? "failed"
+      : r!.state === "cancelled"
+      ? "cancelled"
+      : r!.state === "paused_budget"
+      ? "budget"
+      : rejectedDownload
+      ? "rejected"
+      : p?.access === "abstract_only"
+      ? "abstract_only"
+      : "completed";
   const run: RunView = r
     ? {
         id: r.id,
-        state: states[r.state] ?? "failed",
+        state:
+          r.state === "paused_budget"
+            ? r.endedAt
+              ? "cancelled"
+              : "waiting"
+            : states[r.state] ?? "failed",
         query: r.query,
         budgetCny: r.budgetCny,
         spentCny: r.spentCny,
@@ -293,6 +322,25 @@ export function projectReading(
         ...(r.state === "paused_budget" ? { step: "预算暂停，等待核对" } : {}),
         ...(r.state === "interrupted"
           ? { message: "运行已中断，已保存结果保留；不会自动重新派发模型。" }
+          : {}),
+        ...(endReason ? { endReason } : {}),
+        ...(r.accounting && typeof r.accounting === "object"
+          ? {
+              accounting: {
+                status: r.accounting.status,
+                knownCny:
+                  typeof r.accounting.knownCny === "number"
+                    ? r.accounting.knownCny
+                    : null,
+                totalCny:
+                  typeof r.accounting.totalCny === "number"
+                    ? r.accounting.totalCny
+                    : null,
+                ...(typeof r.accounting.reason === "string"
+                  ? { reason: r.accounting.reason }
+                  : {}),
+              },
+            }
           : {}),
       }
     : { state: "idle", budgetCny: 5, spentCny: null };

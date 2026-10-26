@@ -37,7 +37,7 @@ export const BenchRole = z
       .optional(),
     model_cap: z
       .object({
-        cny: z.literal(0.05),
+        cny: z.union([z.literal(0.05), z.literal(0.5)]),
         rounds: z.literal(6),
         output_tokens: z.union([z.literal(256), z.literal(512)]),
       })

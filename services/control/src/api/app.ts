@@ -249,7 +249,7 @@ export async function createApp(options: {
     app.get("/mcp/clarify-candidates", async (c) => {
       const token = c.req.header("authorization")?.match(/^Bearer (\S+)$/)?.[1],
         a = await options.mcp!.authority.validate(token);
-      if (a.claims.role !== "research-clarify" || !["1.2.0", "1.2.1"].includes(a.claims.version))
+      if (a.claims.role !== "research-clarify" || !["1.2.0", "1.2.1", "1.2.2"].includes(a.claims.version))
         throw denied();
       const requested = c.req.query('paperIds')?.split(',');
       if (requested && (!requested.length || requested.length>5 || new Set(requested).size!==requested.length || requested.some(id=>!/^W[0-9]{1,30}$/.test(id)))) throw denied();

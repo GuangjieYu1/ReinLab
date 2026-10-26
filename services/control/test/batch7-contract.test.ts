@@ -9,13 +9,13 @@ import { materializeHarnessRole } from "../src/harness/materialize";
 it("research1.2 publishes a cheap search-only clarification role with immutable model ceiling; old1.1 stays readable", async () => {
   const registry = await loadToolRegistry(),
     bundle = await loadBenchBundle({ benchId: "research", registry });
-  expect(bundle.manifest.version).toBe("1.2.1");
+  expect(bundle.manifest.version).toBe("1.2.2");
   const role = bundle.manifest.roles["research-clarify"];
   expect(role).toMatchObject({
     model_slot: "cheap",
     steps: 6,
     write_targets: [],
-    model_cap: { cny: 0.05, rounds: 6, output_tokens: 512 },
+    model_cap: { cny: 0.5, rounds: 6, output_tokens: 512 },
   });
   expect(
     compileCapabilityGrants(role, await loadCapabilityCatalog()).map(

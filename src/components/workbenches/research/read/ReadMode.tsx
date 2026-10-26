@@ -25,6 +25,8 @@ const ANIMS: { id: Anim; title: string; en: string; ref: string }[] = [
   { id: 'heads', title: '多头注意力', en: 'MULTI-HEAD', ref: 's322' },
 ];
 const clock = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const END_TEXT: Record<NonNullable<RunView['endReason']>, string> = { completed: '已完成', rejected: '已停止 · 没有下载', cancelled: '已停止', budget: '预算用完，已暂停', abstract_only: '没拿到全文', failed: '出错停止' };
+const runText = (r: RunView) => (r.endReason && (r.state === 'done' || r.state === 'cancelled' || r.state === 'failed') ? END_TEXT[r.endReason] : RUN_TEXT[r.state]);
 const RUN_TEXT: Record<RunView['state'], string> = { idle: '未开始', estimating: '正在预估', confirm: '等你确认预算', queued: '排队中', running: '运行中', waiting: '等你批准', done: '已完成', failed: '失败', cancelled: '已停止' };
 const active = (r: RunView) => r.state === 'queued' || r.state === 'running' || r.state === 'waiting';
 const money = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `¥${v < 0.1 ? v.toFixed(3) : v.toFixed(2)}`);
@@ -42,6 +44,10 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
   const [understood, setUnderstood] = useState<Record<string, Grade>>({});
   const [ran, setRan] = useState<'idle' | 'running' | 'done'>('idle');
   const [asking, setAsking] = useState(false);
+  // 「预算余额」卡片：记下点开时对话流的位置，卡片插在那里，内容随运行实时更新
+  const [budgetAt, setBudgetAt] = useState<number[]>([]);
+  // 澄清被挡住（上限 / 上一段没结束）时不会再有回话，别让「工作中」一直转
+  useEffect(() => { if (state?.run.clarifyBlocked) setAsking(false); }, [state?.run.clarifyBlocked]);
   const cite = (refs: string[]) => { setFocus(refs); setPing(Date.now()); };
   const openAnim = (a: Anim) => { setAnim(a); setFace('lab'); };
 
@@ -57,7 +63,7 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
   const seenLog = useRef(0);
   useEffect(() => {
     const log = state?.log ?? [];
-    for (const e of log.slice(seenLog.current)) if (e.type === 'agent') { if (e.refs?.length) cite(e.refs); if (e.anim && state?.anims.includes(e.anim)) openAnim(e.anim as Anim); setAsking(false); }
+    for (const e of log.slice(seenLog.current)) if (e.type === 'agent') { if (e.refs?.length) cite(e.refs); if (e.anim && state?.anims.includes(e.anim)) openAnim(e.anim as Anim); setAsking(false); } else if (e.type === 'pick') setAsking(false);
     seenLog.current = log.length;
   }, [state?.log.length]);
   // 第一次拿到数据时，从第一层开始高亮
@@ -72,35 +78,38 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
   const dispatch = (to: 'swarm' | 'auto', text: string) => { onDispatch(to, text); };
   const ask = (text: string) => { setAsking(true); void adapter.ask(text).catch(() => setAsking(false)); };
   // 还没开始读时，对话就是「澄清想读哪篇」
-  const talk = (text: string) => { if (paper) return ask(text); setAsking(true); void adapter.clarify(text).finally(() => setAsking(false)); };
+  const talk = (text: string) => { if (paper) return ask(text); setAsking(true); void adapter.clarify(text).catch(() => setAsking(false)); }; // 真实模式下 clarify 只是提交，等助手回话或列出候选才算答完
   const runRepro = () => {
     if (ran === 'running') return;
     setRan('running'); window.setTimeout(() => setRan('done'), reduced ? 60 : 2600);
   };
   const newReading = adapter.newReading ? async () => { await adapter.newReading!(); seenLayers.current = 0; seenLog.current = 0; setUnderstood({}); setFocus([]); setFace('explain'); setDepth(3); await reload(); } : undefined;
 
-  const events: DockEvent[] = state.log.map((e: ReadEvent): DockEvent | null => {
+  const logEvents: (DockEvent | null)[] = state.log.map((e: ReadEvent): DockEvent | null => {
     if (e.type === 'user') return { id: e.id, kind: 'user', text: e.text, at: at(e.id) };
     if (e.type === 'agent') return { id: e.id, kind: 'agent', at: at(e.id), text: <><p>{e.text}</p>{(e.refs?.length || (e.anim && state.anims.includes(e.anim))) && <p>{e.refs?.map(r => <b key={r} className="ad-ref" onClick={() => { setFace('explain'); cite([r]); }}>{paper?.sections.find(s => s.id === r)?.no ?? r}</b>)}{e.anim && state.anims.includes(e.anim) && <> · <b className="ad-ref" onClick={() => openAnim(e.anim as Anim)}>打开动画</b></>}</p>}</> };
     if (e.type === 'tool') return { id: e.id, kind: 'tool', action: e.action, label: e.label, state: e.state, detail: e.detail, ms: e.ms };
-    if (e.type === 'pick') return { id: e.id, kind: 'card', body: <PickCard e={e} onPick={c => void adapter.pick(e.id, c)} /> };
+    if (e.type === 'pick') return { id: e.id, kind: 'card', body: <PickCard e={e} repick={!run.chosen && !paper && (run.state === 'idle' || run.state === 'confirm')} onPick={c => void adapter.pick(e.id, c)} /> };
     if (e.type === 'approval') return { id: e.id, kind: 'approval', action: e.action, title: e.title, effects: e.effects, risk: e.risk, state: e.state, onApprove: () => void adapter.decide(e.id, true), onReject: () => void adapter.decide(e.id, false) };
     return null;
-  }).filter((x): x is DockEvent => x !== null);
+  });
+  const events: DockEvent[] = [];
+  logEvents.forEach((e, i) => { if (e) events.push(e); budgetAt.forEach((pos, k) => { if (pos === i + 1) events.push({ id: `budget-${k}`, kind: 'card', body: <BudgetCard run={run} adapter={adapter} reading={!!paper} /> }); }); });
+  budgetAt.forEach((pos, k) => { if (pos === 0) events.unshift({ id: `budget-${k}`, kind: 'card', body: <BudgetCard run={run} adapter={adapter} reading={!!paper} /> }); });
+  const showBudget = () => setBudgetAt(b => [...b, state.log.length]);
   const pending = state.log.filter((e): e is Extract<ReadEvent, { type: 'approval' }> => e.type === 'approval' && e.state === 'pending');
 
   const okCount = Object.values(understood).filter(v => v === 'ok').length;
-  const suggestions: Suggestion[] = !paper ? (run.chosen || active(run) ? [] : [
-    { id: 'e1', label: '讲智能体边推理边行动的那篇', onClick: () => talk('讲智能体边推理边行动的那篇') },
-    { id: 'e2', label: 'react', onClick: () => talk('react') },
-    { id: 'e3', label: 'Transformer 的原始论文', onClick: () => talk('Transformer 的原始论文 attention') },
-  ]) : face === 'lab' ? [
-    { id: 'a', label: '为什么要除以根号 d？', onClick: () => ask('为什么要除以根号 d？') },
-    { id: 'b', label: '位置编码怎么表达顺序？', onClick: () => ask('位置编码怎么表达顺序？') },
+  // 常用指令：预算、推荐、按编号找；读的时候换成对这篇通用的追问。
+  const budgetTip: Suggestion = { id: 'budget', label: '预算余额', hint: '看还剩多少钱，可以在卡片里加预算', onClick: showBudget };
+  const suggestions: Suggestion[] = !paper ? [
+    budgetTip,
+    { id: 'rec', label: '给我推荐三篇论文', hint: '助手按常被精读、有开放全文的挑三篇，你来选', onClick: () => talk('给我推荐三篇值得精读、有开放全文的论文') },
+    { id: 'id', label: '用 arXiv 编号或链接找', hint: '填编号或链接最准，不用来回澄清', fill: 'arXiv ' },
   ] : [
-    { id: 'q', label: 'Q、K、V 分别是什么？', onClick: () => ask('Q、K、V 分别是什么？') },
-    { id: 'f', label: '为什么它比循环网络快？', onClick: () => ask('为什么它比循环网络快？') },
-    { id: 's', label: '派给群研：后来怎么解决长文本？', onClick: () => dispatch('swarm', '注意力计算量随长度平方增长，后续工作如何解决长文本？') },
+    budgetTip,
+    { id: 'core', label: '一句话讲清核心贡献', onClick: () => ask('用一句话讲清这篇论文的核心贡献，并标出原文位置') },
+    { id: 'limit', label: '它的局限在哪？', onClick: () => ask('这篇论文自己承认或明显存在的局限是什么？标出原文位置') },
   ];
 
   const sections: ExplorerSection[] = [
@@ -120,7 +129,7 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
     faces={[{ id: 'explain', label: '解析', en: 'EXPLAIN' }, { id: 'lab', label: '动画', en: 'LAB' }, { id: 'repro', label: '复现', en: 'REPRODUCE', badge: ran === 'done' ? 3 : 0 }, { id: 'check', label: '检验', en: 'CHECK', badge: okCount }]}
     strip={<>READ <i>·</i> {paper?.venue ?? '新档案'} <i>·</i> 理解 {okCount}/{quizzes.length}</>} tools={modeSwitch}
     shutterLines={f => [`> open dossier · ${state.dossier.title.toLowerCase()}`, `> face · ${f.en.toLowerCase()}`, '> ready']}
-    status={<><span><i className="en-sq" />精读</span><span>{paper?.title ?? state.dossier.title}</span><span>解析 {Math.min(depth, layers.length)}/{layers.length || 5} 层</span><span>理解 {okCount}/{quizzes.length}</span><span>{RUN_TEXT[run.state]} · {money(run.spentCny)}{run.unknownCost ? ' + 未知' : ''}</span>{!paper && <span>澄清 {money(run.clarifySpentCny ?? 0)}{run.clarifyUnknownCost ? ' + 未知' : ''} / ¥{run.clarifyCapCny ?? 0.05}</span>}<span>{adapter.kind === 'mock' ? '示例数据 · 不连接模型' : '真实数据'}</span></>}>
+    status={<><span><i className="en-sq" />精读</span><span>{paper?.title ?? state.dossier.title}</span><span>解析 {Math.min(depth, layers.length)}/{layers.length || 5} 层</span><span>理解 {okCount}/{quizzes.length}</span><span>{RUN_TEXT[run.state]} · {money(run.spentCny)}{run.unknownCost ? ' + 未知' : ''}</span>{!paper && <span>澄清 {money(run.clarifySpentCny ?? 0)} / ¥{run.clarifyCapCny ?? 0.5}</span>}<span>{adapter.kind === 'mock' ? '示例数据 · 不连接模型' : '真实数据'}</span></>}>
     <XpHost sections={sections} title={paper?.venue ?? '新档案'}>
       <section className="rd-center" data-wb-panel>
         {(run.state !== 'idle' && paper) && <RunBar run={run} onStop={() => void adapter.cancel()} pending={pending.length} />}
@@ -148,9 +157,9 @@ function XpHost({ sections, title, children }: { sections: ExplorerSection[]; ti
 /* ———— 运行状态条 ———— */
 function RunBar({ run, onStop, pending }: { run: RunView; onStop: () => void; pending: number }) {
   return <div className="rd-runbar" data-state={run.state}>
-    <span className="rd-run-chip"><i />{RUN_TEXT[run.state]}</span>
+    <span className="rd-run-chip"><i />{runText(run)}</span>
     <span className="rd-run-step">{run.message ?? run.step ?? (run.state === 'done' ? '这次精读已完成' : '')}{pending > 0 && <b> · 右边有 {pending} 个审批等你</b>}</span>
-    <span className="rd-run-cost"><small>已花</small><b>{money(run.spentCny)}</b>{run.unknownCost && <em>+ 未知用量</em>}<small>/ 预算 ¥{run.budgetCny}</small></span>
+    <span className="rd-run-cost"><small>已花</small><b>{money(run.accounting?.totalCny ?? run.accounting?.knownCny ?? run.spentCny)}</b>{(run.unknownCost || run.accounting?.status === 'unknown') && <em>+ 未知用量</em>}{run.accounting?.status === 'pending' && <em>费用待核对</em>}<small>/ 预算 ¥{run.budgetCny}</small></span>
     {active(run) && <button className="rh-btn" onClick={onStop}>停止</button>}
   </div>;
 }
@@ -169,15 +178,23 @@ function Start({ run, adapter, pending, onNew }: { run: RunView; adapter: ReadAd
   return <div className="rd-start">
     <div className="rd-start-card">
       <span className="rh-micro">NEW READING · 新的精读</span>
+      {!c && before && run.clarifyBlocked && <div className="rd-blocked" role="alert" data-reason={run.clarifyBlocked.reason}>
+        <b>{run.clarifyBlocked.reason === 'cap' ? '澄清用到上限了' : '上一段澄清还没结束'}</b>
+        <p>{run.clarifyBlocked.text}</p>
+        <div>{run.clarifyBlocked.reason === 'cap'
+          ? <button className="rd-go" disabled={!adapter.raiseBudget} onClick={() => void adapter.raiseBudget?.('clarify', 0.5)}>澄清上限加 ¥0.5</button>
+          : <button className="rd-go" disabled={!adapter.cancelClarify} onClick={() => void adapter.cancelClarify?.()}>结束这段澄清，重新说</button>}
+          {!(run.clarifyBlocked.reason === 'cap' ? adapter.raiseBudget : adapter.cancelClarify) && <small>真实模式尚未接入这个按钮</small>}</div>
+      </div>}
       {!c && before && <>
         <h2>想读哪篇？</h2>
         <p className="rd-start-lead">在右边告诉精读助手，说得模糊也没关系，比如「讲智能体边推理边行动的那篇」。它会检索，拿不准就问你，再把候选论文列出来让你选。</p>
         <ol className="rd-start-steps"><li data-now><b>01</b>对话说清读哪篇</li><li><b>02</b>按这篇预估费用</li><li><b>03</b>你确认后开始读</li></ol>
-        <small className="rd-start-note">澄清对话用便宜档模型，上限 ¥{run.clarifyCapCny ?? 0.05}，不单独确认；已用 {money(run.clarifySpentCny ?? 0)}{run.clarifyUnknownCost ? ' + 未知' : ''}。</small>
+        <small className="rd-start-note">澄清对话用便宜档模型，上限 ¥{run.clarifyCapCny ?? 0.5}，不单独确认；已用 {money(run.clarifySpentCny ?? 0)}{run.clarifyUnknownCost ? ' + 未知' : ''}。不够可以在右边「预算余额」里加。</small>
       </>}
       {c && before && <>
         <h2>读这篇</h2>
-        <div className="rd-chosen"><span><b>{c.title}</b><small>{c.authors} · {c.venue}{c.pages ? ` · ${c.pages} 页` : ''} · {c.access === 'full' ? '有开放全文' : '只有摘要'}</small></span>
+        <div className="rd-chosen"><span><b>{c.title}</b><small>{shortAuthors(c.authors)} · {c.venue}{c.pages ? ` · ${c.pages} 页` : ''} · {c.access === 'full' ? '有开放全文' : '只有摘要'}</small></span>
           {run.state !== 'estimating' && <button className="rh-btn" onClick={() => void adapter.unchoose()}>换一篇</button>}</div>
         <label className="rd-start-b"><span>预算上限</span><b>¥</b><input type="number" min={0.5} max={50} step={0.5} value={budget} onChange={e => setBudget(Number(e.target.value))} disabled={run.state === 'estimating'} /><small>默认 ¥5，超过就停下问你</small></label>
         {err && <p className="rd-start-err" role="alert">{err}</p>}
@@ -198,23 +215,53 @@ function Start({ run, adapter, pending, onNew }: { run: RunView; adapter: ReadAd
         <button className="rh-btn" onClick={() => void adapter.cancel()}>停止</button>
       </div>}
       {(run.state === 'done' || run.state === 'cancelled' || run.state === 'failed') && <div className="rd-start-run">
-        <h2>{RUN_TEXT[run.state]}</h2>
+        <h2>{runText(run)}</h2>
         <p><span><small>{run.message ?? ''} 已花 {money(run.spentCny)}{run.unknownCost ? '，另有未知用量' : ''}。</small></span></p>
-        {onNew && <button className="rd-go" onClick={onNew}>重新开始</button>}
+        {run.endReason === 'abstract_only' && <p className="rd-start-err">这篇在公开来源里只拿到摘要，没有编造讲解。可以换一篇有全文的；上传 PDF、按摘要讲解会在后续接入。</p>}
+        <div className="rd-end-act">
+          {run.endReason === 'abstract_only' && c && <button className="rh-btn" onClick={() => void adapter.unchoose()}>换一篇</button>}
+          {onNew && <button className="rd-go" onClick={onNew}>重新开始</button>}
+        </div>
       </div>}
     </div>
   </div>;
 }
 
+/** 「预算余额」卡片：澄清与这次精读各自已花 / 上限，点按钮加预算（点了就算确认）。 */
+function BudgetCard({ run, adapter, reading }: { run: RunView; adapter: ReadAdapter; reading: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const raise = async (scope: 'clarify' | 'read', add: number) => { if (!adapter.raiseBudget || busy) return; setBusy(true); try { await adapter.raiseBudget(scope, add); } finally { setBusy(false); } };
+  const cs = run.clarifySpentCny ?? 0, cc = run.clarifyCapCny ?? 0.5;
+  const rs = run.spentCny, rb = run.budgetCny;
+  const bar = (used: number, cap: number) => <i className="rd-bud-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, cap > 0 ? used / cap * 100 : 0)}%` }} /></i>;
+  const started = run.state !== 'idle' && run.state !== 'estimating' && run.state !== 'confirm';
+  return <div className="rd-bud">
+    <b className="rh-micro">BUDGET · 预算余额</b>
+    <div className="rd-bud-row"><span>澄清对话</span><em>{money(cs)}{run.clarifyUnknownCost ? ' + 未知' : ''} / ¥{cc}</em>{bar(cs, cc)}
+      <small>剩 ¥{Math.max(0, cc - cs).toFixed(3)}</small>
+      <button className="rh-btn" disabled={!adapter.raiseBudget || busy} onClick={() => void raise('clarify', 0.5)}>+ ¥0.5</button></div>
+    <div className="rd-bud-row"><span>{reading || started ? '这次精读' : '精读预算'}</span><em>{started ? `${money(rs)}${run.unknownCost ? ' + 未知' : ''} / ¥${rb}` : `¥${rb}`}</em>{started && bar(rs ?? 0, rb)}
+      <small>{started ? `剩 ¥${Math.max(0, rb - (rs ?? 0)).toFixed(2)}` : '开始前在中间改'}</small>
+      {started && <span className="rd-bud-add"><button className="rh-btn" disabled={!adapter.raiseBudget || busy} onClick={() => void raise('read', 1)}>+ ¥1</button><button className="rh-btn" disabled={!adapter.raiseBudget || busy} onClick={() => void raise('read', 5)}>+ ¥5</button></span>}</div>
+    {!adapter.raiseBudget && <small className="rd-bud-note">加预算在真实模式尚未接入。</small>}
+    {(run.clarifyUnknownCost || run.unknownCost) && <small className="rd-bud-note">「+ 未知」：有调用的用量还没回来，核对后补上，不按 0 算。</small>}
+  </div>;
+}
+
+/** 作者太多时只留前 3 位：「A、B、C 等」。 */
+const shortAuthors = (a: string) => { const xs = a.split(/[、,，;；]\s*/).filter(Boolean); return xs.length > 3 ? `${xs.slice(0, 3).join('、')} 等` : a; };
+
 /** 对话里的候选论文卡片：你点一篇才算选定，AI 不替你决定。 */
-function PickCard({ e, onPick }: { e: Extract<ReadEvent, { type: 'pick' }>; onPick: (id: string | null) => void }) {
-  const done = e.state !== 'pending';
+function PickCard({ e, onPick, repick = false }: { e: Extract<ReadEvent, { type: 'pick' }>; onPick: (id: string | null) => void; repick?: boolean }) {
+  // 答过的卡默认锁住；「换一篇」之后（repick）可以直接改选，不必再让助手列一次
+  const done = e.state !== 'pending' && !repick;
   return <div className="rd-pick" data-done={done || undefined}>
     <b>候选 · 「{e.query}」</b>
     <ul>{e.candidates.map(c => <li key={c.id}><button disabled={done} aria-pressed={e.chosen === c.id} onClick={() => onPick(c.id)}>
-      <span><b>{c.title}</b><small>{c.authors} · {c.venue}{c.pages ? ` · ${c.pages} 页` : ''} · {c.access === 'full' ? '有开放全文' : '只有摘要'}</small></span>{c.note && <em>{c.note}</em>}</button></li>)}</ul>
+      <span><b>{c.title}</b><small>{shortAuthors(c.authors)} · {c.venue}{c.pages ? ` · ${c.pages} 页` : ''} · {c.access === 'full' ? '有开放全文' : '只有摘要'}</small></span>{c.note && <em>{c.note}</em>}</button></li>)}</ul>
     {!done && <button className="rh-btn" onClick={() => onPick(null)}>都不是</button>}
     {done && <small>{e.chosen ? '已选定' : '都不是'}</small>}
+    {repick && e.state !== 'pending' && <small>可以直接改选另一篇</small>}
   </div>;
 }
 

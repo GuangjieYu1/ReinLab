@@ -16,14 +16,14 @@ const insert = (f: Awaited<ReturnType<typeof fixture>>, hash: string, maximum: n
 const receipt = (promptTokens = 1000, completionTokens = 100) => ({ promptTokens, completionTokens, costUpperMicros: Math.ceil((promptTokens * 216 + completionTokens * 864) / 100), responseSha256: 'f'.repeat(64), responseModel: 'deepseek-flash', pricingVersion: DEEPSEEK_PRICING_VERSION, observedAt: Date.now() });
 const complete = (f: Awaited<ReturnType<typeof fixture>>, hash: string, proof: unknown = receipt()) => f.db.withAccount(f.account, c => c.query("update clarify_model_request set state='completed',response_receipt=$2 where body_hash=$1", [hash, JSON.stringify(proof)]));
 
-it('DB serializes simultaneous model claims, preserves unknown and refuses a total above 50000 micro-CNY', async () => {
+it('DB serializes simultaneous model claims, preserves unknown and refuses a total above 500000 micro-CNY', async () => {
   const f = await fixture();
   try {
-    const claims = await Promise.allSettled([insert(f, 'a'.repeat(64), 30000), insert(f, 'b'.repeat(64), 30000)]);
+    const claims = await Promise.allSettled([insert(f, 'a'.repeat(64), 300000), insert(f, 'b'.repeat(64), 300000)]);
     expect(claims.filter(r => r.status === 'fulfilled')).toHaveLength(1);
     const hash = (await f.admin.query('select body_hash from clarify_model_request where dossier_id=$1', [f.dossier])).rows[0].body_hash;
     await complete(f, hash, receipt(9255, 1)); // Conservative known charge is exactly 20000.
-    await expect(insert(f, 'c'.repeat(64), 30001)).rejects.toMatchObject({ code: '23514' });
+    await expect(insert(f, 'c'.repeat(64), 480001)).rejects.toMatchObject({ code: '23514' });
     await expect(f.db.withAccount(f.account, c => c.query("update clarify_model_request set state='forwarding' where body_hash=$1", [hash]))).rejects.toMatchObject({ code: '23514' });
     await insert(f, 'd'.repeat(64), 1);
     await f.db.withAccount(f.account, c => c.query("update clarify_model_request set state='unknown' where body_hash=$1", ['d'.repeat(64)]));

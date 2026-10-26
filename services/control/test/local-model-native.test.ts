@@ -20,7 +20,7 @@ import { createApp } from "../src/api/app";
 import { localPeakPricing } from "../src/model/peak-pricing";
 import { bootstrapMcp } from "../../account-runtime/mcp/store.mjs";
 import { startNativeRoleServer } from "./fixtures/role-provider";
-it.each([{clarify:true,version:"1.2.0",output:256},{clarify:true,version:"1.2.1",output:512},{clarify:false,version:"1.1.0",output:1024}])(
+it.each([{clarify:true,version:"1.2.0",output:256},{clarify:true,version:"1.2.2",output:512},{clarify:false,version:"1.1.0",output:1024}])(
   "native real-mode role $version clarify=$clarify routes actual SDK body through host-only runtime audience",
   async ({clarify,version,output}) => {
     const f = await mcpFixture(

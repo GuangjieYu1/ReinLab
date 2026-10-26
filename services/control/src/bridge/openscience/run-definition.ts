@@ -180,6 +180,12 @@ export function createHarnessRunDefinitionLoader(
           grants: scope.grants
             .map((g) => ({ ...g, risk: row.catalog.capabilities[g.name].risk }))
             .map(({ writeTargets: _targets, ...g }) => g),
+          inputs: Object.fromEntries(
+            scope.grants.map((g) => [
+              g.name,
+              row.catalog.capabilities[g.name].input,
+            ])
+          ),
           aliases: Object.fromEntries(
             Object.entries(
               row.catalog.aliases as Record<
@@ -207,7 +213,7 @@ export function createHarnessRunDefinitionLoader(
           ...(mcp ? { mcp } : {}),
           ...(_options.realModels &&
           ["research-read", "research-clarify"].includes(row.role_id) &&
-          ["1.1.0", "1.2.0", "1.2.1"].includes(row.version)
+          ["1.1.0", "1.2.0", "1.2.1", "1.2.2"].includes(row.version)
             ? { modelGateway: true as const }
             : {}),
         }),

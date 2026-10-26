@@ -818,13 +818,23 @@ async function settleAmount(
         dedupeKey: "budget-warning:" + id + ":" + observed.budget_revision,
       });
     }
+    // 用量未知只影响记账与后续花钱，不改写内核的终态：已结束的运行保持 completed/failed；
+    // 预留继续保留（hold=unpriced），结算状态由 accounting 单独表达。
+    const terminated =
+      observed.ended_at !== null ||
+      ["completed", "failed", "cancelled", "interrupted"].includes(
+        observed.state,
+      );
     if (
-      unknown ||
-      reservationOverrun ||
-      micros(observed.spent_cny) >= micros(observed.budget_cny) ||
-      (observed.quota_runs > 0 &&
+      (unknown && !terminated) ||
+      (!unknown && reservationOverrun) ||
+      (!unknown && micros(observed.spent_cny) >= micros(observed.budget_cny)) ||
+      (!unknown &&
+        observed.quota_runs > 0 &&
         observed.quota_runs >= observed.quota_limit) ||
-      (observed.gpu_seconds > 0 && observed.gpu_seconds >= observed.gpu_limit)
+      (!unknown &&
+        observed.gpu_seconds > 0 &&
+        observed.gpu_seconds >= observed.gpu_limit)
     )
       await pause(
         client,
@@ -908,8 +918,19 @@ export async function settleObservedRun(
       409,
       "观察用量与费用明细不一致，需要先对账。",
     );
+  // 收尾核对：网关真正转发过的每一笔，都必须有一条原生用量。只收齐才算「完整」，
+  // 不能因为已经有一笔正费用就当全部核完。网关的上界只是上界，不另记一笔费用。
+  // 澄清有自己的预留/结算路径（clarify_model_request + 触发器），这里只核对观察路径的读运行。
+  const forwarded =
+    run.role_id === "research-clarify"
+      ? { rows: [{ calls: "0" }] }
+      : await client.query(
+          `select (select count(*) from runtime_model_request where account_id=$1 and run_id=$2 and state in ('completed','unknown'))::int calls`,
+          [accountId, runId],
+        );
+  const incomplete = Number(forwarded.rows[0]?.calls ?? "0") > Number(total.usage_count);
   let amount: bigint | null = null;
-  if (complete && total.usage_count !== "0" && total.unknown_count === "0") {
+  if (complete && !incomplete && total.usage_count !== "0" && total.unknown_count === "0") {
     try {
       amount = micros(total.amount);
     } catch {
@@ -934,7 +955,7 @@ export async function settleObservedRun(
     }
   }
   if (amount === null && hold.state === 'unpriced' && !hold.settlement_hash) {
-    const pending = await appendEvent(client,accountId,{dossierId:run.dossier_id,runId,kind:'gate',action:'os_usage_pending',payload:{holdId:hold.id,reason:'usage_unknown'},dedupeKey:'os-usage-pending:'+hold.id});
+    const pending = await appendEvent(client,accountId,{dossierId:run.dossier_id,runId,kind:'gate',action:'os_usage_pending',payload:{holdId:hold.id,reason:incomplete?'provider_usage_missing':'usage_unknown'},dedupeKey:'os-usage-pending:'+hold.id});
     return {eventSeq:pending.seq,settled:false,costCny:null,reconciled:false};
   }
   return settleAmount(
@@ -950,6 +971,41 @@ export async function settleObservedRun(
     amount,
     true,
   );
+}
+/** 结算状态单独表达：终态 run 也可以「费用待核对」。不另造费用来源，只用已入账的明细。 */
+export async function runAccounting(
+  client: pg.PoolClient,
+  accountId: string,
+  runId: string,
+) {
+  const row = (
+    await client.query(
+      `select
+        (select count(*)::int from os_usage u where u.account_id=$1 and u.run_id=$2) usages,
+        (select count(*)::int from os_usage u where u.account_id=$1 and u.run_id=$2 and u.cost_cny is null) "unknownUsages",
+        (select coalesce(sum(u.cost_cny),0)::text from os_usage u where u.account_id=$1 and u.run_id=$2 and u.cost_cny is not null) known,
+        ((select count(*) from runtime_model_request m where m.account_id=$1 and m.run_id=$2 and m.state in ('completed','unknown'))
+         + (select count(*) from clarify_model_request m where m.account_id=$1 and m.run_id=$2 and m.state in ('completed','unknown')))::int calls,
+        (select coalesce(bool_or(b.usage_uncertain),false) from os_binding b where b.account_id=$1 and b.run_id=$2) uncertain,
+        (select h.state from budget_hold h where h.account_id=$1 and h.run_id=$2 order by h.created_at desc limit 1) hold`,
+      [accountId, runId],
+    )
+  ).rows[0];
+  const knownCny = Number(row.known),
+    missingProviderUsage = row.calls > row.usages,
+    unknown = missingProviderUsage || row.unknownUsages > 0 || row.uncertain;
+  if (unknown)
+    return {
+      status: "unknown" as const,
+      knownCny,
+      totalCny: null,
+      reason: missingProviderUsage ? "provider_usage_missing" : "usage_unknown",
+    };
+  if (row.usages === 0 && row.calls === 0)
+    return { status: "pending" as const, knownCny: null, totalCny: null };
+  if (row.hold === "settled")
+    return { status: "settled" as const, knownCny, totalCny: knownCny };
+  return { status: "pending" as const, knownCny, totalCny: null };
 }
 export async function increaseRunBudget(
   client: pg.PoolClient,

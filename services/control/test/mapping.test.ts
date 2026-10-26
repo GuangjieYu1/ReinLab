@@ -218,6 +218,72 @@ it("maps unknown types, unknown parts, broken required fields and invalid envelo
       action: "unmapped_event",
     });
 });
+it("tolerates unknown progress phases and missing display fields without touching accounting", () => {
+  // 新的/未知的 phase 与缺失的耗时字段只影响展示，不该把订阅判死，也不该影响费用完整性。
+  const unknownPhase = mapRuntimeEvent(
+    event("session.request.progress", {
+      sessionID: "ses_fixture",
+      messageID: "msg_fixture",
+      phase: "folding_context",
+      elapsedMs: -1,
+      stalls: "3",
+      extraField: "fixture",
+    }),
+    context,
+  );
+  expect(unknownPhase).toMatchObject({
+    kind: "gate",
+    action: "session_request_progress",
+    accountingImpact: "none",
+  });
+  expect(unknownPhase.diagnostic).toMatchObject({
+    code: "unknown_phase",
+    eventType: "session.request.progress",
+  });
+  const stored = unknownPhase.payload.properties as Record<string, unknown>;
+  expect(stored).toMatchObject({
+    sessionID: "ses_fixture",
+    phase: "folding_context",
+  });
+  expect(stored.elapsedMs).toBeUndefined();
+  expect(stored.extraField).toBeUndefined();
+  // 缺可选展示字段：省略即可，不算异常。
+  const sparse = mapRuntimeEvent(
+    event("session.request.progress", {
+      sessionID: "ses_fixture",
+      messageID: "msg_fixture",
+      phase: "streaming",
+    }),
+    context,
+  );
+  expect(sparse).toMatchObject({ accountingImpact: "none" });
+  expect(sparse.diagnostic).toBeUndefined();
+  // 给了但用不了（负数耗时、字符串 stalls）：省略并留一条被容忍的诊断。
+  expect(sparse.payload.properties).toMatchObject({
+    sessionID: "ses_fixture",
+    phase: "streaming",
+  });
+  // 身份仍然严格：没有 session/message 还是拒。
+  expect(
+    mapRuntimeEvent(event("session.request.progress", { phase: "streaming" }), context),
+  ).toMatchObject({ kind: "error", action: "unmapped_event" });
+});
+it("unknown types leave a bounded compatibility diagnostic and no accounting impact", () => {
+  const mapped = mapRuntimeEvent(
+    event("future.type", { secret: "fixture-value" }),
+    context,
+  );
+  expect(mapped).toMatchObject({
+    kind: "error",
+    action: "unmapped_event",
+    accountingImpact: "none",
+  });
+  expect(mapped.diagnostic).toMatchObject({
+    code: "unknown_event_type",
+    eventType: "future.type",
+  });
+  expect(JSON.stringify(mapped.payload)).not.toContain("fixture-value");
+});
 it("derives tool risk from own grants and never accepts metadata risk or prototype grants", () => {
   const part = { ...base, type: "tool", ...(parts.tool as object) };
   expect(

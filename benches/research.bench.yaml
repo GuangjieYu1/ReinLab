@@ -1,6 +1,6 @@
 schema: reinlab.bench/v1
 id: research
-version: 1.2.1
+version: 1.2.2
 code: RSCH
 title: 研究工作台
 ui: custom
@@ -22,10 +22,10 @@ entrypoints:
   auto: research-auto
 roles:
   research-clarify:
-    prompt: prompts/research/research-clarify-v1-2-1.md
+    prompt: prompts/research/research-clarify-v1-2-2.md
     model_slot: cheap
     steps: 6
-    model_cap: { cny: 0.05, rounds: 6, output_tokens: 512 }
+    model_cap: { cny: 0.5, rounds: 6, output_tokens: 512 }
     capability_allowlist: [papers.search]
     tools: { literature: allow }
     mcp: {}

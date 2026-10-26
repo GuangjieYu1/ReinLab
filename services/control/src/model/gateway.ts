@@ -57,6 +57,7 @@ async function responseBytes(response: Response) {
 function receipt(bytes: Buffer, wireBytes: number, output: number) {
   let done = false,
     finished = false,
+    truncated = false,
     usage: any;
   for (const line of bytes.toString().split(/\r?\n/)) {
     if (!line.startsWith("data:")) continue;
@@ -73,12 +74,12 @@ function receipt(bytes: Buffer, wireBytes: number, output: number) {
       )
     )
       finished = true;
-    if (
-      value.choices?.some((c: any) =>
-        ["length", "content_filter"].includes(c.finish_reason),
-      )
-    )
+    if (value.choices?.some((c: any) => c.finish_reason === "content_filter"))
       throw Error("MODEL_RESPONSE_UNKNOWN");
+    // Hitting the run's output ceiling is a complete, billable step: usage is
+    // reported, the cost bound still holds, and the client may continue.
+    if (value.choices?.some((c: any) => c.finish_reason === "length"))
+      truncated = true;
     if (value.usage) {
       const u = value.usage;
       if (
@@ -111,8 +112,14 @@ function receipt(bytes: Buffer, wireBytes: number, output: number) {
       usage = current;
     }
   }
-  if (!done || !finished || !usage) throw Error("MODEL_RESPONSE_UNKNOWN");
-  return { ...usage, observedAt: Date.now(), responseSha256: hash(bytes) };
+  if (!done || !(finished || truncated) || !usage)
+    throw Error("MODEL_RESPONSE_UNKNOWN");
+  return {
+    ...usage,
+    truncated,
+    observedAt: Date.now(),
+    responseSha256: hash(bytes),
+  };
 }
 /** Host-only paid egress. The account supplies a short-lived run token, never a provider key. */
 export function registerRuntimeModel(
@@ -159,7 +166,7 @@ export function registerRuntimeModel(
           run: auth.claims.run,
           role: auth.claims.role,
         };
-        const output = clarify ? (auth.claims.version === "1.2.1" ? 512 : 256) : 1024;
+        const output = clarify ? (["1.2.1", "1.2.2"].includes(auth.claims.version) ? 512 : 256) : 1024;
         if (
           Object.keys(body).some((k) => !keys.has(k)) ||
           body.model !== "deepseek-flash" ||

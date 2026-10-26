@@ -107,7 +107,7 @@ it("explicit clarification queues search-only cheap run once without confirmatio
       await f.admin.query("select * from run where id=$1", [value.runId])
     ).rows[0];
     expect(run.role_id).toBe("research-clarify");
-    expect(Number(run.budget_cny)).toBe(0.05);
+    expect(Number(run.budget_cny)).toBe(0.5);
     const scope = (
       await f.admin.query("select scope from mcp_run where run_id=$1", [
         value.runId,
@@ -116,7 +116,7 @@ it("explicit clarification queues search-only cheap run once without confirmatio
     expect(scope.grants.map((g: any) => g.name)).toEqual(["papers.search"]);
     const snap = await (await f.state()).json();
     expect(snap.run).toBeNull();
-    expect(snap.clarification.capCny).toBe(0.05);
+    expect(snap.clarification.capCny).toBe(0.5);
     expect(snap.clarification.chosen).toBeNull();
     expect(
       (
@@ -183,7 +183,15 @@ it.each(["research", "inbox", "reply"])(
           open_access: { is_oa: true },
           primary_location: { source: { display_name: "Fixture Venue" } },
         };
-      captureSearch(result, [work]);
+      const second = {
+        id: "https://openalex.org/W2",
+        title: "Second Fixture",
+        authorships: [{ author: { display_name: "B" } }],
+        biblio: { first_page: "1", last_page: "9" },
+        open_access: { is_oa: false },
+        primary_location: { source: { display_name: "Fixture Venue" } },
+      };
+      captureSearch(result, [work, second]);
       await f.db.withAccount(f.account, (c) =>
         publishSearch(c, f.account, f.dossier, f.run, "fixture-search", result)
       );
@@ -200,6 +208,9 @@ it.each(["research", "inbox", "reply"])(
               custom: entry === "reply",
               options: [
                 { label: "W1", description: "Attention Fixture" },
+                ...(entry === "reply"
+                  ? []
+                  : [{ label: "W2", description: "Second Fixture" }]),
                 { label: "都不是", description: "继续描述" },
               ],
             },
@@ -274,7 +285,10 @@ it.each(["research", "inbox", "reply"])(
         title: work.title,
         authors: "A",
         pages: 12,
+        // 只标了 is_oa、没有可下载 PDF 的论文按「只有摘要」算，别先说有全文。
+        access: "abstract_only",
       });
+      expect(pick.candidates[1].access).toBe("abstract_only");
       expect(
         (
           await f.post("/v1/runs/estimate", {
@@ -333,6 +347,34 @@ it.each(["research", "inbox", "reply"])(
           )
         ).rows[0].closed
       ).toBe(true);
+      // 「换一篇」之后，同一张已答的候选卡可以直接改选：不调模型，只换 read_candidate 里选定的那篇。
+      const beforeSwap = await (await f.state()).json();
+      const swapped = await f.post("/v1/dossiers/" + f.dossier + "/read/pick", {
+        pickId: approval,
+        candidateId: pick.candidates[1].id,
+      });
+      expect(swapped.status).toBe(201);
+      expect(await swapped.json()).toMatchObject({ accepted: true, repicked: true });
+      expect(runtime.decide).toHaveBeenCalledTimes(1);
+      const afterSwap = await (await f.state()).json();
+      expect(afterSwap.clarification.chosen?.id).toBe(pick.candidates[1].id);
+      expect(afterSwap.clarification.selectionRevision).toBeGreaterThan(
+        beforeSwap.clarification.selectionRevision
+      );
+      expect(
+        (
+          await f.post("/v1/runs/estimate", {
+            dossierId: f.dossier,
+            mode: "read",
+            candidateId: pick.candidates[1].id,
+          })
+        ).status
+      ).toBe(201);
+      expect(
+        (
+          await f.post("/v1/dossiers/" + f.dossier + "/read/unchoose", {})
+        ).status
+      ).toBe(200);
       expect(
         (
           await f.post("/v1/runs", {

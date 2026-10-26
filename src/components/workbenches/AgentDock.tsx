@@ -18,7 +18,8 @@ export type DockEvent =
 /** 新事件（id 可省略，由宿主生成）。对联合类型逐个去掉 id。 */
 export type DockDraft = DockEvent extends infer E ? E extends DockEvent ? Omit<E, 'id'> & { id?: string } : never : never;
 
-export type Suggestion = { id: string; label: string; onClick: () => void; hint?: string };
+/** 建议动作：onClick 直接执行；给了 fill 就只把这段文字填进输入框，等你补全后再发。 */
+export type Suggestion = { id: string; label: string; onClick?: () => void; fill?: string; hint?: string };
 
 const RISK_LABEL: Record<Risk, string> = { read: '只读', write: '写入 · 需审批', danger: '危险 · 只能你点' };
 
@@ -36,6 +37,8 @@ export default function AgentDock({ name, target, plan, suggestions, events, bus
   const [draft, setDraft] = useState('');
   const [planOpen, setPlanOpen] = useState(true);
   const list = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const use = (s: Suggestion) => { if (s.fill !== undefined) { setDraft(s.fill); requestAnimationFrame(() => { const el = input.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }); } else s.onClick?.(); };
   useEffect(() => { const el = list.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); }, [events.length, busy]);
   const submit = (event?: FormEvent) => { event?.preventDefault(); const text = draft.trim(); if (!text) return; onSend(text); setDraft(''); };
   return (
@@ -57,7 +60,7 @@ export default function AgentDock({ name, target, plan, suggestions, events, bus
       {loop && <div className="ad-loop"><Mobius stages={loop.stages} current={loop.current} running width={200} /></div>}
 
       <div className="ad-suggest" role="group" aria-label="建议动作">
-        {suggestions.map(s => <button key={s.id} className="rh-btn is-ghost" onClick={s.onClick} title={s.hint} disabled={busy}>{s.label}</button>)}
+        {suggestions.map(s => <button key={s.id} className="rh-btn is-ghost" onClick={() => use(s)} title={s.hint} disabled={busy && s.fill === undefined}>{s.label}</button>)}
       </div>
 
       <div className="ad-stream" ref={list} aria-live="polite">
@@ -66,7 +69,7 @@ export default function AgentDock({ name, target, plan, suggestions, events, bus
       </div>
 
       <form className="ad-input" onSubmit={submit}>
-        <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder={placeholder} rows={2}
+        <textarea ref={input} value={draft} onChange={e => setDraft(e.target.value)} placeholder={placeholder} rows={2}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
         <div><span className="rh-micro">{footnote ?? '@ 引用对象 · / 调用动作 · 写入需审批'}</span><button type="submit" className="rh-btn is-solid" disabled={!draft.trim()}>发送</button></div>
       </form>

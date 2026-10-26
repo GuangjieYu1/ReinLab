@@ -33,7 +33,7 @@ async function noFormal(c: any, dossier: string) {
   if (
     (
       await c.query(
-        "select id from run where dossier_id=$1 and role_id<>'research-clarify' and state in ('queued','running','waiting','paused_budget')",
+        "select id from run where dossier_id=$1 and role_id<>'research-clarify' and ended_at is null and state in ('queued','running','waiting','paused_budget')",
         [dossier]
       )
     ).rowCount
@@ -120,11 +120,11 @@ export async function clarificationView(c: any, dossier: string) {
       id: "clarify-unknown",
       text: "澄清已有已知花费 + 未知用量；未知部分仍保留预算，不按零记账，也不阻塞其他运行。",
     });
-  if (fence.rounds >= 6 || fence.reserved >= 50000)
+  if (fence.rounds >= 6 || fence.reserved >= 500000)
     history.push({
       type: "agent",
       id: "clarify-cap",
-      text: "澄清已达到最多6轮或¥0.05保守费用预留上限，已停止；不会偷偷提高预算。",
+      text: "澄清已达到最多6轮或¥0.5保守费用预留上限，已停止；不会偷偷提高预算。",
     });
   const stopped = (
     await c.query(
@@ -180,7 +180,7 @@ export async function clarificationView(c: any, dossier: string) {
   const chosen = await currentChoice(c, dossier);
   return {
     spentCny: Number(costs.spent),
-    capCny: 0.05,
+    capCny: 0.5,
     unknownCost: unknown,
     rounds: fence.rounds,
     selectionRevision: state?.selection_revision ?? 0,
@@ -247,7 +247,7 @@ export function registerReadClarify(
             dossier
           ),
           role = effective.manifest.roles["research-clarify"];
-        if (!["1.2.0", "1.2.1"].includes(effective.manifest.version) || !role?.model_cap)
+        if (!["1.2.0", "1.2.1", "1.2.2"].includes(effective.manifest.version) || !role?.model_cap)
           throw conflict(
             "当前档案未接澄清，请新建research@1.2.0精读，不会升级旧档案。"
           );
@@ -307,7 +307,7 @@ export function registerReadClarify(
         }
         if (input.approvalId) throw conflict('这个澄清已结束，不能另建运行代答。');
         await client.query('update read_clarification set closed=false,selection_revision=selection_revision+1 where dossier_id=$1 and closed',[dossier]);
-        const amount = decimal(50000n),
+        const amount = decimal(500000n),
           root = await prepareDossierBudget(client, account, dossier, amount),
           id = randomUUID();
         const roleInput = {
@@ -358,7 +358,7 @@ export function registerReadClarify(
           action: "clarify_queued",
           payload: {
             automatic: true,
-            capCny: "0.050000",
+            capCny: "0.500000",
             model: pricing.route("cheap"),
             confirmedPurpose: "clarification_only",
           },
@@ -379,27 +379,35 @@ export function registerReadClarify(
     let approval: string | undefined;
     const rawPick = Pick.safeParse(await c.req.json().catch(() => null));
     if (rawPick.success && pipeline) {
-      const selection = await db.withAccount(account, async (client) => {
-        const a = (
-          await client.query(
-            "select a.*,a.run_id \"runId\",a.decision_sent sent from approval a join run r on r.id=a.run_id where a.id=$1 and r.dossier_id=$2 and r.role_id='research-clarify'",
-            [rawPick.data.pickId, dossier]
-          )
-        ).rows[0];
-        if (!a) throw denied();
-        const view = await pickView(client, dossier, a),
-          chosen = view?.candidates.find(
-            (p: any) => p.id === rawPick.data.candidateId
-          );
-        if (rawPick.data.candidateId !== null && !chosen)
-          throw conflict("候选不属于当前问题。");
-        return { paperId: chosen?.paperId ?? "都不是" };
-      });
-      await pipeline.decisions.validate(account, rawPick.data.pickId, {
-        decision: "approve",
-        scope: "once",
-        answers: [[selection.paperId]],
-      });
+      const { answered, paperId } = await db.withAccount(
+        account,
+        async (client) => {
+          const a = (
+            await client.query(
+              "select a.*,a.run_id \"runId\",a.decision_sent sent from approval a join run r on r.id=a.run_id where a.id=$1 and r.dossier_id=$2 and r.role_id='research-clarify'",
+              [rawPick.data.pickId, dossier]
+            )
+          ).rows[0];
+          if (!a) throw denied();
+          const view = await pickView(client, dossier, a),
+            chosen = view?.candidates.find(
+              (p: any) => p.id === rawPick.data.candidateId
+            );
+          if (rawPick.data.candidateId !== null && !chosen)
+            throw conflict("候选不属于当前问题。");
+          return {
+            answered: a.state === "approved",
+            paperId: chosen?.paperId ?? "都不是",
+          };
+        }
+      );
+      // 已回答过的候选卡在「换一篇」之后改选：不调模型，只换本地选定。
+      if (!answered)
+        await pipeline.decisions.validate(account, rawPick.data.pickId, {
+          decision: "approve",
+          scope: "once",
+          answers: [[paperId]],
+        });
     }
     const response = await mutate(c, db, Pick, async (client, input) => {
       await lockBudget(client, account);
@@ -411,14 +419,7 @@ export function registerReadClarify(
           [input.pickId, dossier]
         )
       ).rows[0];
-      if (
-        !row ||
-        row.kind !== "question" ||
-        row.phase !== "accepted" ||
-        !row.receipt ||
-        row.state !== "pending" ||
-        row.sent
-      )
+      if (!row || row.kind !== "question")
         throw conflict("候选问题已变化，不能重复选择。");
       const view = await pickView(client, dossier, row),
         candidate = view?.candidates.find(
@@ -426,6 +427,53 @@ export function registerReadClarify(
         );
       if (!view || (input.candidateId !== null && !candidate))
         throw conflict("论文不属于当前检索问题。");
+      if (row.state === "approved" && row.sent) {
+        // 换一篇之后的改选：沿用这张已答的候选卡，只把选定的论文换成新的。
+        // 换一篇会把这段澄清关上；改选仍允许，沿用这张已答的候选卡。
+        const current = (
+          await client.query(
+            "select chosen_id,selection_revision from read_clarification where dossier_id=$1 for update",
+            [dossier]
+          )
+        ).rows[0];
+        if (!current) throw conflict("这段澄清已经结束，请重新说一次。");
+        if (current.chosen_id === input.candidateId)
+          return {
+            status: 200,
+            body: { accepted: true, pickId: row.id, repicked: false },
+          };
+        if (current.chosen_id !== null)
+          throw conflict("已经选了别的论文，请先换一篇。");
+        await client.query(
+          "update read_clarification set chosen_id=$2,chosen_approval=$3,selection_revision=selection_revision+1 where dossier_id=$1",
+          [dossier, input.candidateId, row.id]
+        );
+        await appendEvent(client, account, {
+          dossierId: dossier,
+          runId: row.runId,
+          roleId: "research-clarify",
+          kind: "message",
+          action: "clarify_repick",
+          payload: {
+            paperId: candidate?.paperId ?? "都不是",
+            candidateId: input.candidateId,
+            approvalId: row.id,
+          },
+          dedupeKey:
+            "repick:" + row.id + ":" + String(input.candidateId ?? "none"),
+        });
+        return {
+          status: 201,
+          body: { accepted: true, pickId: row.id, repicked: true },
+        };
+      }
+      if (
+        row.phase !== "accepted" ||
+        !row.receipt ||
+        row.state !== "pending" ||
+        row.sent
+      )
+        throw conflict("候选问题已变化，不能重复选择。");
       if (!pipeline)
         throw new ApiFailure(
           "RUNTIME_UNAVAILABLE",
@@ -438,7 +486,10 @@ export function registerReadClarify(
         answers: [[candidate?.paperId ?? "都不是"]],
       });
       approval = row.id;
-      return { status: 202, body: { accepted: true, pickId: row.id } };
+      return {
+        status: 202,
+        body: { accepted: true, pickId: row.id, repicked: false },
+      };
     });
     if (approval) {
       await pipeline!.decisions.dispatch(account, approval).catch(() => {});

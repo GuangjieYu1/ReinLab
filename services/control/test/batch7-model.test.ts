@@ -110,7 +110,7 @@ it("model and MCP tokens have separate audiences and shared online revocation; n
     await f.close();
   }
 });
-it("every actual model HTTP request reserves durable worst-case cost; parallel/replayed bodies cannot exceed six or 0.05", async () => {
+it("every actual model HTTP request reserves durable worst-case cost; parallel/replayed bodies cannot exceed six rounds or the run cap", async () => {
   const f = await fixture();
   try {
     let calls = 0;
@@ -138,11 +138,13 @@ it("every actual model HTTP request reserves durable worst-case cost; parallel/r
       )
     ).rows[0];
     expect(sum.n).toBe(calls);
-    expect(sum.total).toBeLessThanOrEqual(50000);
+    expect(sum.total).toBeLessThanOrEqual(500000);
     const before = calls;
     await send(app, f.model, body("unique 0"));
     expect(calls).toBe(before);
-    expect(modelMaximum(64000, 256)).toBeGreaterThan(50000);
+    // One admitted request can no longer exceed the run cap, so the aggregate guard is the bound.
+    expect(modelMaximum(65536, 512)).toBeLessThan(500000);
+    expect(6 * modelMaximum(65536, 512)).toBeGreaterThan(500000);
   } finally {
     await f.close();
   }

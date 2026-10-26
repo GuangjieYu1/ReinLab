@@ -6,7 +6,7 @@ import { applyMigrations } from "../src/db/migrate";
 import { Database } from "../src/db/database";
 import { loadBenchBundle, loadToolRegistry } from "../src/harness/manifest";
 import { HarnessStore, publishBench } from "../src/harness/store";
-it("existing dossier stays pinned1.0.0 while new dossier1.2.0 sees cards and clarification; version cannot be silently updated", async () => {
+it("existing dossier stays pinned1.0.0 while a new dossier takes the current version and sees cards; version cannot be silently updated", async () => {
   const admin = new pg.Pool({
       connectionString: "postgres://postgres@127.0.0.1:55432/reinlab_test",
     }),
@@ -47,7 +47,7 @@ it("existing dossier stays pinned1.0.0 while new dossier1.2.0 sees cards and cla
       "1.0.0"
     );
     expect((await store.effective(account, newId)).manifest.version).toBe(
-      "1.2.0"
+      current.manifest.version
     );
     await expect(
       db.withAccount(account, (c) =>

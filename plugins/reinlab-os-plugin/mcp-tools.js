@@ -50,7 +50,18 @@ export function mcpTools(policy, verify) {
         description:
           "ReinLab MCP：" +
           allowed.join("、") +
-          "。args遵守对应能力参数，所有写入经服务器批准。",
+          "。args必须符合下列能力的入参 schema（capability 选一个，args 按该能力填写）：" +
+          allowed
+            .map(
+              (name) =>
+                name +
+                "=" +
+                JSON.stringify(
+                  (policy.mcp.inputs && policy.mcp.inputs[name]) || {}
+                )
+            )
+            .join("；") +
+          "。所有写入经服务器批准。",
         args: {
           capability: tool.schema.enum(allowed),
           args: tool.schema.record(tool.schema.string(), tool.schema.unknown()),

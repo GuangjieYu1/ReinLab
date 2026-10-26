@@ -13,6 +13,19 @@ export type CandidateMetadata = {
   note?: string;
 };
 const sidecars = new WeakMap<object, CandidateMetadata[]>();
+/** `access: 'full'` 只在 papers.fetch 真能拿到全文时成立：OA 标记 + 可下载 PDF + 许可。
+ *  拿不准一律按只有摘要，免得先说有全文、下载时才发现只有摘要。 */
+function downloadable(w: any) {
+  const loc = w.best_oa_location;
+  return (
+    w.open_access?.is_oa === true &&
+    loc?.is_oa === true &&
+    typeof loc.pdf_url === "string" &&
+    loc.pdf_url.length > 0 &&
+    typeof loc.license === "string" &&
+    loc.license.length > 0
+  );
+}
 export function captureSearch(result: object, works: any[]) {
   sidecars.set(
     result,
@@ -49,10 +62,16 @@ export function captureSearch(result: object, works: any[]) {
             0,
             500
           ),
-          access: w.open_access?.is_oa === true ? "full" : "abstract_only",
+          access: downloadable(w) ? "full" : "abstract_only",
           ...(pages
             ? { pages, note: "页数取公开书目页码范围估计，尚未下载PDF核验。" }
             : { note: "公开元数据未提供可靠页数；估价将明确使用保守假设。" }),
+          ...(w.open_access?.is_oa === true && !downloadable(w)
+            ? {
+                note:
+                  "公开元数据标了开放获取，但没有可直接下载的 PDF；下载时可能只有摘要。",
+              }
+            : {}),
         } as CandidateMetadata;
       })
   );

@@ -44,6 +44,14 @@ export type MappedApproval = {
   requestID: string;
   state: "historical_pending" | "resolved" | "cancelled" | "rejected";
 };
+/** 这张事件能不能影响费用完整性：默认 none，只有明确认识到的坏用量才是 uncertain。
+ *  不能从 kind=error 推断——未知事件、未知 part、被容忍的展示字段都属于 none。 */
+export type AccountingImpact = "none" | "uncertain";
+export type CompatDiagnostic = {
+  code: string;
+  eventType?: string;
+  fieldPaths?: string[];
+};
 export type MappedRuntimeEvent = {
   kind: LedgerEvent["kind"];
   action: string;
@@ -52,6 +60,8 @@ export type MappedRuntimeEvent = {
   approval?: MappedApproval;
   usage?: RuntimeUsage;
   runState?: "accepted" | "completed" | "failed" | "cancelled" | "interrupted";
+  accountingImpact?: AccountingImpact;
+  diagnostic?: CompatDiagnostic;
 };
 const id = z.string().min(1).max(500),
   number = z.number().finite().nonnegative(),
@@ -215,30 +225,8 @@ const schemas: Record<string, z.ZodTypeAny> = {
     after: number.optional(),
     reclaimed: number,
   }),
-  "session.request.progress": object({
-    ...mid,
-    attempt: number,
-    agent: id,
-    providerID: id,
-    modelID: id,
-    phase: z.enum([
-      "preparing",
-      "connecting",
-      "waiting_first_token",
-      "streaming",
-      "conflict_wait",
-      "retry_wait",
-      "done",
-      "error",
-    ]),
-    since: number,
-    elapsedMs: number,
-    retryAfterMs: number.optional(),
-    detail: z.string().optional(),
-    firstOutputMs: number.optional(),
-    lastOutputAt: number.optional(),
-    stalls: number,
-  }),
+  // 进度只是展示：身份严格，其余字段容忍未知值与缺失，不让订阅因展示字段断掉。
+  "session.request.progress": object({ ...mid }),
   "session.compacted": object(sid),
   "todo.updated": object({
     ...sid,
@@ -446,14 +434,101 @@ function source(event: Envelope) {
     time: event.time,
   };
 }
-function unmapped(reason: string, event?: Envelope): MappedRuntimeEvent {
+function unmapped(
+  reason: string,
+  event?: Envelope,
+  fieldPaths?: string[],
+): MappedRuntimeEvent {
+  // 未知/无法解析不等于费用出问题：默认不影响记账，只留可对账的诊断。
   return {
     kind: "error",
     action: "unmapped_event",
+    accountingImpact: "none",
+    diagnostic: diagnostic(reason, event?.type, fieldPaths),
     payload: bounded({
       reason,
       ...(event ? { source: source(event) } : {}),
+      diagnostic: diagnostic(reason, event?.type, fieldPaths),
     }) as Record<string, JsonValue>,
+  };
+}
+/** 有界、脱敏的兼容诊断：只留类型/字段名，不留原始载荷。 */
+function diagnostic(
+  code: string,
+  eventType?: string,
+  fieldPaths?: string[],
+): CompatDiagnostic {
+  return {
+    code: code.slice(0, 64),
+    ...(eventType ? { eventType: eventType.slice(0, 120) } : {}),
+    ...(fieldPaths?.length
+      ? {
+          fieldPaths: [...new Set(fieldPaths)]
+            .slice(0, 8)
+            .map((path) => path.slice(0, 120)),
+        }
+      : {}),
+  };
+}
+const progressPhases = new Set([
+  "preparing",
+  "connecting",
+  "waiting_first_token",
+  "streaming",
+  "conflict_wait",
+  "retry_wait",
+  "done",
+  "error",
+]);
+const displayNumbers = [
+  "since",
+  "elapsedMs",
+  "retryAfterMs",
+  "firstOutputMs",
+  "lastOutputAt",
+  "stalls",
+  "attempt",
+] as const;
+/** 进度只保留展示需要的字段；耗时等辅助值缺失或无效就省略，并记一条诊断。 */
+function progressView(body: Record<string, any>) {
+  const dropped: string[] = [],
+    view: Record<string, unknown> = {
+      sessionID: body.sessionID,
+      messageID: body.messageID,
+    };
+  const phase = typeof body.phase === "string" ? body.phase.slice(0, 64) : "",
+    missing: string[] = [];
+  if (phase) view.phase = phase;
+  else if (body.phase !== undefined) dropped.push("properties.phase");
+  else missing.push("properties.phase");
+  if (phase && !progressPhases.has(phase)) dropped.push("properties.phase");
+  for (const key of ["agent", "providerID", "modelID"] as const) {
+    const value = body[key];
+    if (typeof value === "string" && value && value.length <= 120)
+      view[key] = value;
+    else if (value !== undefined) dropped.push("properties." + key);
+  }
+  for (const key of displayNumbers) {
+    const value = body[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0)
+      view[key] = value;
+    else if (value !== undefined) dropped.push("properties." + key);
+  }
+  if (typeof body.detail === "string")
+    view.detail = body.detail.slice(0, 500);
+  // 缺可选字段是正常的（省略即可）；只有「给了但用不了」或未知 phase 才留诊断。
+  const paths = [...dropped, ...missing];
+  return {
+    view,
+    diagnostic: dropped.length
+      ? diagnostic(
+          phase && !progressPhases.has(phase)
+            ? "unknown_phase"
+            : "progress_field_tolerated",
+          "session.request.progress",
+          paths,
+        )
+      : undefined,
   };
 }
 function usage(part: Record<string, unknown>): RuntimeUsage {
@@ -492,8 +567,17 @@ function projectPart(
   part: Record<string, any>,
   context: MappingContext,
 ): Omit<MappedRuntimeEvent, "payload"> & { card?: z.infer<typeof Card> } {
-  if (part.type === "step-finish")
-    return { kind: "cost", action: "usage_observed", usage: usage(part) };
+  if (part.type === "step-finish") {
+    const observed = usage(part);
+    return {
+      kind: "cost",
+      action: "usage_observed",
+      usage: observed,
+      ...(observed.status === "unknown"
+        ? { accountingImpact: "uncertain" as const }
+        : { accountingImpact: "none" as const }),
+    };
+  }
   if (part.type === "tool") {
     if (!context.toolGrants || !Object.hasOwn(context.toolGrants, part.tool))
       throw Error("tool_grant_missing");
@@ -623,13 +707,23 @@ export function mapRuntimeEvent(
         },
       };
     }
+    // 进度只存展示字段；缺字段/未知 phase 留诊断，但仍是记账无关事件。
+    const progress =
+      event.type === "session.request.progress" ? progressView(body) : undefined;
     // Every outward field, including projections outside payload, shares the
     // same final bound and scrub pass. Numeric observations remain numeric.
     return bounded({
       ...projection,
+      ...(projection.accountingImpact
+        ? {}
+        : { accountingImpact: "none" as const }),
+      ...(progress?.diagnostic ? { diagnostic: progress.diagnostic } : {}),
       payload: bounded({
         source: source(event),
-        properties: body,
+        properties: progress?.view ?? body,
+        ...(progress?.diagnostic
+          ? { diagnostic: progress.diagnostic as unknown as JsonValue }
+          : {}),
         ...(card ? { card } : {}),
       }) as Record<string, JsonValue>,
     }) as MappedRuntimeEvent;

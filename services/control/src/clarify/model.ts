@@ -128,7 +128,7 @@ export function registerClarifyModel(
           auth = await authority.validateModel(token);
         if (
           auth.claims.role !== "research-clarify" ||
-          !["1.2.0", "1.2.1"].includes(auth.claims.version) ||
+          !["1.2.0", "1.2.1", "1.2.2"].includes(auth.claims.version) ||
           auth.scope.grants.length !== 1 ||
           auth.scope.grants[0].name !== "papers.search"
         )
@@ -147,7 +147,7 @@ export function registerClarifyModel(
           body.thinking?.type !== "disabled" ||
           !Number.isInteger(body.max_tokens) ||
           body.max_tokens < 1 ||
-          body.max_tokens > (auth.claims.version === "1.2.1" ? 512 : 256) ||
+          body.max_tokens > (["1.2.1", "1.2.2"].includes(auth.claims.version) ? 512 : 256) ||
           (body.n !== undefined && body.n !== 1) ||
           !Array.isArray(body.messages) ||
           !body.messages.length ||

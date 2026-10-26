@@ -174,6 +174,68 @@ it("cursor, itemized usage and final budget settle atomically, without double co
     ).rows[0].n,
   ).toBe(1);
 });
+it("unknown events and tolerated progress never mark usage uncertain or pause a finished run", async () => {
+  const f = await fixture(),
+    observer = new ObservationStore(db);
+  await observer.ingest(
+    account,
+    f.run,
+    event(f, 1, "message.part.updated", { part: part(f) }),
+  );
+  // 未知事件类型：留兼容诊断，游标继续，不动费用完整性
+  await observer.ingest(
+    account,
+    f.run,
+    event(f, 2, "future.type", { secret: "fixture-value" }),
+  );
+  // 未知 phase 的进度：照样只是展示
+  await observer.ingest(
+    account,
+    f.run,
+    event(f, 3, "session.request.progress", {
+      sessionID: f.sessionID,
+      messageID: "msg_fixture",
+      phase: "folding_context",
+    }),
+  );
+  await observer.ingest(
+    account,
+    f.run,
+    event(f, 4, "runtime.completed", { messageID: "msg_fixture" }),
+  );
+  const row = (
+    await admin.query(
+      "select r.state,b.usage_uncertain,h.state hold,r.spent_cny::text spent from run r join os_binding b on b.run_id=r.id join budget_hold h on h.id=b.hold_id where r.id=$1",
+      [f.run],
+    )
+  ).rows[0];
+  // 内核说完成就是完成；费用完整（一笔调用一次用量）就结清，不因日志 kind=error 假停。
+  expect(row).toMatchObject({
+    state: "completed",
+    usage_uncertain: false,
+    hold: "settled",
+    spent: "0.002800",
+  });
+  expect((await store.get(account, f.run)).cursor).toBe(4);
+  const unmapped = (
+    await admin.query(
+      "select payload from event where run_id=$1 and action='unmapped_event'",
+      [f.run],
+    )
+  ).rows[0];
+  expect(unmapped.payload.diagnostic).toMatchObject({
+    code: "unknown_event_type",
+    eventType: "future.type",
+  });
+  expect(JSON.stringify(unmapped.payload)).not.toContain("fixture-value");
+  const progress = (
+    await admin.query(
+      "select payload from event where run_id=$1 and action='session_request_progress'",
+      [f.run],
+    )
+  ).rows[0];
+  expect(progress.payload.diagnostic).toMatchObject({ code: "unknown_phase" });
+});
 it("same event identity with changed content conflicts; gap never advances the cursor", async () => {
   const f = await fixture(),
     observer = new ObservationStore(db);

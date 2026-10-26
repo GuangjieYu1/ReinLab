@@ -10,7 +10,8 @@
 .ad-plan-head { display:flex; align-items:center; gap:8px; padding:0; border:0; background:none; text-align:left; }
 .ad-plan-head b { font:500 11px/1 var(--rh-f-mono); }
 .ad-plan-head em { margin-left:auto; font:normal 400 11px/1 var(--rh-f-ui); color:var(--rh-ink-4); }
-.ad-plan-list { list-style:none; margin:0; padding:0; display:grid; gap:4px; }
+/* 计划横排：阶段一行排开，省出纵向空间给对话 */
+.ad-plan-list { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:4px 16px; }
 .ad-plan-list li { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--rh-ink-4); }
 .ad-plan-list li em { font:normal 400 10.5px/1 var(--rh-f-mono); }
 .ad-plan-list li[data-state='done'] { color:var(--rh-ink-3); text-decoration:line-through; text-decoration-color:var(--rh-line); }

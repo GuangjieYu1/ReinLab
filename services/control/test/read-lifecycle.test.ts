@@ -312,6 +312,44 @@ it("different assets with page 1 cannot share cards or page references, and inte
     ),
   ).toBe(true);
 });
+it("ended runs carry the reason the UI writes as the title", () => {
+  const base = (over: Record<string, unknown>) =>
+    ({
+      ...idle(),
+      run: { id: run, query: "q", budgetCny: 5, spentCny: 0.01, ...over },
+    } as any);
+  const ended = { endedAt: "2026-10-27T00:00:00.000Z", state: "completed" };
+  // 没拿到全文：状态是 completed，但界面要写「没拿到全文」
+  expect(
+    projectReading(
+      {
+        ...base(ended),
+        papers: [{ id: "A", runId: run, access: "abstract_only" }],
+        pages: [],
+      },
+      []
+    ).run.endReason
+  ).toBe("abstract_only");
+  // 拒绝下载：审批被驳回
+  const rejected = base(ended);
+  rejected.approvals = [
+    { id: "ap", runId: run, kind: "permission", action: "papers.fetch", state: "rejected" },
+  ];
+  expect(projectReading(rejected, []).run.endReason).toBe("rejected");
+  // 预算暂停且已结束：终态是「已停止」，原因是预算
+  const paused = projectReading(
+    base({ state: "paused_budget", endedAt: ended.endedAt }),
+    []
+  ).run;
+  expect(paused.state).toBe("cancelled");
+  expect(paused.endReason).toBe("budget");
+  // 还在跑：不给结束原因
+  expect(
+    projectReading(base({ state: "running", endedAt: null }), []).run.endReason
+  ).toBeUndefined();
+  // 正常读完
+  expect(projectReading(base(ended), []).run.endReason).toBe("completed");
+});
 it("creating a dossier with an unknown response retains exactly the same idempotency key", async () => {
   const keys: string[] = [];
   let count = 0;

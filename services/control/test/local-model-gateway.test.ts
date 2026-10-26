@@ -373,8 +373,8 @@ it("unapproved paid options, model, tool and output shapes cannot create a reser
 });
 
 
-it("research1.2.1 admits 512 output tokens while preserving the .05 run ceiling",async()=>{
- const f=await setup(true,"1.2.1");let forwarded=0;
+it("research1.2.2 admits 512 output tokens while keeping the run inside its own ceiling",async()=>{
+ const f=await setup(true,"1.2.2");let forwarded=0;
  try{const app=new Hono();registerRuntimeModel(app as never,f.authority,{prepare:async()=>async()=>{forwarded++;return complete();}});
  expect((await send(app,f.model,{...request(),max_tokens:512})).status).toBe(200);
  const row=(await f.admin.query("select max_output from clarify_model_request where run_id=$1",[f.run])).rows[0];expect(row.max_output).toBe(512);

@@ -10,7 +10,7 @@ const fail = () => {
  */
 export function clarificationHooks(policy, verify) {
   if (!policy.modelCap && !policy.modelGateway) return {};
-  if (!policy.mcp || (policy.modelCap && policy.modelCap.cny !== 0.05)) fail();
+  if (!policy.mcp || (policy.modelCap && ![0.05, 0.5].includes(policy.modelCap.cny))) fail();
   if (!state) {
     const base = globalThis.fetch;
     state = { base, runs: new Map() };

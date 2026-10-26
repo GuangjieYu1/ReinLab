@@ -87,7 +87,7 @@ export class CapabilitySigner {
   }
   /** Separate audience: a search MCP credential is not a paid-model credential. */
   issueModel(claims: TokenClaims) {
-    if (claims.role !== "research-clarify" || !["1.2.0", "1.2.1"].includes(claims.version))
+    if (claims.role !== "research-clarify" || !["1.2.0", "1.2.1", "1.2.2"].includes(claims.version))
       throw tokenDenied();
     const message =
       header +
@@ -175,7 +175,7 @@ export function verifyModelToken(
       claims.iat > now ||
       (audience === "reinlab-runtime-model"
         ? !runtimeModelRole(claims)
-        : claims.role !== "research-clarify" || !["1.2.0", "1.2.1"].includes(claims.version))
+        : claims.role !== "research-clarify" || !["1.2.0", "1.2.1", "1.2.2"].includes(claims.version))
     )
       throw tokenDenied();
     return claims; // Original MCP claims hash is the online revocation/hold authority.
@@ -187,8 +187,8 @@ function runtimeModelRole(claims: TokenClaims) {
   return (
     claims.bench === "research" &&
     ((claims.role === "research-read" &&
-      ["1.1.0", "1.2.0", "1.2.1"].includes(claims.version)) ||
-      (claims.role === "research-clarify" && ["1.2.0", "1.2.1"].includes(claims.version)))
+      ["1.1.0", "1.2.0", "1.2.1", "1.2.2"].includes(claims.version)) ||
+      (claims.role === "research-clarify" && ["1.2.0", "1.2.1", "1.2.2"].includes(claims.version)))
   );
 }
 export function verifyRuntimeModelToken(

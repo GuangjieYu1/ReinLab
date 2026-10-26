@@ -31,7 +31,7 @@ const Role = z
     steps: z.number().int().min(1).max(512),
     modelCap: z
       .object({
-        cny: z.literal(0.05),
+        cny: z.union([z.literal(0.05), z.literal(0.5)]),
         rounds: z.literal(6),
         output_tokens: z.union([z.literal(256), z.literal(512)]),
       })
@@ -65,6 +65,7 @@ const Options = z
               .strict(),
           )
           .max(128),
+        inputs: z.record(z.string(), z.unknown()).optional(),
       })
       .strict()
       .optional(),

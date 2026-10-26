@@ -27,7 +27,7 @@ const PAPER_VIEW: PaperView = { id: 'arxiv-1706.03762', title: PAPER.title, auth
 const FINDING: FindingCard = { id: 'f1', n: 1, text: '√dₖ 缩放不是细节：不缩放时 softmax 几乎退化成 one-hot，梯度消失，训练无法稳定。', refs: ['s321'], confidence: 'high', status: 'supported', at: clock() };
 const ESTIMATE: Estimate = { id: 'est-demo', model: 'deepseek-v4-flash', maxCny: 0.82, steps: 48, note: '按每轮约 1 万输入 / 3 千输出 token、2 倍余量估算' };
 const estimateFor = (pages: number): Estimate => ({ id: `est-${pages}`, model: 'deepseek-v4-flash', maxCny: +(0.2 + pages * 0.04).toFixed(2), steps: 48, note: `按 ${pages} 页、每轮约 1 万输入 / 3 千输出 token、2 倍余量估算` });
-const CLARIFY_CAP = 0.05, CLARIFY_STEP = 0.003;
+const CLARIFY_CAP = 0.5, CLARIFY_STEP = 0.003;
 const INTRO: ReadEvent = { type: 'agent', id: 'intro', text: `我读完了《${PAPER.title}》。左边是原文目录，中间是五层解析，从一句话开始。有任何地方没懂，直接问我，比如「为什么要除以根号 d」。` };
 
 function done(): ReadSnapshot {
@@ -70,7 +70,7 @@ export function mockReadAdapter(opts: { reduced?: boolean } = {}): ReadAdapter {
     LAYERS.forEach((l, i) => step(i ? 1100 : 600, () => emit({ type: 'layer', layer: l })));
     step(700, () => { emit({ type: 'run', run: { step: '出检查题', spentCny: 0.09 } }); QUIZ.forEach(q => emit({ type: 'quiz', quiz: q })); });
     step(800, () => emit({ type: 'finding', finding: { ...FINDING, at: clock() } }));
-    step(500, () => { emit({ type: 'run', run: { state: 'done', step: undefined, spentCny: 0.11 } }); emit({ type: 'agent', id: 'fin', text: `读完了：5 层讲解、${QUIZ.length} 道检查题、1 条发现。实际花费 ¥0.11，预算 ¥5。有没懂的地方直接问我。` }); });
+    step(500, () => { emit({ type: 'run', run: { state: 'done', endReason: 'completed', step: undefined, spentCny: 0.11 } }); emit({ type: 'agent', id: 'fin', text: `读完了：5 层讲解、${QUIZ.length} 道检查题、1 条发现。实际花费 ¥0.11，预算 ¥5。有没懂的地方直接问我。` }); });
   }
 
   return {
@@ -80,24 +80,31 @@ export function mockReadAdapter(opts: { reduced?: boolean } = {}): ReadAdapter {
     async newReading() { stop(); n += 1; snap = empty(n); },
     async clarify(text) {
       emit({ type: 'user', id: `u${Date.now()}`, text });
-      const spent = snap.run.clarifySpentCny ?? 0;
-      if (spent + CLARIFY_STEP > CLARIFY_CAP) { emit({ type: 'agent', id: `a${Date.now()}`, text: `澄清对话已经用到 ¥${CLARIFY_CAP} 的上限，我先停下。能直接给我完整标题或 arXiv 编号吗？` }); return; }
+      const spent = snap.run.clarifySpentCny ?? 0, cap = snap.run.clarifyCapCny ?? CLARIFY_CAP;
+      if (snap.run.clarifyBlocked) { emit({ type: 'agent', id: `a${Date.now()}`, text: snap.run.clarifyBlocked.text }); return; }
+      // 演示「上一段澄清没结束」：真实模式下在途用量未核对时会这样
+      if (text.trim() === '模拟卡住') { emit({ type: 'run', run: { clarifyBlocked: { reason: 'stuck', text: '上一段澄清还没结束，用量也还没核对完，新的话先发不出去。可以结束这段澄清再重新说。' } } }); return; }
+      if (spent + CLARIFY_STEP > cap) {
+        const t = `澄清已经用到 ¥${cap} 的上限，我先停下。可以在「预算余额」里加一点，或者直接给我完整标题、arXiv 编号。`;
+        emit({ type: 'run', run: { clarifyBlocked: { reason: 'cap', text: t } } }); emit({ type: 'agent', id: `a${Date.now()}`, text: t }); return;
+      }
       emit({ type: 'tool', id: `s${Date.now()}`, action: 'papers.search', label: `检索：${text}`, state: 'done', ms: 900, detail: '只检索公开元数据，不下载' });
       emit({ type: 'run', run: { clarifySpentCny: +(spent + CLARIFY_STEP).toFixed(3) } });
       await new Promise(r => setTimeout(r, opts.reduced ? 30 : 800));
-      const found = search(text);
+      const recommend = /推荐/.test(text);
+      const found = recommend ? ['arxiv-2210.03629', 'arxiv-2302.04761', 'arxiv-2106.09685'].map(id => CATALOG.find(p => p.id === id)!) : search(text);
       const id = `pick-${Date.now()}`;
       const cands: PaperCandidate[] = found.map(({ id, title, authors, venue, access, pages }) => ({ id, title, authors, venue, access, pages, note: id === PAPER_VIEW.id ? undefined : '示例未备讲解' }));
       if (!found.length) { emit({ type: 'agent', id: `a${Date.now()}`, text: `没找到和「${text}」对得上的论文。能多说一点吗？比如完整标题、作者、年份，或者它讲的是什么问题。` }); return; }
       const ambiguous = /^\s*react\s*$/i.test(text);
-      emit({ type: 'agent', id: `a${Date.now()}`, text: ambiguous
+      emit({ type: 'agent', id: `a${Date.now()}`, text: recommend ? '按最近常被精读、又有开放全文的挑了三篇，选一篇；都不想读就说说你关心的方向。' : ambiguous
         ? '你说的 react，是指让语言模型「边推理边行动」的 ReAct 论文，还是前端框架 React？前端框架不是论文，研究台读不了；如果是前者，就是下面这篇。'
         : found.length === 1 ? '找到一篇，是这篇吗？' : `找到 ${found.length} 篇，点你要读的那篇；都不是就再描述一下。` });
       emit({ type: 'pick', id, query: text, candidates: cands, state: 'pending' });
     },
     async pick(id, candidateId) {
       const pk = snap.history.find(e => e.type === 'pick' && e.id === id);
-      if (!pk || pk.type !== 'pick' || pk.state !== 'pending') return;
+      if (!pk || pk.type !== 'pick' || (pk.state !== 'pending' && (chosen || !candidateId))) return;
       emit({ ...pk, state: 'answered', chosen: candidateId ?? undefined });
       if (!candidateId) { emit({ type: 'agent', id: `a${Date.now()}`, text: '好，那再描述一下？作者、年份、讲的问题，或者你在哪里看到它的，都可以。' }); return; }
       const p = CATALOG.find(x => x.id === candidateId)!;
@@ -105,6 +112,21 @@ export function mockReadAdapter(opts: { reduced?: boolean } = {}): ReadAdapter {
       const { id: cid, title, authors, venue, access, pages } = p;
       emit({ type: 'run', run: { chosen: { id: cid, title, authors, venue, access, pages }, query: title, state: 'idle', estimate: undefined } });
       emit({ type: 'agent', id: `a${Date.now()}`, text: `好，读《${title}》（${pages} 页）。中间可以按这篇的长度预估费用了。` });
+    },
+    async raiseBudget(scope, addCny) {
+      if (scope === 'clarify') {
+        const cap = +((snap.run.clarifyCapCny ?? CLARIFY_CAP) + addCny).toFixed(2);
+        emit({ type: 'run', run: { clarifyCapCny: cap, clarifyBlocked: snap.run.clarifyBlocked?.reason === 'cap' ? undefined : snap.run.clarifyBlocked } });
+        emit({ type: 'agent', id: `a${Date.now()}`, text: `澄清上限加到 ¥${cap}，可以接着说了。` });
+      } else {
+        const b = +(snap.run.budgetCny + addCny).toFixed(2);
+        emit({ type: 'run', run: { budgetCny: b } });
+        emit({ type: 'agent', id: `a${Date.now()}`, text: `这次精读的预算加到 ¥${b}。` });
+      }
+    },
+    async cancelClarify() {
+      emit({ type: 'run', run: { clarifyBlocked: undefined } });
+      emit({ type: 'agent', id: `a${Date.now()}`, text: '上一段澄清已结束，已用的照实记账。重新说说想读哪篇？' });
     },
     async unchoose() {
       chosen = null;
@@ -129,7 +151,7 @@ export function mockReadAdapter(opts: { reduced?: boolean } = {}): ReadAdapter {
     },
     async cancel() {
       stop();
-      emit({ type: 'run', run: { state: 'cancelled', step: undefined, message: '你停止了这次精读；已经读到的内容保留在档案里。' } });
+      emit({ type: 'run', run: { state: 'cancelled', endReason: 'cancelled', step: undefined, message: '你停止了这次精读；已经读到的内容保留在档案里。' } });
     },
     async decide(id, approve) {
       const ap = snap.history.find(e => e.type === 'approval' && e.id === id);
@@ -142,7 +164,7 @@ export function mockReadAdapter(opts: { reduced?: boolean } = {}): ReadAdapter {
         emit({ type: 'run', run: { state: 'done', step: undefined, spentCny: 0.02, message: `示例数据只为《${PAPER.title}》准备了讲解内容。《${c.title}》的分层讲解、检查题和发现，要在真实模式下由模型生成。` } });
         emit({ type: 'agent', id: 'demo-only', text: `示例到此为止：这篇论文的讲解要在真实模式下生成。想看完整的示例流程，可以新建精读，选《${PAPER.title}》。` });
       } else if (approve) { emit({ type: 'run', run: { state: 'running', step: '下载全文' } }); readAfterFetch(); }
-      else emit({ type: 'run', run: { state: 'done', step: undefined, spentCny: 0, message: '你没有批准下载全文，这次没有读。可以换一篇再开始。' } });
+      else emit({ type: 'run', run: { state: 'cancelled', endReason: 'rejected', step: undefined, spentCny: 0, message: '你没有批准下载全文，这次没有读。可以换一篇再开始。' } });
     },
     async ask(text) {
       emit({ type: 'user', id: `u${Date.now()}`, text });

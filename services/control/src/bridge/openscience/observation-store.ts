@@ -207,8 +207,10 @@ export class ObservationStore {
             "已结束的运行不能重新接受执行。"
           );
       }
+      // 只有映射明确标了 uncertain（认出来的坏用量/冲突）才动费用完整性；
+      // 未知事件、未知 part、被容忍的进度字段一律 accountingImpact=none。
       if (
-        mapped.kind === "error" ||
+        mapped.accountingImpact === "uncertain" ||
         (part?.type === "step-finish" && !mapped.usage)
       )
         await c.query(

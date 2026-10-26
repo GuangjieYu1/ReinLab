@@ -228,14 +228,32 @@ export class CapabilityAuthority {
     return this.validateClaimsClient(
       client,
       verifyRuntimeModelToken(raw, this.signer.publicKey, this.now()),
+      true,
     );
   }
   private async validateClaimsClient(
     client: pg.PoolClient,
     claims: TokenClaims,
+    fenced = false,
   ): Promise<AuthorizedCapability> {
     await lockBudget(client, claims.account);
-    const saved = await this.snapshot(client, claims.account, claims.run);
+    let saved: Awaited<ReturnType<CapabilityAuthority["snapshot"]>>;
+    try {
+      saved = await this.snapshot(client, claims.account, claims.run);
+    } catch (error) {
+      // Signature already verified: a closed/ended run is fenced, not a bad token.
+      if (
+        fenced &&
+        error instanceof ApiFailure &&
+        error.code === "CAPABILITY_TOKEN_INVALID"
+      )
+        throw new ApiFailure(
+          "MODEL_FORWARDING_FENCED",
+          403,
+          "本次运行已停止前向转发：运行已结束或已撤销，未转发、未放宽。",
+        );
+      throw error;
+    }
     const row = (
       await client.query(
         "select c.claims_hash,c.revoked_at,c.expires_at>now() valid,h.state from mcp_credential c join budget_hold h on h.id=c.hold_id and h.account_id=c.account_id where c.jti=$1 and c.account_id=$2 for share of c,h",
@@ -246,7 +264,6 @@ export class CapabilityAuthority {
       !row ||
       row.revoked_at ||
       !row.valid ||
-      row.state !== "reserved" ||
       row.claims_hash !== hash(claims) ||
       claims.scopeDigest !== hash(saved.scope) ||
       claims.catalogDigest !== saved.catalog.digest ||
@@ -257,6 +274,16 @@ export class CapabilityAuthority {
       claims.version !== saved.row.version
     )
       throw tokenDenied();
+    // The token itself is genuine; this run is simply no longer forwardable
+    // (an in-flight request has unknown usage, or the run/hold was closed).
+    if (row.state !== "reserved") {
+      if (!fenced) throw tokenDenied();
+      throw new ApiFailure(
+        "MODEL_FORWARDING_FENCED",
+        403,
+        "本次运行已停止前向转发：上一笔用量待核对或运行已结束，未转发、未放宽。",
+      );
+    }
     if (
       claims.role === "research-clarify" &&
       !(
@@ -265,8 +292,14 @@ export class CapabilityAuthority {
           [claims.run],
         )
       ).rowCount
-    )
-      throw tokenDenied();
+    ) {
+      if (!fenced) throw tokenDenied();
+      throw new ApiFailure(
+        "MODEL_FORWARDING_FENCED",
+        403,
+        "本次运行已停止前向转发：澄清已结束，未转发。",
+      );
+    }
     return { claims, scope: saved.scope, catalog: saved.catalog };
   }
   async revoke(account: string, run: string) {

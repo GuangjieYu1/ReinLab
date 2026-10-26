@@ -7,7 +7,7 @@ import { BenchPatch, type JsonValue } from "@reinlab/contracts";
 import type { Database } from "../db/database";
 import type { HarnessStore } from "../harness/store";
 import type { RuntimePipeline } from "../bridge/openscience/pipeline";
-import { lockBudget } from "../budget";
+import { lockBudget, runAccounting } from "../budget";
 import { cny } from "../budget/money";
 import { appendEvent } from "../ledger";
 import { mutate, type ApiContext, type ApiEnv } from "./context";
@@ -108,6 +108,7 @@ export function registerRuntime(
         endedAt: row.ended_at?.toISOString() ?? null,
         submissionPhase: row.phase ?? null,
         usageUnknown: row.usage_unknown ?? false,
+        accounting: await runAccounting(client, c.get("accountId"), run),
       });
     }),
   );
