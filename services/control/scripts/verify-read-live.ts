@@ -364,10 +364,10 @@ try {
   let pageErrors = 0;
   page.on("pageerror", () => pageErrors++);
   const signIn = async () => {
-    await page.getByLabel("邮箱", { exact: true }).fill(users.A_EMAIL);
+    await page.getByLabel("用户名或邮箱", { exact: true }).fill(users.A_EMAIL);
     await page.getByPlaceholder("PASSWORD", { exact: true }).fill(users.A_PASSWORD);
     await page.getByRole("button", { name: /REQUEST/ }).click();
-    await page.getByLabel("邮箱", { exact: true }).waitFor({ state: "detached" });
+    await page.getByLabel("用户名或邮箱", { exact: true }).waitFor({ state: "detached" });
     await page.evaluate(async () => {
       const modulePath = "/src/nav.ts";
       const { navigate } = await import(modulePath);
