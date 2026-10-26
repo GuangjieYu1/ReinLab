@@ -49,12 +49,12 @@ export function registerBudget(
           "模型档与有效工作台配置不一致。"
         );
       const selected =
-        input.mode === "read" && effective.manifest.version === "1.2.0"
+        input.mode === "read" && ["1.2.0", "1.2.1"].includes(effective.manifest.version)
           ? await currentChoice(client, input.dossierId)
           : undefined;
       if (
         input.mode === "read" &&
-        effective.manifest.version === "1.2.0" &&
+        ["1.2.0", "1.2.1"].includes(effective.manifest.version) &&
         (!selected ||
           input.candidateId !== selected.id ||
           input.size !== undefined)
@@ -147,12 +147,12 @@ export function registerBudget(
         const role = effective.manifest.roles[expectedRole],
           tier = effective.manifest.model_slots[role.model_slot];
         const selected =
-          input.mode === "read" && effective.manifest.version === "1.2.0"
+          input.mode === "read" && ["1.2.0", "1.2.1"].includes(effective.manifest.version)
             ? await currentChoice(client, input.dossierId)
             : undefined;
         if (
           input.mode === "read" &&
-          effective.manifest.version === "1.2.0" &&
+          ["1.2.0", "1.2.1"].includes(effective.manifest.version) &&
           (!selected ||
             estimate.quote.assumptions.candidateId !== selected.id ||
             estimate.quote.assumptions.selectionRevision !==

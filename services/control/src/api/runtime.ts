@@ -15,7 +15,7 @@ import { ApiFailure, denied } from "./errors";
 export type RuntimeApiPort = Pick<
   RuntimePipeline,
   "submit" | "recoverAccount" | "decisions"
->;
+> & Partial<Pick<RuntimePipeline, 'reconcileRun'>>;
 const Empty = z.object({}).strict(),
   uuid = z.string().uuid();
 const Decision = z

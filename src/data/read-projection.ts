@@ -15,6 +15,9 @@ export type ReadWire = {
     capCny: number;
     unknownCost: boolean;
     history: ReadEvent[];
+    pendingQuestion?: { approvalId: string; runId: string } | null;
+    activeRunId?: string | null;
+    selectionRevision?: number;
   };
   cursor: number;
   run: any;
@@ -297,6 +300,8 @@ export function projectReading(
     run.chosen = data.clarification.chosen ?? undefined;
     run.clarifySpentCny = data.clarification.spentCny;
     run.clarifyCapCny = data.clarification.capCny;
+    run.clarifyUnknownCost = data.clarification.unknownCost;
+    if (!r) { run.spentCny = data.clarification.spentCny; run.unknownCost = data.clarification.unknownCost; }
     history.unshift(...data.clarification.history);
     if (data.clarification.unknownCost)
       run.message = "澄清另有待核用量，费用不按零记账。";

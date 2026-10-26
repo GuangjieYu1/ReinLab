@@ -279,7 +279,7 @@ export async function loadBenchBundle(options: {
     manifestFile = "benches/" + options.benchId + ".bench.yaml";
   const sourceFile =
     options.benchId === "research" &&
-    ["1.0.0", "1.1.0"].includes(options.version ?? "")
+    ["1.0.0", "1.1.0", "1.2.0"].includes(options.version ?? "")
       ? "benches/releases/research@" + options.version + ".bench.yaml"
       : manifestFile;
   const data = await bytes(root, sourceFile, 1048576),

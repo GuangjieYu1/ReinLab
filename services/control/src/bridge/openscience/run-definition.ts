@@ -207,7 +207,7 @@ export function createHarnessRunDefinitionLoader(
           ...(mcp ? { mcp } : {}),
           ...(_options.realModels &&
           ["research-read", "research-clarify"].includes(row.role_id) &&
-          ["1.1.0", "1.2.0"].includes(row.version)
+          ["1.1.0", "1.2.0", "1.2.1"].includes(row.version)
             ? { modelGateway: true as const }
             : {}),
         }),

@@ -33,7 +33,7 @@ const Role = z
       .object({
         cny: z.literal(0.05),
         rounds: z.literal(6),
-        output_tokens: z.literal(256),
+        output_tokens: z.union([z.literal(256), z.literal(512)]),
       })
       .strict()
       .optional(),
@@ -398,7 +398,7 @@ export function planRoleProject(raw: unknown) {
                         id: "deepseek-flash",
                         limit: {
                           context: 1000000,
-                          output: input.role.modelCap ? 256 : 1024,
+                          output: input.role.modelCap?.output_tokens ?? 1024,
                         },
                         options: { thinking: { type: "disabled" } },
                       },

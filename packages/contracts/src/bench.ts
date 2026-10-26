@@ -39,7 +39,7 @@ export const BenchRole = z
       .object({
         cny: z.literal(0.05),
         rounds: z.literal(6),
-        output_tokens: z.literal(256),
+        output_tokens: z.union([z.literal(256), z.literal(512)]),
       })
       .strict()
       .optional(),

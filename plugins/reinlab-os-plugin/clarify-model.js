@@ -94,8 +94,11 @@ export async function humanQuestion(policy, verify, args) {
       policy.mcp.runId,
       path.resolve(policy.dossierDirectory, "../.."),
     );
+    const proposed = Array.isArray(q.options) ? q.options.map(o=>o.label).filter(id=>id!=='都不是') : [];
+    if (proposed.length > 5 || proposed.some(id=>typeof id!=='string'||!/^W[0-9]{1,30}$/.test(id)) || new Set(proposed).size!==proposed.length) fail();
+    const suffix = proposed.length ? '?paperIds='+encodeURIComponent(proposed.join(',')) : '';
     const result = await fetch(
-      config.controlUrl.replace(/\/$/, "") + "/mcp/clarify-candidates",
+      config.controlUrl.replace(/\/$/, "") + "/mcp/clarify-candidates" + suffix,
       {
         headers: { authorization: "Bearer " + config.token },
         redirect: "error",

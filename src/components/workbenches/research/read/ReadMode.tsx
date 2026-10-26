@@ -120,7 +120,7 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
     faces={[{ id: 'explain', label: '解析', en: 'EXPLAIN' }, { id: 'lab', label: '动画', en: 'LAB' }, { id: 'repro', label: '复现', en: 'REPRODUCE', badge: ran === 'done' ? 3 : 0 }, { id: 'check', label: '检验', en: 'CHECK', badge: okCount }]}
     strip={<>READ <i>·</i> {paper?.venue ?? '新档案'} <i>·</i> 理解 {okCount}/{quizzes.length}</>} tools={modeSwitch}
     shutterLines={f => [`> open dossier · ${state.dossier.title.toLowerCase()}`, `> face · ${f.en.toLowerCase()}`, '> ready']}
-    status={<><span><i className="en-sq" />精读</span><span>{paper?.title ?? state.dossier.title}</span><span>解析 {Math.min(depth, layers.length)}/{layers.length || 5} 层</span><span>理解 {okCount}/{quizzes.length}</span><span>{RUN_TEXT[run.state]} · {money(run.spentCny)}{run.unknownCost ? ' + 未知' : ''}</span>{!paper && <span>澄清 {money(run.clarifySpentCny ?? 0)} / ¥{run.clarifyCapCny ?? 0.05}</span>}<span>{adapter.kind === 'mock' ? '示例数据 · 不连接模型' : '真实数据'}</span></>}>
+    status={<><span><i className="en-sq" />精读</span><span>{paper?.title ?? state.dossier.title}</span><span>解析 {Math.min(depth, layers.length)}/{layers.length || 5} 层</span><span>理解 {okCount}/{quizzes.length}</span><span>{RUN_TEXT[run.state]} · {money(run.spentCny)}{run.unknownCost ? ' + 未知' : ''}</span>{!paper && <span>澄清 {money(run.clarifySpentCny ?? 0)}{run.clarifyUnknownCost ? ' + 未知' : ''} / ¥{run.clarifyCapCny ?? 0.05}</span>}<span>{adapter.kind === 'mock' ? '示例数据 · 不连接模型' : '真实数据'}</span></>}>
     <XpHost sections={sections} title={paper?.venue ?? '新档案'}>
       <section className="rd-center" data-wb-panel>
         {(run.state !== 'idle' && paper) && <RunBar run={run} onStop={() => void adapter.cancel()} pending={pending.length} />}
@@ -173,7 +173,7 @@ function Start({ run, adapter, pending, onNew }: { run: RunView; adapter: ReadAd
         <h2>想读哪篇？</h2>
         <p className="rd-start-lead">在右边告诉精读助手，说得模糊也没关系，比如「讲智能体边推理边行动的那篇」。它会检索，拿不准就问你，再把候选论文列出来让你选。</p>
         <ol className="rd-start-steps"><li data-now><b>01</b>对话说清读哪篇</li><li><b>02</b>按这篇预估费用</li><li><b>03</b>你确认后开始读</li></ol>
-        <small className="rd-start-note">澄清对话用便宜档模型，上限 ¥{run.clarifyCapCny ?? 0.05}，不单独确认；已用 {money(run.clarifySpentCny ?? 0)}。</small>
+        <small className="rd-start-note">澄清对话用便宜档模型，上限 ¥{run.clarifyCapCny ?? 0.05}，不单独确认；已用 {money(run.clarifySpentCny ?? 0)}{run.clarifyUnknownCost ? ' + 未知' : ''}。</small>
       </>}
       {c && before && <>
         <h2>读这篇</h2>
