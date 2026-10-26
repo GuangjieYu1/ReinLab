@@ -3,9 +3,11 @@ import type { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { ApiEnv } from "./context";
 import { ApiFailure } from "./errors";
+import { LocalUsername, LocalLoginAlias } from "../local-login";
+const Email = z.string().email().max(320);
 const Login = z
   .object({
-    email: z.string().email().max(320),
+    email: z.union([Email, LocalUsername]),
     password: z.string().min(1).max(4096),
   })
   .strict();
@@ -32,6 +34,7 @@ export type SessionPort = {
   url: string;
   anonKey: string;
   transport?: typeof fetch;
+  usernameAlias?: z.infer<typeof LocalLoginAlias>;
 };
 /** Same-origin browser login proxy. Credentials remain in request/process memory. No cookies or token storage. */
 export function registerSession(app: Hono<ApiEnv>, config: SessionPort) {
@@ -45,6 +48,9 @@ export function registerSession(app: Hono<ApiEnv>, config: SessionPort) {
     base.hash ||
     base.pathname !== "/"
   )
+    throw Error("SESSION_CONFIG_INVALID");
+  const alias = config.usernameAlias && LocalLoginAlias.parse(config.usernameAlias);
+  if (alias && (base.protocol !== 'http:' || base.hostname !== '127.0.0.1'))
     throw Error("SESSION_CONFIG_INVALID");
   app.use(
     "/auth/*",
@@ -82,8 +88,14 @@ export function registerSession(app: Hono<ApiEnv>, config: SessionPort) {
       if (!parsed.success)
         throw new ApiFailure("INVALID_INPUT", 400, "登录参数无效。");
       try {
-        const data = parsed.data,
-          body = "email" in data ? data : { refresh_token: data.refreshToken };
+        const data = parsed.data;
+        let body: { email: string; password: string } | { refresh_token: string };
+        if ("email" in data) {
+          const email = Email.safeParse(data.email).success ? data.email
+            : alias?.username === data.email ? alias.email : undefined;
+          if (!email) throw Error();
+          body = { email, password: data.password };
+        } else body = { refresh_token: data.refreshToken };
         const r = await (config.transport ?? fetch)(
           new URL(
             "/auth/v1/token?grant_type=" +
@@ -113,6 +125,8 @@ export function registerSession(app: Hono<ApiEnv>, config: SessionPort) {
         const text = await r.text();
         if (text.length > 65536) throw Error();
         const value = Session.parse(JSON.parse(text));
+        if ("email" in data && !Email.safeParse(data.email).success && value.user.id !== alias?.accountId)
+          throw Error();
         return c.json({
           accessToken: value.access_token,
           refreshToken: value.refresh_token,
@@ -123,7 +137,7 @@ export function registerSession(app: Hono<ApiEnv>, config: SessionPort) {
         throw new ApiFailure(
           "LOGIN_FAILED",
           401,
-          "登录失败或会话已过期，请核对邮箱和密码。",
+          "登录失败或会话已过期，请核对用户名或邮箱和密码。",
         );
       }
     });

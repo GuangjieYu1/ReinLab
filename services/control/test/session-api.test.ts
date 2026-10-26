@@ -13,3 +13,14 @@ it('Supabase实际12字符refresh token作为不透明凭据保留，认证仍�
  const app=new Hono<ApiEnv>();registerSession(app,{url:'http://127.0.0.1:54321',anonKey:'fixture',transport:(async()=>Response.json({access_token:'a'.repeat(64),refresh_token:'fixture12abc',expires_in:3600,user:{id:'12345678-1234-4234-8234-123456789abc'}})) as typeof fetch});app.onError((e,c)=>c.json({code:e instanceof ApiFailure?e.code:'INTERNAL'},e instanceof ApiFailure?e.status:500));
  const r=await app.request('http://localhost/auth/login',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify({email:'a@example.test',password:'fixture'})});expect(r.status).toBe(200);expect((await r.json()).refreshToken.length).toBe(12);
 });
+it('本机用户名映射后仍由Auth验证密码；未知用户名不转发且映射必须命中原账户',async()=>{
+ let calls=0;let account='12345678-1234-4234-8234-123456789abc';
+ const app=new Hono<ApiEnv>();registerSession(app,{url:'http://127.0.0.1:54321',anonKey:'fixture',usernameAlias:{username:'local-user',email:'a@example.test',accountId:account},transport:(async(_url,init)=>{calls++;expect(JSON.parse(init!.body as string)).toEqual({email:'a@example.test',password:'fixture-password'});return Response.json({access_token:'a'.repeat(32),refresh_token:'b'.repeat(32),expires_in:3600,user:{id:account}});}) as typeof fetch});
+ app.onError((e,c)=>c.json({code:e instanceof ApiFailure?e.code:'INTERNAL'},e instanceof ApiFailure?e.status:500));
+ const request=(email:string)=>app.request('http://localhost/auth/login',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify({email,password:'fixture-password'})});
+ expect((await request('local-user')).status).toBe(200);
+ expect((await request('unknown-user')).status).toBe(401);expect(calls).toBe(1);
+ expect((await request('invalid@@example')).status).toBe(400);expect(calls).toBe(1);
+ account='22345678-1234-4234-8234-123456789abc';
+ expect((await request('local-user')).status).toBe(401);
+});

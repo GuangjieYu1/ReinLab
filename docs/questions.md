@@ -341,3 +341,5 @@ Q-099旧场景补充（2026-10-26）：恢复混沌原先经公开API新建档�
 入口接线实跑发现Claude原有减少动态效果分支未设置cardReady，ACCESS FILE后不显示小票；按前端归属留给Claude修复，本批不改界面交互。
 
 本地执行修复：worker随real-models启动；本次queued/preparing实际由旧账户镜像SCOPE_DENIED阻断，清理明确的适配器fixture、允许尚未派发的queued升级后，恢复用户原任务一次，已显示3篇真实候选；未重跑任务，峰值保守费用0.012661元（上限0.05），以后fixture改用独立fixture-users.env。
+
+本机普通用户名按私有映射精确匹配原账户，密码通过本地Auth管理API显式同步，保留原UID/邮箱/档案；以后改配置后执行sync-local-account.ts再重启，不自动创建账户或复用合成测试账户。

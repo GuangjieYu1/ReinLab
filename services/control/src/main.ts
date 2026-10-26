@@ -18,6 +18,7 @@ import { RuntimePipeline } from "./bridge/openscience/pipeline";
 import { runtimePricingFromEnvironment } from "./bridge/openscience/pricing-environment";
 import { startAuthProvisioner } from "./provisioner/auth-worker";
 import { localPeakPricing } from "./model/peak-pricing";
+import { readLocalLoginAlias } from "./local-login";
 
 const config = runtimeConfiguration();
 const realModels = config.REINLAB_REAL_MODELS_ENABLED === "1";
@@ -101,7 +102,10 @@ const pipeline = new RuntimePipeline(database, {
 const app = await createApp({
   pool,
   session: config.SUPABASE_ANON_KEY
-    ? { url: config.SUPABASE_URL, anonKey: config.SUPABASE_ANON_KEY }
+    ? { url: config.SUPABASE_URL, anonKey: config.SUPABASE_ANON_KEY,
+        usernameAlias: config.PROVISIONER_DRIVER === 'docker'
+          ? readLocalLoginAlias(path.join(path.dirname(nodeProcess.env.REINLAB_RUNTIME_CONFIG_FILE!), 'login-alias.env'))
+          : undefined }
     : undefined,
   pricing: pricingFromEnvironment(config),
   pipeline,
