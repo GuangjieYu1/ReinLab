@@ -339,3 +339,5 @@ Q-099旧场景补充（2026-10-26）：恢复混沌原先经公开API新建档�
 本机6GB Docker同时运行25个容器时账户升级曾返回PROVISIONER_UNAVAILABLE；停止12个无未结束运行的合成测试账户容器后启动成功，卷与记录保留，长期空闲回收留待实际需要时处理。
 
 入口接线实跑发现Claude原有减少动态效果分支未设置cardReady，ACCESS FILE后不显示小票；按前端归属留给Claude修复，本批不改界面交互。
+
+本地执行修复：worker随real-models启动；本次queued/preparing实际由旧账户镜像SCOPE_DENIED阻断，清理明确的适配器fixture、允许尚未派发的queued升级后，恢复用户原任务一次，已显示3篇真实候选；未重跑任务，峰值保守费用0.012661元（上限0.05），以后fixture改用独立fixture-users.env。

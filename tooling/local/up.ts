@@ -169,6 +169,7 @@ try {
     INTERNAL_SIGNING_KEY: signingKey,
     REINLAB_REAL_MODELS_ENABLED: realModels ? "1" : "0",
   });
+  await stopOwnedControl(join(paths.state, "worker.json"), resolve("tooling/local/worker.ts"));
   await stopOwnedControl(paths.process, resolve("tooling/local/control.ts"));
   if (realModels) {
     step("LOCAL_REAL_ACCOUNT_IMAGES_UPGRADING");
@@ -190,6 +191,21 @@ try {
     env: { ...cliEnvironment },
     recordFile: paths.process,
   });
+  if (realModels) {
+    step("LOCAL_HATCHET_STARTING");
+    await quietCommand(process.execPath, ["--import", "tsx", resolve("tooling/local/hatchet.ts")], {
+      cwd: paths.root, env: cliEnvironment, timeoutMs: 300000,
+    });
+    step("LOCAL_WORKER_STARTING");
+    await startControlProcess({
+      script: resolve("tooling/local/worker.ts"),
+      cwd: paths.root,
+      env: { ...cliEnvironment },
+      recordFile: join(paths.state, "worker.json"),
+      port: 0,
+      timeoutMs: 60000,
+    });
+  }
   await stopOwnedControl(
     join(paths.state, "frontend.json"),
     resolve("tooling/local/live-frontend.ts"),
@@ -214,7 +230,7 @@ try {
       stateDirectory: paths.state,
       realModels,
       ...(realModels
-        ? { frontend: "http://127.0.0.1:5183" }
+        ? { frontend: "http://127.0.0.1:5183", worker: "ready", hatchet: "http://127.0.0.1:58888" }
         : {}),
     }),
   );

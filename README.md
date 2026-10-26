@@ -4,9 +4,10 @@
 
 ## 本地真实精读
 
-运行 `pnpm local:up --real-models`，打开 <http://127.0.0.1:5183>，注册或登录本地账户，进入研究台精读。宿主网关直接读取受保护的 `~/.config/reinlab/local.env`，无需 `source` 或导出 key。
+运行 `pnpm local:up --real-models`，自动启动控制面、Hatchet、恢复 worker 和 live 前端；打开 <http://127.0.0.1:5183> 登录本地账户，进入研究台精读。宿主网关直接读取受保护的 `~/.config/reinlab/local.env`，无需 `source` 或导出 key。
 澄清上限 ¥0.05，正式精读按确认预算，以峰值费率保守预留；用量未知保留未知。普通 `pnpm local:up` 默认不开真实模型，测试与 CI 使用 fixture。
 若提示有未结束运行而延后账户升级，先结束旧运行，再执行启动命令。
+测试脚本仅使用本机私有的 `fixture-users.env` 合成账户，不复用走查账户的 `verification-users.env`。
 
 ## 完整开场与档案空间
 

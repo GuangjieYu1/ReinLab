@@ -35,7 +35,7 @@ try {
   pool = new pg.Pool({ connectionString: env.DATABASE_URL_APP, max: 3 });
   const db = new Database(pool);
   await db.assertSafeRole();
-  const authFile = join(paths.state, 'verification-users.env');
+  const authFile = join(paths.state, 'fixture-users.env');
   let users: Record<string, string> = {};
   try { users = await readPrivateEnv(authFile); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }

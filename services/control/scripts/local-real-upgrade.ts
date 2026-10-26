@@ -53,7 +53,7 @@ export async function upgradeLocalRealAccounts(
         async (c) =>
           (
             await c.query(
-              "select 1 from run where account_id=$1 and ended_at is null and state in ('queued','running','waiting','paused_budget') limit 1",
+              "select 1 from run where account_id=$1 and ended_at is null and (state in ('running','waiting','paused_budget') or (state='queued' and exists(select 1 from os_binding b where b.run_id=run.id and (b.receipt is not null or b.hold_id is not null or b.phase='submitting')))) limit 1",
               [id],
             )
           ).rowCount,

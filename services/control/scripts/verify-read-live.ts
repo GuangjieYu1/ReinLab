@@ -32,7 +32,7 @@ import { readPrivateEnv } from "../../../tooling/local/config";
 import { readRuntimeConfiguration } from "../src/configuration";
 const paths = localPaths(),
   config = readRuntimeConfiguration(paths.runtime),
-  users = await readPrivateEnv(join(paths.state, "verification-users.env"));
+  users = await readPrivateEnv(join(paths.state, "fixture-users.env"));
 if (process.env.DEEPSEEK_API_KEY)
   throw Error("FIXTURE_REFUSES_MODEL_CREDENTIAL_ENV");
 const out =

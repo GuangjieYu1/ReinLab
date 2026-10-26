@@ -56,7 +56,7 @@ function input(args: string[], bytes: string) {
 let lock: Awaited<ReturnType<typeof acquireStartupLock>> | undefined;
 let operation = "lock";
 try {
-  lock = await acquireStartupLock();
+  lock = await acquireStartupLock(3003);
   operation = "configuration";
   const runtime = readRuntimeConfiguration(paths.runtime),
     setup = await readPrivateEnv(paths.setup);
