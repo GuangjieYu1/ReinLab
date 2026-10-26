@@ -1,0 +1,59 @@
+{
+  "dateAsiaShanghai": "2026-10-26",
+  "dedicatedAlias": "ReinLab",
+  "visibleKeyMaskMatchesCurrentProtectedKey": true,
+  "fullKeyComparisonAvailable": false,
+  "providerExportCny": "0.0215938400000000",
+  "ledgerKnownCny": "0.021596",
+  "roundingDifferenceCny": "-0.0000021600000000",
+  "providerCosts": [
+    {
+      "start_time_iso": "2026-10-26T10:00:00+08:00",
+      "end_time_iso": "2026-10-26T11:00:00+08:00",
+      "model": "deepseek-flash",
+      "cost": "0.0215938400000000",
+      "currency": "CNY"
+    }
+  ],
+  "providerAmounts": [
+    {
+      "start_time_iso": "2026-10-26T10:00:00+08:00",
+      "end_time_iso": "2026-10-26T11:00:00+08:00",
+      "model": "deepseek-flash",
+      "type": "input_cache_hit_tokens",
+      "price": "0.00000004",
+      "amount": "23296"
+    },
+    {
+      "start_time_iso": "2026-10-26T10:00:00+08:00",
+      "end_time_iso": "2026-10-26T11:00:00+08:00",
+      "model": "deepseek-flash",
+      "type": "output_tokens",
+      "price": "0.000008",
+      "amount": "1103"
+    },
+    {
+      "start_time_iso": "2026-10-26T10:00:00+08:00",
+      "end_time_iso": "2026-10-26T11:00:00+08:00",
+      "model": "deepseek-flash",
+      "type": "request_count",
+      "price": "",
+      "amount": "6"
+    },
+    {
+      "start_time_iso": "2026-10-26T10:00:00+08:00",
+      "end_time_iso": "2026-10-26T11:00:00+08:00",
+      "model": "deepseek-flash",
+      "type": "input_cache_miss_tokens",
+      "price": "0.000002",
+      "amount": "5919"
+    }
+  ],
+  "rawExportOutsideRepository": true,
+  "rawExportMode": "0600",
+  "workflowPassed": false,
+  "guardForwards": 6,
+  "allFiveCapabilitiesSucceeded": true,
+  "holdUnpricedPreserved": true,
+  "realModelRetry": false
+}
