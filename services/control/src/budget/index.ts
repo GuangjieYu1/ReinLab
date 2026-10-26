@@ -672,6 +672,8 @@ async function settleAmount(
       409,
       "未知费用回报内容不同，需要真实对账。",
     );
+  const costDelta = amount === null ? 0n : amount - micros(hold.known_cost_cny ?? '0');
+  if (costDelta < 0n) throw new ApiFailure('OBSERVED_USAGE_INVALID',409,'已入账的已知费用不能减少。');
   const quotaDelta = input.quota - hold.actual_quota,
     gpuDelta = input.gpuSeconds - hold.actual_gpu_seconds;
   if (quotaDelta < 0 || gpuDelta < 0)
@@ -685,10 +687,10 @@ async function settleAmount(
       if (!path.length || path.at(-1).parent_id || !runIds.includes(run.id))
         throw new Error("invalid allocation path");
       for (const node of path)
-        micros(decimal(micros(node.spent_cny) + (amount ?? 0n)));
+        micros(decimal(micros(node.spent_cny) + costDelta));
       for (const id of runIds) {
         const ancestor = await runRow(client, id);
-        micros(decimal(micros(ancestor.spent_cny) + (amount ?? 0n)));
+        micros(decimal(micros(ancestor.spent_cny) + costDelta));
       }
     } catch {
       throw new ApiFailure(
@@ -700,11 +702,11 @@ async function settleAmount(
   }
   await client.query(
     "update budget_allocation set spent_cny=spent_cny+$2,quota_spent=quota_spent+$3,gpu_spent=gpu_spent+$4 where id=any($1::uuid[])",
-    [path.map((p) => p.id), decimal(amount ?? 0n), quotaDelta, gpuDelta],
+    [path.map((p) => p.id), decimal(costDelta), quotaDelta, gpuDelta],
   );
   await client.query(
     "update run set spent_cny=spent_cny+$2,quota_runs=quota_runs+$3,gpu_seconds=gpu_seconds+$4 where id=any($1::uuid[])",
-    [runIds, decimal(amount ?? 0n), quotaDelta, gpuDelta],
+    [runIds, decimal(costDelta), quotaDelta, gpuDelta],
   );
   const now = await runRow(client, run.id),
     excess =
@@ -776,6 +778,7 @@ async function settleAmount(
       event.seq,
     ],
   );
+  if (amount !== null) await client.query('update budget_hold set known_cost_cny=$2 where id=$1',[hold.id,decimal(amount)]);
   const reservationOverrun =
     excess > 0n ||
     input.quota > hold.maximum_quota ||
@@ -917,6 +920,22 @@ export async function settleObservedRun(
       );
     }
     if (amount === 0n) amount = null;
+  }
+  if (run.role_id === 'research-clarify' && amount === null && total.amount !== null && micros(total.amount) > 0n) {
+    const known = micros(total.amount), booked = micros(hold.known_cost_cny ?? '0');
+    if (known < booked) throw new ApiFailure('OBSERVED_USAGE_INVALID',409,'已知费用记录不完整，不能减少累计。');
+    const delta = known - booked;
+    if (delta > 0n) {
+      const path = await ancestors(client, hold.allocation_id);
+      await client.query('update budget_allocation set spent_cny=spent_cny+$2 where id=any($1::uuid[])',[path.map(p=>p.id),decimal(delta)]);
+      await client.query('update run set spent_cny=spent_cny+$2 where id=any($1::uuid[])',[path.filter(p=>p.run_id).map(p=>p.run_id),decimal(delta)]);
+      await client.query('update budget_hold set known_cost_cny=$2 where id=$1',[hold.id,decimal(known)]);
+      await appendEvent(client,accountId,{dossierId:run.dossier_id,runId,kind:'gate',action:'known_usage_booked',payload:{knownCny:decimal(known),remainingUsage:'unknown'},dedupeKey:'known-usage:'+hold.id+':'+decimal(known)});
+    }
+  }
+  if (amount === null && hold.state === 'unpriced' && !hold.settlement_hash) {
+    const pending = await appendEvent(client,accountId,{dossierId:run.dossier_id,runId,kind:'gate',action:'os_usage_pending',payload:{holdId:hold.id,reason:'usage_unknown'},dedupeKey:'os-usage-pending:'+hold.id});
+    return {eventSeq:pending.seq,settled:false,costCny:null,reconciled:false};
   }
   return settleAmount(
     client,

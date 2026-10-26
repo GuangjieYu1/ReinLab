@@ -249,18 +249,22 @@ export async function createApp(options: {
     app.get("/mcp/clarify-candidates", async (c) => {
       const token = c.req.header("authorization")?.match(/^Bearer (\S+)$/)?.[1],
         a = await options.mcp!.authority.validate(token);
-      if (a.claims.role !== "research-clarify" || a.claims.version !== "1.2.0")
+      if (a.claims.role !== "research-clarify" || !["1.2.0", "1.2.1"].includes(a.claims.version))
         throw denied();
+      const requested = c.req.query('paperIds')?.split(',');
+      if (requested && (!requested.length || requested.length>5 || new Set(requested).size!==requested.length || requested.some(id=>!/^W[0-9]{1,30}$/.test(id)))) throw denied();
       const rows = await database.withAccount(
         a.claims.account,
         async (client) =>
           (
             await client.query(
-              "select distinct on(paper_id) paper_id,metadata from read_candidate where run_id=$1 order by paper_id,created_at desc limit 5",
-              [a.claims.run],
+              "select distinct on(paper_id) paper_id,metadata from read_candidate where run_id=$1 and ($2::text[] is null or paper_id=any($2::text[])) order by paper_id,created_at desc limit 5",
+              [a.claims.run,requested??null],
             )
           ).rows,
       );
+      if (requested && rows.length!==requested.length) throw denied();
+      if (requested) rows.sort((x,y)=>requested.indexOf(x.paper_id)-requested.indexOf(y.paper_id));
       return c.json({
         options: [
           ...rows.map((r) => ({

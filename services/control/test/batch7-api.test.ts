@@ -10,6 +10,7 @@ import { DecisionService } from "../src/bridge/openscience/decisions";
 import { materializeHarnessRole } from "../src/harness/materialize";
 import { loadToolRegistry } from "../src/harness/manifest";
 import { captureSearch, publishSearch } from "../src/clarify/candidates";
+import { appendEvent } from '../src/ledger';
 async function fixture(version = "1.2.0") {
   const f = await mcpFixture(undefined, false, version, "research-clarify");
   const secret = randomBytes(48),
@@ -79,6 +80,7 @@ async function fixture(version = "1.2.0") {
     app,
     post,
     state,
+    inbox: () => app.request('/v1/approvals',{headers:{authorization:'Bearer '+token}}),
     queued,
     decisions,
     setNative: (n: any) => (native = n),
@@ -137,7 +139,7 @@ it("explicit clarification queues search-only cheap run once without confirmatio
     await f.close();
   }
 });
-it.each(["research", "inbox"])(
+it.each(["research", "inbox", "reply"])(
   "%s native question requires a human receipt; page quote binds revision and unchoose never reopens old authority",
   async (entry) => {
     const f = await fixture();
@@ -192,10 +194,10 @@ it.each(["research", "inbox"])(
           sessionID: b.sessionId,
           questions: [
             {
-              header: "REINLAB_PAPER_PICK",
+              header: entry === "reply" ? "REINLAB_CLARIFY" : "REINLAB_PAPER_PICK",
               question: "请选择论文",
               multiple: false,
-              custom: false,
+              custom: entry === "reply",
               options: [
                 { label: "W1", description: "Attention Fixture" },
                 { label: "都不是", description: "继续描述" },
@@ -253,6 +255,15 @@ it.each(["research", "inbox"])(
         })),
       };
       f.setNative(runtime);
+      if (entry === "reply") {
+        expect((await (await f.inbox()).json()).items.some((a:any)=>a.runId===f.run)).toBe(false);
+        const before=await (await f.state()).json();expect(before.clarification.pendingQuestion).toEqual({approvalId:approval,runId:f.run});
+        const answer=await f.post("/v1/dossiers/"+f.dossier+"/read/clarify",{text:"补充：Toolformer",approvalId:approval});
+        expect(answer.status).toBe(202);expect((await answer.json()).runId).toBe(f.run);
+        expect(runtime.decide).toHaveBeenCalledTimes(1);expect(f.queued).not.toHaveBeenCalled();
+        expect((await f.admin.query("select count(*)::int n from read_clarify_run where dossier_id=$1",[f.dossier])).rows[0].n).toBe(1);
+        return;
+      }
       let snap = await (await f.state()).json();
       expect(snap.clarification.chosen).toBeNull();
       const pick = snap.clarification.history.find(
@@ -340,3 +351,21 @@ it.each(["research", "inbox"])(
     }
   }
 );
+
+it("closing unknown clarification permits a fresh run in the same dossier, while its own forwarding stays fenced",async()=>{
+ const f=await fixture();try{
+ const path='/v1/dossiers/'+f.dossier+'/read/clarify';
+ const first=await (await f.post(path,{text:'第一轮'})).json();
+ const reserve=(id:string,hash:string)=>f.db.withAccount(f.account,c=>c.query("insert into clarify_model_request(account_id,dossier_id,run_id,body_hash,maximum_micros,state)values($1,$2,$3,$4,33029,'forwarding')",[f.account,f.dossier,id,hash]));
+ await reserve(first.runId,'a'.repeat(64));
+ await f.db.withAccount(f.account,c=>appendEvent(c,f.account,{dossierId:f.dossier,runId:first.runId,kind:'cost',action:'priced_native_usage',costCny:.007253,dedupeKey:'priced-once'}));
+ expect((await (await f.state()).json()).clarification).toMatchObject({spentCny:.007253,unknownCost:true});
+ expect((await f.post('/v1/dossiers/'+f.dossier+'/read/cancel-clarify',{})).status).toBe(202);
+ const ended=(await f.admin.query('select state,ended_at from run where id=$1',[first.runId])).rows[0];expect(ended.ended_at).not.toBeNull();
+ expect((await f.post(path,{text:'迟到的旧输入',selectionRevision:0})).status).toBe(409);
+ const current=(await(await f.state()).json()).clarification.selectionRevision;
+ const second=await f.post(path,{text:'Toolformer',selectionRevision:current});expect(second.status).toBe(201);const run=(await second.json()).runId;expect(run).not.toBe(first.runId);
+ await expect(reserve(run,'a'.repeat(64))).resolves.toBeDefined();
+ await expect(reserve(run,'b'.repeat(64))).rejects.toMatchObject({code:'23514'});
+ }finally{await f.close();}
+});

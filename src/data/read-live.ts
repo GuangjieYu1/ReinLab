@@ -77,6 +77,7 @@ export function createLiveReadAdapter(
       }
     | undefined;
   let pendingMutation: { path: string; body: string; key: string } | undefined;
+  let cancelIntent: { dossier: string; key: string } | undefined;
   async function clarifyMutation(path: string, body: unknown) {
     const encoded = JSON.stringify(body);
     if (
@@ -89,7 +90,12 @@ export function createLiveReadAdapter(
       body: encoded,
       key: crypto.randomUUID(),
     });
-    await ports.api(path, body, request.key);
+    try { await ports.api(path, body, request.key); }
+    catch (error) {
+      if ([400,401,403,404,409,422].includes((error as {status?: number}).status ?? 0) && pendingMutation === request)
+        pendingMutation = undefined;
+      throw error;
+    }
     current();
     if (pendingMutation === request) pendingMutation = undefined;
   }
@@ -245,6 +251,11 @@ export function createLiveReadAdapter(
     for (const finding of next.findings) emit({ type: "finding", finding });
     for (const e of next.history) emit(e);
   }
+  async function refreshSerially() {
+    const work = refreshQueue.catch(() => {}).then(() => refresh());
+    refreshQueue = work.then(() => {}, () => {});
+    await work;
+  }
   function listen() {
     if (controller || !subs.size || !dossier) return;
     const mine = epoch,
@@ -326,12 +337,23 @@ export function createLiveReadAdapter(
       if (controller === abort) controller = undefined;
     });
   }
+  async function cancelClarification() {
+    current();
+    if (!dossier) return;
+    if (!cancelIntent || cancelIntent.dossier !== dossier) cancelIntent = { dossier, key: crypto.randomUUID() };
+    const request = cancelIntent;
+    await ports.api('/v1/dossiers/'+dossier+'/read/cancel-clarify',{},request.key);
+    current();
+    await refreshSerially();
+    if (wire?.clarification?.activeRunId) throw unavailable();
+    pendingMutation = undefined;
+    if (cancelIntent === request) cancelIntent = undefined;
+  }
   async function newDossier() {
     current();
     if (creating) return creating;
     if (
       intent?.unknown ||
-      pendingMutation ||
       ["queued", "running", "waiting"].includes(snapshot.run.state)
     ) {
       emit({
@@ -341,11 +363,12 @@ export function createLiveReadAdapter(
       });
       return false;
     }
-    stop();
-    quoteVersion++;
-    const expected = epoch;
-    createKey ??= crypto.randomUUID();
     const work = (async () => {
+      await cancelClarification();
+      stop();
+      quoteVersion++;
+      const expected = epoch;
+      createKey ??= crypto.randomUUID();
       const created = await ports.api(
         "/v1/dossiers",
         { bench: "research", title: "新的精读" },
@@ -438,23 +461,30 @@ export function createLiveReadAdapter(
           });
       }
     },
+    async cancelClarify() { await cancelClarification(); },
     async clarify(text) {
       current();
+      let accepted = false;
       try {
         if (creating && !(await creating)) return;
         current();
         if (!dossier && !(await newDossier())) return;
         listen();
+        await refreshSerially();
+        const pending = wire?.clarification?.pendingQuestion;
         await clarifyMutation("/v1/dossiers/" + dossier + "/read/clarify", {
           text,
+          ...(pending ? { approvalId: pending.approvalId } : {}),
+          ...(wire?.clarification?.selectionRevision !== undefined ? { selectionRevision: wire.clarification.selectionRevision } : {}),
         });
-        await refresh();
+        accepted = true;
+        await refreshSerially();
       } catch {
         if (generation === ports.generation()) {
           const e: ReadEvent = {
             type: "agent",
             id: "clarify-status:" + crypto.randomUUID(),
-            text: "澄清未受理或结果尚未核对，请只读刷新账本；没有自动重试或提高预算。",
+            text: accepted ? '澄清已受理，结果待只读刷新；没有另建或重复派发运行。' : "澄清未受理或结果尚未核对，请只读刷新账本；没有自动重试或提高预算。",
           };
           local.push(e);
           emit(e);
@@ -471,7 +501,7 @@ export function createLiveReadAdapter(
         });
         quote = undefined;
         quoteVersion++;
-        await refresh();
+        await refreshSerially();
       } catch {
         if (generation === ports.generation())
           emit({
@@ -489,7 +519,7 @@ export function createLiveReadAdapter(
         quote = undefined;
         intent = undefined;
         quoteVersion++;
-        await refresh();
+        await refreshSerially();
       } catch {
         if (generation === ports.generation())
           emit({
@@ -658,11 +688,11 @@ export function createLiveReadAdapter(
             spentCny: null,
           },
         });
-        await refresh();
+        await refreshSerially();
       } catch {
         if (generation !== ports.generation()) return;
         try {
-          await refresh();
+          await refreshSerially();
         } catch {}
         if (intent.unknown)
           emit({
@@ -685,7 +715,7 @@ export function createLiveReadAdapter(
           crypto.randomUUID()
         );
         current();
-        await refresh();
+        await refreshSerially();
       } catch {
         if (generation !== ports.generation()) return;
         emit({
@@ -712,11 +742,11 @@ export function createLiveReadAdapter(
           scope: "once",
         });
         current();
-        await refresh();
+        await refreshSerially();
       } catch {
         if (generation !== ports.generation()) return;
         try {
-          await refresh();
+          await refreshSerially();
         } catch {}
         emit({
           type: "run",

@@ -134,6 +134,7 @@ it("clarify waits for an in-flight new dossier and cannot submit to the previous
   const next = "44444444-4444-4444-8444-444444444444";
   const api = vi.fn(async (path: string) => {
     if (path === "/v1/dossiers") return created;
+    if (path.endsWith('/read/cancel-clarify')) return {accepted:true};
     if (path.includes("/read/clarify")) {
       calls.push(path);
       return { accepted: true };
@@ -160,4 +161,30 @@ it("clarify waits for an in-flight new dossier and cannot submit to the previous
   await creating;
   await clarifying;
   expect(calls).toEqual(["/v1/dossiers/" + next + "/read/clarify"]);
+});
+
+it("pending clarification text replies to the same question/run rather than admitting another run", async()=>{
+ const data:any=wire();data.clarification.pendingQuestion={approvalId:pick,runId:p};data.clarification.activeRunId=p;
+ const calls:any[]=[];const api=async(path:string,body?:any)=>{if(path.endsWith('/read-state'))return structuredClone(data);calls.push({path,body});return {accepted:true,runId:p};};
+ const a=createLiveReadAdapter(d,{api,decide:vi.fn(),generation:()=>1,stream:vi.fn()} as any);
+ await a.load();await a.clarify('补充：Toolformer');
+ expect(calls).toEqual([{path:'/v1/dossiers/'+d+'/read/clarify',body:{text:'补充：Toolformer',approvalId:pick}}]);
+});
+it("new reading closes old clarification first and exposes the explicit cancel port",async()=>{
+ const data:any=wire();data.clarification.activeRunId=p;data.clarification.unknownCost=true;
+ const order:string[]=[];const api=async(path:string)=>{if(path.endsWith('/read-state'))return structuredClone(data);order.push(path);if(path.endsWith('/read/cancel-clarify')){data.clarification.activeRunId=null;return{accepted:true};}if(path==='/v1/dossiers'){data.dossier={id:p,title:'新档案'};return data.dossier;}throw Error('unexpected');};
+ const a=createLiveReadAdapter(d,{api,decide:vi.fn(),generation:()=>1,stream:vi.fn()}as any);
+ const before=await a.load();expect(before.run.clarifySpentCny).toBe(.0123);expect(before.run.unknownCost).toBe(true);expect(before.run.clarifyUnknownCost).toBe(true);
+ expect(typeof a.cancelClarify).toBe('function');await a.newReading!();expect(order).toEqual(['/v1/dossiers/'+d+'/read/cancel-clarify','/v1/dossiers']);
+});
+it("definitively rejected clarification does not permanently fence the next text",async()=>{
+ const data=wire();let posts=0;const api=async(path:string)=>{if(path.endsWith('/read-state'))return structuredClone(data);if(++posts===1)throw Object.assign(Error('rejected'),{status:409});return{accepted:true};};
+ const a=createLiveReadAdapter(d,{api,decide:vi.fn(),generation:()=>1,stream:vi.fn()}as any);await a.load();await a.clarify('第一句');await a.clarify('新的补充');expect(posts).toBe(2);
+});
+
+it("an accepted reply is not reported as rejected when only its read refresh fails",async()=>{
+ const data:any=wire();data.clarification.pendingQuestion={approvalId:pick,runId:p};let posted=false;const events:any[]=[];
+ const api=async(path:string)=>{if(path.endsWith('/read-state')){if(posted)throw Error('read unavailable');return structuredClone(data);}posted=true;return{accepted:true,runId:p};};
+ const a=createLiveReadAdapter(d,{api,decide:vi.fn(),generation:()=>1,stream:vi.fn()}as any);await a.load();const off=a.subscribe(e=>events.push(e));await a.clarify('Toolformer');off();
+ expect(events.some(e=>e.type==='agent'&&e.text.includes('澄清已受理'))).toBe(true);expect(events.some(e=>e.type==='agent'&&e.text.includes('澄清未受理'))).toBe(false);
 });

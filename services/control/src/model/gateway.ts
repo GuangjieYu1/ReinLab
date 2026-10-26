@@ -159,7 +159,7 @@ export function registerRuntimeModel(
           run: auth.claims.run,
           role: auth.claims.role,
         };
-        const output = clarify ? 256 : 1024;
+        const output = clarify ? (auth.claims.version === "1.2.1" ? 512 : 256) : 1024;
         if (
           Object.keys(body).some((k) => !keys.has(k)) ||
           body.model !== "deepseek-flash" ||
@@ -266,13 +266,13 @@ export function registerRuntimeModel(
           );
           if (clarify)
             await client.query(
-              "insert into clarify_model_request(account_id,dossier_id,run_id,body_hash,maximum_micros,state)values($1,$2,$3,$4,$5,'forwarding')",
+              "insert into clarify_model_request(account_id,dossier_id,run_id,body_hash,maximum_micros,max_output,state)values($1,$2,$3,$4,$5,$6,'forwarding')",
               [
                 auth.claims.account,
                 auth.claims.dossier,
                 auth.claims.run,
                 bodyHash,
-                maximum,
+                maximum, body.max_tokens,
               ],
             );
           await appendEvent(client, auth.claims.account, {

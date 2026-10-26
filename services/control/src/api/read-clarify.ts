@@ -11,6 +11,7 @@ import { bindRunCapabilities, loadCapabilityCatalog } from "../mcp/authority";
 import { mutate, type ApiEnv, type Receipt } from "./context";
 import { ApiFailure, denied } from "./errors";
 import type { RuntimeApiPort } from "./runtime";
+import { closeClarifications } from '../clarify/lifecycle';
 import {
   candidateView,
   currentChoice,
@@ -18,7 +19,7 @@ import {
   pickView,
 } from "../clarify/candidates";
 
-const Text = z.object({ text: z.string().trim().min(1).max(1000) }).strict(),
+const Text = z.object({ text: z.string().trim().min(1).max(1000), approvalId: z.string().uuid().optional(), selectionRevision: z.number().int().nonnegative().optional() }).strict(),
   Empty = z.object({}).strict();
 const Pick = z
   .object({
@@ -47,19 +48,28 @@ export async function clarificationView(c: any, dossier: string) {
   ).rows[0];
   const costs = (
     await c.query(
-      `select coalesce(sum(r.spent_cny),0)::text spent,coalesce(bool_or(coalesce(b.usage_uncertain,false) or exists(select 1 from budget_hold h where h.run_id=r.id and h.state='unpriced')),false) unknown from run r left join os_binding b on b.run_id=r.id where r.dossier_id=$1 and r.role_id='research-clarify'`,
+      `select (select coalesce(sum(e.cost_cny),0)::text from event e join run r on r.id=e.run_id where r.dossier_id=$1 and r.role_id='research-clarify' and e.kind='cost' and e.cost_cny is not null) spent,
+        exists(select 1 from run r left join os_binding b on b.run_id=r.id where r.dossier_id=$1 and r.role_id='research-clarify' and
+          ((coalesce(b.usage_uncertain,false) and not exists(select 1 from event proof join budget_hold h on h.run_id=proof.run_id
+             where proof.run_id=r.id and proof.action='clarify_usage_reconciled' and h.state='settled'
+             and proof.payload->>'settlementEventSeq'=h.event_seq::text
+             and proof.payload->>'usages'=(select count(*)::text from os_usage where run_id=r.id)))
+           or exists(select 1 from budget_hold h where h.run_id=r.id and h.state='unpriced')
+           or exists(select 1 from runtime_model_request m where m.run_id=r.id and m.state<>'completed')
+           or exists(select 1 from clarify_model_request m where m.run_id=r.id and m.state<>'completed')
+           or exists(select 1 from event e where e.run_id=r.id and e.kind='cost' and e.cost_cny is null))) unknown`,
       [dossier]
     )
   ).rows[0];
   const fence = (
     await c.query(
-      "select count(*)::int rounds,coalesce(sum(reinlab_clarify_reservation(clarify_model_request)),0)::int reserved,coalesce(bool_or(state<>'completed'),false) blocked from clarify_model_request where dossier_id=$1",
+      "select count(*)::int rounds,coalesce(sum(reinlab_clarify_reservation(clarify_model_request)),0)::int reserved,coalesce(bool_or(state<>'completed'),false) blocked from clarify_model_request where run_id=(select id from run where dossier_id=$1 and role_id='research-clarify' order by created_at desc,id desc limit 1)",
       [dossier]
     )
   ).rows[0];
   const runs = (
     await c.query(
-      "select id,state,input from run where dossier_id=$1 and role_id='research-clarify' order by created_at,id",
+      "select r.id,r.state,r.input,cr.closed from run r join read_clarify_run cr on cr.run_id=r.id where r.dossier_id=$1 and r.role_id='research-clarify' order by r.created_at,r.id",
       [dossier]
     )
   ).rows;
@@ -74,6 +84,9 @@ export async function clarificationView(c: any, dossier: string) {
     id: "clarify-user:" + r.id,
     text: r.input.clarifyText,
   }));
+  const pendingQuestion = approvals.find((a: any) => a.state === 'pending' && !a.sent &&
+    runs.some((r: any) => r.id === a.runId && !r.closed && ['running','waiting'].includes(r.state)) &&
+    nativeQuestions(a.effects).length === 1 && nativeQuestions(a.effects)[0].header === 'REINLAB_CLARIFY');
   for (const a of approvals) {
     const pick = await pickView(c, dossier, a);
     if (pick) {
@@ -105,7 +118,7 @@ export async function clarificationView(c: any, dossier: string) {
     history.push({
       type: "agent",
       id: "clarify-unknown",
-      text: fence.blocked ? "另有澄清在途或未知用量，已停止新转发；未知费用不按零记账。" : "澄清账本另有待核用量；预算按已验证回执的保守上界计，不按零记账。",
+      text: "澄清已有已知花费 + 未知用量；未知部分仍保留预算，不按零记账，也不阻塞其他运行。",
     });
   if (fence.rounds >= 6 || fence.reserved >= 50000)
     history.push({
@@ -172,6 +185,8 @@ export async function clarificationView(c: any, dossier: string) {
     rounds: fence.rounds,
     selectionRevision: state?.selection_revision ?? 0,
     chosen: chosen ? candidateView(chosen) : null,
+    pendingQuestion: pendingQuestion ? { approvalId: pendingQuestion.id, runId: pendingQuestion.runId } : null,
+    activeRunId: [...runs].reverse().find((r: any) => !r.closed && ['queued','running','waiting','paused_budget'].includes(r.state))?.id ?? null,
     history,
   };
 }
@@ -183,6 +198,15 @@ export function registerReadClarify(
   pipeline: RuntimeApiPort | undefined,
   queued: ((account: string, run: string) => Promise<void>) | undefined
 ) {
+  app.post('/v1/dossiers/:id/read/cancel-clarify', async c => {
+    const account=c.get('accountId'), dossier=c.req.param('id');
+    const response=await mutate(c,db,Empty,async client=>{
+      await lockBudget(client,account); await requireDossier(client,dossier); await noFormal(client,dossier);
+      return {status:202,body:{accepted:true}};
+    });
+    if (response.status===202) await closeClarifications(db,account,dossier,pipeline);
+    return response;
+  });
   app.post("/v1/dossiers/:id/read/clarify", async (c) => {
     let nextRun: string | undefined, nextApproval: string | undefined;
     const account = c.get("accountId"),
@@ -194,8 +218,8 @@ export function registerReadClarify(
         async (client) =>
           (
             await client.query(
-              "select a.* from approval a join run r on r.id=a.run_id join read_clarify_run cr on cr.run_id=r.id where r.dossier_id=$1 and not cr.closed and a.kind='question' and a.state='pending' and not a.decision_sent order by a.id limit 1",
-              [dossier]
+              "select a.* from approval a join run r on r.id=a.run_id join read_clarify_run cr on cr.run_id=r.id where r.dossier_id=$1 and not cr.closed and a.kind='question' and a.state='pending' and not a.decision_sent and ($2::uuid is null or a.id=$2) order by a.id limit 1",
+              [dossier, rawText.data.approvalId ?? null]
             )
           ).rows[0]
       );
@@ -223,7 +247,7 @@ export function registerReadClarify(
             dossier
           ),
           role = effective.manifest.roles["research-clarify"];
-        if (effective.manifest.version !== "1.2.0" || !role?.model_cap)
+        if (!["1.2.0", "1.2.1"].includes(effective.manifest.version) || !role?.model_cap)
           throw conflict(
             "当前档案未接澄清，请新建research@1.2.0精读，不会升级旧档案。"
           );
@@ -237,6 +261,8 @@ export function registerReadClarify(
             [dossier]
           )
         ).rows[0];
+        if (input.selectionRevision !== undefined && input.selectionRevision !== s.selection_revision)
+          throw conflict('澄清已切换或停止，旧输入未另建运行。');
         if (s.chosen_id) throw conflict("请先换一篇，再重新澄清。");
         const active = (
           await client.query(
@@ -252,6 +278,8 @@ export function registerReadClarify(
             )
           ).rows[0];
           const q = a && nativeQuestions(a.effects);
+          if (input.approvalId && input.approvalId !== a?.id)
+            throw conflict('待回答的澄清问题已变化，请刷新。');
           if (!a || q.length !== 1 || q[0].header === "REINLAB_PAPER_PICK")
             throw conflict("澄清仍在运行或等待选论文，请先处理当前问题。");
           if (!pipeline)
@@ -275,25 +303,17 @@ export function registerReadClarify(
             payload: { text: input.text },
             dedupeKey: "clarify-answer:" + a.id,
           });
-          return { status: 202, body: { approvalId: a.id, accepted: true } };
+          return { status: 202, body: { approvalId: a.id, runId: active.id, accepted: true } };
         }
-        const fence = (
-          await client.query(
-            "select coalesce(sum(reinlab_clarify_reservation(clarify_model_request)),0)::int spent,count(*)::int rounds,coalesce(bool_or(state<>'completed'),false) unknown from clarify_model_request where dossier_id=$1",
-            [dossier]
-          )
-        ).rows[0];
-        if (fence.unknown || fence.rounds >= 6 || fence.spent >= 50000)
-          throw conflict(
-            "澄清预算/轮数已耗尽或用量未知，已停止，不会自动增加。"
-          );
-        const amount = decimal(BigInt(50000 - fence.spent)),
+        if (input.approvalId) throw conflict('这个澄清已结束，不能另建运行代答。');
+        await client.query('update read_clarification set closed=false,selection_revision=selection_revision+1 where dossier_id=$1 and closed',[dossier]);
+        const amount = decimal(50000n),
           root = await prepareDossierBudget(client, account, dossier, amount),
           id = randomUUID();
         const roleInput = {
           question: input.text,
           clarifyText: input.text,
-          limits: { maxSteps: 6 - fence.rounds },
+          limits: { maxSteps: 6 },
           memoryRefs: [],
         };
         await client.query(
@@ -308,8 +328,8 @@ export function registerReadClarify(
           ]
         );
         await client.query(
-          "insert into run_harness(account_id,dossier_id,run_id,bench,version,effective_digest,model_route)values($1,$2,$3,'research','1.2.0',$4,$5)",
-          [account, dossier, id, effective.digest, pricing.route("cheap")]
+          "insert into run_harness(account_id,dossier_id,run_id,bench,version,effective_digest,model_route)values($1,$2,$3,'research',$4,$5,$6)",
+          [account, dossier, id, effective.manifest.version, effective.digest, pricing.route("cheap")]
         );
         await bindRunCapabilities(
           client,
@@ -425,8 +445,8 @@ export function registerReadClarify(
     }
     return response;
   });
-  app.post("/v1/dossiers/:id/read/unchoose", (c) =>
-    mutate(c, db, Empty, async (client) => {
+  app.post("/v1/dossiers/:id/read/unchoose", async (c) => {
+    const response=await mutate(c, db, Empty, async (client) => {
       const dossier = c.req.param("id");
       await lockBudget(client, c.get("accountId"));
       await requireDossier(client, dossier);
@@ -451,6 +471,8 @@ export function registerReadClarify(
         dedupeKey: "unchoose:" + randomUUID(),
       });
       return { status: 200, body: { cleared: true } };
-    })
-  );
+    });
+    if (response.status===200) await closeClarifications(db,c.get('accountId'),c.req.param('id'),pipeline);
+    return response;
+  });
 }

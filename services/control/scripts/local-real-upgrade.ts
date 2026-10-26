@@ -8,6 +8,8 @@ import { Database } from "../src/db/database";
 import { lifecycleFromEnvironment } from "../src/provisioner/lifecycle";
 import { provisionerFromEnvironment } from "../src/provisioner";
 import { readPrivateEnv, writePrivateEnv } from "../../../tooling/local/config";
+import { quietCommand } from '../../../tooling/local/process';
+import { homedir } from 'node:os';
 export async function upgradeLocalRealAccounts(
   runtimeFile: string,
   setupFile: string,
@@ -40,7 +42,7 @@ export async function upgradeLocalRealAccounts(
     await db.assertSafeRole();
     const accounts = (
       await admin.query(
-        "select account_id from account_machine where image is distinct from $1 order by account_id",
+        "select account_id,fly_machine_id from account_machine where image is distinct from $1 order by account_id",
         [config.ACCOUNT_IMAGE],
       )
     ).rows;
@@ -61,6 +63,15 @@ export async function upgradeLocalRealAccounts(
       if (active) {
         deferred++;
         continue;
+      }
+      const machine = row.fly_machine_id;
+      const dockerEnv = { HOME: homedir(), PATH: process.env.PATH, DOCKER_HOST: config.DOCKER_HOST };
+      let wasRunning = true;
+      if (machine) {
+        if (machine !== 'rl-'+id.replaceAll('-','')) throw Error('LOCAL_MODEL_UPGRADE_SCOPE_INVALID');
+        const state=(await quietCommand('docker',['inspect','--format','{{.State.Running}}',machine],{env:dockerEnv,timeoutMs:15000})).trim();
+        if (!['true','false'].includes(state)) throw Error('LOCAL_MODEL_UPGRADE_INDETERMINATE');
+        wasRunning = state === 'true';
       }
       const file = join(directory, id + ".env");
       let saved: Record<string, string> = {};
@@ -89,6 +100,7 @@ export async function upgradeLocalRealAccounts(
         throw Error("LOCAL_MODEL_UPGRADE_INDETERMINATE");
       saved.STATE = "applied";
       await writePrivateEnv(file, saved);
+      if (!wasRunning) await quietCommand('docker',['stop','--time','3',machine],{env:dockerEnv,timeoutMs:20000});
       upgraded++;
     }
     return { upgraded, deferred };

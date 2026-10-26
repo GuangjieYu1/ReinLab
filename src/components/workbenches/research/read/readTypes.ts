@@ -26,7 +26,7 @@ export type RunView = {
   /** 对话澄清后你选定的论文；有了它才能预估。 */
   chosen?: PaperCandidate;
   /** 澄清对话（便宜档模型）已花 / 上限。上限内不单独确认，超过就停下问你。 */
-  clarifySpentCny?: number; clarifyCapCny?: number;
+  clarifySpentCny?: number; clarifyCapCny?: number; clarifyUnknownCost?: boolean;
 };
 
 export type Grade = 'ok' | 'part' | 'miss';
@@ -67,6 +67,8 @@ export interface ReadAdapter {
   subscribe(on: (e: ReadEvent) => void): () => void;
   /** 第一步：在对话里说想读什么。助手检索、必要时追问，候选以 pick 事件出现在对话里。便宜档，上限 ¥0.05，不单独确认。 */
   clarify(text: string): Promise<void>;
+  /** 结束当前档案的澄清；已知费用保留，未知用量保持未知。 */
+  cancelClarify?(): Promise<void>;
   /** 换一篇：清掉已选定的论文，回到对话澄清。 */
   unchoose(): Promise<void>;
   /** 选定论文之后预估：返回最多花多少钱；你确认后才 start。 */

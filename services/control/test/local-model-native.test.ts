@@ -20,13 +20,13 @@ import { createApp } from "../src/api/app";
 import { localPeakPricing } from "../src/model/peak-pricing";
 import { bootstrapMcp } from "../../account-runtime/mcp/store.mjs";
 import { startNativeRoleServer } from "./fixtures/role-provider";
-it.each([true, false])(
-  "native real-mode role clarify=%s routes actual SDK body through host-only runtime audience",
-  async (clarify) => {
+it.each([{clarify:true,version:"1.2.0",output:256},{clarify:true,version:"1.2.1",output:512},{clarify:false,version:"1.1.0",output:1024}])(
+  "native real-mode role $version clarify=$clarify routes actual SDK body through host-only runtime audience",
+  async ({clarify,version,output}) => {
     const f = await mcpFixture(
         undefined,
         false,
-        clarify ? "1.2.0" : "1.1.0",
+        version,
         clarify ? "research-clarify" : "research-read",
       ),
       root = await realpath(
@@ -237,7 +237,7 @@ it.each([true, false])(
       expect(requests[0]).toMatchObject({
         model: "deepseek-flash",
         thinking: { type: "disabled" },
-        max_tokens: clarify ? 256 : 1024,
+        max_tokens: output,
       });
       expect(
         (

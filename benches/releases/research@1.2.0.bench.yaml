@@ -1,0 +1,360 @@
+schema: reinlab.bench/v1
+id: research
+version: 1.2.0
+code: RSCH
+title: 研究工作台
+ui: custom
+dossier:
+  layout:
+    - papers/
+    - notes/
+    - swarm/
+    - results/
+    - study_plan/
+  templates: {}
+model_slots:
+  cheap: cheap
+  mid: mid
+  strong: strong
+entrypoints:
+  read: research-read
+  swarm: swarm-lead
+  auto: research-auto
+roles:
+  research-clarify:
+    prompt: prompts/research/research-clarify.md
+    model_slot: cheap
+    steps: 6
+    model_cap: { cny: 0.05, rounds: 6, output_tokens: 256 }
+    capability_allowlist: [papers.search]
+    tools: { literature: allow }
+    mcp: {}
+    write_targets: []
+    memory: { read: [], write: [], dossier: current, messages: own, refs: explicit }
+  research-read:
+    capability_allowlist: [papers.fetch, papers.pages, memory.read, memory.propose, cards.card.layer, cards.card.quiz, cards.card.finding, cards.card.answer, cards.card.approval]
+    prompt: prompts/research/research-read-v1-2.md
+    model_slot: strong
+    steps: 48
+    tools:
+      literature: allow
+      memory_read: allow
+      read_layer_write: ask
+      read_quiz_write: ask
+      finding_record: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - read/layers/
+      - read/quizzes/
+      - findings/
+    memory:
+      read:
+        - L1
+        - L2
+        - L3
+        - L4
+      write: []
+      dossier: current
+      messages: own
+      refs: explicit
+  research-auto:
+    prompt: prompts/research/research-auto.md
+    model_slot: strong
+    steps: 96
+    tools:
+      literature: allow
+      memory_read: allow
+      plan_propose: ask
+      finding_record: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - experiments/
+      - results.tsv
+      - lessons.md
+    memory:
+      read:
+        - L1
+        - L2
+        - L3
+        - L4
+      write: []
+      dossier: current
+      messages: own
+      refs: explicit
+  swarm-lead:
+    prompt: prompts/research/swarm-lead.md
+    model_slot: strong
+    steps: 64
+    tools:
+      literature: allow
+      memory_read: allow
+      swarm_board: allow
+      swarm_broadcast: ask
+      swarm_ask: ask
+      swarm_deliver: ask
+      swarm_help: ask
+      swarm_handoff: ask
+      swarm_refute: ask
+      plan_propose: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - swarm/own-deliveries/
+    memory:
+      read:
+        - L1
+        - L2
+        - L3
+        - L4
+      write: []
+      dossier: current
+      messages: own
+      refs: explicit
+  swarm-planner:
+    prompt: prompts/research/swarm-planner.md
+    model_slot: strong
+    steps: 48
+    tools:
+      literature: allow
+      memory_read: allow
+      swarm_board: allow
+      swarm_broadcast: ask
+      swarm_claim: ask
+      swarm_ask: ask
+      swarm_deliver: ask
+      swarm_help: ask
+      swarm_handoff: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - swarm/own-deliveries/
+    memory:
+      read:
+        - L1
+        - L2
+        - L3
+        - L4
+      write: []
+      dossier: current
+      messages: own
+      refs: explicit
+  swarm-scout:
+    prompt: prompts/research/swarm-scout.md
+    model_slot: cheap
+    steps: 32
+    tools:
+      literature: allow
+      memory_read: allow
+      swarm_board: allow
+      swarm_claim: ask
+      swarm_ask: ask
+      swarm_deliver: ask
+      swarm_help: ask
+      swarm_handoff: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - swarm/own-deliveries/
+    memory:
+      read:
+        - L1
+        - L2
+        - L3
+        - L4
+      write: []
+      dossier: current
+      messages: own
+      refs: explicit
+  swarm-reader:
+    prompt: prompts/research/swarm-reader.md
+    model_slot: cheap
+    steps: 40
+    tools:
+      literature: allow
+      memory_read: allow
+      swarm_board: allow
+      swarm_claim: ask
+      swarm_ask: ask
+      swarm_deliver: ask
+      swarm_help: ask
+      swarm_handoff: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - swarm/own-deliveries/
+    memory:
+      read:
+        - L1
+        - L2
+        - L3
+        - L4
+      write: []
+      dossier: current
+      messages: own
+      refs: explicit
+  swarm-analyst:
+    prompt: prompts/research/swarm-analyst.md
+    model_slot: mid
+    steps: 48
+    tools:
+      literature: allow
+      memory_read: allow
+      swarm_board: allow
+      swarm_claim: ask
+      swarm_ask: ask
+      swarm_deliver: ask
+      swarm_help: ask
+      swarm_handoff: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - swarm/own-deliveries/
+    memory:
+      read:
+        - L1
+        - L2
+        - L3
+        - L4
+      write: []
+      dossier: current
+      messages: own
+      refs: explicit
+  swarm-critic:
+    prompt: prompts/research/swarm-critic.md
+    model_slot: strong
+    steps: 48
+    tools:
+      literature: allow
+      memory_read: allow
+      swarm_board: allow
+      swarm_claim: ask
+      swarm_ask: ask
+      swarm_deliver: ask
+      swarm_help: ask
+      swarm_refute: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - swarm/own-deliveries/
+    memory:
+      read:
+        - L1
+        - L2
+        - L3
+        - L4
+      write: []
+      dossier: current
+      messages: own
+      refs: explicit
+  swarm-verifier:
+    prompt: prompts/research/swarm-verifier.md
+    model_slot: strong
+    steps: 48
+    tools:
+      literature: allow
+      memory_read: allow
+      swarm_board: allow
+      swarm_claim: ask
+      swarm_ask: ask
+      swarm_deliver: ask
+      swarm_help: ask
+      verdict_record: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - swarm/own-deliveries/
+    memory:
+      read:
+        - L2
+      write: []
+      dossier: current
+      messages: own
+      refs: assigned-citations
+  swarm-synth:
+    prompt: prompts/research/swarm-synth.md
+    model_slot: strong
+    steps: 48
+    tools:
+      literature: allow
+      memory_read: allow
+      swarm_board: allow
+      swarm_claim: ask
+      swarm_ask: ask
+      swarm_deliver: ask
+      swarm_help: ask
+      finding_record: ask
+      card_answer: ask
+      card_approval: ask
+      memory_propose: ask
+    mcp: {}
+    write_targets:
+      - swarm/own-deliveries/
+    memory:
+      read:
+        - L1
+        - L2
+        - L3
+        - L4
+      write: []
+      dossier: current
+      messages: own
+      refs: explicit
+gates:
+  read:
+    stages:
+      - ingest
+      - layers
+      - qa
+      - check
+      - close
+    require:
+      layers:
+        - artifact:layer_card
+      close:
+        - artifact:check_result
+    approve: user
+engines: {}
+delegations:
+  accepts: []
+  sends: []
+cards:
+  layer: { schema: schemas/research/layer.json, ui: LayerCard, tool: read_layer_write }
+  quiz: { schema: schemas/research/quiz.json, ui: QuizCard, tool: read_quiz_write }
+  finding: { schema: schemas/research/finding.json, ui: FindingCard, tool: finding_record }
+  answer: { schema: schemas/research/answer.json, ui: AnswerCard, tool: card_answer }
+budget:
+  default_cny: 5
+  by_mode:
+    read: 5
+    swarm: 30
+    auto: null
+tunable:
+  - model_slots.*
+  - budget.*
+  - roles.*.tools.*:tighten_only
+metadata:
+  migration_source: 202610190002_roles.sql and original services/control/roles bytes
+  gate_source: Read stages newly declared from HARNESS.md example; swarm/auto stages remain unspecified.
+  memory_write_scope: Original role seeds have no independent memory write scope; conservatively empty until P1-11.
+  planned_capabilities: Business tool contracts are declared planned; cards/MCP/delegation execution
+    is not implemented by this manifest.

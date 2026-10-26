@@ -22,13 +22,14 @@ const complete = () =>
     'data: {"model":"deepseek-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}\n\ndata: [DONE]\n\n',
     { headers: { "content-type": "text/event-stream" } },
   );
-async function setup() {
-  const f = await mcpFixture(undefined, false, "1.2.0");
+async function setup(clarify=false,version="1.2.0") {
+  const f = await mcpFixture(undefined, false, version, clarify ? "research-clarify" : "research-read");
+  if(clarify){await f.admin.query("insert into read_clarification(account_id,dossier_id)values($1,$2)",[f.account,f.dossier]);await f.admin.query("insert into read_clarify_run(account_id,dossier_id,run_id)values($1,$2,$3)",[f.account,f.dossier,f.run]);}
   await f.admin.query("update run set state='queued' where id=$1", [f.run]);
   const role = materializeHarnessRole(f.effective, await loadToolRegistry(), {
     dossierId: f.dossier,
-    roleId: "research-read",
-    modelRoutes: { strong: "deepseek/deepseek-v4-flash" },
+    roleId: clarify ? "research-clarify" : "research-read",
+    modelRoutes: { cheap:"deepseek/deepseek-v4-flash", strong: "deepseek/deepseek-v4-flash" },
     memory: "",
   });
   await new BindingStore(f.db).prepare(f.account, f.run, {
@@ -371,3 +372,12 @@ it("unapproved paid options, model, tool and output shapes cannot create a reser
   }
 });
 
+
+it("research1.2.1 admits 512 output tokens while preserving the .05 run ceiling",async()=>{
+ const f=await setup(true,"1.2.1");let forwarded=0;
+ try{const app=new Hono();registerRuntimeModel(app as never,f.authority,{prepare:async()=>async()=>{forwarded++;return complete();}});
+ expect((await send(app,f.model,{...request(),max_tokens:512})).status).toBe(200);
+ const row=(await f.admin.query("select max_output from clarify_model_request where run_id=$1",[f.run])).rows[0];expect(row.max_output).toBe(512);
+ expect((await send(app,f.model,{...request("over cap"),max_tokens:513})).status).not.toBe(200);expect(forwarded).toBe(1);
+ }finally{await f.close();}
+});

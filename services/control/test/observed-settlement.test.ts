@@ -39,7 +39,7 @@ afterAll(async () => {
   await admin.end();
 });
 
-async function fixture() {
+async function fixture(role = "research-read") {
   const account = randomUUID(),
     dossier = randomUUID(),
     run = randomUUID(),
@@ -54,8 +54,8 @@ async function fixture() {
     [dossier, account, "/data/dossiers/" + dossier],
   );
   await admin.query(
-    "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,'research-read','read',$4,'running',10)",
-    [run, account, dossier, request],
+    "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,$5,'read',$4,'running',10)",
+    [run, account, dossier, request, role],
   );
   const root = await db.withAccount(account, (c) =>
     budget.allocateBudget(c, account, { dossierId: dossier, amountCny: "10" }),
@@ -79,8 +79,8 @@ async function fixture() {
   await db.withAccount(account, (c) =>
     c.query(
       `insert into os_binding(account_id,dossier_id,run_id,logical_role_id,request_id,session_id,role_options,definition_hash,message,input_hash,phase,receipt,hold_id)
-    values($1,$2,$3,'research-read',$4,$5,jsonb_build_object('dossierId',$2::uuid::text,'role',jsonb_build_object('id','research-read--'||repeat('a',32))),$6,'fixture',$6,'accepted','{}',$7)`,
-      [account, dossier, run, request, session, "a".repeat(64), hold.holdId],
+    values($1,$2,$3,$8,$4,$5,jsonb_build_object('dossierId',$2::uuid::text,'role',jsonb_build_object('id',$8::text||'--'||repeat('a',32))),$6,'fixture',$6,'accepted','{}',$7)`,
+      [account, dossier, run, request, session, "a".repeat(64), hold.holdId, role],
     ),
   );
   return {
@@ -538,4 +538,19 @@ it("child observation updates parent run and all three funding allocations once"
       )
     ).rows[0].n,
   ).toBe(1);
+});
+
+it("known partial cost survives unknown closure and later full reconciliation books only the delta",async()=>{
+ const f=await fixture("research-clarify");await usage(f,"0.007253");
+ const pending=await settle(f,false);expect(pending.settled).toBe(false);expect((await snapshot(f)).r.spent_cny).toBe("0.007253");
+ await settle(f,false);expect((await snapshot(f)).r.spent_cny).toBe("0.007253");
+ await usage(f,"0.001000");const complete=await settle(f,true);expect(complete.settled).toBe(true);
+ const final=await snapshot(f);expect(final.r.spent_cny).toBe("0.008253");expect(final.allocations.every(a=>a.spent_cny==="0.008253")).toBe(true);
+});
+
+it("an unknown HTTP hold without a settlement receipt can close while its known cost remains booked",async()=>{
+ const f=await fixture("research-clarify");await usage(f,"0.007071");
+ await admin.query("update budget_hold set state='unpriced' where id=$1",[f.hold]);
+ const value=await settle(f,false);expect(value).toMatchObject({settled:false,costCny:null});
+ expect(await settle(f,false)).toEqual(value);const s=await snapshot(f);expect(s.r.spent_cny).toBe("0.007071");expect(s.h.state).toBe('unpriced');expect(s.h.actual_cny).toBeNull();
 });

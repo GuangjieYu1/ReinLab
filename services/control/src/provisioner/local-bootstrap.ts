@@ -43,7 +43,7 @@ export async function bootstrapLocalDatabase(
       resolve("infra/supabase/migrations")
     );
     const registry = await loadToolRegistry();
-    for (const version of ["1.0.0", "1.1.0", undefined])
+    for (const version of ["1.0.0", "1.1.0", "1.2.0", undefined])
       await publishBench(
         pool,
         await loadBenchBundle({ benchId: "research", registry, version }),

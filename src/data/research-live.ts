@@ -29,11 +29,11 @@ async function jsonRequest(path: string, init: RequestInit) {
     redirect: "error",
   });
   if (!r.ok)
-    throw Error(
+    throw Object.assign(Error(
       r.status === 401
         ? "登录已过期，请重新登录。"
         : "请求未完成，请刷新后重试。",
-    );
+    ), { status: r.status });
   return r.json();
 }
 export async function login(email: string, password: string) {

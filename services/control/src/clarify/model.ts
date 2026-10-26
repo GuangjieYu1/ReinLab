@@ -128,7 +128,7 @@ export function registerClarifyModel(
           auth = await authority.validateModel(token);
         if (
           auth.claims.role !== "research-clarify" ||
-          auth.claims.version !== "1.2.0" ||
+          !["1.2.0", "1.2.1"].includes(auth.claims.version) ||
           auth.scope.grants.length !== 1 ||
           auth.scope.grants[0].name !== "papers.search"
         )
@@ -147,7 +147,7 @@ export function registerClarifyModel(
           body.thinking?.type !== "disabled" ||
           !Number.isInteger(body.max_tokens) ||
           body.max_tokens < 1 ||
-          body.max_tokens > 256 ||
+          body.max_tokens > (auth.claims.version === "1.2.1" ? 512 : 256) ||
           (body.n !== undefined && body.n !== 1) ||
           !Array.isArray(body.messages) ||
           !body.messages.length ||
@@ -212,13 +212,14 @@ export function registerClarifyModel(
               "澄清费用窗口未核实。"
             );
           await client.query(
-            "insert into clarify_model_request(account_id,dossier_id,run_id,body_hash,maximum_micros,state)values($1,$2,$3,$4,$5,'forwarding')",
+            "insert into clarify_model_request(account_id,dossier_id,run_id,body_hash,maximum_micros,max_output,state)values($1,$2,$3,$4,$5,$6,'forwarding')",
             [
               auth.claims.account,
               auth.claims.dossier,
               auth.claims.run,
               hash,
               maximum,
+              body.max_tokens,
             ]
           );
           await appendEvent(client, auth.claims.account, {
