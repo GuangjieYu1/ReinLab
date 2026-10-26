@@ -14,7 +14,7 @@ import { localPaths } from "../../../tooling/local/paths";
 import { readPrivateEnv } from "../../../tooling/local/config";
 const paths = localPaths(),
   config = readRuntimeConfiguration(paths.runtime),
-  users = await readPrivateEnv(join(paths.state, "verification-users.env"));
+  users = await readPrivateEnv(join(paths.state, "fixture-users.env"));
 const out = process.env.REINLAB_EVIDENCE_OUT ?? "/tmp/reinlab-p113-live-e2e",
   base = "http://127.0.0.1:5181";
 await mkdir(out, { recursive: true });

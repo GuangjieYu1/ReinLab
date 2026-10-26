@@ -98,6 +98,9 @@ try {
   console.log(
     JSON.stringify({ code: "RECOVERY_WORKER_READY", modelRequests: 0 })
   );
+  const marker = process.argv.indexOf("--instance"), instance = process.argv[marker + 1];
+  if (process.connected && process.send && marker >= 0 && /^[a-f0-9-]{36}$/.test(instance))
+    process.send({ type: "reinlab.control.ready", instance, pid: process.pid, port: 0 });
   await running;
 } catch {
   console.error(JSON.stringify({ code: "RECOVERY_WORKER_FAILED" }));

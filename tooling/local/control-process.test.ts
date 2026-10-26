@@ -141,17 +141,17 @@ it("publishes a record only after its real probe child proves readiness over IPC
   }
   expect(() => process.kill(started.pid, 0)).toThrow();
 });
-it("live frontend readiness is proved on its own port rather than the control health port", async () => {
+it.each([5183, 0])("frontend/worker readiness is proved for its own port %s", async (port) => {
   const { root, file } = await files(),
     { script } = await probeScript(root, true);
   const source = await readFile(script, "utf8");
-  await writeFile(script, source.replace("port:3001", "port:5183"));
+  await writeFile(script, source.replace("port:3001", "port:" + port));
   const started = await startControlProcess({
     script,
     cwd: process.cwd(),
     env: { PATH: process.env.PATH },
     recordFile: file,
-    port: 5183,
+    port,
     timeoutMs: 2000,
   });
   try {
