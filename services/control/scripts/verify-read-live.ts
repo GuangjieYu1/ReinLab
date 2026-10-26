@@ -18,7 +18,6 @@ import { RoleRuntime } from "../src/bridge/openscience/role-runtime";
 import { prepareRoleProject } from "../src/bridge/openscience/role-project";
 import { bootstrapMcp, removeMcp } from "../../account-runtime/mcp/store.mjs";
 import { startNativeRoleServer } from "../test/fixtures/role-provider";
-import { DEEPSEEK_PRICING_VERSION } from "../src/bridge/openscience/deepseek-pricing";
 import { applyMigrations } from "../src/db/migrate";
 import { serve } from "@hono/node-server";
 import { createServer } from "vite";
@@ -26,6 +25,7 @@ import { chromium } from "playwright";
 import { createApp } from "../src/api/app";
 import { Database } from "../src/db/database";
 import { PricingService } from "../src/budget/pricing";
+import { localPeakPricing } from "../src/model/peak-pricing";
 import { appendEvent } from "../src/ledger";
 import { localPaths } from "../../../tooling/local/paths";
 import { readPrivateEnv } from "../../../tooling/local/config";
@@ -143,6 +143,7 @@ try {
   );
   pipeline = new RuntimePipeline(db, {
     realModels: true,
+    pricingContext: localPeakPricing(),
     prepareCapabilities: async (a, id) => {
       const token = await authority.issue(a, id);
       await bootstrapMcp(
@@ -171,14 +172,6 @@ try {
           ).href,
         }),
       }),
-    pricingContext: {
-      currency: "CNY",
-      window: "peak",
-      usdCnyRate: "7.2",
-      pricingVersion: DEEPSEEK_PRICING_VERSION,
-      validFrom: 1,
-      validUntil: Date.now() + 3600000,
-    },
   });
   const app = await createApp({
     pipeline,

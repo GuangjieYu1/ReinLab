@@ -71,6 +71,7 @@ it.each([true, false])(
         role,
         message: "fixture only",
       });
+      expect(binding.role.modelGateway).toBe(true);
       boundSession = binding.sessionId;
       await f.admin.query(
         "update os_binding set hold_id=$2,pricing_context=$3 where run_id=$1",
@@ -185,7 +186,7 @@ it.each([true, false])(
       );
       const auth = await authority.validate(token),
         project = await prepareRoleProject({
-          ...role,
+          ...binding.role,
           root,
           mcp: {
             runId: f.run,
