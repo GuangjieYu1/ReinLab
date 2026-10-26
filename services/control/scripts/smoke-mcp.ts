@@ -422,7 +422,7 @@ try {
         assert.equal(input.capability, "files.write");
         assert.deepEqual(input.args, fileArgs);
         const read = smokeReadReceipt(tools, ids.fetch, ids.pages);
-        const actualRead = await db.withAccount(session.id, (c) =>
+        const actualRead: { rows: Array<{ page_text: string }> } = await db.withAccount(session.id, (c) =>
           c.query(
             "select page_text from paper_page_read where account_id=$1 and dossier_id=$2 and run_id=$3 and asset_id=$4 and page=1",
             [session.id, dossier.id, run.id, read.assetId],
