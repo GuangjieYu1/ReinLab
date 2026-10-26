@@ -365,8 +365,14 @@ try {
   page.on("pageerror", () => pageErrors++);
   const signIn = async () => {
     await page.getByLabel("邮箱", { exact: true }).fill(users.A_EMAIL);
-    await page.getByLabel("密码", { exact: true }).fill(users.A_PASSWORD);
-    await page.getByRole("button", { name: /LOG IN/ }).click();
+    await page.getByPlaceholder("PASSWORD", { exact: true }).fill(users.A_PASSWORD);
+    await page.getByRole("button", { name: /REQUEST/ }).click();
+    await page.getByLabel("邮箱", { exact: true }).waitFor({ state: "detached" });
+    await page.evaluate(async () => {
+      const modulePath = "/src/nav.ts";
+      const { navigate } = await import(modulePath);
+      navigate('/?preview=workbench&studio=research&file=0');
+    });
     await page.locator(".rd-new").waitFor();
     const dialog = page.getByRole("dialog", { name: "上线时待批准" });
     if (await dialog.isVisible())
