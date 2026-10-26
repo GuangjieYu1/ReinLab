@@ -1,0 +1,1 @@
+{"fixtureOnly":true,"realModelRequests":0,"fixtureCashUsage":"unknown_local_route","nativeVersion":"2.0.150","passed":true,"forwardCount":6,"approved":["papers.fetch","files.write","cards.card.finding"],"calls":["papers.search","papers.fetch","papers.pages","files.write","cards.card.finding"]}

@@ -1,4 +1,4 @@
-import { getuid } from 'node:process';
+import { getuid } from "node:process";
 import { constants } from "node:fs";
 import { createServer } from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -10,13 +10,17 @@ export async function startMcpSmokeGuard(options: {
   incomingToken: string;
   upstreamKey: string;
   markerPath: string;
+  authorizationEndsAt?: number;
   testOnlyTransport?: typeof fetch;
 }) {
   if (
     (options.testOnlyTransport && process.env.NODE_ENV !== "test") ||
     !/^[A-Za-z0-9_-]{43}$/.test(options.incomingToken) ||
     !options.upstreamKey ||
-    /[\r\n]/.test(options.upstreamKey)
+    /[\r\n]/.test(options.upstreamKey) ||
+    (options.authorizationEndsAt !== undefined &&
+      (!Number.isSafeInteger(options.authorizationEndsAt) ||
+        options.authorizationEndsAt <= Date.now()))
   )
     throw Error("MCP_SMOKE_CONFIGURATION_INVALID");
   const marker = resolve(options.markerPath),
@@ -55,7 +59,8 @@ export async function startMcpSmokeGuard(options: {
         if (
           item.includes(options.upstreamKey) ||
           item.includes(options.incomingToken)
-        ) return true;
+        )
+          return true;
         // Tool-call arguments are JSON inside a JSON string and the SDK parses them again.
         if (/^\s*[\[{\"]/.test(item)) {
           try {
@@ -65,7 +70,8 @@ export async function startMcpSmokeGuard(options: {
           }
         }
       } else if (item && typeof item === "object") {
-        for (const [key, child] of Object.entries(item)) pending.push(key, child);
+        for (const [key, child] of Object.entries(item))
+          pending.push(key, child);
       }
     }
     return false;
@@ -81,12 +87,12 @@ export async function startMcpSmokeGuard(options: {
     try {
       const auth = req.headers.authorization ?? "",
         candidate = Buffer.from(
-          auth.startsWith("Bearer ") ? auth.slice(7) : ""
+          auth.startsWith("Bearer ") ? auth.slice(7) : "",
         );
       if (
         req.rawHeaders.filter(
           (_, i) =>
-            i % 2 === 0 && req.rawHeaders[i].toLowerCase() === "authorization"
+            i % 2 === 0 && req.rawHeaders[i].toLowerCase() === "authorization",
         ).length !== 1 ||
         candidate.length !== expected.length ||
         !timingSafeEqual(candidate, expected)
@@ -95,6 +101,13 @@ export async function startMcpSmokeGuard(options: {
       if (req.method !== "POST" || req.url !== "/v1/chat/completions")
         reject(404);
       if (spent || closed || unknown || count >= 6 || active) reject(409);
+      if (
+        options.authorizationEndsAt !== undefined &&
+        Date.now() >= options.authorizationEndsAt
+      ) {
+        closed = true;
+        reject(409);
+      }
       active = true;
       owns = true;
       const body = await readSmokeBody(req),
@@ -106,7 +119,7 @@ export async function startMcpSmokeGuard(options: {
           (m: any) =>
             m.role === "tool" &&
             typeof m.content === "string" &&
-            /^(?:Error:|\{"error":)/.test(m.content)
+            /^(?:Error:|\{"error":)/.test(m.content),
         )
       )
         reject(409);
@@ -130,7 +143,7 @@ export async function startMcpSmokeGuard(options: {
           constants.O_NOFOLLOW |
           constants.O_NONBLOCK |
           (count === 0 ? constants.O_CREAT | constants.O_EXCL : 0),
-        0o600
+        0o600,
       );
       try {
         const stat = await handle.stat();
@@ -148,7 +161,7 @@ export async function startMcpSmokeGuard(options: {
         markerIdentity ??= { dev: stat.dev, ino: stat.ino };
         const directory = await open(
           parent,
-          constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
+          constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
         );
         try {
           const st = await directory.stat();
@@ -162,6 +175,11 @@ export async function startMcpSmokeGuard(options: {
       } finally {
         await handle.close();
       }
+      if (
+        options.authorizationEndsAt !== undefined &&
+        Date.now() >= options.authorizationEndsAt
+      )
+        closed = true;
       if (closed) reject(503);
       hashes.add(hash);
       count++;
@@ -183,17 +201,31 @@ export async function startMcpSmokeGuard(options: {
           body,
           redirect: "error",
           signal: controller.signal,
-        }
+        },
       );
       if (!reply.ok) {
-        unknown=true;await reply.body?.cancel();
-        res.writeHead(reply.status,{'content-type':'application/json'}).end('{"code":"MCP_SMOKE_UPSTREAM_REJECTED"}');
+        unknown = true;
+        await reply.body?.cancel();
+        res
+          .writeHead(reply.status, { "content-type": "application/json" })
+          .end('{"code":"MCP_SMOKE_UPSTREAM_REJECTED"}');
         return;
       }
       res.statusCode = reply.status;
       const type = reply.headers.get("content-type")?.toLowerCase();
-      if(!type || !/^(application\/json|text\/event-stream)(?:\s*;\s*charset=utf-8)?$/.test(type))throw Error('MCP_SMOKE_RESPONSE_TYPE');
-      res.setHeader('content-type',type.startsWith('text/event-stream')?'text/event-stream; charset=utf-8':'application/json');
+      if (
+        !type ||
+        !/^(application\/json|text\/event-stream)(?:\s*;\s*charset=utf-8)?$/.test(
+          type,
+        )
+      )
+        throw Error("MCP_SMOKE_RESPONSE_TYPE");
+      res.setHeader(
+        "content-type",
+        type.startsWith("text/event-stream")
+          ? "text/event-stream; charset=utf-8"
+          : "application/json",
+      );
       const chunks: Uint8Array[] = [];
       let received = 0;
       if (reply.body) {
@@ -215,7 +247,11 @@ export async function startMcpSmokeGuard(options: {
       }
       const bytes = Buffer.concat(chunks),
         text = bytes.toString("utf8");
-      if(bytes.includes(Buffer.from(options.upstreamKey))||bytes.includes(expected))throw Error('MCP_SMOKE_RESPONSE_CREDENTIAL');
+      if (
+        bytes.includes(Buffer.from(options.upstreamKey)) ||
+        bytes.includes(expected)
+      )
+        throw Error("MCP_SMOKE_RESPONSE_CREDENTIAL");
       try {
         if (type?.includes("text/event-stream")) {
           let finished = false,
@@ -231,15 +267,27 @@ export async function startMcpSmokeGuard(options: {
                 if (reflectsCredential(combined)) unknown = true;
               } else if (Array.isArray(item)) {
                 // OpenAI choices and tool calls merge by their declared index, not array position.
-                for (let position = item.length - 1; position >= 0; position--) {
+                for (
+                  let position = item.length - 1;
+                  position >= 0;
+                  position--
+                ) {
                   const child = item[position];
-                  const index = Number.isSafeInteger(child?.index) && child.index >= 0
-                    ? child.index : position;
-                  pending.push({ path: path + "/[" + index + "]", value: child });
+                  const index =
+                    Number.isSafeInteger(child?.index) && child.index >= 0
+                      ? child.index
+                      : position;
+                  pending.push({
+                    path: path + "/[" + index + "]",
+                    value: child,
+                  });
                 }
               } else if (item && typeof item === "object") {
                 for (const [key, child] of Object.entries(item).reverse())
-                  pending.push({ path: path + "/" + JSON.stringify(key), value: child });
+                  pending.push({
+                    path: path + "/" + JSON.stringify(key),
+                    value: child,
+                  });
               }
             }
           };
@@ -257,7 +305,7 @@ export async function startMcpSmokeGuard(options: {
             if (value.error) unknown = true;
             if (
               value.choices?.some((choice: any) =>
-                ["stop", "tool_calls"].includes(choice.finish_reason)
+                ["stop", "tool_calls"].includes(choice.finish_reason),
               )
             )
               finished = true;
@@ -269,7 +317,7 @@ export async function startMcpSmokeGuard(options: {
           if (
             value.error ||
             !value.choices?.some((choice: any) =>
-              ["stop", "tool_calls"].includes(choice.finish_reason)
+              ["stop", "tool_calls"].includes(choice.finish_reason),
             )
           )
             unknown = true;
@@ -286,7 +334,7 @@ export async function startMcpSmokeGuard(options: {
         res
           .writeHead(
             [400, 401, 404, 409, 413, 503].includes(status) ? status : 502,
-            { "content-type": "application/json" }
+            { "content-type": "application/json" },
           )
           .end('{"code":"MCP_SMOKE_REJECTED"}');
       else if (!res.writableFinished) res.destroy();

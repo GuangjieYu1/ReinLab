@@ -1,4 +1,18 @@
-# T-MCP-10 后续单次执行计划修订（尚未授权，禁止执行）
+# T-MCP-10 第三次授权单次执行计划
+
+2026-10-26 用户已明确授权第三次执行（原话“按你的建议来，同时也授权B”）。仅下面的新绑定可用于这一次授权；历史段落保留，不能据其旧目录直接执行。
+
+固定绑定：`user-third-authorization-20261026`，执行人Codex；仓库外状态目录`mcp10-third-authorization-20261026`，独立admission.env、model-forwarded.marker及证据目录。北京时间2026-10-26 09:00–11:50（UTC01:00–03:50）为授权窗口，启动及提交前至少剩10分钟；守卫在每次真实fetch前再次核截止。新绑定/拒旧绑定测试先提交，最新HEAD全部CI成功后才运行一次；无自动延期，失败未知不换目录/requestID重跑。
+
+价格依据2026-10-26重新读取下文官方CNY/USD两页；10-26为周一、非公布法定假日（[国务院2026年节假日安排](https://www.gov.cn/zhengce/content/202511/content_7047090.htm)），所选窗口在官方09–12峰段内，采用peak。原守卫保守总上界¥0.95551488仍小于¥1。不启用DeepSeek收费搜索/抓取接口。
+
+先通过原生fixture全链路演练（真实SDK/权限审批/MCP/PDF页/引用核对，模型与公开论文HTTP为明确fixture，不读真实key）；之后执行命令仅允许：
+
+```sh
+env -u DEEPSEEK_API_KEY pnpm exec tsx services/control/scripts/smoke-mcp.ts --execute-once --authorization-source user-third-authorization-20261026 --executor Codex
+```
+
+命令不含任何key或能力令牌；须在受保护配置已就绪、最新CI成功、Safari凭据页面已清理且专用key基线可核对之后人工调用一次。若窗口错过，停止等待新执行窗口提交与CI，不能直接改宿主时间或旧绑定。
 
 2026-10-25：本轮只实现精读适配器和修订计划，不运行真实模型。历史PLAN/report/execution-facts/空ledger与零调用核账只描述Codex先前预估503那次，原报告保留。之后Claude于10-25在用户另一次明确授权下实际转发2次：已知¥0.004198，另1笔未知，fetch审批处因执行器漏列而取消；旧目录RUN_KEY/marker已由Claude这次消费，不可删除或复用。详见主仓库design/reviews/T-MCP-10_CLAUDE_RUN.md与evidence/BATCH7/T-MCP-10/。
 
