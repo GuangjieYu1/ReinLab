@@ -18,6 +18,7 @@ import './files-editorial.css';
 import FilePreview, { type SlipAnchor } from '../entry/FilePreview';
 import { startTransit, transitActive, TRANSIT_END } from '../entry/transitStore';
 import '../entry/entry-shell.css';
+import { navigate } from '../../nav';
 
 type Variant = 'files' | 'workbenches';
 type Stage = 'opening' | 'global' | 'chooser' | 'module' | 'detail';
@@ -410,9 +411,9 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
     const query = new URLSearchParams({ preview: 'workbench', studio: picked.id, file: String(index), from: entry ? 'entry' : variant });
     if (variant === 'workbenches') query.set('design', design);
     const target = `${window.location.pathname}?${query}`;
-    if (reduced) { window.location.assign(target); return; }
+    if (reduced) { navigate(target); return; }
     setLeaving(`${picked.files[index]}`);
-    window.setTimeout(() => window.location.assign(target), 560);
+    window.setTimeout(() => navigate(target), 560);
   }
   function continueFile() {
     if (!picked) return;

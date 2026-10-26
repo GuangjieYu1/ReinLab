@@ -183,3 +183,5 @@
 .rl:is([data-phase='exit'],[data-phase='arrive-start']) .rl-term { opacity:0; transform:translateX(-40px); }
 .rl-term { transition:transform 720ms var(--rh-ease-move), opacity 480ms var(--rh-ease-exit); }
 .rl[data-phase='arrive'] .rl-term { transition-delay:900ms; }
+.rl-auth-id { margin-bottom:6px; }
+.rl-auth-id input { letter-spacing:.04em; }

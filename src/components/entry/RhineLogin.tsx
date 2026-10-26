@@ -3,9 +3,9 @@ import { RhineMark } from '../rhine/RhineMark';
 import type { CeremonyDesign } from '../cinematic/CeremonyWorkbenchChooser';
 import { appendAccessLog, formatTime, readAccessLog, type AccessEntry } from './accessLog';
 import { drawRibbon } from './ribbon';
+import { mockEntryAuth, type EntryAuth } from './entryAuth';
 
-// 伪登录：任意 4 位以上口令通过；更短的口令让整个场景原地进入「警示封锁」，2.6 秒后恢复。
-const MIN_KEY = 4;
+// 核验交给 EntryAuth（mock：任意 4 位以上口令；live：邮箱 + 密码）。被拒时整个场景原地进入「警示封锁」，2.6 秒后恢复。
 const DENY_MS = 2600;
 const VERIFY_MS = 1400;
 const CONFIRM_MS = 500;
@@ -54,11 +54,15 @@ function useStageScale() {
   return { ...view, scale: Math.min(view.w / 1920, view.h / 1080), compact: view.w < 900 || view.w < view.h * .9 };
 }
 
-type Props = { reduced: boolean; design: CeremonyDesign; arriving?: boolean; onVerify?: () => void; onExit: () => void; onArrived?: () => void };
+type Props = { reduced: boolean; design: CeremonyDesign; arriving?: boolean; onVerify?: () => void; onExit: () => void; onArrived?: () => void; auth?: EntryAuth };
 
-export default function RhineLogin({ reduced, design, arriving = false, onVerify, onExit, onArrived }: Props) {
+export default function RhineLogin({ reduced, design, arriving = false, onVerify, onExit, onArrived, auth = mockEntryAuth }: Props) {
   const [phase, setPhase] = useState<Phase>(arriving && !reduced ? 'arrive-start' : 'locked');
   const [key, setKey] = useState('');
+  const [identity, setIdentity] = useState('');
+  // 核验结果与最短核验时长分开：两者都到了才放行，网络再快也播完核验画面，再慢也不提前放行。
+  const [verdict, setVerdict] = useState<null | boolean>(null);
+  const [waited, setWaited] = useState(false);
   const [error, setError] = useState('');
   const [log, setLog] = useState<AccessEntry[]>(readAccessLog);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -68,6 +72,7 @@ export default function RhineLogin({ reduced, design, arriving = false, onVerify
   const designRef = useRef(design);
   designRef.current = design;
   const input = useRef<HTMLInputElement>(null);
+  const idInput = useRef<HTMLInputElement>(null);
   const now = useClock();
   const { scale, compact } = useStageScale();
   const attempts = log.length;
@@ -125,25 +130,37 @@ export default function RhineLogin({ reduced, design, arriving = false, onVerify
     }
     if (phase === 'arrive') { const id = setTimeout(() => { setPhase('locked'); onArrived?.(); }, ARRIVE_MS); return () => clearTimeout(id); }
     if (phase === 'denied') { const id = setTimeout(() => { setPhase('locked'); setKey(''); }, reduced ? 1200 : DENY_MS); return () => clearTimeout(id); }
-    if (phase === 'verifying') { const id = setTimeout(() => setPhase('confirmed'), reduced ? 0 : VERIFY_MS); return () => clearTimeout(id); }
+    if (phase === 'verifying') { const id = setTimeout(() => setWaited(true), reduced ? 0 : VERIFY_MS); return () => clearTimeout(id); }
     if (phase === 'confirmed') {
       const id = setTimeout(() => { motion.current.exitAt = performance.now(); setPhase('exit'); onExit(); }, reduced ? 0 : CONFIRM_MS);
       return () => clearTimeout(id);
     }
   }, [phase, reduced, onExit, onArrived]);
 
-  useEffect(() => { if (phase === 'locked') input.current?.focus(); }, [phase, compact]);
+  // 核验收尾：被拒立即封锁；通过要等核验画面播完。
+  useEffect(() => {
+    if (phase !== 'verifying' || verdict === null) return;
+    if (!verdict) { setPhase('denied'); return; }
+    if (waited) setPhase('confirmed');
+  }, [phase, verdict, waited]);
+
+  useEffect(() => { if (phase === 'locked') (auth.identity && !identity ? idInput : input).current?.focus(); }, [phase, compact]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (phase !== 'locked') return;
+    if (auth.identity && !identity.trim()) { setError(`请输入${auth.identity.label}`); idInput.current?.focus(); return; }
     if (!key.trim()) { setError('请输入授权口令'); input.current?.focus(); return; }
-    const ok = key.trim().length >= MIN_KEY;
-    setLog(appendAccessLog({ at: Date.now(), result: ok ? 'granted' : 'denied', length: key.trim().length }));
-    setError('');
-    setPhase(ok ? 'verifying' : 'denied');
-    // 核验这 1.4 秒画面相对平静，趁这时挂上下一页最重的部分（档案场），交接时就不卡。
-    if (ok) onVerify?.();
+    const length = key.trim().length;
+    setError(''); setVerdict(null); setWaited(false); setPhase('verifying');
+    auth.verify(identity.trim(), key).catch(() => false).then(ok => {
+      setLog(appendAccessLog({ at: Date.now(), result: ok ? 'granted' : 'denied', length }));
+      if (!ok && auth.kind === 'live') setError('核验未通过：请核对邮箱和密码');
+      if (ok) setKey('');
+      setVerdict(ok);
+      // 核验画面相对平静，趁这时挂上下一页最重的部分（档案场），交接时就不卡。
+      if (ok) onVerify?.();
+    });
   }
 
   const hh = String(now.getHours()).padStart(2, '0'), mm = String(now.getMinutes()).padStart(2, '0');
@@ -157,14 +174,22 @@ export default function RhineLogin({ reduced, design, arriving = false, onVerify
 
   const form = (
     <form className="rl-auth" onSubmit={submit} noValidate>
+      {auth.identity && <>
+        <div className="rl-auth-head"><span className="rh-micro">Identity · {auth.identity.label}</span></div>
+        <div className="rl-auth-bar rl-auth-id">
+          <label className="rh-sr" htmlFor="rl-id">{auth.identity.label}</label>
+          <input id="rl-id" ref={idInput} type={auth.identity.type} autoComplete="username" spellCheck={false} placeholder={auth.identity.placeholder} value={identity} disabled={busy || denied}
+            onChange={e => { setIdentity(e.target.value); if (error) setError(''); }} />
+        </div>
+      </>}
       <div className="rl-auth-head"><span className="rh-micro">Authorization key</span><span className="rh-micro">Attempt · {count}</span></div>
       <div className="rl-auth-bar">
         <label className="rh-sr" htmlFor="rl-key">授权口令</label>
-        <input id="rl-key" ref={input} type="password" autoComplete="off" spellCheck={false} placeholder="ENTER AUTHORIZATION KEY" value={key} disabled={busy || denied}
+        <input id="rl-key" ref={input} type="password" autoComplete="off" spellCheck={false} placeholder={auth.keyPlaceholder} value={key} disabled={busy || denied}
           aria-invalid={!!error} aria-describedby="rl-key-help" onChange={e => { setKey(e.target.value); if (error) setError(''); }} />
         <button type="submit" disabled={busy || denied}>{phase === 'verifying' ? 'VERIFYING' : phase === 'confirmed' || phase === 'exit' ? 'GRANTED' : 'REQUEST'}<span aria-hidden="true">→</span></button>
       </div>
-      <div id="rl-key-help" className={`rl-auth-help${error ? ' is-error' : ''}`}>{error || '演示环境：任意 4 位以上口令即可通过'}</div>
+      <div id="rl-key-help" className={`rl-auth-help${error ? ' is-error' : ''}`}>{error || auth.hint}</div>
     </form>
   );
 
