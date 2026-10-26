@@ -17,8 +17,17 @@ import { provisionerFromEnvironment } from "./provisioner";
 import { RuntimePipeline } from "./bridge/openscience/pipeline";
 import { runtimePricingFromEnvironment } from "./bridge/openscience/pricing-environment";
 import { startAuthProvisioner } from "./provisioner/auth-worker";
+import { localPeakPricing } from "./model/peak-pricing";
 
 const config = runtimeConfiguration();
+const realModels = config.REINLAB_REAL_MODELS_ENABLED === "1";
+if (
+  realModels &&
+  (process.env.CI ||
+    process.env.NODE_ENV === "test" ||
+    process.env.DEEPSEEK_API_KEY)
+)
+  throw Error("LOCAL_REAL_MODELS_FORBIDDEN");
 if (
   !process.env.REINLAB_RUNTIME_CONFIG_FILE ||
   !config.DATABASE_URL_APP ||
@@ -35,8 +44,8 @@ const authority = new CapabilityAuthority(
   database,
   await ensureSigningKey(
     config.REINLAB_MCP_SIGNING_KEY_FILE ??
-      path.join(homedir(), ".config/reinlab/mcp/signing.pem")
-  )
+      path.join(homedir(), ".config/reinlab/mcp/signing.pem"),
+  ),
 );
 const mcp = new CapabilityEngine(authority, {
   ...mcpAccount.handlers,
@@ -44,11 +53,12 @@ const mcp = new CapabilityEngine(authority, {
   ...paperHandlers(
     database,
     path.join(homedir(), ".local/state/reinlab/papers"),
-    mcpAccount.deposit
+    mcpAccount.deposit,
   ),
 });
 const pipeline = new RuntimePipeline(database, {
-  pricingContext: runtimePricingFromEnvironment(config),
+  realModels,
+  pricingContext: realModels ? localPeakPricing() : runtimePricingFromEnvironment(config),
   cleanupCapabilities: async (account, run) => {
     await mcpAccount.cleanup(account, run);
   },
@@ -56,6 +66,16 @@ const pipeline = new RuntimePipeline(database, {
     const token = await authority.issue(account, run);
     if (!config.REINLAB_CONTROL_URL)
       throw new Error("MCP_CONTROL_URL_REQUIRED");
+    const modelGateway = await database.withAccount(
+      account,
+      async (c) =>
+        (
+          await c.query(
+            "select role_options->>'modelGateway' enabled from os_binding where run_id=$1",
+            [run],
+          )
+        ).rows[0]?.enabled === "true",
+    );
     const clarify = await database.withAccount(
       account,
       async (c) =>
@@ -63,14 +83,18 @@ const pipeline = new RuntimePipeline(database, {
           await c.query("select run_id from read_clarify_run where run_id=$1", [
             run,
           ])
-        ).rowCount
+        ).rowCount,
     );
     await mcpAccount.bootstrap(
       account,
       run,
       token,
       config.REINLAB_CONTROL_URL,
-      clarify ? await authority.issueModel(account, run, token) : undefined
+      modelGateway && realModels
+        ? await authority.issueRuntimeModel(account, run, token)
+        : clarify
+          ? await authority.issueModel(account, run, token)
+          : undefined,
     );
   },
 });
@@ -83,6 +107,7 @@ const app = await createApp({
   pipeline,
   mcp,
   clarifyAuthorizationFile: config.REINLAB_CLARIFY_AUTHORIZATION_FILE,
+  realModelsEnabled: realModels,
   auth: {
     issuer: config.SUPABASE_URL.replace(/\/$/, "") + "/auth/v1",
     secret: config.SUPABASE_JWT_SECRET
@@ -93,7 +118,7 @@ const app = await createApp({
 const stopProvisioner = config.DATABASE_URL_PROVISIONER
   ? await startAuthProvisioner(
       config.DATABASE_URL_PROVISIONER,
-      provisionerFromEnvironment(new Database(pool))
+      provisionerFromEnvironment(new Database(pool)),
     )
   : undefined;
 const server = serve(
@@ -119,9 +144,9 @@ const server = serve(
           instance,
           port: info.port,
         },
-        () => {}
+        () => {},
       );
-  }
+  },
 );
 let stopping = false;
 const shutdown = () => {

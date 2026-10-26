@@ -28,6 +28,8 @@ import { registerLedger } from "./ledger";
 import { registerReadView } from "./read-view";
 import { registerReadClarify } from "./read-clarify";
 import { registerClarifyModel, authorizedModelPort } from "../clarify/model";
+import { registerRuntimeModel } from "../model/gateway";
+import { localModelPort } from "../model/host-port";
 import { registerGates } from "./gates";
 import { registerBudget } from "./budget";
 import { pricingFromEnvironment, type PricingService } from "../budget/pricing";
@@ -43,13 +45,21 @@ export async function createApp(options: {
   mcp?: CapabilityEngine;
   onRunQueued?: (accountId: string, runId: string) => Promise<void>;
   clarifyAuthorizationFile?: string;
+  realModelsEnabled?: boolean;
+  testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
   testOnlyClarifyModelTransport?: (body: Buffer) => Promise<Response>;
 }) {
-  if (options.testOnlyClarifyModelTransport && process.env.NODE_ENV !== "test")
+  if (
+    ((options.testOnlyClarifyModelTransport ||
+      options.testOnlyRuntimeModelTransport) &&
+      process.env.NODE_ENV !== "test") ||
+    (options.realModelsEnabled &&
+      (process.env.CI || process.env.NODE_ENV === "test"))
+  )
     throw new ApiFailure(
       "TEST_DEPENDENCY_FORBIDDEN",
       503,
-      "模型fixture不可用于生产。"
+      "模型fixture不可用于生产。",
     );
   const database = new Database(options.pool);
   await database.assertSafeRole();
@@ -59,7 +69,7 @@ export async function createApp(options: {
     new HarnessStore(
       database,
       await loadBenchBundle({ benchId: "research", registry: registry! }),
-      registry!
+      registry!,
     );
   const verify = createVerifier(options.auth);
   const app = new Hono<ApiEnv>();
@@ -70,12 +80,12 @@ export async function createApp(options: {
       maxSize: 1024 * 1024,
       onError: (c) =>
         c.json({ code: "PAYLOAD_TOO_LARGE", message: "请求内容过大。" }, 413),
-    })
+    }),
   );
   app.use("/v1/*", async (c, next) => {
     c.set("accountId", await verify(c.req.header("Authorization")));
     const exists = await database.withAccount(c.get("accountId"), (client) =>
-      client.query("select id from account where id=$1", [c.get("accountId")])
+      client.query("select id from account where id=$1", [c.get("accountId")]),
     );
     if (!exists.rowCount)
       throw new ApiFailure("ACCOUNT_NOT_READY", 404, "账户尚未完成初始化。");
@@ -102,13 +112,13 @@ export async function createApp(options: {
     database.withAccount(c.get("accountId"), async (client) => {
       const account = await client.query(
         "select id,display_name,monthly_budget_cny from account where id=$1",
-        [c.get("accountId")]
+        [c.get("accountId")],
       );
       if (!account.rowCount)
         throw new ApiFailure("ACCOUNT_NOT_READY", 404, "账户尚未完成初始化。");
       const machine = await client.query(
         'select state,os_version as "osVersion",last_health_at as "lastHealthAt" from account_machine where account_id=$1',
-        [c.get("accountId")]
+        [c.get("accountId")],
       );
       return c.json(
         AccountProfile.parse(
@@ -119,24 +129,24 @@ export async function createApp(options: {
               monthlyBudgetCny: Number(account.rows[0].monthly_budget_cny),
               budget: await monthlyBudgetSnapshot(client),
               machine: machine.rows[0] ?? null,
-            })
-          )
-        )
+            }),
+          ),
+        ),
       );
-    })
+    }),
   );
   app.get("/v1/dossiers", async (c) =>
     database.withAccount(c.get("accountId"), async (client) => {
       const result = await client.query(
         'select id,bench,title,created_at as "createdAt",archived_at as "archivedAt" from dossier where account_id=$1 order by created_at,id',
-        [c.get("accountId")]
+        [c.get("accountId")],
       );
       return c.json({
         items: result.rows.map((row) =>
-          Dossier.parse(JSON.parse(JSON.stringify(row)))
+          Dossier.parse(JSON.parse(JSON.stringify(row))),
         ),
       });
-    })
+    }),
   );
   app.post("/v1/dossiers", (c) =>
     mutate(c, database, DossierCreate, async (client, input) => {
@@ -150,39 +160,39 @@ export async function createApp(options: {
           input.title,
           "/data/dossiers/" + id,
           harness.bundle.manifest.version,
-        ]
+        ],
       );
       return {
         status: 201,
         body: Dossier.parse(JSON.parse(JSON.stringify(result.rows[0]))),
       };
-    })
+    }),
   );
   app.get("/v1/dossiers/:id", async (c) =>
     database.withAccount(c.get("accountId"), async (client) => {
       const id = c.req.param("id");
       if (
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          id
+          id,
         )
       )
         throw denied();
       const dossier = await client.query(
         'select id,bench,title,created_at as "createdAt",archived_at as "archivedAt" from dossier where account_id=$1 and id=$2',
-        [c.get("accountId"), id]
+        [c.get("accountId"), id],
       );
       if (!dossier.rowCount) throw denied();
       const gates = await client.query(
         "select id,subject,state,revision from gate where dossier_id=$1",
-        [id]
+        [id],
       );
       const runs = await client.query(
         'select id,mode,state,budget_cny as "budgetCny",spent_cny as "spentCny" from run where dossier_id=$1 order by created_at',
-        [id]
+        [id],
       );
       const budget = await client.query(
         "select coalesce(sum(a.amount_cny),0) as allocated,coalesce(sum(a.spent_cny),0) as spent from budget_allocation a where a.dossier_id=$1 and a.period=$2 and(a.parent_id is null or not exists(select 1 from budget_allocation p where p.id=a.parent_id and p.dossier_id=$1))",
-        [id, currentPeriod()]
+        [id, currentPeriod()],
       );
       return c.json(
         DossierDetail.parse(
@@ -192,7 +202,8 @@ export async function createApp(options: {
               gates: gates.rows,
               activeRuns: runs.rows
                 .filter(
-                  (r) => !["completed", "failed", "cancelled"].includes(r.state)
+                  (r) =>
+                    !["completed", "failed", "cancelled"].includes(r.state),
                 )
                 .map((r) => ({
                   ...r,
@@ -203,11 +214,11 @@ export async function createApp(options: {
                 allocatedCny: Number(budget.rows[0].allocated),
                 spentCny: Number(budget.rows[0].spent),
               },
-            })
-          )
-        )
+            }),
+          ),
+        ),
       );
-    })
+    }),
   );
   if (options.mcp) {
     app.use(
@@ -215,7 +226,7 @@ export async function createApp(options: {
       bodyLimit({
         maxSize: 5 * 1024 * 1024,
         onError: (c) => c.json({ code: "PAYLOAD_TOO_LARGE" }, 413),
-      })
+      }),
     );
     registerClarifyModel(
       app,
@@ -226,7 +237,14 @@ export async function createApp(options: {
               return options.testOnlyClarifyModelTransport!;
             },
           }
-        : authorizedModelPort(options.clarifyAuthorizationFile)
+        : authorizedModelPort(options.clarifyAuthorizationFile),
+    );
+    registerRuntimeModel(
+      app,
+      options.mcp.authority,
+      options.testOnlyRuntimeModelTransport
+        ? { prepare: async () => options.testOnlyRuntimeModelTransport! }
+        : localModelPort(options.realModelsEnabled === true),
     );
     app.get("/mcp/clarify-candidates", async (c) => {
       const token = c.req.header("authorization")?.match(/^Bearer (\S+)$/)?.[1],
@@ -239,9 +257,9 @@ export async function createApp(options: {
           (
             await client.query(
               "select distinct on(paper_id) paper_id,metadata from read_candidate where run_id=$1 order by paper_id,created_at desc limit 5",
-              [a.claims.run]
+              [a.claims.run],
             )
-          ).rows
+          ).rows,
       );
       return c.json({
         options: [
@@ -268,7 +286,7 @@ export async function createApp(options: {
         ? async (account, run) => {
             await options.pipeline!.submit(account, run);
           }
-        : undefined)
+        : undefined),
   );
   registerRuntime(app, database, options.pipeline, options.mcp);
   registerReadClarify(
@@ -282,18 +300,18 @@ export async function createApp(options: {
         ? async (account, run) => {
             await options.pipeline!.submit(account, run);
           }
-        : undefined)
+        : undefined),
   );
   registerHarness(app, database, harness);
   app.notFound((c) =>
-    c.json({ code: "NOT_FOUND", message: "接口不存在。" }, 404)
+    c.json({ code: "NOT_FOUND", message: "接口不存在。" }, 404),
   );
   app.onError((error, c) => {
     if (error instanceof ApiFailure)
       return c.json({ code: error.code, message: error.message }, error.status);
     return c.json(
       { code: "INTERNAL_ERROR", message: "服务暂时无法处理请求，请稍后重试。" },
-      500
+      500,
     );
   });
   return app;

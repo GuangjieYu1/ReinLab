@@ -9,15 +9,15 @@ const fail = () => {
  * If this interception is absent, inference cannot reach a real provider at all.
  */
 export function clarificationHooks(policy, verify) {
-  if (!policy.modelCap) return {};
-  if (!policy.mcp || policy.modelCap.cny !== 0.05) fail();
+  if (!policy.modelCap && !policy.modelGateway) return {};
+  if (!policy.mcp || (policy.modelCap && policy.modelCap.cny !== 0.05)) fail();
   if (!state) {
     const base = globalThis.fetch;
     state = { base, runs: new Map() };
     globalThis.fetch = async (input, init) => {
       const headers = new Headers(
           init?.headers ??
-            (input instanceof Request ? input.headers : undefined)
+            (input instanceof Request ? input.headers : undefined),
         ),
         run = headers.get(mark);
       if (!run) return base(input, init);
@@ -26,7 +26,10 @@ export function clarificationHooks(policy, verify) {
       await binding.verify();
       const url = new URL(input instanceof Request ? input.url : String(input));
       if (
-        url.origin !== "https://reinlab-clarify.invalid" ||
+        url.origin !==
+          (binding.policy.modelGateway
+            ? "https://reinlab-model.invalid"
+            : "https://reinlab-clarify.invalid") ||
         url.pathname !== "/v1/chat/completions" ||
         url.search ||
         init?.method !== "POST" ||
@@ -35,7 +38,7 @@ export function clarificationHooks(policy, verify) {
         fail();
       const config = await configuration(
         run,
-        path.resolve(binding.policy.dossierDirectory, "../..")
+        path.resolve(binding.policy.dossierDirectory, "../.."),
       );
       if (typeof config.modelToken !== "string") fail();
       const control = new URL(config.controlUrl);
@@ -48,17 +51,23 @@ export function clarificationHooks(policy, verify) {
         control.hash
       )
         fail();
-      return base(control.origin + "/mcp/clarify-model", {
-        method: "POST",
-        headers: {
-          authorization: "Bearer " + config.modelToken,
-          "Content-Type": "application/json",
-          accept: "text/event-stream",
+      return base(
+        control.origin +
+          (binding.policy.modelGateway
+            ? "/mcp/runtime-model"
+            : "/mcp/clarify-model"),
+        {
+          method: "POST",
+          headers: {
+            authorization: "Bearer " + config.modelToken,
+            "Content-Type": "application/json",
+            accept: "text/event-stream",
+          },
+          body: init.body,
+          signal: init.signal,
+          redirect: "error",
         },
-        body: init.body,
-        signal: init.signal,
-        redirect: "error",
-      });
+      );
     };
   }
   state.runs.set(policy.mcp.runId, { policy, verify });
@@ -83,14 +92,14 @@ export async function humanQuestion(policy, verify, args) {
   if (q.header === "REINLAB_PAPER_PICK") {
     const config = await configuration(
       policy.mcp.runId,
-      path.resolve(policy.dossierDirectory, "../..")
+      path.resolve(policy.dossierDirectory, "../.."),
     );
     const result = await fetch(
       config.controlUrl.replace(/\/$/, "") + "/mcp/clarify-candidates",
       {
         headers: { authorization: "Bearer " + config.token },
         redirect: "error",
-      }
+      },
     );
     if (!result.ok) fail();
     const body = await result.json();
@@ -100,12 +109,14 @@ export async function humanQuestion(policy, verify, args) {
     if (body.options.length === 1) {
       q.header = "REINLAB_CLARIFY";
       q.question = "没有找到可核对的论文，请补充标题、作者或研究方向。";
-      q.options = [{label:"补充说明",description:"补充论文标题、作者或研究方向"}];
+      q.options = [
+        { label: "补充说明", description: "补充论文标题、作者或研究方向" },
+      ];
       q.custom = true;
     }
   } else {
     q.header = "REINLAB_CLARIFY";
-    q.options = [{label:"补充说明",description:"填写你的补充要求"}];
+    q.options = [{ label: "补充说明", description: "填写你的补充要求" }];
     q.custom = true;
   }
 }

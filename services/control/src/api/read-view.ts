@@ -102,7 +102,7 @@ export function registerReadView(app: Hono<ApiEnv>, db: Database) {
         throw denied();
       const run = (
         await client.query(
-          `select r.id,r.estimate_id "estimateId",r.state,r.budget_cny::text "budgetCny",r.spent_cny::text "knownSpentCny",r.input,r.ended_at "endedAt",
+          `select r.id,r.estimate_id "estimateId",r.state,r.budget_cny::text "budgetCny",greatest(r.spent_cny,coalesce((select sum(u.cost_cny) from os_usage u where u.account_id=r.account_id and u.run_id=r.id),0))::text "knownSpentCny",r.input,r.ended_at "endedAt",
       (select count(*)::int from os_usage u where u.account_id=r.account_id and u.run_id=r.id) "usageCount",
       (coalesce(b.usage_uncertain,false) or exists(select 1 from os_usage u where u.account_id=r.account_id and u.run_id=r.id and u.cost_cny is null) or exists(select 1 from budget_hold h where h.account_id=r.account_id and h.run_id=r.id and h.state='unpriced')) "usageUnknown"
       from run r left join os_binding b on b.account_id=r.account_id and b.run_id=r.id where r.dossier_id=$1 and r.mode='read' and r.role_id<>'research-clarify' and ($2::uuid is null or r.id=$2) order by r.created_at desc,r.id desc limit 1`,
@@ -261,7 +261,7 @@ export function registerReadView(app: Hono<ApiEnv>, db: Database) {
                 estimateId: run.estimateId,
                 state: run.state,
                 budgetCny: Number(run.budgetCny),
-                spentCny: run.usageCount ? Number(run.knownSpentCny) : null,
+                spentCny: run.usageCount && (!run.usageUnknown || Number(run.knownSpentCny)>0) ? Number(run.knownSpentCny) : null,
                 usageUnknown: run.usageUnknown,
                 query:
                   typeof run.input?.query === "string"

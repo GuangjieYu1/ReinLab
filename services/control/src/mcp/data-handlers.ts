@@ -157,7 +157,7 @@ export function dataHandlers(
         const rawCard = args.card as Record<string, any>;
         const reviewed =
           row.snapshot.manifest.id === "research" &&
-          row.snapshot.manifest.version === "1.1.0";
+          ["1.1.0", "1.2.0"].includes(row.snapshot.manifest.version);
         if (reviewed) await verifyCardSources(client, context, name, rawCard);
         const id = randomUUID();
         if (reviewed && name === "quiz") {

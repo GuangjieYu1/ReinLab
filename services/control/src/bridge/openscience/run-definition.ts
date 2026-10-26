@@ -11,6 +11,7 @@ import { RoleProjectRequest } from "./role-project";
 /** Legacy trusted configuration; never overrides the confirmed run model route. */
 export type RunDefinitionOptions = {
   modelRoutes?: Partial<Record<"cheap" | "mid" | "strong", string>>;
+  realModels?: boolean;
 };
 const invalid = () =>
   new ApiFailure("INVALID_INPUT", 400, "运行输入或收窄限制无效。");
@@ -204,6 +205,11 @@ export function createHarnessRunDefinitionLoader(
             maxSteps,
           }),
           ...(mcp ? { mcp } : {}),
+          ...(_options.realModels &&
+          ["research-read", "research-clarify"].includes(row.role_id) &&
+          ["1.1.0", "1.2.0"].includes(row.version)
+            ? { modelGateway: true as const }
+            : {}),
         }),
         message,
       };

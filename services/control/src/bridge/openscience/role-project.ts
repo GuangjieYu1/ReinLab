@@ -25,7 +25,7 @@ const Role = z
           risk: z.enum(["read", "write", "danger"]),
           permission: Action,
         })
-        .strict()
+        .strict(),
     ),
     writeTargets: z.array(z.string()).max(64),
     steps: z.number().int().min(1).max(512),
@@ -46,12 +46,13 @@ const Options = z
     role: Role,
     model: z.string().regex(/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._:/-]+$/),
     memory: z.string().max(131072),
+    modelGateway: z.literal(true).optional(),
     mcp: z
       .object({
         runId: z.string().uuid(),
         aliases: z.record(
           z.string().regex(/^[a-z][a-z0-9_-]{0,79}$/),
-          z.array(z.string().regex(/^[a-z][a-z0-9_.-]+$/)).max(16)
+          z.array(z.string().regex(/^[a-z][a-z0-9_.-]+$/)).max(16),
         ),
         grants: z
           .array(
@@ -61,7 +62,7 @@ const Options = z
                 permission: z.enum(["allow", "ask"]),
                 risk: z.enum(["read", "write", "danger"]),
               })
-              .strict()
+              .strict(),
           )
           .max(128),
       })
@@ -96,7 +97,7 @@ async function onlyManaged(dir: string) {
   if (
     (await readdir(dir)).some(
       (name) =>
-        !["openscience.json", "AGENTS.md", ".role-policy.json"].includes(name)
+        !["openscience.json", "AGENTS.md", ".role-policy.json"].includes(name),
     )
   )
     throw scopeDenied();
@@ -130,7 +131,7 @@ async function noGit(dir: string) {
 async function bytes(file: string) {
   const h = await open(
     file,
-    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
   );
   try {
     const s = await h.stat();
@@ -200,7 +201,7 @@ export async function assertRoleProject(project: RoleProject): Promise<void> {
     for (const target of state.targets)
       await grantPath(
         project.dossierDirectory,
-        path.resolve(project.dossierDirectory, target)
+        path.resolve(project.dossierDirectory, target),
       );
     for (const [name, hash] of Object.entries(state.files))
       if (digest(await bytes(path.join(project.directory, name))) !== hash)
@@ -273,7 +274,7 @@ export function planRoleProject(raw: unknown) {
                 "CLAUDE.md",
                 "CONTEXT.md",
                 "openscience.json",
-              ].includes(p)
+              ].includes(p),
           )
       )
         throw scopeDenied();
@@ -288,7 +289,7 @@ export function planRoleProject(raw: unknown) {
     const editors = ["edit", "write", "patch", "apply_patch", "multiedit"];
     let editAction = "deny";
     for (const [name, grant] of Object.entries(input.role.toolGrants).sort(
-      ([a], [b]) => a.localeCompare(b)
+      ([a], [b]) => a.localeCompare(b),
     )) {
       const action =
         grant.risk === "danger" || name === "task" || editors.includes(name)
@@ -315,9 +316,13 @@ export function planRoleProject(raw: unknown) {
           path.relative(dir, path.join(dossierDirectory, t)) +
             (t.endsWith("/") ? "/*" : ""),
           editAction,
-        ])
+        ]),
       ),
     };
+    // Native editors are never granted here; writes cross the MCP boundary.
+    // A scalar deny also prevents the upstream visibility heuristic from
+    // advertising editors merely because the last deny rule has a path pattern.
+    if (input.modelGateway) permission.edit = "deny";
     permission.external_directory = {
       "*": "deny",
       [dossierDirectory + "/*"]: "allow",
@@ -343,7 +348,7 @@ export function planRoleProject(raw: unknown) {
                 mcp: Object.fromEntries(
                   [
                     ...new Set(
-                      input.mcp.grants.map((g) => g.name.split(".")[0])
+                      input.mcp.grants.map((g) => g.name.split(".")[0]),
                     ),
                   ].map((server) => [
                     "reinlab_" + server,
@@ -358,24 +363,24 @@ export function planRoleProject(raw: unknown) {
                           : fileURLToPath(
                               new URL(
                                 "../../../../account-runtime/mcp/client.mjs",
-                                import.meta.url
-                              )
+                                import.meta.url,
+                              ),
                             ),
                         path.join(
                           root,
                           "mcp-clients",
-                          input.mcp!.runId + ".json"
+                          input.mcp!.runId + ".json",
                         ),
                         server,
                       ],
                       enabled: true,
                     },
-                  ])
+                  ]),
                 ),
               }
             : {}),
           default_agent: "research",
-          ...(input.role.modelCap
+          ...(input.role.modelCap || input.modelGateway
             ? {
                 enabled_providers: ["deepseek"],
                 small_model: input.model,
@@ -383,13 +388,18 @@ export function planRoleProject(raw: unknown) {
                   deepseek: {
                     options: {
                       apiKey: "reinlab-clarify-no-secret",
-                      baseURL: "https://reinlab-clarify.invalid/v1",
+                      baseURL: input.modelGateway
+                        ? "https://reinlab-model.invalid/v1"
+                        : "https://reinlab-clarify.invalid/v1",
                       includeUsage: true,
                     },
                     models: {
                       "deepseek-v4-flash": {
                         id: "deepseek-flash",
-                        limit: { context: 1000000, output: 256 },
+                        limit: {
+                          context: 1000000,
+                          output: input.role.modelCap ? 256 : 1024,
+                        },
                         options: { thinking: { type: "disabled" } },
                       },
                     },
@@ -398,7 +408,9 @@ export function planRoleProject(raw: unknown) {
               }
             : {}),
           agent: {
-            ...(input.role.modelCap ? { title: { disable: true } } : {}),
+            ...(input.role.modelCap || input.modelGateway
+              ? { title: { disable: true } }
+              : {}),
             research: {
               description: "ReinLab " + input.role.id,
               mode: "primary",
@@ -410,7 +422,7 @@ export function planRoleProject(raw: unknown) {
           },
         },
         null,
-        2
+        2,
       ) + "\n";
     if (/\{(?:file|env):/i.test(config)) throw scopeDenied();
     const memory =
@@ -427,11 +439,12 @@ export function planRoleProject(raw: unknown) {
           writeTargets: input.role.writeTargets,
           ...(input.role.modelCap ? { modelCap: input.role.modelCap } : {}),
           ...(input.mcp ? { mcp: input.mcp } : {}),
+          ...(input.modelGateway ? { modelGateway: true } : {}),
           configSha256: digest(config),
           memorySha256: digest(memory),
         },
         null,
-        2
+        2,
       ) + "\n";
     const content = {
       "openscience.json": config,
@@ -451,7 +464,7 @@ export function planRoleProject(raw: unknown) {
       project,
       files: content,
       hashes: Object.fromEntries(
-        Object.entries(content).map(([name, text]) => [name, digest(text)])
+        Object.entries(content).map(([name, text]) => [name, digest(text)]),
       ),
       grants: [
         { path: dossierDirectory, access: "read" as const },
@@ -491,7 +504,7 @@ export async function prepareRoleProject(raw: unknown): Promise<RoleProject> {
     }
     if (!exists) {
       const staging = await mkdtemp(
-        path.join(parent, "." + input.role.id + "-")
+        path.join(parent, "." + input.role.id + "-"),
       );
       try {
         for (const [name, text] of Object.entries(plan.files))
@@ -501,7 +514,7 @@ export async function prepareRoleProject(raw: unknown): Promise<RoleProject> {
         } catch (error) {
           if (
             !["EEXIST", "ENOTEMPTY"].includes(
-              (error as NodeJS.ErrnoException).code ?? ""
+              (error as NodeJS.ErrnoException).code ?? "",
             )
           )
             throw error;
@@ -553,14 +566,14 @@ export async function verifyRoleProject(raw: unknown): Promise<RoleProject> {
 export async function prepareAccountRole(
   raw: unknown,
   fixed: { root: string; pluginUrl: string; accountId: string },
-  readOnly = false
+  readOnly = false,
 ) {
   try {
     const input = RoleProjectRequest.parse(raw);
     const accountId = z.string().uuid().parse(fixed.accountId);
     const options = { ...input, root: fixed.root, pluginUrl: fixed.pluginUrl };
     const project = await (readOnly ? verifyRoleProject : prepareRoleProject)(
-      options
+      options,
     );
     const plan = planRoleProject(options);
     await assertRoleProject(project);
