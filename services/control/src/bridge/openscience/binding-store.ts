@@ -110,6 +110,7 @@ export class BindingStore {
         model: role.model,
         memory: role.memory,
         ...(role.mcp ? { mcp: role.mcp } : {}),
+        ...(role.modelGateway ? { modelGateway: true } : {}),
       });
       const hash = sha({ role: requestRole, message });
       const old = await c.query("select * from os_binding where run_id=$1", [

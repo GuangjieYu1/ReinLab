@@ -17,6 +17,8 @@ import { accountImageTag, ensureLocalAccountImage } from "./image";
 import { acquireStartupLock } from "./startup-lock";
 import { startControlProcess, stopOwnedControl } from "./control-process";
 import { bootstrapLocalDatabase } from "../../services/control/src/provisioner/local-bootstrap";
+import { realModelMode } from "./real-models";
+import { upgradeLocalRealAccounts } from "../../services/control/scripts/local-real-upgrade";
 
 const paths = localPaths(),
   credentialRoot = join(homedir(), ".local/state/reinlab/account-credentials");
@@ -36,6 +38,7 @@ const step = (code: string) => console.log(JSON.stringify({ code }));
 let startupLock: Awaited<ReturnType<typeof acquireStartupLock>> | undefined;
 
 try {
+  const realModels = realModelMode(process.argv.slice(2), process.env);
   if (
     process.versions.node.split(".")[0] !== "22" &&
     process.versions.node.split(".")[0] !== "24"
@@ -130,6 +133,22 @@ try {
     run: (args, timeoutMs) =>
       quietCommand("docker", args, { env: cliEnvironment, timeoutMs }),
   });
+  if (realModels) {
+    const keyFile = join(homedir(), ".config/reinlab/local.env"),
+      info = await lstat(keyFile),
+      parent = await lstat(join(homedir(), ".config/reinlab"));
+    if (
+      !info.isFile() ||
+      info.isSymbolicLink() ||
+      info.nlink !== 1 ||
+      info.uid !== getuid?.() ||
+      (info.mode & 0o777) !== 0o600 ||
+      !parent.isDirectory() ||
+      (parent.mode & 0o777) !== 0o700 ||
+      (await realpath(keyFile)) !== keyFile
+    )
+      throw Error("LOCAL_MODEL_KEY_FILE_UNSAFE");
+  }
   await writePrivateEnv(paths.runtime, {
     ...defaultModelEnvironment(),
     DATABASE_URL_APP: database.databaseApp,
@@ -148,8 +167,22 @@ try {
     REINLAB_CONTROL_URL: "http://host.docker.internal:3001/",
     PORT: "3001",
     INTERNAL_SIGNING_KEY: signingKey,
+    REINLAB_REAL_MODELS_ENABLED: realModels ? "1" : "0",
   });
   await stopOwnedControl(paths.process, resolve("tooling/local/control.ts"));
+  if (realModels) {
+    step("LOCAL_REAL_ACCOUNT_IMAGES_UPGRADING");
+    const upgrade = await upgradeLocalRealAccounts(paths.runtime, paths.setup);
+    console.log(
+      JSON.stringify({
+        code: "LOCAL_REAL_ACCOUNT_IMAGES",
+        ...upgrade,
+        message: upgrade.deferred
+          ? "部分账户仍有未结束运行，已保留原机器；结束旧运行后重新执行启动命令。"
+          : "空闲账户已使用当前镜像，保留原卷与凭据。",
+      }),
+    );
+  }
   step("LOCAL_CONTROL_STARTING");
   await startControlProcess({
     script: resolve("tooling/local/control.ts"),
@@ -157,6 +190,18 @@ try {
     env: { ...cliEnvironment },
     recordFile: paths.process,
   });
+  await stopOwnedControl(
+    join(paths.state, "frontend.json"),
+    resolve("tooling/local/live-frontend.ts"),
+  );
+  if (realModels)
+    await startControlProcess({
+      script: resolve("tooling/local/live-frontend.ts"),
+      cwd: paths.root,
+      env: { ...cliEnvironment },
+      recordFile: join(paths.state, "frontend.json"),
+      port: 5183,
+    });
   console.log(
     JSON.stringify({
       code: "LOCAL_STACK_READY",
@@ -167,16 +212,23 @@ try {
       appliedMigrations: database.applied.length,
       credentials: "本机受保护状态目录；未输出任何值",
       stateDirectory: paths.state,
+      realModels,
+      ...(realModels
+        ? { frontend: "http://127.0.0.1:5183" }
+        : {}),
     }),
   );
 } catch (error) {
   const message = (error as Error)?.message;
+  const failureCode = (error as { code?: unknown })?.code;
   console.error(
     JSON.stringify({
       code:
         typeof message === "string" && /^LOCAL_[A-Z_]+$/.test(message)
           ? message
-          : "LOCAL_UP_FAILED",
+          : typeof failureCode === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(failureCode)
+            ? failureCode
+            : "LOCAL_UP_FAILED",
       message: "本地环境尚未就绪；不会用fixture替代。",
     }),
   );

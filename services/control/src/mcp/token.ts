@@ -27,7 +27,7 @@ export const CapabilityScope = z
             permission: z.enum(["allow", "ask"]),
             writeTargets: z.array(z.string()).max(64),
           })
-          .strict()
+          .strict(),
       )
       .max(128),
     memory: z
@@ -67,7 +67,7 @@ export const hash = (value: unknown) =>
 export const tokenDenied = () =>
   new ApiFailure("CAPABILITY_TOKEN_INVALID", 401, "能力令牌缺失或无效。");
 const header = Buffer.from('{"alg":"EdDSA","typ":"rlcap1"}').toString(
-  "base64url"
+  "base64url",
 );
 const decode = (text: string) => {
   const bytes = Buffer.from(text, "base64url");
@@ -93,7 +93,21 @@ export class CapabilitySigner {
       header +
       "." +
       Buffer.from(
-        canonical({ ...claims, aud: "reinlab-clarify-model" })
+        canonical({ ...claims, aud: "reinlab-clarify-model" }),
+      ).toString("base64url");
+    return (
+      message +
+      "." +
+      sign(null, Buffer.from(message), this.privateKey).toString("base64url")
+    );
+  }
+  issueRuntimeModel(claims: TokenClaims) {
+    if (!runtimeModelRole(claims)) throw tokenDenied();
+    const message =
+      header +
+      "." +
+      Buffer.from(
+        canonical({ ...claims, aud: "reinlab-runtime-model" }),
       ).toString("base64url");
     return (
       message +
@@ -104,7 +118,7 @@ export class CapabilitySigner {
   issue(
     identity: Omit<TokenClaims, "v" | "iss" | "aud" | "jti" | "iat" | "exp">,
     now: number,
-    ttl = 7200
+    ttl = 7200,
   ) {
     const claims = TokenClaims.parse({
       ...identity,
@@ -129,7 +143,10 @@ export class CapabilitySigner {
 export function verifyModelToken(
   raw: unknown,
   publicKey: KeyObject,
-  now: number
+  now: number,
+  audience:
+    | "reinlab-clarify-model"
+    | "reinlab-runtime-model" = "reinlab-clarify-model",
 ): TokenClaims {
   try {
     if (
@@ -146,18 +163,19 @@ export function verifyModelToken(
         null,
         Buffer.from(parts[0] + "." + parts[1]),
         publicKey,
-        decode(parts[2])
+        decode(parts[2]),
       )
     )
       throw tokenDenied();
     const payload = JSON.parse(decode(parts[1]).toString());
-    if (payload.aud !== "reinlab-clarify-model") throw tokenDenied();
+    if (payload.aud !== audience) throw tokenDenied();
     const claims = TokenClaims.parse({ ...payload, aud: "reinlab-mcp" });
     if (
       claims.exp <= now ||
       claims.iat > now ||
-      claims.role !== "research-clarify" ||
-      claims.version !== "1.2.0"
+      (audience === "reinlab-runtime-model"
+        ? !runtimeModelRole(claims)
+        : claims.role !== "research-clarify" || claims.version !== "1.2.0")
     )
       throw tokenDenied();
     return claims; // Original MCP claims hash is the online revocation/hold authority.
@@ -165,10 +183,25 @@ export function verifyModelToken(
     throw tokenDenied();
   }
 }
+function runtimeModelRole(claims: TokenClaims) {
+  return (
+    claims.bench === "research" &&
+    ((claims.role === "research-read" &&
+      ["1.1.0", "1.2.0"].includes(claims.version)) ||
+      (claims.role === "research-clarify" && claims.version === "1.2.0"))
+  );
+}
+export function verifyRuntimeModelToken(
+  raw: unknown,
+  publicKey: KeyObject,
+  now: number,
+) {
+  return verifyModelToken(raw, publicKey, now, "reinlab-runtime-model");
+}
 export function verifyCapabilityToken(
   raw: unknown,
   publicKey: KeyObject,
-  now: number
+  now: number,
 ): TokenClaims {
   try {
     if (
@@ -186,12 +219,12 @@ export function verifyCapabilityToken(
         null,
         Buffer.from(parts[0] + "." + parts[1]),
         publicKey,
-        signature
+        signature,
       )
     )
       throw tokenDenied();
     const claims = TokenClaims.parse(
-      JSON.parse(decode(parts[1]).toString("utf8"))
+      JSON.parse(decode(parts[1]).toString("utf8")),
     );
     if (!Number.isInteger(now) || claims.exp <= now || claims.iat > now)
       throw tokenDenied();
@@ -210,7 +243,7 @@ export async function readSigningKey(file: string): Promise<CapabilitySigner> {
     if (!parent.isDirectory() || parent.mode & 0o077) throw tokenDenied();
     const handle = await open(
       file,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
     try {
       const st = await handle.stat();
@@ -245,7 +278,7 @@ export async function ensureSigningKey(file: string) {
       generateKeyPairSync("ed25519").privateKey.export({
         type: "pkcs8",
         format: "pem",
-      })
+      }),
     );
     const h = await open(file, "wx", 0o600);
     try {

@@ -17,6 +17,7 @@ import {
 } from "./observation-scheduler";
 import { DecisionService } from "./decisions";
 export type RuntimePipelineOptions = {
+  realModels?: boolean;
   readOnlyRecovery?: boolean;
   factory?: RuntimeFactory;
   definitionLoader?: (
@@ -49,8 +50,14 @@ export class RuntimePipeline {
       );
     this.bridge = new RunBridge(
       db,
-      options.factory ?? createProductionRuntimeFactory(db,{readOnly:options.readOnlyRecovery}),
-      options.definitionLoader ?? createHarnessRunDefinitionLoader(db),
+      options.factory ??
+        createProductionRuntimeFactory(db, {
+          readOnly: options.readOnlyRecovery,
+        }),
+      options.definitionLoader ??
+        createHarnessRunDefinitionLoader(db, {
+          realModels: options.realModels,
+        }),
       {
         pricingContext: options.pricingContext,
         prepareCapabilities: options.prepareCapabilities,
@@ -93,8 +100,12 @@ export class RuntimePipeline {
   async recoverAccount(accountId: string): Promise<number> {
     return this.scheduler.recoverAccount(accountId);
   }
-  recoverable(accountId: string) { return this.scheduler.recoverable(accountId); }
-  reconcileRun(accountId: string, runId: string) { return this.scheduler.reconcileRun(accountId, runId); }
+  recoverable(accountId: string) {
+    return this.scheduler.recoverable(accountId);
+  }
+  reconcileRun(accountId: string, runId: string) {
+    return this.scheduler.reconcileRun(accountId, runId);
+  }
   async shutdown(): Promise<void> {
     this.closed = true;
     await this.scheduler.shutdown();

@@ -16,6 +16,7 @@ import {
   CapabilitySigner,
   hash,
   tokenDenied,
+  verifyRuntimeModelToken,
   verifyCapabilityToken,
   verifyModelToken,
   type TokenClaims,
@@ -29,7 +30,7 @@ export async function bindRunCapabilities(
   effective: EffectiveBench,
   roleId: string,
   input: Record<string, unknown>,
-  catalog: CapabilityCatalog
+  catalog: CapabilityCatalog,
 ) {
   const role = effective.manifest.roles[roleId];
   const refs = Object.hasOwn(input, "memoryRefs")
@@ -53,7 +54,7 @@ export async function bindRunCapabilities(
       JSON.stringify(catalog),
       hash(scope),
       JSON.stringify(scope),
-    ]
+    ],
   );
 }
 export type AuthorizedCapability = {
@@ -66,7 +67,7 @@ export class CapabilityAuthority {
   constructor(
     readonly db: Database,
     readonly signer: CapabilitySigner,
-    private readonly now: () => number = () => Math.floor(Date.now() / 1000)
+    private readonly now: () => number = () => Math.floor(Date.now() / 1000),
   ) {}
   async issue(account: string, run: string) {
     return this.db.withAccount(account, async (client) => {
@@ -75,7 +76,7 @@ export class CapabilityAuthority {
       const hold = (
         await client.query(
           "select id from budget_hold where account_id=$1 and run_id=$2 and state='reserved' order by created_at desc limit 1",
-          [account, run]
+          [account, run],
         )
       ).rows[0];
       if (!hold) throw tokenDenied();
@@ -92,7 +93,7 @@ export class CapabilityAuthority {
           scopeDigest: hash(saved.scope),
           hold: hold.id,
         },
-        this.now()
+        this.now(),
       );
       await client.query(
         "insert into mcp_credential(jti,account_id,dossier_id,run_id,hold_id,claims_hash,issued_at,expires_at) values($1,$2,$3,$4,$5,$6,to_timestamp($7),to_timestamp($8))",
@@ -105,7 +106,7 @@ export class CapabilityAuthority {
           hash(claims),
           claims.iat,
           claims.exp,
-        ]
+        ],
       );
       return token;
     });
@@ -119,7 +120,7 @@ export class CapabilityAuthority {
      join bench_version v on v.bench=h.bench and v.version=h.version
      join mcp_run m on m.account_id=r.account_id and m.run_id=r.id and m.effective_digest=h.effective_digest
      where r.account_id=$1 and r.id=$2 for share of r`,
-        [account, run]
+        [account, run],
       )
     ).rows[0];
     if (!row) throw unavailable();
@@ -135,7 +136,7 @@ export class CapabilityAuthority {
       throw tokenDenied();
     const effective = verifyEffective(
       row.snapshot,
-      ToolRegistry.parse(row.registry)
+      ToolRegistry.parse(row.registry),
     );
     if (effective.digest !== row.effective_digest) throw tokenDenied();
     const document = CapabilityRegistryDocument.parse({
@@ -167,20 +168,20 @@ export class CapabilityAuthority {
     const claims = verifyCapabilityToken(
       raw,
       this.signer.publicKey,
-      this.now()
+      this.now(),
     );
     return this.db.withAccount(claims.account, (client) =>
-      this.validateClient(client, raw)
+      this.validateClient(client, raw),
     );
   }
   async validateClient(
     client: pg.PoolClient,
-    raw: unknown
+    raw: unknown,
   ): Promise<AuthorizedCapability> {
     const claims = verifyCapabilityToken(
       raw,
       this.signer.publicKey,
-      this.now()
+      this.now(),
     );
     return this.validateClaimsClient(client, claims);
   }
@@ -198,25 +199,47 @@ export class CapabilityAuthority {
   async validateModel(raw: unknown) {
     const claims = verifyModelToken(raw, this.signer.publicKey, this.now());
     return this.db.withAccount(claims.account, (c) =>
-      this.validateModelClient(c, raw)
+      this.validateModelClient(c, raw),
     );
   }
   async validateModelClient(client: pg.PoolClient, raw: unknown) {
     return this.validateClaimsClient(
       client,
-      verifyModelToken(raw, this.signer.publicKey, this.now())
+      verifyModelToken(raw, this.signer.publicKey, this.now()),
+    );
+  }
+  async issueRuntimeModel(account: string, run: string, rawMcp: unknown) {
+    const auth = await this.validate(rawMcp);
+    if (auth.claims.account !== account || auth.claims.run !== run)
+      throw tokenDenied();
+    return this.signer.issueRuntimeModel(auth.claims);
+  }
+  async validateRuntimeModel(raw: unknown) {
+    const claims = verifyRuntimeModelToken(
+      raw,
+      this.signer.publicKey,
+      this.now(),
+    );
+    return this.db.withAccount(claims.account, (c) =>
+      this.validateRuntimeModelClient(c, raw),
+    );
+  }
+  async validateRuntimeModelClient(client: pg.PoolClient, raw: unknown) {
+    return this.validateClaimsClient(
+      client,
+      verifyRuntimeModelToken(raw, this.signer.publicKey, this.now()),
     );
   }
   private async validateClaimsClient(
     client: pg.PoolClient,
-    claims: TokenClaims
+    claims: TokenClaims,
   ): Promise<AuthorizedCapability> {
     await lockBudget(client, claims.account);
     const saved = await this.snapshot(client, claims.account, claims.run);
     const row = (
       await client.query(
         "select c.claims_hash,c.revoked_at,c.expires_at>now() valid,h.state from mcp_credential c join budget_hold h on h.id=c.hold_id and h.account_id=c.account_id where c.jti=$1 and c.account_id=$2 for share of c,h",
-        [claims.jti, claims.account]
+        [claims.jti, claims.account],
       )
     ).rows[0];
     if (
@@ -239,7 +262,7 @@ export class CapabilityAuthority {
       !(
         await client.query(
           "select 1 from read_clarify_run r join read_clarification d using(account_id,dossier_id) where r.run_id=$1 and not r.closed and not d.closed",
-          [claims.run]
+          [claims.run],
         )
       ).rowCount
     )
@@ -248,7 +271,7 @@ export class CapabilityAuthority {
   }
   async revoke(account: string, run: string) {
     await this.db.withAccount(account, (client) =>
-      this.revokeClient(client, account, run)
+      this.revokeClient(client, account, run),
     );
   }
   async revokeClient(client: pg.PoolClient, account: string, run: string) {
@@ -257,18 +280,18 @@ export class CapabilityAuthority {
       !(
         await client.query(
           "select id from run where account_id=$1 and id=$2 for update",
-          [account, run]
+          [account, run],
         )
       ).rowCount
     )
       throw tokenDenied();
     await client.query(
       "insert into mcp_run_revocation(account_id,dossier_id,run_id) select account_id,dossier_id,run_id from mcp_run where account_id=$1 and run_id=$2 on conflict do nothing",
-      [account, run]
+      [account, run],
     );
     await client.query(
       "update mcp_credential set revoked_at=coalesce(revoked_at,now()) where account_id=$1 and run_id=$2",
-      [account, run]
+      [account, run],
     );
   }
 }

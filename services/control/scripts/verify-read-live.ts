@@ -18,7 +18,6 @@ import { RoleRuntime } from "../src/bridge/openscience/role-runtime";
 import { prepareRoleProject } from "../src/bridge/openscience/role-project";
 import { bootstrapMcp, removeMcp } from "../../account-runtime/mcp/store.mjs";
 import { startNativeRoleServer } from "../test/fixtures/role-provider";
-import { DEEPSEEK_PRICING_VERSION } from "../src/bridge/openscience/deepseek-pricing";
 import { applyMigrations } from "../src/db/migrate";
 import { serve } from "@hono/node-server";
 import { createServer } from "vite";
@@ -26,6 +25,7 @@ import { chromium } from "playwright";
 import { createApp } from "../src/api/app";
 import { Database } from "../src/db/database";
 import { PricingService } from "../src/budget/pricing";
+import { localPeakPricing } from "../src/model/peak-pricing";
 import { appendEvent } from "../src/ledger";
 import { localPaths } from "../../../tooling/local/paths";
 import { readPrivateEnv } from "../../../tooling/local/config";
@@ -49,7 +49,7 @@ let stage = "setup",
   account = "",
   token = "",
   approval = "";
-const clarifyRuns=new Set<string>();
+const clarifyRuns = new Set<string>();
 let native: Awaited<ReturnType<typeof startNativeRoleServer>> | undefined,
   pipeline: RuntimePipeline | undefined,
   root = "",
@@ -92,17 +92,17 @@ try {
   }
   assert.equal(process.env.NODE_ENV, "test");
   root = await realpath(
-    await mkdtemp(join(tmpdir(), "reinlab-b7-browser-native-"))
+    await mkdtemp(join(tmpdir(), "reinlab-b7-browser-native-")),
   );
   native = await startNativeRoleServer(
     root,
     "http://127.0.0.1:9",
     undefined,
-    true
+    true,
   );
   const authority = new CapabilityAuthority(
     db,
-    new CapabilitySigner(generateKeyPairSync("ed25519").privateKey)
+    new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
   );
   const http = new PaperHttp({
     dns: async () => ["93.184.216.34"],
@@ -125,7 +125,7 @@ try {
                 },
               },
             ],
-          })
+          }),
         ),
       };
     },
@@ -138,10 +138,12 @@ try {
       async () => {
         throw Error("CLARIFY_CANNOT_DOWNLOAD");
       },
-      http
-    )
+      http,
+    ),
   );
   pipeline = new RuntimePipeline(db, {
+    realModels: true,
+    pricingContext: localPeakPricing(),
     prepareCapabilities: async (a, id) => {
       const token = await authority.issue(a, id);
       await bootstrapMcp(
@@ -149,10 +151,10 @@ try {
         {
           runId: id,
           token,
-          modelToken: await authority.issueModel(a, id, token),
+          modelToken: await authority.issueRuntimeModel(a, id, token),
           controlUrl: mcpUrl,
         },
-        mcpUrl
+        mcpUrl,
       );
     },
     cleanupCapabilities: async (_a, id) => {
@@ -166,23 +168,15 @@ try {
           ...role,
           root,
           pluginUrl: pathToFileURL(
-            resolve("plugins/reinlab-os-plugin/index.js")
+            resolve("plugins/reinlab-os-plugin/index.js"),
           ).href,
         }),
       }),
-    pricingContext: {
-      currency: "CNY",
-      window: "peak",
-      usdCnyRate: "7.2",
-      pricingVersion: DEEPSEEK_PRICING_VERSION,
-      validFrom: 1,
-      validUntil: Date.now() + 3600000,
-    },
   });
   const app = await createApp({
     pipeline,
     mcp,
-    testOnlyClarifyModelTransport: async (bytes) => {
+    testOnlyRuntimeModelTransport: async (bytes) => {
       modelRequests++;
       const body = JSON.parse(bytes.toString());
       assert.equal(body.thinking.type, "disabled");
@@ -248,7 +242,7 @@ try {
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           }) +
           "\n\ndata: [DONE]\n\n",
-        { headers: { "Content-Type": "text/event-stream" } }
+        { headers: { "Content-Type": "text/event-stream" } },
       );
     },
     pool,
@@ -264,9 +258,7 @@ try {
       const queued = await db.withAccount(
         a,
         async (c) =>
-          (
-            await c.query("select role_id from run where id=$1", [id])
-          ).rows[0]
+          (await c.query("select role_id from run where id=$1", [id])).rows[0],
       );
       if (queued.role_id === "research-clarify") {
         clarifyRuns.add(id);
@@ -295,7 +287,7 @@ try {
               subject: "验证用合成论文",
               effects: ["本测试只记录批准收据，不下载真实论文"],
             }),
-          ]
+          ],
         );
         await appendEvent(c, account, {
           dossierId: dossier,
@@ -310,7 +302,7 @@ try {
   });
   await new Promise<void>((done) => {
     server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 }, () =>
-      done()
+      done(),
     );
   });
   const address = server!.address();
@@ -418,7 +410,7 @@ try {
   await page.locator(".rd-start-ap .rd-go").click();
   for (let i = 0; i < 30; i++) {
     const state = await db.withAccount(account, (c) =>
-      c.query("select state from approval where id=$1", [approval])
+      c.query("select state from approval where id=$1", [approval]),
     );
     if (state.rows[0].state === "approved") break;
     await new Promise((r) => setTimeout(r, 100));
@@ -426,10 +418,10 @@ try {
   assert.equal(
     (
       await db.withAccount(account, (c) =>
-        c.query("select state from approval where id=$1", [approval])
+        c.query("select state from approval where id=$1", [approval]),
       )
     ).rows[0].state,
-    "approved"
+    "approved",
   );
   check(stage);
   stage = "real_sse_synthetic_paper_cards";
@@ -455,11 +447,11 @@ try {
           venue: "Adapter test fixture",
           sizeBytes: 1234,
         }),
-      ]
+      ],
     );
     await c.query(
       "insert into paper_page_read(account_id,dossier_id,run_id,asset_id,page,text_sha256,page_text)values($1,$2,$3,$4,1,$5,$6)",
-      [account, dossier, run, asset, sha, quote]
+      [account, dossier, run, asset, sha, quote],
     );
     const anchor = { paperId: asset, page: 1, quote };
     for (const [type, id, card] of [
@@ -513,7 +505,7 @@ try {
       });
     await c.query(
       "update run set state='completed',ended_at=now() where id=$1",
-      [run]
+      [run],
     );
     await appendEvent(c, account, {
       dossierId: dossier,
@@ -547,7 +539,7 @@ try {
     await page
       .getByText("PRIVATE_QUIZ_FIXTURE_ANSWER", { exact: false })
       .count(),
-    0
+    0,
   );
   await page.screenshot({ path: join(out, "unwired.png") });
   check(stage);
@@ -563,7 +555,7 @@ try {
   stage = "audit_export";
   const audit = await fetch(
     base + "/backend/v1/dossiers/" + dossier + "/audit",
-    { headers: { authorization: "Bearer " + token } }
+    { headers: { authorization: "Bearer " + token } },
   );
   assert.equal(audit.status, 200);
   const ledger = await audit.text();
@@ -577,7 +569,7 @@ try {
     JSON.stringify({
       failureStage: stage,
       failureClass: error instanceof Error ? error.name : "unknown",
-    })
+    }),
   );
   if (account && pipeline) {
     try {
@@ -586,21 +578,19 @@ try {
         async (c) =>
           (
             await c.query(
-              "select r.id,r.state,r.dossier_id from run r where role_id='research-clarify' and state in ('running','waiting') order by created_at desc limit 1"
+              "select r.id,r.state,r.dossier_id from run r where role_id='research-clarify' and state in ('running','waiting') order by created_at desc limit 1",
             )
-          ).rows
+          ).rows,
       );
       for (const r of rows) {
-        await pipeline
-          .reconcileRun(account, r.id)
-          .catch((e: any) =>
-            console.log(
-              JSON.stringify({
-                reconcileCode: e.code ?? "UNCLASSIFIED",
-                source: e.stack?.split("\n").slice(1, 3),
-              })
-            )
-          );
+        await pipeline.reconcileRun(account, r.id).catch((e: any) =>
+          console.log(
+            JSON.stringify({
+              reconcileCode: e.code ?? "UNCLASSIFIED",
+              source: e.stack?.split("\n").slice(1, 3),
+            }),
+          ),
+        );
       }
     } catch {}
   }
@@ -613,12 +603,23 @@ try {
   process.exitCode = 1;
 } finally {
   await browser?.close();
-  for(const id of clarifyRuns){
-    await pipeline?.decisions.cancel(account,id).catch(()=>{});
-    await db.withAccount(account,async c=>{
-      await c.query("update run set state='interrupted',ended_at=now() where id=$1 and state not in ('completed','failed','cancelled','interrupted')",[id]);
-      await c.query("update budget_hold set state='unpriced' where run_id=$1 and state='reserved'",[id]);
-    }).catch(()=>{results.push({name:'native_fixture_cleanup',passed:false});process.exitCode=1;});
+  for (const id of clarifyRuns) {
+    await pipeline?.decisions.cancel(account, id).catch(() => {});
+    await db
+      .withAccount(account, async (c) => {
+        await c.query(
+          "update run set state='interrupted',ended_at=now() where id=$1 and state not in ('completed','failed','cancelled','interrupted')",
+          [id],
+        );
+        await c.query(
+          "update budget_hold set state='unpriced' where run_id=$1 and state='reserved'",
+          [id],
+        );
+      })
+      .catch(() => {
+        results.push({ name: "native_fixture_cleanup", passed: false });
+        process.exitCode = 1;
+      });
   }
   await pipeline?.shutdown();
   await native?.close();
@@ -633,11 +634,11 @@ try {
       await db.withAccount(account, async (client) => {
         await client.query(
           "update run set state='failed',ended_at=now() where id=$1 and state not in ('completed','failed','cancelled','interrupted')",
-          [run]
+          [run],
         );
         await client.query(
           "update budget_hold set state='released' where run_id=$1 and state='reserved'",
-          [run]
+          [run],
         );
       });
     } catch {
@@ -662,7 +663,7 @@ try {
   };
   await writeFile(
     join(out, "report.json"),
-    JSON.stringify(report, null, 2) + "\n"
+    JSON.stringify(report, null, 2) + "\n",
   );
   console.log(JSON.stringify(report));
 }
