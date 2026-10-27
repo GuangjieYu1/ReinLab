@@ -37,21 +37,23 @@ describe("business data reset", () => {
     expect(result.paths).toEqual([]);
   });
 
-  it("truncates every listed relation without CASCADE, keeping accounts", async () => {
-    const client = await pool.connect();
-    try {
-      await client.query(
-        "insert into account(id,display_name) values(gen_random_uuid(),'keep-me') on conflict do nothing",
-      );
-      const before = Number((await client.query("select count(*) from account")).rows[0].count);
-      await client.query("begin");
-      // Same statement the script runs; CASCADE is deliberately absent.
-      await client.query(`truncate table ${BUSINESS_TABLES.join(", ")}`);
-      const after = Number((await client.query("select count(*) from account")).rows[0].count);
-      expect(after).toBe(before);
-      await client.query("rollback");
-    } finally {
-      client.release();
-    }
+  it("has no kept table depending on a business table, so no CASCADE is needed", async () => {
+    // TRUNCATE ... CASCADE is deliberately not used: if a kept relation still
+    // referenced business rows the reset would abort instead of silently
+    // cascading. This asserts that invariant statically (no locks in the suite).
+    const rows = (
+      await pool.query(
+        `select c.conrelid::regclass::text child, c.confrelid::regclass::text parent
+         from pg_constraint c
+         join pg_class p on p.oid = c.confrelid
+         join pg_namespace n on n.oid = p.relnamespace
+         where c.contype = 'f' and n.nspname in ('public','reinlab_meta')`,
+      )
+    ).rows;
+    const listed = new Set<string>(BUSINESS_TABLES as readonly string[]);
+    const keptParents = rows
+      .filter((row) => listed.has(row.parent) && !listed.has(row.child))
+      .map((row) => `${row.child} -> ${row.parent}`);
+    expect(keptParents).toEqual([]);
   });
 });

@@ -42,7 +42,7 @@ pnpm --dir <后端工作树> local:up --real-models
 
 ## 4. 已知失败
 
-**本轮最终全量（node 22.23.3，本地 PG 55432，`REINLAB_REQUIRE_NATIVE=1`）：1667 passed / 2 failed（1669）。**
+**本轮最终全量（node 22.23.3，本地 PG 55432，`REINLAB_REQUIRE_NATIVE=1`）：1668 passed / 2 failed（1670）。**
 两条失败都是改造前就在的、随旧内核退役删除的用例，不是本轮回归：
 
 1. `services/control/test/batch7-native.test.ts > native2.0.150 candidates=true/false ...` — 期望
