@@ -20,6 +20,15 @@ export function pendingMcpApproval(pending: unknown) {
   if (!parsed.success) throw deny();
   return parsed.data;
 }
+/** 账本里已经作出决定、且尚未被消费的 MCP 审批：原生权限请求可以按它自动答复。 */
+export function mcpAutoReply(
+  row: { decision?: string | null; consumed?: boolean } | undefined,
+): "once" | "reject" | null {
+  if (!row || row.consumed) return null;
+  if (row.decision === "approve") return "once";
+  if (row.decision === "reject") return "reject";
+  return null;
+}
 /** Called in the same user-decision transaction; session grants cannot approve MCP effects. */
 export async function bridgeMcpDecision(
   client: pg.PoolClient,

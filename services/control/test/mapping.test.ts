@@ -3,6 +3,7 @@ import {
   mapRuntimeEvent,
   type MappingContext,
 } from "../src/bridge/openscience/mapping";
+import { mcpAutoReply } from "../src/mcp/approval-bridge";
 
 const context: MappingContext = {
   toolGrants: {
@@ -283,6 +284,14 @@ it("unknown types leave a bounded compatibility diagnostic and no accounting imp
     eventType: "future.type",
   });
   expect(JSON.stringify(mapped.payload)).not.toContain("fixture-value");
+});
+it("only an undecided-consumed MCP approval is auto-answered, never a fresh one", () => {
+  // run8 R4：人已经批过的 MCP 能力调用，内核再问一次权限时由控制面自动答复。
+  expect(mcpAutoReply({ decision: "approve", consumed: false })).toBe("once");
+  expect(mcpAutoReply({ decision: "reject", consumed: false })).toBe("reject");
+  expect(mcpAutoReply({ decision: "approve", consumed: true })).toBeNull();
+  expect(mcpAutoReply({ decision: null, consumed: false })).toBeNull();
+  expect(mcpAutoReply(undefined)).toBeNull();
 });
 it("derives tool risk from own grants and never accepts metadata risk or prototype grants", () => {
   const part = { ...base, type: "tool", ...(parts.tool as object) };

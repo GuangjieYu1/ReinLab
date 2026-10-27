@@ -63,7 +63,19 @@ export class RuntimePipeline {
         prepareCapabilities: options.prepareCapabilities,
       },
     );
-    const observations = new ObservationStore(db, options.cleanupCapabilities);
+    const observations = new ObservationStore(
+      db,
+      options.cleanupCapabilities,
+      async (account, run, sessionID, requestID, reply) => {
+        await this.decisions.autoReplyPermission(
+          account,
+          run,
+          sessionID,
+          requestID,
+          reply
+        );
+      }
+    );
     this.scheduler = new ObservationScheduler(
       createObservationAccess(db, this.bridge),
       (account, run) => observations.sink(account, run),

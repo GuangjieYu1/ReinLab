@@ -10,6 +10,7 @@ import { lockBudget, settleObservedRun } from "../../budget";
 import { BindingStore, bindingRow } from "./binding-store";
 import type { ObservationSink } from "./observer";
 import { mapRuntimeEvent } from "./mapping";
+import { mcpAutoReply, pendingMcpApproval } from "../../mcp/approval-bridge";
 import {
   priceDeepSeekUsage,
   DEEPSEEK_PRICING_VERSION,
@@ -132,6 +133,14 @@ export class ObservationStore {
     private readonly onTerminal?: (
       account: string,
       run: string
+    ) => Promise<void>,
+    /** 已批准能力调用的原生权限请求：由控制面按账本决定自动答复，不再让用户批第二次。 */
+    private readonly onMcpPermission?: (
+      account: string,
+      run: string,
+      sessionID: string,
+      requestID: string,
+      reply: "once" | "reject"
     ) => Promise<void>
   ) {}
   async ingest(
@@ -149,7 +158,7 @@ export class ObservationStore {
       );
     const event = parsed.data,
       hash = sha(raw);
-    return this.db.withAccount(accountId, async (c) => {
+    const result = await this.db.withAccount(accountId, async (c) => {
       await lockBudget(c, accountId);
       const binding = await bindingRow(c, runId, true),
         run = await lockedRun(c, runId);
@@ -169,9 +178,10 @@ export class ObservationStore {
             409,
             "同一游标的事件内容不同。"
           );
-        return binding.cursor;
+        return { cursor: binding.cursor, autoReply: undefined };
       }
-      if (event.sequence <= binding.cursor) return binding.cursor; // Before the durable pre-admission baseline.
+      if (event.sequence <= binding.cursor)
+        return { cursor: binding.cursor, autoReply: undefined }; // Before the durable pre-admission baseline.
       if (event.sequence !== binding.cursor + 1)
         throw new ApiFailure(
           "CURSOR_GAP",
@@ -181,6 +191,15 @@ export class ObservationStore {
       const mapped = mapRuntimeEvent(raw, {
         toolGrants: binding.role.role.toolGrants,
       });
+      let autoReply:
+        | {
+            sessionID: string;
+            requestID: string;
+            approvalId: string;
+            capability: string;
+            reply: "once" | "reject";
+          }
+        | undefined;
       let cost: string | null = null,
         kind = mapped.kind,
         action = mapped.action,
@@ -306,31 +325,71 @@ export class ObservationStore {
         const approval = mapped.approval;
         if (approval.sessionID === binding.sessionId) {
           if (approval.state === "historical_pending") {
-            const live =
-              pending?.sessionID === binding.sessionId &&
-              (approval.kind === "permission"
-                ? pending.permissions
-                : pending.questions
-              ).some(
-                (item) =>
-                  item.id === approval.requestID &&
-                  item.sessionID === binding.sessionId
+            // 人已经在账本里批过这次 MCP 能力调用，内核却按插件再问一次权限：
+            // 不再给用户出第二张卡，改由控制面按已批准的决定自动答复（run8 R4）。
+            const bridged =
+              approval.kind === "permission"
+                ? pendingMcpApproval(payload?.properties ?? payload)
+                : null;
+            if (bridged) {
+              const decision = (
+                await c.query(
+                  "select decision,consumed from mcp_approval where id=$1 and account_id=$2 and run_id=$3",
+                  [bridged.approvalId, accountId, runId]
+                )
+              ).rows[0];
+              const auto = mcpAutoReply(decision);
+              if (auto) {
+                autoReply = {
+                  sessionID: binding.sessionId,
+                  requestID: approval.requestID,
+                  approvalId: bridged.approvalId,
+                  capability: bridged.capability,
+                  reply: auto,
+                };
+                await appendEvent(c, accountId, {
+                  dossierId: binding.dossierId,
+                  runId,
+                  roleId: binding.logicalRoleId,
+                  kind: "gate",
+                  action: "mcp_permission_auto_reply",
+                  payload: {
+                    approvalId: bridged.approvalId,
+                    capability: bridged.capability,
+                    reply: autoReply.reply,
+                  },
+                  dedupeKey: "mcp-auto-reply:" + runId + ":" + approval.requestID,
+                });
+              }
+            }
+            // 已经自动答复过的不再出卡，用户不会再被问第二次。
+            if (!autoReply) {
+              const live =
+                pending?.sessionID === binding.sessionId &&
+                (approval.kind === "permission"
+                  ? pending.permissions
+                  : pending.questions
+                ).some(
+                  (item) =>
+                    item.id === approval.requestID &&
+                    item.sessionID === binding.sessionId
+                );
+              await c.query(
+                `insert into approval(account_id,run_id,os_request_id,os_session_id,kind,title,effects,risk,state) values($1,$2,$3,$4,$5,$6,$7::jsonb,'write',$8) on conflict do nothing`,
+                [
+                  accountId,
+                  runId,
+                  approval.requestID,
+                  binding.sessionId,
+                  approval.kind,
+                  approval.kind === "permission"
+                    ? "执行权限等待你的决定"
+                    : "问题等待你的回答",
+                  JSON.stringify([payload]),
+                  live ? "pending" : "expired",
+                ]
               );
-            await c.query(
-              `insert into approval(account_id,run_id,os_request_id,os_session_id,kind,title,effects,risk,state) values($1,$2,$3,$4,$5,$6,$7::jsonb,'write',$8) on conflict do nothing`,
-              [
-                accountId,
-                runId,
-                approval.requestID,
-                binding.sessionId,
-                approval.kind,
-                approval.kind === "permission"
-                  ? "执行权限等待你的决定"
-                  : "问题等待你的回答",
-                JSON.stringify([payload]),
-                live ? "pending" : "expired",
-              ]
-            );
+            }
           } else if (approval.state === "resolved")
             await c.query(
               "update approval set state=case when decision_hash is null then 'expired' else 'indeterminate' end where run_id=$1 and os_session_id=$2 and os_request_id=$3 and state='pending'",
@@ -372,8 +431,19 @@ export class ObservationStore {
         runId,
         event.sequence,
       ]);
-      return event.sequence;
+      return { cursor: event.sequence, autoReply };
     });
+    // 游标已经推进且决定已落库，再去答复内核；答复失败也不回滚观察。
+    if (result.autoReply && this.onMcpPermission) {
+      await this.onMcpPermission(
+        accountId,
+        runId,
+        result.autoReply.sessionID,
+        result.autoReply.requestID,
+        result.autoReply.reply,
+      ).catch(() => {});
+    }
+    return result.cursor;
   }
   private async cleanupTerminal(accountId: string, runId: string) {
     if (!this.onTerminal) return;

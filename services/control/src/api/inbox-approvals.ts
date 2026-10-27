@@ -17,6 +17,52 @@ const Decision = z
   })
   .strict();
 const json = (v: unknown): JsonValue => JSON.parse(JSON.stringify(v));
+const capabilityLabel: Record<string, string> = {
+  "papers.search": "检索论文",
+  "papers.fetch": "下载论文全文",
+  "papers.pages": "按页读取原文",
+  "files.write": "写入档案文件",
+  "cards.card.layer": "写入分层讲解",
+  "cards.card.quiz": "写入检查题",
+  "cards.card.finding": "记录发现",
+};
+/** 收件箱只给人看的话：原生权限的原始载荷留在账本里，不塞进证据区。 */
+function nativeCard(row: Record<string, any>) {
+  const payload = Array.isArray(row.effects) ? row.effects[0] : row.effects;
+  const properties = payload?.properties ?? payload ?? {};
+  let bridged: ReturnType<typeof pendingMcpApproval> = null;
+  try {
+    bridged = pendingMcpApproval(properties);
+  } catch {
+    bridged = null;
+  }
+  const permission =
+    typeof properties.permission === "string" ? properties.permission : "";
+  return {
+    title: bridged
+      ? "批准能力调用 " + bridged.capability
+      : row.kind === "permission"
+        ? "内核请求一次执行权限"
+        : String(row.title),
+    effects: bridged
+      ? [
+          "操作：" +
+            (capabilityLabel[bridged.capability] ?? bridged.capability) +
+            "（" +
+            bridged.capability +
+            "）",
+          "只处理这一次请求；参数变化后需要重新批准。",
+        ]
+      : row.kind === "permission"
+        ? [
+            permission === "reinlab_mcp_approval"
+              ? "内核要求确认这次能力调用。"
+              : "内核要求一次受控执行权限。",
+            "只处理这一次请求；参数变化后需要重新批准。",
+          ]
+        : scrub(publicValue(row.effects)),
+  };
+}
 const conflict = () =>
   new ApiFailure(
     "APPROVAL_CONFLICT",
@@ -68,12 +114,19 @@ export function registerApprovalInbox(app: Hono<ApiEnv>, db: Database) {
       return c.json({
         items: rows
           .filter((r) => !wrapped.has(r.id))
-          .map((r) => ({
+          .map((r) => {
+            const card = r.os_request_id
+              ? nativeCard(r)
+              : {
+                  title: scrub(String(r.title).slice(0, 300)),
+                  effects: scrub(publicValue(r.effects)),
+                };
+            return {
             id: r.id,
             runId: r.run_id,
             kind: r.kind,
-            title: scrub(String(r.title).slice(0, 300)),
-            effects: scrub(publicValue(r.effects)),
+            title: scrub(String(card.title).slice(0, 300)),
+            effects: scrub(card.effects),
             risk: r.risk,
             state: r.state,
             sent: r.decision_sent ?? false,
@@ -84,7 +137,8 @@ export function registerApprovalInbox(app: Hono<ApiEnv>, db: Database) {
               runId: r.run_id,
               roleId: r.role_id,
             },
-          })),
+            };
+          }),
       });
     }),
   );

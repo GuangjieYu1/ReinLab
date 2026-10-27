@@ -324,6 +324,27 @@ export class DecisionService {
     );
     return receipt;
   }
+  /** 控制面替内核答复一次原生权限请求（只用于账本里已经批准/拒绝过的 MCP 能力调用）。 */
+  async autoReplyPermission(
+    accountId: string,
+    runId: string,
+    sessionID: string,
+    requestID: string,
+    reply: "once" | "reject"
+  ) {
+    if (!uuid.safeParse(accountId).success || !uuid.safeParse(runId).success)
+      throw invalid();
+    const runtime = await this.runtime(accountId, runId);
+    const result = await runtime.decide({
+      kind: "permission",
+      sessionID,
+      requestID,
+      reply,
+    });
+    return {
+      replied: result?.status === "resolved" && result.requestID === requestID,
+    };
+  }
   private async runtime(accountId: string, runId: string) {
     try {
       return await this.access.runtime(accountId, runId);
