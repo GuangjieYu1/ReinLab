@@ -160,7 +160,9 @@ export function createLiveReadAdapter(
         const name = String(data.name ?? "");
         if (name === "clarify_question") {
           const args = JSON.parse(String(data.arguments ?? "{}") || "{}");
-          if (args.kind === "paper_pick") {
+          // Candidates in hand means the user is choosing a paper, whatever the
+          // model labelled the question.
+          if (args.kind === "paper_pick" || (Array.isArray(args.candidates) && args.candidates.length > 0)) {
             emit({
               type: "pick",
               id: String(data.callId ?? event.seq),
@@ -483,7 +485,10 @@ export function createLiveReadAdapter(
       pendingQuestion = undefined;
       endReason = undefined;
       failureMessage = undefined;
-      snapshot = { ...empty(), dossier: snapshot.dossier };
+      // 新建精读就是一个全新档案：不复用旧档案里已下载的论文，
+      // 这样下载审批与「没批准就不下载」都能如实出现。
+      dossier = undefined;
+      snapshot = empty();
       freshReading = true;
       localPhase = undefined;
       patchRun({ state: "idle", message: undefined });

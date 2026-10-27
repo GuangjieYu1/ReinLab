@@ -221,7 +221,11 @@ export function apply(ctx, config) {
       output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
       timeoutMs: 60_000,
       async execute(args) {
-        const first = await call("cards", "clarify.question", args);
+        const askArgs =
+          Array.isArray(args.candidates) && args.candidates.length > 0
+            ? { ...args, kind: "paper_pick" }
+            : args;
+        const first = await call("cards", "clarify.question", askArgs);
         if (!first.pending) return first.result;
         const decision = await awaitDecision(config, call, first.approvalId);
         if (!decision.approved) return { state: "cancelled" };
