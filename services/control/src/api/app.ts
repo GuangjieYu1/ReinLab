@@ -32,6 +32,7 @@ import { registerRuntimeModel } from "../model/gateway";
 import { localModelPort } from "../model/host-port";
 import { registerGates } from "./gates";
 import { registerKernelRuns } from "./kernel-runs";
+import { registerKernelTools, type KernelToolCall } from "./kernel-tools";
 import { registerBudget } from "./budget";
 import { pricingFromEnvironment, type PricingService } from "../budget/pricing";
 import { monthlyBudgetSnapshot, currentPeriod } from "../budget";
@@ -46,6 +47,10 @@ export async function createApp(options: {
   mcp?: CapabilityEngine;
   onRunQueued?: (accountId: string, runId: string) => Promise<void>;
   kernel?: import("../kernel/service").KernelService;
+  kernelTools?: {
+    auth: import("../kernel/auth").KernelAuth;
+    dispatch: (call: KernelToolCall) => Promise<unknown>;
+  };
   clarifyAuthorizationFile?: string;
   realModelsEnabled?: boolean;
   testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
@@ -283,6 +288,13 @@ export async function createApp(options: {
   registerLedger(app, database);
   registerGates(app, database);
   if (options.kernel) registerKernelRuns(app, { db: database, kernel: options.kernel });
+  if (options.kernelTools)
+    registerKernelTools(app, {
+      auth: options.kernelTools.auth,
+      db: database,
+      now: () => Math.floor(Date.now() / 1000),
+      dispatch: options.kernelTools.dispatch,
+    });
   registerBudget(
     app,
     database,

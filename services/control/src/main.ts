@@ -23,6 +23,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { ensureKernelAuth } from "./kernel/auth";
 import { KernelService } from "./kernel/service";
 import { createHarnessFactory, resolveDshModule } from "./kernel/dsh/harness";
+import { localAccountPort } from "./kernel/local-account";
+import { createKernelDispatch } from "./kernel/dispatch";
 
 const config = runtimeConfiguration();
 const realModels = config.REINLAB_REAL_MODELS_ENABLED === "1";
@@ -103,17 +105,26 @@ const pipeline = new RuntimePipeline(database, {
     );
   },
 });
+const kernelHome =
+  config.REINLAB_KERNEL_HOME ?? path.join(homedir(), ".local/state/reinlab/kernel");
+const kernelAuth = await ensureKernelAuth(
+  config.REINLAB_KERNEL_SIGNING_KEY_FILE ??
+    path.join(homedir(), ".config/reinlab/mcp/kernel.pem"),
+);
+const kernelAccount = localAccountPort(kernelHome);
+const kernelDispatch = createKernelDispatch({
+  db: database,
+  cacheRoot: path.join(homedir(), ".local/state/reinlab/papers"),
+  deposit: kernelAccount.deposit,
+});
 const kernel = new KernelService({
   db: database,
-  auth: await ensureKernelAuth(
-    config.REINLAB_KERNEL_SIGNING_KEY_FILE ??
-      path.join(homedir(), ".config/reinlab/mcp/kernel.pem"),
-  ),
+  auth: kernelAuth,
   factory: createHarnessFactory(),
   model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
   maxTokens: Number(config.REINLAB_KERNEL_MAX_TOKENS ?? 32768),
   layout: {
-    home: config.REINLAB_KERNEL_HOME ?? path.join(homedir(), ".local/state/reinlab/kernel"),
+    home: kernelHome,
     shimModule: path.resolve("services/control/src/kernel/dsh/shim.mjs"),
     shimContainerModule: "/opt/reinlab/shim.mjs",
     dshModule: resolveDshModule(),
@@ -141,6 +152,7 @@ const app = await createApp({
   pipeline,
   mcp,
   kernel,
+  kernelTools: { auth: kernelAuth, dispatch: kernelDispatch },
   clarifyAuthorizationFile: config.REINLAB_CLARIFY_AUTHORIZATION_FILE,
   realModelsEnabled: realModels,
   auth: {

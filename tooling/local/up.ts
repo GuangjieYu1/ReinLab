@@ -125,14 +125,20 @@ try {
     SUPABASE_ANON_KEY: status.anonKey,
     INTERNAL_SIGNING_KEY: signingKey,
   });
-  step("LOCAL_ACCOUNT_IMAGE_BUILDING");
-  const image = await accountImageTag();
-  await ensureLocalAccountImage({
-    image,
-    pinFile: join(paths.state, "account-image-" + image.split(":")[1] + ".env"),
-    run: (args, timeoutMs) =>
-      quietCommand("docker", args, { env: cliEnvironment, timeoutMs }),
-  });
+  // The host kernel transport needs no account image; the image stays the
+  // production transport and is built only when it is selected.
+  const kernelTransport = "host";
+  let image = "host";
+  if (kernelTransport === "container") {
+    step("LOCAL_ACCOUNT_IMAGE_BUILDING");
+    image = await accountImageTag();
+    await ensureLocalAccountImage({
+      image,
+      pinFile: join(paths.state, "account-image-" + image.split(":")[1] + ".env"),
+      run: (args, timeoutMs) =>
+        quietCommand("docker", args, { env: cliEnvironment, timeoutMs }),
+    });
+  }
   if (realModels) {
     const keyFile = join(homedir(), ".config/reinlab/local.env"),
       info = await lstat(keyFile),
@@ -177,7 +183,7 @@ try {
   });
   await stopOwnedControl(join(paths.state, "worker.json"), resolve("tooling/local/worker.ts"));
   await stopOwnedControl(paths.process, resolve("tooling/local/control.ts"));
-  if (realModels) {
+  if (realModels && kernelTransport === "container") {
     step("LOCAL_REAL_ACCOUNT_IMAGES_UPGRADING");
     const upgrade = await upgradeLocalRealAccounts(paths.runtime, paths.setup);
     console.log(
@@ -197,7 +203,7 @@ try {
     env: { ...cliEnvironment },
     recordFile: paths.process,
   });
-  if (realModels) {
+  if (realModels && kernelTransport === "container") {
     step("LOCAL_HATCHET_STARTING");
     await quietCommand(process.execPath, ["--import", "tsx", resolve("tooling/local/hatchet.ts")], {
       cwd: paths.root, env: cliEnvironment, timeoutMs: 300000,
