@@ -178,11 +178,11 @@ export class KernelService {
           });
           prepared.sessionId = sessionId;
         },
-        onState: async (state) => {
+        onState: async (state, detail) => {
           await db.withAccount(account, async (client) => {
             await client.query(
-              "update dsh_turn set state=$2, ended_at=now() where run_id=$1 and state='running'",
-              [runId, state],
+              "update dsh_turn set state=$2, error_code=$3, ended_at=now() where run_id=$1 and state='running'",
+              [runId, state, detail ?? null],
             );
             await client.query(
               "update run set state=$2, ended_at=now() where id=$1 and state not in ('completed','failed','cancelled','interrupted')",

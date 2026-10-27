@@ -19,6 +19,7 @@ export type PipelineDependencies = {
   /** Persist the run's terminal state, including an unconfirmed stop. */
   onState: (
     state: "completed" | "failed" | "cancelled" | "cancel_unconfirmed",
+    detail?: string,
   ) => void | Promise<void>;
   /** Release the run-scoped files once the runtime is gone. */
   release: () => Promise<void>;
@@ -61,7 +62,10 @@ export function executeRun(
         onSession: (sessionId, resumed) =>
           dependencies.onSession?.(sessionId, resumed),
       });
-      await dependencies.onState(outcome.state);
+      await dependencies.onState(
+        outcome.state,
+        outcome.state === "failed" ? (outcome.errorCode ?? "KERNEL_FAILED") : undefined,
+      );
       return outcome;
     } catch (error) {
       if (cancelRequested) {
@@ -77,7 +81,10 @@ export function executeRun(
           message: String((error as Error)?.message ?? error).slice(0, 500),
         }),
       );
-      await dependencies.onState("failed");
+      await dependencies.onState(
+        "failed",
+        String((error as Error)?.message ?? error).slice(0, 300),
+      );
       throw error;
     } finally {
       await dependencies.release().catch(() => {});
