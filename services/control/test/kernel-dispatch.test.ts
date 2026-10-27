@@ -55,6 +55,7 @@ describe("kernel tool dispatch", () => {
       db,
       cacheRoot: mkdtempSync(join(tmpdir(), "papers-cache-")),
       deposit: async () => {},
+      cardDeposit: async () => {},
       http: { get: async () => wire({ results: [work] }) } as never,
     });
     const result = (await dispatch({
@@ -75,10 +76,11 @@ describe("kernel tool dispatch", () => {
       db,
       cacheRoot: mkdtempSync(join(tmpdir(), "papers-cache-")),
       deposit: async () => {},
+      cardDeposit: async () => {},
       http: { get: async () => wire({ results: [] }) } as never,
     });
     await expect(
-      dispatch({ account, dossier, run: runId, server: "cards", tool: "card.finding", args: {} }),
+      dispatch({ account, dossier, run: runId, server: "cards", tool: "card.unknown", args: {} }),
     ).rejects.toMatchObject({ code: "KERNEL_TOOL_UNSUPPORTED" });
     await expect(
       dispatch({ account, dossier, run: runId, server: "papers", tool: "delete", args: {} }),

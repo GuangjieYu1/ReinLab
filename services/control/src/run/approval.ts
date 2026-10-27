@@ -11,6 +11,7 @@ export type ApprovalRequest = {
   title: string;
   effects: unknown;
   risk: "read" | "write" | "danger";
+  kind?: "permission" | "question";
 };
 
 export type ApprovalCard = {
@@ -32,10 +33,18 @@ export async function requestApproval(
   const key = request.capability + ":" + request.argsHash;
   const inserted = await client.query(
     `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key)
-     values(gen_random_uuid(),$1,$2,'permission',$3,$4,$5,'pending',$6)
+     values(gen_random_uuid(),$1,$2,$7,$3,$4,$5,'pending',$6)
      on conflict (account_id,run_id,effect_key) where effect_key is not null do nothing
      returning id,state,consumed_at`,
-    [request.account, request.run, request.title, JSON.stringify(request.effects), request.risk, key],
+    [
+      request.account,
+      request.run,
+      request.title,
+      JSON.stringify(request.effects),
+      request.risk,
+      key,
+      request.kind ?? "permission",
+    ],
   );
   const row =
     inserted.rows[0] ??

@@ -22,6 +22,9 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
 /** Actions that need the user's one-shot approval before they run. */
 const APPROVAL_REQUIRED = new Set(["papers.fetch"]);
 
+/** Tools that are really a question to the user, not a business write. */
+const ASKS_THE_USER = new Set(["cards.clarify.question"]);
+
 export type KernelToolCall = {
   account: string;
   dossier: string;
@@ -97,6 +100,30 @@ export function registerKernelTools(
     const capability = `${body.server}.${body.tool}`;
 
     return dependencies.db.withAccount(claims.account, async (client) => {
+      if (ASKS_THE_USER.has(capability)) {
+        // The candidate choice belongs to the user: keep the turn open on a
+        // question card and hand the answer back to the kernel.
+        const card = await requestApproval(client, {
+          account: call.account,
+          dossier: call.dossier,
+          run: call.run,
+          capability,
+          argsHash: argsHash(call),
+          title:
+            typeof args.question === "string" && args.question.trim() !== ""
+              ? args.question.trim().slice(0, 300)
+              : "请选择要读的论文",
+          effects: [
+            {
+              kind: typeof args.kind === "string" ? args.kind : "text",
+              candidates: Array.isArray(args.candidates) ? args.candidates : [],
+            },
+          ],
+          risk: "read",
+          kind: "question",
+        });
+        return c.json({ state: "pending", approvalId: card.id }, 409);
+      }
       if (APPROVAL_REQUIRED.has(capability)) {
         const existing = await existingPaperAsset(client, call);
         if (existing) return c.json({ result: existing });

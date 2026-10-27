@@ -119,6 +119,7 @@ const kernelDispatch = createKernelDispatch({
   db: database,
   cacheRoot: path.join(homedir(), ".local/state/reinlab/papers"),
   deposit: kernelAccount.deposit,
+  cardDeposit: kernelAccount.cardDeposit,
 });
 const kernel = new KernelService({
   db: database,
