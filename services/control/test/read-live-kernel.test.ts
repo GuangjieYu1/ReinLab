@@ -54,7 +54,8 @@ describe("live read adapter over the DSH kernel", () => {
 
   it("starts a run from the first sentence and answers a pick on its card", async () => {
     const { instance, calls } = adapter({
-      "/v1/dossiers": () => ({ items: [{ id: "d-1", title: "档案" }] }),
+      "/v1/dossiers": (call) =>
+        call.body === undefined ? { items: [{ id: "d-1", title: "档案" }] } : { id: "d-new" },
       "/v1/kernel/dossiers/d-1/runs": () => ({ runs: [] }),
       "/v1/kernel/runs": () => ({ id: "r-new" }),
       "/v1/kernel/runs/r-new/events": () => ({
@@ -72,7 +73,8 @@ describe("live read adapter over the DSH kernel", () => {
     await instance.load();
     await instance.clarify("我想读 Toolformer");
     const created = calls.find((call) => call.path === "/v1/kernel/runs");
-    expect(created?.body).toMatchObject({ dossierId: "d-1", query: "我想读 Toolformer" });
+    // 每段新对话都开新档案：旧档案里已下载的论文会让下载审批直接消失。
+    expect(created?.body).toMatchObject({ dossierId: "d-new", query: "我想读 Toolformer" });
 
     const seen: string[] = [];
     instance.subscribe((entry) => void seen.push(entry.type));
