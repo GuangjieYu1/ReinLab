@@ -23,9 +23,6 @@ importers:
       '@openmaic/renderer':
         specifier: ^0.1.11
         version: 0.1.11(motion@12.43.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
-      d3-geo:
-        specifier: ^3.1.1
-        version: 3.1.1
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.3.0)
@@ -38,9 +35,6 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.3.0(react@19.3.0)
-      topojson-client:
-        specifier: ^3.1.0
-        version: 3.1.0
     devDependencies:
       '@capacitor/assets':
         specifier: ^3.0.5
@@ -48,9 +42,6 @@ importers:
       '@capacitor/cli':
         specifier: ^8.5.2
         version: 8.5.2
-      '@types/d3-geo':
-        specifier: ^3.1.1
-        version: 3.1.1
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -63,9 +54,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.0
         version: 19.3.0(@types/react@19.3.0)
-      '@types/topojson-client':
-        specifier: ^3.1.5
-        version: 3.1.5
       '@types/topojson-specification':
         specifier: 1.0.5
         version: 1.0.5
@@ -3935,9 +3923,6 @@ packages:
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
-  '@types/d3-geo@3.1.1':
-    resolution: {integrity: sha512-65Emv9fQiQQqphLlRkuQ5ypPsOmWPhtBGCMv61JDPEPMvsx+gzhGf74yw1a78xFKPj6zw4AgQICJoQv0vK9M2w==}
-
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
@@ -3978,9 +3963,6 @@ packages:
 
   '@types/slice-ansi@4.0.0':
     resolution: {integrity: sha512-+OpjSaq85gvlZAYINyzKpLeiFkSC4EsC6IIiT6v6TLSU5k5U83fHGj9Lel8oKEXM0HqgrMVCjXPDPVICtxF7EQ==}
-
-  '@types/topojson-client@3.1.5':
-    resolution: {integrity: sha512-C79rySTyPxnQNNguTZNI1Ct4D7IXgvyAs3p9HPecnl6mNrJ5+UhvGNYcZfpROYV2lMHI48kJPxwR+F9C6c7nmw==}
 
   '@types/topojson-specification@1.0.5':
     resolution: {integrity: sha512-C7KvcQh+C2nr6Y2Ub4YfgvWvWCgP2nOQMtfhlnwsRL4pYmmwzBS7HclGiS87eQfDOU/DLQpX6GEscviaz4yLIQ==}
@@ -4364,9 +4346,6 @@ packages:
     resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
     engines: {node: '>=22.12.0'}
 
-  commander@2.20.3:
-    resolution: {integrity: sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ==}
-
   commander@8.3.0:
     resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
     engines: {node: '>= 12'}
@@ -4406,14 +4385,6 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
-
-  d3-array@3.2.4:
-    resolution: {integrity: sha512-tdQAmyA18i4J7wprpYq8ClcxZy3SC31QMeByyCFyRt7BVHdREQZ5lpzoe5mFEYZUWe+oq8HBvk9JjpibyEV4Jg==}
-    engines: {node: '>=12'}
-
-  d3-geo@3.1.1:
-    resolution: {integrity: sha512-637ln3gXKXOwhalDzinUgY83KzNWZRKbYubaG+fGVuc/dxO64RRljtCTnf5ecMyE1RIdtqpkVcq0IbtU2S8j2Q==}
-    engines: {node: '>=12'}
 
   data-uri-to-buffer@4.0.0:
     resolution: {integrity: sha512-Vr3mLBA8qWmcuschSLAOogKgQ/Jwxulv3RNE4FXnYWRGujzrRWQI4m12fQqRkwX06C0KanhLr4hK+GydchZsaA==}
@@ -4876,10 +4847,6 @@ packages:
   ini@4.1.3:
     resolution: {integrity: sha512-X7rqawQBvfdjS10YU1y1YVreA3SsLrW9dX2CewP2EbBJM4ypVNLDkO5y04gejPwKIY9lR+7r9gn3rFPt/kmWFg==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
-
-  internmap@2.0.3:
-    resolution: {integrity: sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==}
-    engines: {node: '>=12'}
 
   ipaddr.js@2.5.0:
     resolution: {integrity: sha512-aq+t5NAc+cS6rZQQVWC2x98CPqGtKKTMDd4Gaodv0wShnItdKg/51djkGJ1hqH+Oy0ivDftCbSLCQob8zso01w==}
@@ -5868,10 +5835,6 @@ packages:
   toidentifier@1.0.1:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
-
-  topojson-client@3.1.0:
-    resolution: {integrity: sha512-605uxS6bcYxGXw9qi62XyrV6Q3xwbndjachmNxu8HWTtVPxZfEJN9fd/SZS1Q54Sn2y0TMyMxFj/cJINqGHrKw==}
-    hasBin: true
 
   tr46@0.0.3:
     resolution: {integrity: sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==}
@@ -10853,10 +10816,6 @@ snapshots:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
 
-  '@types/d3-geo@3.1.1':
-    dependencies:
-      '@types/geojson': 7946.0.16
-
   '@types/deep-eql@4.0.2': {}
 
   '@types/estree@1.0.9': {}
@@ -10896,11 +10855,6 @@ snapshots:
   '@types/retry@0.12.0': {}
 
   '@types/slice-ansi@4.0.0': {}
-
-  '@types/topojson-client@3.1.5':
-    dependencies:
-      '@types/geojson': 7946.0.16
-      '@types/topojson-specification': 1.0.5
 
   '@types/topojson-specification@1.0.5':
     dependencies:
@@ -11274,8 +11228,6 @@ snapshots:
 
   commander@15.0.0: {}
 
-  commander@2.20.3: {}
-
   commander@8.3.0: {}
 
   commander@9.5.0: {}
@@ -11322,14 +11274,6 @@ snapshots:
   css-what@6.2.2: {}
 
   csstype@3.2.3: {}
-
-  d3-array@3.2.4:
-    dependencies:
-      internmap: 2.0.3
-
-  d3-geo@3.1.1:
-    dependencies:
-      d3-array: 3.2.4
 
   data-uri-to-buffer@4.0.0: {}
 
@@ -11807,8 +11751,6 @@ snapshots:
   ini@2.0.0: {}
 
   ini@4.1.3: {}
-
-  internmap@2.0.3: {}
 
   ipaddr.js@2.5.0: {}
 
@@ -12815,10 +12757,6 @@ snapshots:
   tinyrainbow@3.1.1: {}
 
   toidentifier@1.0.1: {}
-
-  topojson-client@3.1.0:
-    dependencies:
-      commander: 2.20.3
 
   tr46@0.0.3: {}
 

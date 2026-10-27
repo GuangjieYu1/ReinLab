@@ -186,7 +186,12 @@ export function apply(ctx, config) {
         if (!first.pending) return first.result;
         const decision = await awaitDecision(config, call, first.approvalId);
         if (!decision.approved) return { state: "cancelled" };
-        return { state: "answered", approvalId: decision.approvalId };
+        const answered = await call("cards", "clarify.question", args, {
+          approvalId: decision.approvalId,
+        });
+        return answered.pending
+          ? { state: "answered", approvalId: decision.approvalId }
+          : answered.result;
       },
     }),
   );

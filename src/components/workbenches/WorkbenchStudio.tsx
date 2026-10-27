@@ -5,7 +5,7 @@ import Logo from '../cinematic/WorkbenchLogo';
 import { startTransit, transitActive } from '../entry/transitStore';
 import { navigate } from '../../nav';
 import { BENCHES, CODES, FILE_NOUN, benchInfo, fileNo, type BenchId } from './benches';
-import ResearchBench from '../../data/ResearchStudioData';
+import ResearchBench from './research/ResearchStudio';
 import EngineeringBench from './engineering/EngineeringBench';
 import CreativeBench from './creative/CreativeStudio';
 import AutomationBench from './automation/AutomationStudio';
@@ -22,13 +22,11 @@ const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia('
 /** 已迁到新设计、自己画头部的工作台；其余暂用一条细条承载外壳的三样东西。 */
 const OWN_HEADER: BenchId[] = ['curriculum', 'engineering', 'research', 'creative', 'data', 'automation', 'exploration'];
 
-// Where this page was opened from, so the back link lands on the same entry
-// (工作台优先 with its design, or Files 优先) and on this workbench's Files.
+// 返回入口：回到同一种选台（design）和这个工作台的 Files。
 function entryHref(bench?: BenchId, file?: number) {
   const q = new URLSearchParams(window.location.search);
-  const fromEntry = q.get('from') === 'entry';
-  const out = fromEntry ? new URLSearchParams({ preview: 'entry' }) : new URLSearchParams({ preview: 'entry-compare', variant: q.get('from') === 'workbenches' ? 'workbenches' : 'files' });
-  if ((fromEntry || out.get('variant') === 'workbenches') && q.get('design')) out.set('design', q.get('design')!);
+  const out = new URLSearchParams({ preview: 'entry' });
+  if (q.get('design')) out.set('design', q.get('design')!);
   if (bench) { out.set('return', bench); out.set('file', String(file ?? 0)); }
   return `${window.location.pathname}?${out}`;
 }
@@ -50,8 +48,9 @@ export default function WorkbenchStudio() {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
     const href = event.currentTarget.href;
     const fromEntry = new URLSearchParams(window.location.search).get('from') === 'entry';
-    if (!fromEntry) return;
     event.preventDefault();
+    // 页内跳转：真实模式的登录只在内存里，整页刷新会掉线
+    if (!fromEntry) { navigate(href); return; }
     const logo = event.currentTarget.ownerDocument.querySelector('.wb-crumb-logo')?.getBoundingClientRect();
     if (!toFiles || reduced || !logo || transitActive()) { navigate(href); return; }
     startTransit({ direction: 'return', workbench: info, from: logo, land: '.cine-cassette.selected .entry-seal', target: href,

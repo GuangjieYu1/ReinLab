@@ -101,6 +101,23 @@ export function registerKernelTools(
 
     return dependencies.db.withAccount(claims.account, async (client) => {
       if (ASKS_THE_USER.has(capability)) {
+        if (typeof body.approvalId === "string") {
+          const answered = (
+            await client.query(
+              "select state,effects from approval where id=$1 and account_id=$2",
+              [body.approvalId, call.account],
+            )
+          ).rows[0];
+          if (!answered)
+            throw new ApiFailure("APPROVAL_NOT_FOUND", 404, "这段时间的提问已不存在。");
+          if (answered.state === "approved")
+            return c.json({
+              result: { state: "answered", ...(answered.effects?.answer ?? {}) },
+            });
+          if (answered.state === "rejected" || answered.state === "expired")
+            return c.json({ result: { state: "cancelled" } });
+          return c.json({ state: "pending", approvalId: body.approvalId }, 409);
+        }
         // The candidate choice belongs to the user: keep the turn open on a
         // question card and hand the answer back to the kernel.
         const card = await requestApproval(client, {

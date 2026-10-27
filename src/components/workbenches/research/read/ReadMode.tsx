@@ -35,7 +35,7 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
   file: number; reduced: boolean; chrome: BenchChrome; modeSwitch: ReactNode; onDispatch: (to: 'swarm' | 'auto', text: string) => void; adapter?: ReadAdapter;
 }) {
   const adapter = useMemo(() => given ?? mockReadAdapter({ reduced }), [given, reduced]);
-  const { state, reload } = useRead(adapter);
+  const { state, reload, error: loadError, retry } = useRead(adapter);
   const [face, setFace] = useState<Face>('explain');
   const [depth, setDepth] = useState(3);                 // 展开到第几层
   const [focus, setFocus] = useState<string[]>([]);      // 当前高亮的原文段
@@ -72,7 +72,11 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
 
   if (!state) return <BenchFrame code="RSCH" section="002" file={file} reduced={reduced} chrome={chrome} face={face} onFace={id => setFace(id as Face)}
     faces={[{ id: 'explain', label: '解析', en: 'EXPLAIN' }]} strip={<>READ <i>·</i> 读取中</>} tools={modeSwitch} shutterLines={() => ['> open dossier', '> ready']}
-    status={<span>正在读取档案…</span>}><div className="rd rh" /></BenchFrame>;
+    status={<span>{loadError ? '读取失败' : '正在读取档案…'}</span>}><div className="rd rh">{loadError && <div className="rd-start"><div className="rd-start-card rd-load-err" role="alert">
+      <span className="rh-micro">ERROR · 读取失败</span><h2>没能读到这份档案</h2>
+      <p className="rd-start-lead">原因：{loadError}。没有换成示例数据。</p>
+      <div className="rd-end-act"><button className="rd-go" onClick={retry}>重试</button></div>
+    </div></div>}</div></BenchFrame>;
 
   const { paper, layers, quizzes, findings, run } = state;
   const dispatch = (to: 'swarm' | 'auto', text: string) => { onDispatch(to, text); };

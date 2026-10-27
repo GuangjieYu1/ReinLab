@@ -67,6 +67,69 @@ export function registerKernelRuns(
     return c.json({ id: created, sessionId: started.sessionId, resume: started.resume }, 201);
   });
 
+  app.get("/v1/kernel/dossiers/:id/runs", (c) =>
+    dependencies.db.withAccountSnapshot(c.get("accountId"), async (client) => {
+      const id = c.req.param("id");
+      if (!z.string().uuid().safeParse(id).success)
+        throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "档案不存在。");
+      const rows = (
+        await client.query(
+          `select id,state,created_at,ended_at from run
+           where dossier_id=$1 and account_id=$2 and role_id<>'research-clarify'
+           order by created_at desc limit 20`,
+          [id, c.get("accountId")],
+        )
+      ).rows;
+      return c.json({
+        runs: rows.map((row) => ({
+          id: row.id,
+          state: row.state,
+          createdAt: row.created_at,
+          endedAt: row.ended_at,
+        })),
+      });
+    }),
+  );
+
+  app.post("/v1/kernel/approvals/:id/answer", async (c) => {
+    const account = c.get("accountId");
+    const id = c.req.param("id");
+    if (!z.string().uuid().safeParse(id).success)
+      throw new ApiFailure("APPROVAL_NOT_FOUND", 404, "审批不存在。");
+    const body = (await c.req.json().catch(() => ({}))) as {
+      candidateId?: unknown;
+      text?: unknown;
+    };
+    const candidateId =
+      typeof body.candidateId === "string" && body.candidateId !== ""
+        ? body.candidateId.slice(0, 200)
+        : null;
+    const text =
+      typeof body.text === "string" && body.text.trim() !== ""
+        ? body.text.trim().slice(0, 4000)
+        : null;
+    return dependencies.db.withAccount(account, async (client) => {
+      const row = (
+        await client.query(
+          "select id,kind,state,effects from approval where id=$1 and account_id=$2",
+          [id, account],
+        )
+      ).rows[0];
+      if (!row) throw new ApiFailure("APPROVAL_NOT_FOUND", 404, "审批不存在。");
+      if (row.state !== "pending")
+        return c.json({ id, state: row.state, repeated: true });
+      await client.query(
+        "update approval set effects=$2 where id=$1",
+        [id, JSON.stringify({ ...(row.effects ?? {}), answer: { candidateId, text } })],
+      );
+      await client.query(
+        "update approval set state='approved', decided_at=now(), decided_scope='once' where id=$1",
+        [id],
+      );
+      return c.json({ id, state: "approved", answer: { candidateId, text } });
+    });
+  });
+
   app.get("/v1/kernel/runs/:id", (c) =>
     dependencies.db.withAccountSnapshot(c.get("accountId"), async (client) => {
       const id = c.req.param("id");
