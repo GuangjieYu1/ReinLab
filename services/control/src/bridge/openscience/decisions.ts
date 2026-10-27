@@ -10,7 +10,7 @@ import { Database } from "../../db/database";
 import { ApiFailure, denied } from "../../api/errors";
 import { canonical } from "../../api/context";
 import { lockBudget } from "../../budget";
-import { scrub } from "../../ledger";
+import { appendEvent, scrub } from "../../ledger";
 import { bindingRow, type Binding } from "./binding-store";
 import type { RoleRuntime } from "./role-runtime";
 
@@ -498,19 +498,66 @@ export class DecisionService {
       resolved ? "resolved" : "indeterminate"
     );
     if (resolved && input.decision === "approve") {
-      const selected = await this.db.withAccount(
-        accountId,
-        async (c) =>
-          (
-            await c.query(
-              "select 1 from read_clarification s join read_clarify_run cr on cr.account_id=s.account_id and cr.dossier_id=s.dossier_id where s.chosen_approval=$1 and s.chosen_id is not null and cr.run_id=$2 and cr.closed",
-              [approvalId, row.run_id]
-            )
-          ).rowCount
-      );
-      if (selected) await this.cancel(accountId, row.run_id).catch(() => {});
+      // 人批准的是这条 MCP 能力审批，而内核的原生权限请求可能已经先到、还在等：
+      // 按刚作出的决定替它答复一次，别让用户批第二次（run8 R4）。
+      await this.autoReplyPendingNative(accountId, row).catch(() => {});
+      // 选定论文后不再立刻取消这次澄清运行：模型还要把这一轮答完，run 应该正常
+      // 以 completed 收尾（run8 C5）。真要掐断走「换一篇 / 取消澄清」。
     }
     return receipt;
+  }
+  /** 内核为同一次能力调用发的原生权限请求若还挂着，按账本决定替它答复。 */
+  private async autoReplyPendingNative(
+    accountId: string,
+    row: Record<string, any>
+  ) {
+    const bound = (
+      await this.db.withAccount(accountId, (client) =>
+        client.query(
+          "select id,os_request_id,os_session_id,effects from approval where account_id=$1 and run_id=$2 and kind='permission' and state='pending' and os_request_id is not null",
+          [accountId, row.run_id]
+        )
+      )
+    ).rows.filter((native) => {
+      try {
+        const binding = pendingMcpApproval(
+          Array.isArray(native.effects) ? native.effects[0] : native.effects
+        );
+        return binding?.approvalId === row.id;
+      } catch {
+        return false;
+      }
+    });
+    if (!bound.length) return;
+    const reply = savedIntent(row).decision === "approve" ? "once" : "reject";
+    const runtime = await this.runtime(accountId, row.run_id);
+    for (const native of bound) {
+      try {
+        await runtime.decide({
+          kind: "permission",
+          sessionID: native.os_session_id,
+          requestID: native.os_request_id,
+          reply,
+        });
+      } catch {
+        continue; /* 内核已经自己收尾的情况不算失败。 */
+      }
+      await this.db.withAccount(accountId, async (client) => {
+        await client.query(
+          "update approval set state=$2,decided_scope='once',decided_at=now() where id=$1 and state='pending'",
+          [native.id, reply === "once" ? "approved" : "rejected"]
+        );
+        await appendEvent(client, accountId, {
+          dossierId: row.dossier_id,
+          runId: row.run_id,
+          roleId: row.role_id,
+          kind: "gate",
+          action: "mcp_permission_auto_reply",
+          payload: { approvalId: row.id, requestId: native.os_request_id, reply },
+          dedupeKey: "mcp-auto-reply:" + row.run_id + ":" + native.os_request_id,
+        });
+      });
+    }
   }
   async cancel(accountId: string, runId: string): Promise<CancelReceipt> {
     const get = async (client: pg.PoolClient) => {

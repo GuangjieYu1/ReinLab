@@ -38,12 +38,17 @@ function nativeCard(row: Record<string, any>) {
   }
   const permission =
     typeof properties.permission === "string" ? properties.permission : "";
+  const stored = String(row.title ?? "");
+  const generic =
+    !stored.trim() || stored === "执行权限等待你的决定" || stored === "fixture";
   return {
-    title: bridged
-      ? "批准能力调用 " + bridged.capability
-      : row.kind === "permission"
-        ? "内核请求一次执行权限"
-        : String(row.title),
+    title: generic
+      ? bridged
+        ? "批准能力调用 " + bridged.capability
+        : row.kind === "permission"
+          ? "内核请求一次执行权限"
+          : stored
+      : stored,
     effects: bridged
       ? [
           "操作：" +
@@ -53,7 +58,7 @@ function nativeCard(row: Record<string, any>) {
             "）",
           "只处理这一次请求；参数变化后需要重新批准。",
         ]
-      : row.kind === "permission"
+      : row.kind === "permission" && !Array.isArray(properties.questions)
         ? [
             permission === "reinlab_mcp_approval"
               ? "内核要求确认这次能力调用。"
