@@ -25,6 +25,9 @@ import { KernelService } from "./kernel/service";
 import { createHarnessFactory, resolveDshModule } from "./kernel/dsh/harness";
 import { localAccountPort } from "./kernel/local-account";
 import { createKernelDispatch } from "./kernel/dispatch";
+import { registerMessagesProxy } from "./model/messages-proxy";
+import { recordUsage } from "./run/usage";
+import { readRuntimeConfiguration } from "./configuration";
 
 const config = runtimeConfiguration();
 const realModels = config.REINLAB_REAL_MODELS_ENABLED === "1";
@@ -122,6 +125,7 @@ const kernel = new KernelService({
   auth: kernelAuth,
   factory: createHarnessFactory(),
   model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
+  controlUrl: config.REINLAB_CONTROL_URL ?? "",
   maxTokens: Number(config.REINLAB_KERNEL_MAX_TOKENS ?? 32768),
   layout: {
     home: kernelHome,
@@ -162,6 +166,31 @@ const app = await createApp({
       : undefined,
   },
 });
+if (realModels) {
+  // The kernel's model egress: run token in, host-held key out. One usage row
+  // per provider request; nothing else writes this request's usage.
+  const providerKey = readRuntimeConfiguration(
+    path.join(homedir(), ".config/reinlab/local.env"),
+  ).DEEPSEEK_API_KEY;
+  if (!providerKey || /[\r\n]/.test(providerKey))
+    throw Error("LOCAL_MODEL_KEY_UNAVAILABLE");
+  registerMessagesProxy(app, {
+    auth: kernelAuth,
+    forward: (request: Request) => fetch(request, { redirect: "error" }),
+    record: async (usage) => {
+      await database.withAccount(usage.account, (client) =>
+        recordUsage(client, {
+          ...usage,
+          reasoningTokens: null,
+          costCny: usage.costCny ?? null,
+        }),
+      );
+    },
+    now: () => Math.floor(Date.now() / 1000),
+    providerBaseUrl: "https://api.deepseek.com/anthropic",
+    providerKey,
+  });
+}
 const stopProvisioner = config.DATABASE_URL_PROVISIONER
   ? await startAuthProvisioner(
       config.DATABASE_URL_PROVISIONER,

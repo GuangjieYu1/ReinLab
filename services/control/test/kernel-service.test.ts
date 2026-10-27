@@ -32,13 +32,13 @@ const io = {
 };
 
 function service(factory: HarnessFactory) {
-  process.env.REINLAB_CONTROL_URL = "http://control:3001";
   return new KernelService({
     db,
     auth,
     factory,
     model: "deepseek-v4-flash",
     maxTokens: 4096,
+    controlUrl: "http://control:3001",
     layout: {
       home: HOME,
       shimModule: "/app/shim.mjs",

@@ -34,7 +34,6 @@ function completing(): HarnessFactory {
 }
 
 it("建立精读运行、读到已完成状态与内核事件，并可取消", async () => {
-  process.env.REINLAB_CONTROL_URL = "http://control:3001";
   const f = await mcpFixture();
   try {
     const secret = randomBytes(48),
@@ -45,6 +44,7 @@ it("建立精读运行、读到已完成状态与内核事件，并可取消", a
       factory: completing(),
       model: "deepseek-v4-flash",
       maxTokens: 4096,
+      controlUrl: "http://control:3001",
       layout: {
         home: HOME,
         shimModule: "/app/shim.mjs",

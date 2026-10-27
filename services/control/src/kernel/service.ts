@@ -33,6 +33,8 @@ export type KernelDependencies = {
   factory: HarnessFactory;
   model: string;
   maxTokens: number;
+  /** Control-plane base URL the run's kernel reaches for tools and the model. */
+  controlUrl: string;
   now?: () => number;
 };
 
@@ -191,8 +193,9 @@ export class KernelService {
   }
 
   private controlUrl(): string {
-    const url = process.env.REINLAB_CONTROL_URL;
-    if (!url) throw new ApiFailure("KERNEL_CONTROL_URL_REQUIRED", 503, "控制面地址未配置。");
+    const url = this.dependencies.controlUrl;
+    if (typeof url !== "string" || url.trim() === "")
+      throw new ApiFailure("KERNEL_CONTROL_URL_REQUIRED", 503, "控制面地址未配置。");
     return url;
   }
 }
