@@ -100,7 +100,9 @@ export class KernelService {
         "insert into dsh_turn(account_id,dossier_id,run_id,session_id,state) values($1,$2,$3,$4,'running')",
         [account, dossierId, runId, sessionId],
       );
-      return { dossierId, sessionId, message, resume: Boolean(existing) };
+      const chosenPaper =
+        typeof input.chosenPaperId === "string" && input.chosenPaperId !== "";
+      return { dossierId, sessionId, message, resume: Boolean(existing), mode: chosenPaper ? "read" : "clarify" };
     });
 
     const plan = launchPlan({
@@ -112,6 +114,7 @@ export class KernelService {
       model: this.dependencies.model,
       maxTokens: this.dependencies.maxTokens,
       home: layout.home,
+      mode: prepared.mode as "clarify" | "read",
       bundler: {
         shimModule: layout.shimModule,
         shimContainerModule: layout.shimContainerModule,

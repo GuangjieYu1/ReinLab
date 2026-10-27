@@ -37,6 +37,16 @@ const Work = z
       })
       .nullable()
       .optional(),
+    locations: z
+      .array(
+        z.object({
+          is_oa: z.boolean(),
+          pdf_url: z.string().nullable(),
+          license: z.string().nullable().optional(),
+        }),
+      )
+      .max(50)
+      .optional(),
     abstract_inverted_index: z
       .record(z.array(z.number().int().min(0).max(200000)))
       .nullable()
@@ -202,8 +212,14 @@ export function paperHandlers(
       throw new ApiFailure("PAPERS_UNAVAILABLE", 503, "论文元数据暂不可用。");
     const work = Work.parse(JSON.parse(response.bytes.toString("utf8")));
     if (work.id !== "https://openalex.org/" + id) throw deny();
+    // `best_oa_location` is not always downloadable: OpenAlex may point it at a
+    // non-OA record while another listed location has the arXiv PDF. Prefer the
+    // first location that is openly available with a PDF, then fall back.
     const assetId = randomUUID(),
-      location = work.best_oa_location,
+      location =
+        (work.locations ?? []).find(
+          (entry) => entry.is_oa && entry.pdf_url,
+        ) ?? work.best_oa_location,
       abstractText = abstract(work);
     let bytes: Buffer | null = null,
       license = location?.license ?? null,

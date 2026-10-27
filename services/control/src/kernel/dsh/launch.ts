@@ -27,6 +27,8 @@ export type LaunchInput = {
   bundler: LaunchBundler;
   /** Root of the per-account volume inside the account container. */
   home?: string;
+  /** Which tool surface this turn gets: clarify only searches/asks, read only reads. */
+  mode?: "clarify" | "read";
 };
 
 export type LaunchPaths = {
@@ -40,6 +42,7 @@ export type LaunchPaths = {
 
 export type LaunchPlan = {
   bundler: LaunchBundler;
+  mode: "clarify" | "read";
   account: string;
   dossier: string;
   run: string;
@@ -116,6 +119,7 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
   };
   return {
     bundler: input.bundler,
+    mode: input.mode === "read" ? "read" : "clarify",
     account,
     dossier,
     run,
@@ -180,6 +184,7 @@ export async function materializeLaunch(
       "        pidFile: " + JSON.stringify(plan.paths.pidFile),
       "        tokenFile: " + JSON.stringify(plan.paths.tokenFile),
       "        controlUrl: " + JSON.stringify(plan.options.env.REINLAB_CONTROL_URL),
+      "        mode: " + JSON.stringify(plan.mode),
       "",
     ].join("\n"),
     0o600,

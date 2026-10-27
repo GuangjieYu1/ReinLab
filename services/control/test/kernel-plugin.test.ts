@@ -6,13 +6,14 @@ type Registered = {
   execute: (args: Record<string, unknown>, exec?: unknown) => Promise<unknown>;
 };
 
-function mount(fetchImpl: ReturnType<typeof vi.fn>) {
+function mount(fetchImpl: ReturnType<typeof vi.fn>, mode: "clarify" | "read" = "clarify") {
   const registered: Registered[] = [];
   const ctx = {
     tools: { register: (definition: Registered) => registered.push(definition) },
   };
   apply(ctx, {
     controlUrl: "http://control:3001",
+    mode,
     token: "run-token",
     fetch: fetchImpl,
     approvalPollMs: 1,
@@ -33,6 +34,10 @@ describe("reading plugin", () => {
   it("exposes only reading tools, with no general writer, shell or subagent", () => {
     const { registered } = mount(vi.fn());
     expect(registered.map((d) => d.name).sort()).toEqual(
+      ["clarify_question", "papers_search"].sort(),
+    );
+    const read = mount(vi.fn(), "read");
+    expect(read.registered.map((d) => d.name).sort()).toEqual(
       ["card_finding", "card_layer", "clarify_question", "papers_fetch", "papers_pages", "papers_search"].sort(),
     );
     expect(registered.map((d) => d.name)).not.toContain("files.write");
@@ -70,7 +75,7 @@ describe("reading plugin", () => {
       decisionPolls += 1;
       return json({ state: decisionPolls >= 2 ? "approved" : "pending" });
     });
-    const { tool } = mount(fetchImpl);
+    const { tool } = mount(fetchImpl, "read");
     const first = (await tool("papers_fetch").execute({ paperId: "W1" })) as Record<string, unknown>;
     expect(first).toMatchObject({ assetId: "asset-1", status: "full_text" });
     const fetchCalls = requests.filter((r) => r.url.endsWith("/kernel/tool"));
@@ -93,7 +98,7 @@ describe("reading plugin", () => {
       if (url.endsWith("/kernel/tool")) return json({ state: "pending", approvalId: "ap-2" }, 409);
       return json({ state: "rejected" });
     });
-    const { tool } = mount(fetchImpl);
+    const { tool } = mount(fetchImpl, "read");
     const result = (await tool("papers_fetch").execute({ paperId: "W2" })) as Record<string, unknown>;
     expect(result).toMatchObject({ status: "stopped", reason: "rejected", message: "已停止 · 没有下载" });
     expect(requests.filter((r) => r.url.endsWith("/kernel/tool"))).toHaveLength(1);
@@ -106,7 +111,7 @@ describe("reading plugin", () => {
         return json({ state: "pending", approvalId: "ap-pick" }, 409);
       return json({ state: "approved" });
     });
-    const { tool } = mount(fetchImpl);
+    const { tool } = mount(fetchImpl, "clarify");
     const result = (await tool("clarify_question").execute({
       question: "这两篇哪一篇？",
       kind: "paper_pick",

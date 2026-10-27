@@ -71,12 +71,36 @@ const text = (value) => [{ type: "text", text: JSON.stringify(value) }];
 
 export function apply(ctx, config) {
   const call = createClient(config, (config && config.fetch) || fetch);
-
+  const mode = config && config.mode === "read" ? "read" : "clarify";
   const register = (definition) => ctx.tools.register(definition);
+  // A reading turn must not search or ask again: its tool surface is download,
+  // page reading and cards only. The clarification turn keeps search + asking.
+  const clarifyTurn = mode === "clarify";
+  const readTurn = mode === "read";
 
-  register(
-    defineTool({
-      name: "papers_search",
+  if (readTurn) {
+    // A reading turn cannot search or ask again. Registering instructive stubs
+    // (instead of leaving the names missing) steers the model straight back to
+    // the download instead of ending the turn on an unknown-tool error.
+    const redirect = (name) =>
+      defineTool({
+        name,
+        description: "这一轮不要检索、不要提问；用户已经选定论文。",
+        parameters: {},
+        output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
+        async execute() {
+          return {
+            error: "这一轮不要检索、不要提问。请直接调用 papers_fetch，参数用本轮输入里的 paperId。",
+          };
+        },
+      });
+    register(redirect("papers_search"));
+    register(redirect("clarify_question"));
+  }
+  if (clarifyTurn)
+    register(
+      defineTool({
+        name: "papers_search",
       description:
         "Search real papers by free-text query. Returns candidates from the literature index; you do not choose for the user.",
       parameters: {
@@ -92,9 +116,10 @@ export function apply(ctx, config) {
     }),
   );
 
-  register(
-    defineTool({
-      name: "papers_fetch",
+  if (readTurn)
+    register(
+      defineTool({
+        name: "papers_fetch",
       description:
         "Download one chosen paper into the dossier. Requires the user's single approval; a repeat call for the same paper returns the existing asset instead of downloading again.",
       parameters: {
@@ -113,14 +138,22 @@ export function apply(ctx, config) {
           approvalId: decision.approvalId,
         });
         if (second.pending) throw new Error("APPROVAL_NOT_CONSUMED");
-        return second.result;
+        const saved = second.result ?? {};
+        return {
+          ...saved,
+          next:
+            "下一步必须调用 papers_pages(" +
+            String(saved.assetId ?? "") +
+            ', [1,2,3]) 读取实际页码，然后至少调用一次 card_finding。',
+        };
       },
     }),
   );
 
-  register(
-    defineTool({
-      name: "papers_pages",
+  if (readTurn)
+    register(
+      defineTool({
+        name: "papers_pages",
       description: "Read specific pages of an already downloaded paper and return their text.",
       parameters: {
         assetId: { type: "string", required: true, description: "Dossier paper asset id." },
@@ -135,9 +168,10 @@ export function apply(ctx, config) {
     }),
   );
 
-  register(
-    defineTool({
-      name: "card_layer",
+  if (readTurn)
+    register(
+      defineTool({
+        name: "card_layer",
       description: "Save one layered explanation card. Every claim must cite pages actually read in this run.",
       parameters: {
         paperId: { type: "string", required: true, description: "Dossier paper asset id." },
@@ -153,9 +187,10 @@ export function apply(ctx, config) {
     }),
   );
 
-  register(
-    defineTool({
-      name: "card_finding",
+  if (readTurn)
+    register(
+      defineTool({
+        name: "card_finding",
       description: "Save one discovery card with its evidence pages for the current dossier.",
       parameters: {
         text: { type: "string", required: true, description: "The finding." },
@@ -172,9 +207,10 @@ export function apply(ctx, config) {
     }),
   );
 
-  register(
-    defineTool({
-      name: "clarify_question",
+  if (clarifyTurn)
+    register(
+      defineTool({
+        name: "clarify_question",
       description:
         "Ask the user a question inside this dossier's conversation, optionally with candidate papers to choose from. Never pick for the user.",
       parameters: {

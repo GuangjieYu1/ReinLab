@@ -518,7 +518,7 @@ export function createLiveReadAdapter(
       // deterministic: fetch this exact paper, no searching, no re-asking.
       await startRun(
         picked
-          ? `就按我选的这篇开始精读（paperId=${picked.id}）`
+          ? `就按我选的这篇开始精读（paperId=${picked.id}）。请立刻调用 papers_fetch，不要检索、不要提问。`
           : "就按我选的这篇开始精读",
         picked?.id,
       );
