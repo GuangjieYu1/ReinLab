@@ -32,6 +32,10 @@ pnpm --dir <后端工作树> local:up --real-models
 
 - 真 `dsh --profile sdk` → 控制面 `/llm/anthropic/v1/messages` → 真 DeepSeek，返回中文精读答复；模型可见工具只有精读工具（无 bash/edit/write）。
 - 多步工具循环：`papers_search` → 候选 → `papers_fetch` 出**一张**审批卡 → 批准后真实下载 → `papers_pages` 读页 → 继续。
+- **8 步剧本真机走查（2026-10-27）**：说想读哪篇 → 真实候选（OpenAlex）→ 用户选择卡
+  （`clarify_question(kind=paper_pick)`，带真实候选，模型不代选）→ 选定 → 只有一张下载审批 →
+  批准后真实下载 → `papers_pages` 读页 → 完成，用量 `known=true`；同档案追加线索复用同一
+  session（`resume=true`）。
 - 取消：`cancel` 6.07s 返回 `cancelled`，内核进程确认消失。
 - 一次性清空旧业务数据已执行：42 张业务表 `TRUNCATE`（不带 CASCADE），账号 18 条保留，`dossier/run/credential` 归零；旧 `rl-*` 容器与 18 个旧卷已删除。
 - 自动化：`kernel-*` 共 14+ 文件用例全绿，含真进程端到端（真 dsh + 本地 Messages stub + 插件工具回填 + 取消确认）。
@@ -55,4 +59,5 @@ pnpm --dir <后端工作树> local:up --real-models
 - 前端接线（Claude 负责）。
 - OpenScience 全量退役（`bridge/openscience/`、旧插件、`@synsci/*`、旧表）：按 PRD 在 B1 验收通过后做，本轮未删，以免验收期间无对照。
 - 账户镜像路径（`REINLAB_KERNEL_TRANSPORT=container`）代码保留但本机未验证（Docker Hub 受限）。
-- 精读 8 步的剧本化走查：真实跑已验证多步循环与单卡审批，但「先澄清→候选→选定→只批一次」的完整剧本还需要前端按新契约驱动。
+- 发现卡（`card_finding`）的落盘链路已接入（`cards.card.finding` → 现有卡片处理器），但真机走查里模型还没主动产出卡片，
+  建议 Claude 验收时在页面侧确认；如需要我可以再加一条强约束提示词。
