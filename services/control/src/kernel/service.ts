@@ -47,6 +47,7 @@ const ACTIVE_SESSION_STATE = new Set(["queued", "running", "waiting"]);
  */
 export class KernelService {
   private readonly handles = new Map<string, RunHandle>();
+  private readonly sessions = new Map<string, string>();
   private readonly now: () => number;
 
   constructor(private readonly dependencies: KernelDependencies) {
@@ -143,6 +144,30 @@ export class KernelService {
               ],
             ),
           );
+        },
+        onSession: async (sessionId, resumed) => {
+          if (resumed && sessionId === prepared.sessionId) return;
+          await db.withAccount(account, async (client) => {
+            await ensureSession(client, {
+              account,
+              dossier: prepared.dossierId,
+              sessionId,
+              homePath: layout.home + "/dsh-home",
+            });
+            await leaseSession(client, {
+              account,
+              dossier: prepared.dossierId,
+              sessionId,
+              run: runId,
+            });
+            await confirmRelease(client, {
+              account,
+              dossier: prepared.dossierId,
+              sessionId: prepared.sessionId,
+              run: runId,
+            });
+          });
+          prepared.sessionId = sessionId;
         },
         onState: async (state) => {
           await db.withAccount(account, async (client) => {

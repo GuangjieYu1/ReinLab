@@ -49,6 +49,38 @@ function harness(eventType: string, reason: string): HarnessLike {
 }
 
 describe("run pipeline", () => {
+  it("keeps the confirmed cancel state even though closing the runtime rejects the turn", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "pipeline-cancel2-"));
+    const plan = run("e");
+    plan.paths.pidFile = join(directory, "dsh.pid");
+    writeFileSync(plan.paths.pidFile, String(process.pid));
+    const states: string[] = [];
+    const handle = executeRun(
+      {
+        factory: () => ({
+          session: () => ({
+            run: () =>
+              new Promise((_resolve, reject) => {
+                setTimeout(() => reject(new Error("transport gone")), 10);
+              }),
+          }),
+          resumeSession: async () => ({}),
+          close: async () => {
+            writeFileSync(plan.paths.pidFile, "999999");
+          },
+        }),
+        onEvent: () => {},
+        onState: (state) => void states.push(state),
+        release: async () => {},
+      },
+      { plan, prompt: "hi", resume: false, token: "t" },
+    );
+    expect(await handle.cancel()).toBe("cancelled");
+    await handle.done.catch(() => {});
+    expect(states).toContain("cancelled");
+    expect(states).not.toContain("failed");
+  });
+
   it("forwards kernel events in order and records the completed state", async () => {
     const states: string[] = [];
     const events: string[] = [];

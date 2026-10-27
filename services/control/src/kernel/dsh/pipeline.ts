@@ -14,6 +14,8 @@ export type PipelineDependencies = {
   factory: HarnessFactory;
   /** Persist one kernel event as the dossier's business record. */
   onEvent: (event: HarnessEvent) => void | Promise<void>;
+  /** Persist the session actually used (a stale resume starts a fresh one). */
+  onSession?: (sessionId: string, resumed: boolean) => void | Promise<void>;
   /** Persist the run's terminal state, including an unconfirmed stop. */
   onState: (
     state: "completed" | "failed" | "cancelled" | "cancel_unconfirmed",
@@ -38,6 +40,7 @@ export function executeRun(
   request: RunRequest,
 ): RunHandle {
   let owned: HarnessLike | undefined;
+  let cancelRequested = false;
   let resolveHarness: (harness: HarnessLike) => void;
   const harnessReady = new Promise<HarnessLike>((resolve) => {
     resolveHarness = resolve;
@@ -55,10 +58,25 @@ export function executeRun(
           owned = harness;
           resolveHarness(harness);
         },
+        onSession: (sessionId, resumed) =>
+          dependencies.onSession?.(sessionId, resumed),
       });
       await dependencies.onState(outcome.state);
       return outcome;
     } catch (error) {
+      if (cancelRequested) {
+        // The cancel path already wrote the terminal state after confirming the
+        // process stop; a closed transport must not overwrite it with "failed".
+        throw error;
+      }
+      // Stable code + message only: enough to diagnose, no prompt or token text.
+      console.error(
+        JSON.stringify({
+          code: "KERNEL_RUN_FAILED",
+          run: request.plan.run,
+          message: String((error as Error)?.message ?? error).slice(0, 500),
+        }),
+      );
       await dependencies.onState("failed");
       throw error;
     } finally {
@@ -70,6 +88,7 @@ export function executeRun(
     done,
     harness: harnessReady,
     cancel: async () => {
+      cancelRequested = true;
       const harness = owned ?? (await harnessReady.catch(() => undefined));
       const receipt = await cancelRun({
         close: () => (harness ? harness.close() : Promise.resolve()),

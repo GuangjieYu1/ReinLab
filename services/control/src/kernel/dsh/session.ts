@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { LaunchPlan } from "./launch";
 
 /** One kernel session event as delivered by the SDK transport. */
@@ -57,13 +58,29 @@ export async function runTurn(input: {
   onEvent: (event: HarnessEvent) => void | Promise<void>;
   /** The exact runtime owning this turn, so a cancel closes this child only. */
   onHarness?: (harness: HarnessLike) => void | Promise<void>;
+  /** Reports the session actually used, including a fresh one after a stale resume. */
+  onSession?: (sessionId: string, resumed: boolean) => void | Promise<void>;
 }): Promise<TurnOutcome> {
   const harness = input.factory(input.plan.options);
   await input.onHarness?.(harness);
   try {
-    const handle = input.resume
-      ? ((await harness.resumeSession(input.plan.sessionId)) as HarnessSessionHandle)
-      : harness.session(input.plan.sessionId);
+    let sessionId = input.plan.sessionId;
+    let handle: HarnessSessionHandle;
+    if (input.resume) {
+      try {
+        handle = (await harness.resumeSession(sessionId)) as HarnessSessionHandle;
+        await input.onSession?.(sessionId, true);
+      } catch {
+        // The stored id has no persisted runtime state: start a fresh session
+        // instead of failing the run, and report the id that was really used.
+        sessionId = "ds-" + randomUUID();
+        handle = harness.session(sessionId);
+        await input.onSession?.(sessionId, false);
+      }
+    } else {
+      handle = harness.session(sessionId);
+      await input.onSession?.(sessionId, false);
+    }
     // Events are queued so they reach the business record in wire order even
     // though the transport delivers them synchronously.
     let queue: Promise<void> = Promise.resolve();
