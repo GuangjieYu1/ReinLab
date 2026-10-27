@@ -7,6 +7,8 @@
     "node": "22.x"
   },
   "dependencies": {
+    "@deepseek-ai/dsh": "0.2.1-rc.4",
+    "@deepseek-ai/dsh-sdk-client": "0.2.1-rc.4",
     "@hono/node-server": "2.1.5",
     "@reinlab/contracts": "workspace:*",
     "@synsci/sdk": "2.0.150",
