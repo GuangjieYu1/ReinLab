@@ -55,7 +55,11 @@ export class KernelService {
   }
 
   /** Start (or resume) the dossier's kernel session for this run. */
-  async submit(account: string, runId: string): Promise<{ runId: string; sessionId: string; resume: boolean }> {
+  async submit(
+    account: string,
+    runId: string,
+    options: { newSession?: boolean } = {},
+  ): Promise<{ runId: string; sessionId: string; resume: boolean }> {
     const { db, layout } = this.dependencies;
     const prepared = await db.withAccount(account, async (client) => {
       const run = (
@@ -73,12 +77,14 @@ export class KernelService {
         typeof input.query === "string" && input.query.trim() !== ""
           ? input.query
           : "请开始这段精读。";
-      const existing = (
-        await client.query(
-          "select session_id from dsh_session where account_id=$1 and dossier_id=$2 order by created_at desc limit 1",
-          [account, dossierId],
-        )
-      ).rows[0];
+      const existing = options.newSession
+        ? undefined
+        : (
+            await client.query(
+              "select session_id from dsh_session where account_id=$1 and dossier_id=$2 order by created_at desc limit 1",
+              [account, dossierId],
+            )
+          ).rows[0];
       const sessionId = existing?.session_id ?? "ds-" + randomUUID();
       await ensureSession(client, {
         account,

@@ -81,6 +81,8 @@ export function createLiveReadAdapter(
     chosen: PaperCandidate | undefined,
     lastPicked: PaperCandidate | undefined,
     pendingQuestion: { approvalId: string; text: string } | undefined,
+    freshReading = false,
+    questionCardId: string | undefined,
     timer: ReturnType<typeof setInterval> | undefined,
     endReason: RunView["endReason"],
     failureMessage: string | undefined;
@@ -149,6 +151,26 @@ export function createLiveReadAdapter(
       }
       case "tool/call": {
         const name = String(data.name ?? "");
+        if (name === "clarify_question") {
+          const args = JSON.parse(String(data.arguments ?? "{}") || "{}");
+          if (args.kind === "paper_pick") {
+            emit({
+              type: "pick",
+              id: String(data.callId ?? event.seq),
+              query: String(args.question ?? ""),
+              candidates: Array.isArray(args.candidates)
+                ? args.candidates.map((candidate: any) => ({
+                    id: String(candidate.paperId ?? candidate.id ?? ""),
+                    title: String(candidate.title ?? ""),
+                    authors: String(candidate.authors ?? "检索结果"),
+                    venue: String(candidate.venue ?? "OpenAlex"),
+                    access: "full",
+                  }))
+                : [],
+              state: "pending",
+            });
+          }
+        }
         tool(String(data.callId ?? event.seq), name, true);
         if (name === "card_layer" || name === "card_finding") tool(String(data.callId ?? event.seq), name, true);
         return;
@@ -217,6 +239,7 @@ export function createLiveReadAdapter(
       // answer route addresses the same row.
       if (card.kind === "question") {
         announced.add(card.id);
+        questionCardId = card.id;
         const candidates = Array.isArray((card as any).effects?.candidates)
           ? (card as any).effects.candidates
           : [];
@@ -319,7 +342,12 @@ export function createLiveReadAdapter(
     const id = await ensureDossier();
     const created = (await ports.api(
       "/v1/kernel/runs",
-      { dossierId: id, query, ...(chosenPaperId ? { chosenPaperId } : {}) },
+      {
+        dossierId: id,
+        query,
+        ...(chosenPaperId ? { chosenPaperId } : {}),
+        ...(freshReading ? { newSession: true } : {}),
+      },
       crypto.randomUUID(),
     )) as { id: string };
     runId = created.id;
@@ -354,6 +382,7 @@ export function createLiveReadAdapter(
         snapshot.dossier = { id: first.id, title: first.title ?? "精读档案" };
       }
       try {
+        if (freshReading) return snapshot;
         const latest = await latestRun();
         if (!latest) {
           snapshot = { ...empty(), dossier: { id: dossier, title: "新的精读" } };
@@ -407,6 +436,21 @@ export function createLiveReadAdapter(
       }
       await startRun(text);
     },
+    async newReading() {
+      runId = undefined;
+      cursor = 0;
+      emitted.clear();
+      announced.clear();
+      tools.clear();
+      chosen = undefined;
+      lastPicked = undefined;
+      pendingQuestion = undefined;
+      endReason = undefined;
+      failureMessage = undefined;
+      snapshot = { ...empty(), dossier: snapshot.dossier };
+      freshReading = true;
+      patchRun({ state: "idle", message: undefined });
+    },
     async cancelClarify() {
       if (runId) await ports.api(`/v1/kernel/runs/${runId}/cancel`, {}, crypto.randomUUID());
       runId = undefined;
@@ -450,7 +494,7 @@ export function createLiveReadAdapter(
     },
     async pick(pickId, candidateId) {
       const answer = await ports.api(
-        `/v1/kernel/approvals/${pickId}/answer`,
+        `/v1/kernel/approvals/${questionCardId ?? pickId}/answer`,
         candidateId === null ? { text: "都不是，请再找找" } : { candidateId },
         crypto.randomUUID(),
       );

@@ -12,6 +12,7 @@ const Create = z
     dossierId: z.string().uuid(),
     query: z.string().min(1).max(4000),
     chosenPaperId: z.string().max(200).optional(),
+    newSession: z.boolean().optional(),
   })
   .strict();
 
@@ -32,6 +33,7 @@ export function registerKernelRuns(
   app.post("/v1/kernel/runs", async (c) => {
     const account = c.get("accountId");
     let created: string | undefined;
+    let lastInput: { newSession?: boolean } | undefined;
     const response = await mutate(c, dependencies.db, Create, async (client, input) => {
       const account = c.get("accountId");
       const dossier = (
@@ -43,6 +45,7 @@ export function registerKernelRuns(
       if (!dossier) throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "档案不存在。");
       if (dossier.bench !== "research")
         throw new ApiFailure("BENCH_UNSUPPORTED", 400, "只有研究档案可以精读。");
+      lastInput = input;
       const runId = randomUUID();
       await client.query(
         `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
@@ -63,7 +66,9 @@ export function registerKernelRuns(
     });
     // The kernel starts after the run row commits; it opens its own transaction.
     if (!created) return response;
-    const started = await dependencies.kernel.submit(account, created);
+    const started = await dependencies.kernel.submit(account, created, {
+      newSession: lastInput?.newSession === true,
+    });
     return c.json({ id: created, sessionId: started.sessionId, resume: started.resume }, 201);
   });
 
