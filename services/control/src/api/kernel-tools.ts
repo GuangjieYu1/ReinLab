@@ -185,6 +185,13 @@ export function registerKernelTools(
           }
           return c.json({ state: card.state === "pending" ? "pending" : card.state, approvalId: card.id }, 409);
         }
+        // Already downloaded for this dossier: consume the approval and return
+        // the existing asset instead of downloading the same paper again.
+        const already = await existingPaperAsset(client, call);
+        if (already) {
+          await consumeApproval(client, { approvalId: body.approvalId, effectKey });
+          return c.json({ result: already });
+        }
         const consumed = await consumeApproval(client, {
           approvalId: body.approvalId,
           effectKey,
