@@ -31,6 +31,7 @@ import { registerClarifyModel, authorizedModelPort } from "../clarify/model";
 import { registerRuntimeModel } from "../model/gateway";
 import { localModelPort } from "../model/host-port";
 import { registerGates } from "./gates";
+import { registerKernelRuns } from "./kernel-runs";
 import { registerBudget } from "./budget";
 import { pricingFromEnvironment, type PricingService } from "../budget/pricing";
 import { monthlyBudgetSnapshot, currentPeriod } from "../budget";
@@ -44,6 +45,7 @@ export async function createApp(options: {
   pipeline?: RuntimeApiPort;
   mcp?: CapabilityEngine;
   onRunQueued?: (accountId: string, runId: string) => Promise<void>;
+  kernel?: import("../kernel/service").KernelService;
   clarifyAuthorizationFile?: string;
   realModelsEnabled?: boolean;
   testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
@@ -280,6 +282,7 @@ export async function createApp(options: {
   registerPromotions(app, database);
   registerLedger(app, database);
   registerGates(app, database);
+  if (options.kernel) registerKernelRuns(app, { db: database, kernel: options.kernel });
   registerBudget(
     app,
     database,
