@@ -929,6 +929,25 @@ export async function settleObservedRun(
           [accountId, runId],
         );
   const incomplete = Number(forwarded.rows[0]?.calls ?? "0") > Number(total.usage_count);
+  // 原生用量没回来、但每一笔转发都有网关收据：按收据的用法计费（收据就是那次调用的真实
+  // reported usage），这样挂了很久的运行也能照实结清，而不是永远占着整笔预留。
+  let receiptAmount: bigint | null = null;
+  if (complete && incomplete) {
+    const receipts = (
+      await client.query(
+        `select count(*)::int covered,coalesce(sum((response_receipt->>'costUpperMicros')::bigint),0)::text cost
+         from runtime_model_request where account_id=$1 and run_id=$2 and state='completed'
+         and jsonb_typeof(response_receipt)='object' and coalesce(response_receipt->>'costUpperMicros','') ~ '^[0-9]{1,9}$'`,
+        [accountId, runId],
+      )
+    ).rows[0];
+    const calls = Number(forwarded.rows[0]?.calls ?? "0");
+    if (calls > 0 && receipts.covered === calls) {
+      // 收据里的 costUpperMicros 已经是微元，不能再走 CNY→微元的换算。
+      const sum = BigInt(String(receipts.cost));
+      if (sum > 0n) receiptAmount = sum;
+    }
+  }
   let amount: bigint | null = null;
   if (complete && !incomplete && total.usage_count !== "0" && total.unknown_count === "0") {
     try {
@@ -941,7 +960,7 @@ export async function settleObservedRun(
       );
     }
     if (amount === 0n) amount = null;
-  }
+  } else if (receiptAmount !== null) amount = receiptAmount;
   if (run.role_id === 'research-clarify' && amount === null && total.amount !== null && micros(total.amount) > 0n) {
     const known = micros(total.amount), booked = micros(hold.known_cost_cny ?? '0');
     if (known < booked) throw new ApiFailure('OBSERVED_USAGE_INVALID',409,'已知费用记录不完整，不能减少累计。');
@@ -991,8 +1010,22 @@ export async function runAccounting(
       [accountId, runId],
     )
   ).rows[0];
-  const knownCny = Number(row.known),
-    missingProviderUsage = row.calls > row.usages,
+  // 原生用量没回来、但每笔转发都有网关收据：按收据（reported usage）显示，而不是永远显示未知。
+  let receiptsCny: number | null = null;
+  if (row.calls > 0 && row.usages === 0) {
+    const receipts = (
+      await client.query(
+        `select count(*)::int covered,coalesce(sum((response_receipt->>'costUpperMicros')::bigint),0)::text micros
+           from runtime_model_request where account_id=$1 and run_id=$2 and state='completed'
+          and jsonb_typeof(response_receipt)='object' and coalesce(response_receipt->>'costUpperMicros','') ~ '^[0-9]{1,9}$'`,
+        [accountId, runId],
+      )
+    ).rows[0];
+    if (receipts.covered === row.calls)
+      receiptsCny = Number(BigInt(String(receipts.micros))) / 1e6;
+  }
+  const knownCny = receiptsCny ?? Number(row.known),
+    missingProviderUsage = row.calls > row.usages && receiptsCny === null,
     unknown = missingProviderUsage || row.unknownUsages > 0 || row.uncertain;
   if (unknown)
     return {
@@ -1003,7 +1036,7 @@ export async function runAccounting(
     };
   if (row.usages === 0 && row.calls === 0)
     return { status: "pending" as const, knownCny: null, totalCny: null };
-  if (row.hold === "settled")
+  if (row.hold === "settled" || receiptsCny !== null)
     return { status: "settled" as const, knownCny, totalCny: knownCny };
   return { status: "pending" as const, knownCny, totalCny: null };
 }
