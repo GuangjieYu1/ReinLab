@@ -74,7 +74,9 @@ export function executeRun(
       const receipt = await cancelRun({
         close: () => (harness ? harness.close() : Promise.resolve()),
         pidAlive: () => pidAlive(request.plan.paths.pidFile),
-        onState: (state) => dependencies.onState(state),
+        onState: async (state) => {
+          await dependencies.onState(state);
+        },
       });
       return receipt.status;
     },

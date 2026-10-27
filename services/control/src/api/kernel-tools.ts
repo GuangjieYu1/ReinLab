@@ -163,12 +163,13 @@ export function registerKernelTools(
   app.post("/kernel/approvals/:id/decide", async (c) => {
     const claims = authenticate(c.req.raw);
     const body = (await c.req.json().catch(() => ({}))) as { decision?: unknown };
-    if (body.decision !== "approve" && body.decision !== "reject")
+    const decision = body.decision;
+    if (decision !== "approve" && decision !== "reject")
       throw new ApiFailure("DECISION_INVALID", 400, "决定无效。");
     return dependencies.db.withAccount(claims.account, async (client) => {
       const card: ApprovalCard = await decideApproval(client, {
         approvalId: c.req.param("id"),
-        decision: body.decision,
+        decision,
       });
       return c.json({ state: card.state });
     });
