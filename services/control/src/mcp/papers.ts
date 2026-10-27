@@ -208,12 +208,10 @@ export function paperHandlers(
     let bytes: Buffer | null = null,
       license = location?.license ?? null,
       source = work.id;
-    if (
-      work.open_access?.is_oa &&
-      location?.is_oa &&
-      location.pdf_url &&
-      license
-    ) {
+    // A licensed re-use statement is recorded when the source states one, but it
+    // is not a precondition for reading an openly available PDF: a missing
+    // license is stored as null instead of silently downgrading to abstract-only.
+    if (work.open_access?.is_oa && location?.is_oa && location.pdf_url) {
       try {
         const pdf = await http.get(location.pdf_url, cap.egress, MAX_PDF);
         if (

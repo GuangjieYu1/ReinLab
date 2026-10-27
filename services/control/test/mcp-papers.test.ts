@@ -198,3 +198,52 @@ it("T-MCP-7 fixture OA full text preserves original PDF page anchors; non-OA rem
     await rm(cache, { recursive: true, force: true });
   }
 });
+
+it("公开可得但未写许可的 PDF 照实存全文，许可记为 null，不降级为只有摘要", async () => {
+  const f = await mcpFixture(await implementedCatalog()),
+    cache = await realpath(await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")));
+  try {
+    const authority = new CapabilityAuthority(
+        f.db,
+        new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
+      ),
+      context = await authority.validate(await authority.issue(f.account, f.run));
+    const http = new PaperHttp({
+      dns: async () => ["93.184.216.34"],
+      wire: async (url) =>
+        url.hostname === "arxiv.org"
+          ? { status: 200, headers: { contentType: "application/pdf" }, bytes: pdf() }
+          : {
+              status: 200,
+              headers: { contentType: "application/json" },
+              bytes: Buffer.from(
+                JSON.stringify({
+                  id: "https://openalex.org/W123",
+                  title: "Fixture",
+                  authorships: [{ author: { display_name: "Fixture Author" } }],
+                  primary_location: { source: { display_name: "Fixture Venue" } },
+                  open_access: { is_oa: true },
+                  best_oa_location: {
+                    is_oa: true,
+                    pdf_url: "https://arxiv.org/pdf/1234.12345",
+                    license: null,
+                  },
+                  abstract_inverted_index: { Fixture: [0], abstract: [1] },
+                }),
+              ),
+            },
+    });
+    const handlers = paperHandlers(f.db, cache, async () => {}, http);
+    const fetched = await handlers["papers.fetch"](context, { paperId: "W123" }, randomUUID());
+    expect(fetched.status).toBe("full_text");
+    expect(fetched.license).toBeNull();
+    const pages = await handlers["papers.pages"](
+      context,
+      { assetId: fetched.assetId, pages: [1] },
+      randomUUID(),
+    );
+    expect(pages.pages[0]).toMatchObject({ page: 1, text: "PAGE_ONE" });
+  } finally {
+    await f.close();
+  }
+});
