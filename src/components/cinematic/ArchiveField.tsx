@@ -1,7 +1,7 @@
-import { forwardRef, memo, useImperativeHandle, useRef } from 'react';
+import { forwardRef, memo, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { platforms } from '../../model';
-import { archiveHeight, BOOT_END, cellIndex, cellX, cellZ, cinematicCamera, clamp, cssCamera, DEFAULT_CELL, decryptionState, interactiveCamera, LANES, lerp, mix3, ROWS, sameCell, UNIT, type CameraPose, type Cell } from './timeline';
+import { archiveHeight, BOOT_END, cellX, cellZ, cinematicCamera, clamp, cssCamera, DEFAULT_CELL, decryptionState, interactiveCamera, LANES, lerp, mix3, ROWS, sameCell, UNIT, type CameraPose, type Cell } from './timeline';
 import { baselineSelectionWave, cinematicField, damp, extraction, idleWave, smooth } from './reference/archive-motion';
 
 export const archiveNames = [
@@ -10,13 +10,26 @@ export const archiveNames = [
   ['交互设计', '组件与规范', '验证与交付'],
   ['路线与灵感', '城市观察', '旅途记录'],
 ];
-export const nameFor = (cell: Cell) => archiveNames[cell.lane][cell.row % archiveNames[cell.lane].length];
+const wrap = (n: number, m: number) => ((n % m) + m) % m;
+export const nameFor = (cell: Cell) => { const names = archiveNames[wrap(cell.lane, archiveNames.length)]; return names[wrap(cell.row, names.length)]; };
+/** 无限档案场里列号、行号可以是任意整数：平台按列循环，编号取 001…999 循环。 */
+const platformOf = (lane: number) => platforms[wrap(lane, platforms.length)];
+const numberOf = (row: number) => String(wrap(row, 999) + 1).padStart(3, '0');
 export type FieldFrame = { time: number; elapsed: number; delta: number; film: boolean; detail: boolean; reduced: boolean; portrait: boolean; visible: boolean };
 export type FieldStatus = { detail: number; clarity: number; aligned: boolean };
-export type ArchiveFieldHandle = { update: (frame: FieldFrame) => FieldStatus; inspect: (angle: number) => void; reset: () => void };
-const allCells = Array.from({ length: LANES * ROWS }, (_, i) => ({ lane: Math.floor(i / ROWS), row: i % ROWS }));
+export type ArchiveFieldHandle = { update: (frame: FieldFrame) => FieldStatus; inspect: (angle: number) => void; reset: () => void; pulse?: (cell?: Cell) => void };
+// 格位池：有限档案场是固定的 LANES × ROWS；无限档案场用一个稍大的池，在列、行两个方向上循环复用。
+type Pool = { lanes: number; rows: number; cells: Cell[] };
+const makePool = (lanes: number, rows: number): Pool => ({ lanes, rows, cells: Array.from({ length: lanes * rows }, (_, i) => ({ lane: Math.floor(i / rows), row: i % rows })) });
+const FINITE = makePool(LANES, ROWS), ENDLESS = makePool(7, 36);
+/** 某一格由哪个格位来画：列、行分别对池的大小取模。有限档案场里就是原来的 lane × ROWS + row。 */
+const slotOf = (pool: Pool, cell: Cell) => wrap(cell.lane, pool.lanes) * pool.rows + wrap(cell.row, pool.rows);
 const spring = (value = 0) => ({ value, velocity: 0 });
 const cullingCorners = [[-270, -390], [270, -390], [-270, 20], [270, 20]];
+/** 无限档案场：以 base 为起点、长 size 的窗口；格位的基准值 v0 映射到窗口里与它同余的那一个。 */
+const inWindow = (v0: number, base: number, size: number) => base + wrap(v0 - base, size);
+const windowBase = (center: number, size: number) => Math.round(center) - Math.floor(size / 2);
+type Win = { lane: number; row: number };
 
 const ArchiveField = memo(forwardRef<ArchiveFieldHandle, {
   selected: Cell;
@@ -24,32 +37,46 @@ const ArchiveField = memo(forwardRef<ArchiveFieldHandle, {
   sharedElementSurface?: 'archive' | 'classroom' | 'both';
   sharedTransitionPhase?: 'opening' | 'returning' | null;
   onSharedTransitionComplete?: () => void;
-}>(function ArchiveField({ selected, onSelect, sharedElementSurface = 'archive', sharedTransitionPhase = null, onSharedTransitionComplete }, ref) {
+  content?: { title: string; english: string; nameFor: (cell: Cell) => string };
+  selectedFace?: ReactNode;
+  /** 行向无限延伸：同一组格位循环复用，离镜头远的行沉入档案海，在另一端重新浮起并换上新的行号。行号从 0 起。 */
+  infinite?: boolean;
+}>(function ArchiveField({ selected, onSelect, sharedElementSurface = 'archive', sharedTransitionPhase = null, onSharedTransitionComplete, content, selectedFace, infinite = false }, ref) {
+  const pool = infinite ? ENDLESS : FINITE; // 同一次挂载内不变
   const projection = useRef<HTMLDivElement>(null);
   const camera = useRef<HTMLDivElement>(null);
   const cards = useRef<(HTMLButtonElement | null)[]>([]);
   const root = useRef<HTMLDivElement>(null);
   const cache = useRef({
-    transforms: new Array<string>(allCells.length).fill(''),
-    visibility: new Array<string>(allCells.length).fill(''),
-    clarity: new Array<string>(allCells.length).fill(''),
-    scan: new Array<string>(allCells.length).fill(''),
+    transforms: new Array<string>(pool.cells.length).fill(''),
+    visibility: new Array<string>(pool.cells.length).fill(''),
+    clarity: new Array<string>(pool.cells.length).fill(''),
+    scan: new Array<string>(pool.cells.length).fill(''),
     camera: '', perspective: '',
   });
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+  // 窗口起点：帧循环里随镜头移动更新（ref 立即生效，state 让标签在下一次渲染换上新行号——换号的格位此刻正沉在海面下）。
+  const [win, setWin] = useState<Win>(() => ({ lane: windowBase(selected.lane, pool.lanes), row: windowBase(selected.row, pool.rows) }));
+  const winRef = useRef(win);
+  /** 格位 i 此刻代表的格（无限档案场里随窗口变化）。 */
+  const cellOf = (i: number, w: Win): Cell => infinite
+    ? { lane: inWindow(pool.cells[i].lane, w.lane, pool.lanes), row: inWindow(pool.cells[i].row, w.row, pool.rows) }
+    : pool.cells[i];
   const state = useRef({
-    lifts: allCells.map(() => spring()),
-    angles: allCells.map(() => spring()),
+    lifts: pool.cells.map(() => spring()),
+    angles: pool.cells.map(() => spring()),
     row: spring(DEFAULT_CELL.row), lane: spring(DEFAULT_CELL.lane),
     detail: spring(), targetAngle: 0,
     pose: cinematicCamera(26.56), previous: DEFAULT_CELL,
     pulses: [] as { cell: Cell; at: number }[],
-    decryptionAge: 0, lastInteraction: 0, wasFilm: true,
+    decryptionAge: 0, lastInteraction: 0, wasFilm: true, elapsed: 0,
   });
 
   useImperativeHandle(ref, () => ({
     inspect(angle) { state.current.targetAngle = clamp(angle, -38, 38); },
+    // Optional: send a selection wave through the field without changing the selection.
+    pulse(cell) { const s = state.current; s.pulses.push({ cell: cell ?? selectedRef.current, at: s.elapsed }); s.lastInteraction = s.elapsed; },
     reset() {
       const s = state.current;
       s.lifts.forEach(l => { l.value = 0; l.velocity = 0; });
@@ -61,6 +88,7 @@ const ArchiveField = memo(forwardRef<ArchiveFieldHandle, {
     },
     update(frame) {
       const s = state.current, cell = selectedRef.current, dt = Math.min(.045, frame.delta);
+      s.elapsed = frame.elapsed;
       if (!projection.current || !camera.current || !root.current || !frame.visible) return { detail: 0, clarity: 0, aligned: true };
       if (!sameCell(s.previous, cell)) {
         s.pulses.push({ cell, at: frame.elapsed });
@@ -68,7 +96,7 @@ const ArchiveField = memo(forwardRef<ArchiveFieldHandle, {
         s.decryptionAge = 0; s.targetAngle = 0;
       }
       s.pulses = s.pulses.filter(p => frame.elapsed - p.at < 3.2);
-      const focusIndex = cellIndex(cell);
+      const focusIndex = slotOf(pool, cell);
       let pose: CameraPose;
       let scan = decryptionState(frame.time + 5);
       if (frame.film) {
@@ -120,16 +148,29 @@ const ArchiveField = memo(forwardRef<ArchiveFieldHandle, {
       const entryZ = frame.film ? -12 * (1 - smooth((frame.time - BOOT_END) / .75)) : 0;
       const idle = !frame.film && !frame.detail && !frame.reduced && s.detail.value < .01 && Math.abs(s.angles[focusIndex].value) < .05 && frame.elapsed - s.lastInteraction > 2.5;
       const scanLine = clamp(scan.line);
-      for (let i = 0; i < allCells.length; i++) {
+      const endless = infinite && !frame.film;
+      if (endless) {
+        const want = { lane: windowBase(s.lane.value, pool.lanes), row: windowBase(s.row.value, pool.rows) };
+        if (want.lane !== winRef.current.lane || want.row !== winRef.current.row) { winRef.current = want; setWin(want); }
+      }
+      for (let i = 0; i < pool.cells.length; i++) {
         const el = cards.current[i];
         if (!el) continue;
-        const c = allCells[i], active = i === focusIndex;
+        const active = i === focusIndex;
+        // 选中的格位始终取选中的行号（镜头还没赶到时，窗口可能尚未覆盖它）。
+        const c = endless ? (active ? cell : cellOf(i, winRef.current)) : pool.cells[i];
         let height = frame.film ? cinematicField(c.row, c.lane, frame.time, cell.row, cell.lane) : archiveHeight(c.row, c.lane, s.row.value, s.lane.value);
         if (!frame.film && !frame.detail && !frame.reduced && s.detail.value < .05) {
           const ripple = s.pulses.reduce((sum, p) => sum + baselineSelectionWave(Math.hypot(c.row - p.cell.row, (c.lane - p.cell.lane) * 2.2), frame.elapsed - p.at), 0);
           height += clamp(ripple, -.6, .6);
         }
         if (idle) height += idleWave(c.row, c.lane, frame.elapsed);
+        // 窗口边缘的行与列沉入档案海：离镜头越远沉得越深，越过窗口边缘时已完全没入，格位换位不会被看见。
+        let sunk = 0;
+        if (endless && !active) sunk = Math.max(
+          smooth((Math.abs(c.row - s.row.value) - (pool.rows / 2 - 6)) / 5.2),
+          smooth((Math.abs(c.lane - s.lane.value) - (pool.lanes / 2 - 1.1)) / .9));
+        height -= sunk * 7;
         height += s.lifts[i].value;
         const angle = s.angles[i].value;
         const x = cellX(c.lane) * UNIT, y = (4.6 - height) * UNIT, z = (cellZ(c.row) + entryZ) * UNIT;
@@ -144,7 +185,7 @@ const ArchiveField = memo(forwardRef<ArchiveFieldHandle, {
           const sy = 540 + (px * m[1] + py * m[5] + z * m[9] + m[13]) / denominator;
           minX = Math.min(minX, sx); maxX = Math.max(maxX, sx); minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
         }
-        const visibility = active || maxX > -250 && minX < 2170 && maxY > -180 && minY < 1260 ? 'visible' : 'hidden';
+        const visibility = active || sunk < .97 && maxX > -250 && minX < 2170 && maxY > -180 && minY < 1260 ? 'visible' : 'hidden';
         if (cache.current.visibility[i] !== visibility) { el.style.visibility = visibility; cache.current.visibility[i] = visibility; }
         if (visibility === 'hidden') continue;
         const transform = `translate3d(${x.toFixed(2)}px,${y.toFixed(2)}px,${z.toFixed(2)}px) rotateY(${angle.toFixed(3)}deg)`;
@@ -157,23 +198,28 @@ const ArchiveField = memo(forwardRef<ArchiveFieldHandle, {
       }
       return { detail: clamp(s.detail.value), clarity: scan.clarity, aligned: Math.abs(s.angles[focusIndex].value) < .05 };
     },
-  }), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [infinite]);
+
+  // 每个格位此刻代表的格（无限档案场里行号随窗口变化）；选中的格位总是代表选中的格。
+  const focusSlot = slotOf(pool, selected);
+  const cells = infinite ? pool.cells.map((_, i) => i === focusSlot ? selected : cellOf(i, win)) : pool.cells;
 
   return <div className="cine-field" ref={root}>
     <div className="cine-ground-shadow" />
     <div className="cine-projection" ref={projection}>
       <div className="cine-camera" ref={camera}>
-        {allCells.map((cell, i) => <button
+        {cells.map((cell, i) => <button
           type="button" key={i} ref={el => { cards.current[i] = el; }}
           className={`cine-cassette ${sameCell(cell, selected) ? 'selected' : ''}`}
-          aria-label={`${platforms[cell.lane].title} / ${nameFor(cell)} / 档案 ${String(cell.row + 1).padStart(3, '0')}`}
+          aria-label={`${content?.title ?? platformOf(cell.lane).title} / ${content?.nameFor(cell) ?? nameFor(cell)} / 档案 ${numberOf(cell.row)}`}
           aria-pressed={sameCell(cell, selected)} tabIndex={sameCell(cell, selected) ? 0 : -1}
           onClick={() => onSelect(cell)}
           style={{ transform: `translate3d(${cellX(cell.lane) * UNIT}px,460px,${cellZ(cell.row) * UNIT}px)` }}>
           {sameCell(cell, selected) && <span className="cassette-face cassette-back" />}
           <span className="cassette-face cassette-left" />
           {sameCell(cell, selected) && <span className="cassette-face cassette-right" />}
-          <span className="cassette-face cassette-top"><span>RHINE LAB / {String(cell.row + 1).padStart(3, '0')}</span></span>
+          <span className="cassette-face cassette-top"><span>RHINE LAB / {numberOf(cell.row)}</span></span>
           {sameCell(cell, selected) && <>
             <span className="cassette-face cassette-bottom" />
             <span className="cassette-mechanism"><img src="/cassette-internals.svg" alt="" draggable={false} />
@@ -196,21 +242,23 @@ const ArchiveField = memo(forwardRef<ArchiveFieldHandle, {
                   <span className="cassette-slot" />
                   <span className="cassette-screw screw-upper" /><span className="cassette-screw screw-lower" />
                   <span className="cassette-etching">RHINE LAB<span>INTERNAL DATABASE</span></span>
-                  <span className="cassette-serial">X—{String(cell.row + 1).padStart(3, '0')}<span>{platforms[cell.lane].english}</span></span>
+                  <span className="cassette-serial">X—{numberOf(cell.row)}<span>{content?.english ?? platformOf(cell.lane).english}</span></span>
                   <span className="cassette-security-line"><i /><i /></span>
                   <span className="cassette-security-tag">CONFIDENTIALITY:<b>GENERAL BUSINESS USE</b></span>
                 </span>
               </motion.span>}
             </AnimatePresence>
             {sharedElementSurface !== 'archive' && <span className="cassette-face cassette-front">
+              {selectedFace ?? <>
               <span className="cassette-frost" /><span className="cassette-specular" />
               <span className="cassette-border" />
               <span className="cassette-slot" />
               <span className="cassette-screw screw-upper" /><span className="cassette-screw screw-lower" />
               <span className="cassette-etching">RHINE LAB<span>INTERNAL DATABASE</span></span>
-              <span className="cassette-serial">X—{String(cell.row + 1).padStart(3, '0')}<span>{platforms[cell.lane].english}</span></span>
+              <span className="cassette-serial">X—{numberOf(cell.row)}<span>{content?.english ?? platformOf(cell.lane).english}</span></span>
               <span className="cassette-security-line"><i /><i /></span>
               <span className="cassette-security-tag">CONFIDENTIALITY:<b>GENERAL BUSINESS USE</b></span>
+              </>}
             </span>}
           </> : <span className="cassette-face cassette-front"><img className="cassette-array-texture" src="/cassette-array.svg" alt="" draggable={false} /></span>}
         </button>)}

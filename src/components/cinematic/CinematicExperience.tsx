@@ -4,6 +4,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Chevron
 import { platforms, type Platform } from '../../model';
 import { isLearningStore, LEARNING_KEY, subjectIds, type SubjectId } from '../classroom/learningState';
 import BootStage, { CinematicBrand, type BootStageHandle } from './BootStage';
+import InboxHost from '../inbox/InboxHost';
 import LoginGate from './LoginGate';
 import { AmbientScore, type AudioStatus } from './AmbientScore';
 import { animateArchiveUnfold, startArchiveApproach, type OpeningRect } from './archiveOpening';
@@ -15,6 +16,7 @@ import './cinematic.css';
 import './cinematic-polish.css';
 import './login-entrance.css';
 import './open-maic-portal.css';
+import './motion-preview.css';
 
 type Mode = 'ready' | 'film' | 'archive' | 'detail' | 'classroom' | 'research';
 type SharedElementSurface = 'archive' | 'classroom';
@@ -24,28 +26,31 @@ const LearningClassroom = lazy(() => import('../classroom/LearningClassroom'));
 const ResearchLab = lazy(() => import('../research/ResearchLab'));
 const timecode = (time: number) => `${Math.floor(time / 60).toString().padStart(2, '0')}:${Math.floor(time % 60).toString().padStart(2, '0')}.${Math.floor((time % 1) * 10)}`;
 
-export default function CinematicExperience({ active, reduced, replayRequest, classroomRequest, onWorkbench, onOpenWorkspace }: {
+export default function CinematicExperience({ active, reduced, replayRequest, classroomRequest, onWorkbench, onOpenWorkspace, motionPreview = false }: {
   active: boolean; reduced: boolean; replayRequest: number; classroomRequest: number;
   onWorkbench: () => void; onOpenWorkspace: (platform: Platform, workspace: string) => void;
+  motionPreview?: boolean;
 }) {
   const fromOpenMAIC = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('return') === 'archive';
-  const [mode, setMode] = useState<Mode>(fromOpenMAIC ? 'archive' : 'ready');
+  const archiveStart = fromOpenMAIC || motionPreview;
+  const [mode, setMode] = useState<Mode>(archiveStart ? 'archive' : 'ready');
   const [portalArrival, setPortalArrival] = useState(fromOpenMAIC);
   const [legacyClassroom, setLegacyClassroom] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [clock, setClock] = useState(fromOpenMAIC ? FILM_END : 0);
-  const [bootDone, setBootDone] = useState(fromOpenMAIC);
+  const [clock, setClock] = useState(archiveStart ? FILM_END : 0);
+  const [bootDone, setBootDone] = useState(archiveStart);
   const [identity, setIdentity] = useState('LOCAL RESEARCHER');
-  const [musicEnabled, setMusicEnabled] = useState(true);
+  const [musicEnabled, setMusicEnabled] = useState(!motionPreview);
   const [audioStatus, setAudioStatus] = useState<AudioStatus>('off');
   const [volume, setVolume] = useState(.24);
   const [report, setReport] = useState<FrameReport>({ fps: 0, p95: 0, work: 0, frames: 0 });
   const [phaseReports, setPhaseReports] = useState<{ phase: string; report: FrameReport }[]>([]);
   const [speed, setSpeed] = useState(1);
-  const [selected, setSelected] = useState<Cell>(fromOpenMAIC ? { lane: 1, row: 12 } : { ...DEFAULT_CELL });
+  const [selected, setSelected] = useState<Cell>({ ...DEFAULT_CELL });
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [softFlashes, setSoftFlashes] = useState(true);
   const [readyToRead, setReadyToRead] = useState(false);
+  const [previewPortalRequested, setPreviewPortalRequested] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [classroomImporting, setClassroomImporting] = useState(false);
   const [classroomImportError, setClassroomImportError] = useState('');
@@ -74,7 +79,7 @@ export default function CinematicExperience({ active, reduced, replayRequest, cl
   const meter = useRef(new FrameMeter());
   const meterPhase = useRef('');
   const loginTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const time = useRef(0);
+  const time = useRef(archiveStart ? FILM_END : 0);
   const elapsed = useRef(0);
   const lastReplay = useRef(replayRequest);
   const lastClassroomRequest = useRef(classroomRequest);
@@ -103,6 +108,11 @@ export default function CinematicExperience({ active, reduced, replayRequest, cl
   }, [portalArrival, reduced]);
   const archiveVisible = mode === 'archive';
   const detailVisible = mode === 'detail';
+  useEffect(() => {
+    if (!motionPreview || !previewPortalRequested || !readyToRead || !detailVisible) return;
+    setPreviewPortalRequested(false);
+    enterOpenMAIC('reinlab', reduced);
+  }, [motionPreview, previewPortalRequested, readyToRead, detailVisible, reduced]);
   const showArchive = archiveVisible || detailVisible;
   const visibleField = showArchive || mode === 'classroom' || mode === 'research' || isFilm && bootDone;
   const config = platforms[selected.lane];
@@ -370,10 +380,21 @@ export default function CinematicExperience({ active, reduced, replayRequest, cl
     }
   }, [mode, selected]);
   const back = useCallback(() => {
+    setPreviewPortalRequested(false);
     setMode('archive'); setLegacyClassroom(false); setReadyToRead(false); inspectAngle.current = 0;
     scene.current?.inspect(0);
     root.current?.focus({ preventScroll: true });
   }, []);
+  function resetPreview() {
+    if (sharedTransitionLock.current || dollyLocked.current) return;
+    setPreviewPortalRequested(false);
+    setPlaying(false); setLeaving(false); setMode('archive');
+    setSelected({ ...DEFAULT_CELL }); setClock(FILM_END); time.current = FILM_END;
+    setBootDone(true); setTimelineOpen(false); setReadyToRead(false);
+    setLegacyClassroom(false); setSharedElementSurface('archive');
+    inspectAngle.current = 0; scene.current?.inspect(0);
+    root.current?.focus({ preventScroll: true });
+  }
   const move = useCallback((axis: 'lane' | 'row', delta: number) => {
     if (mode !== 'archive') return;
     setSelected(s => ({ ...s, [axis]: clamp(s[axis] + delta, 0, axis === 'lane' ? LANES - 1 : ROWS - 1) }));
@@ -514,7 +535,13 @@ export default function CinematicExperience({ active, reduced, replayRequest, cl
   const showClassroom = classroomPreparing || mode === 'classroom' || sharedTransitionPhase === 'returning';
   const showResearch = researchPreparing || mode === 'research' || researchReturning;
   return <LayoutGroup id="reinlab-archive-classroom"><div className={`cinema-experience ${portrait ? 'portrait' : ''} ${reduced ? 'cine-reduced' : ''}`} ref={root} hidden={!active}
-    data-mode={mode} data-dolly={dollyPhase ?? undefined} data-playing={playing} data-leaving={leaving} data-shared-transition={sharedTransitionPhase ?? undefined} tabIndex={-1} aria-label="莱茵生命沉浸式档案终端" onKeyDown={onKey}>
+    data-mode={mode} data-motion-preview={motionPreview || undefined} data-readable={readyToRead || undefined} data-dolly={dollyPhase ?? undefined} data-playing={playing} data-leaving={leaving} data-shared-transition={sharedTransitionPhase ?? undefined} tabIndex={-1} aria-label="莱茵生命沉浸式档案终端" onKeyDown={onKey}>
+    {motionPreview && <aside className="cine-motion-preview-controls" aria-label="真实场景转场预览">
+      <span><i />真实场景 · 转场预览</span>
+      <button onClick={resetPreview} disabled={sharedTransitionPhase !== null || researchReturning}><RotateCcw size={13} />回到起点</button>
+      <button onClick={() => { if (sharedTransitionLock.current || dollyLocked.current) return; setSelected({ ...DEFAULT_CELL }); setMode('detail'); readyRef.current = false; setReadyToRead(false); setPreviewPortalRequested(true); }} disabled={mode === 'research' || mode === 'classroom'}><Play size={12} />播放入口转场</button>
+      <a href="/" aria-label="退出转场预览">退出<X size={12} /></a>
+    </aside>}
     <div ref={sceneViewport} className="cine-scene-viewport" inert={mode === 'classroom' || mode === 'research'} style={{ visibility: visibleField ? 'visible' : 'hidden' }}>
       <div className="cine-fixed-stage cine-model-stage" style={{ transform: `translate(-50%, -50%) scale(${sceneScale})` }}>
         <ArchiveField ref={scene} selected={selected} onSelect={select} sharedElementSurface={sharedElementSurface}
@@ -530,6 +557,7 @@ export default function CinematicExperience({ active, reduced, replayRequest, cl
     {(mode !== 'ready' && mode !== 'classroom' && mode !== 'research' || archiveVisible || detailVisible) && <nav className="cine-system-nav" aria-label="档案终端导航" inert={sharedTransitionPhase !== null}>
       {isFilm ? <button onClick={skip}>ENTER SYSTEM <span>跳过演出</span><ArrowUpRight size={17} /></button> : <>
         <button onClick={() => leave(onWorkbench)}><Grid2X2 size={14} /> 工作台</button>
+        <InboxHost autoOpen={archiveVisible && !sharedTransitionPhase} />
         {mode === 'archive' && config.id === 'learning' && <button onClick={() => enterOpenMAIC('workspace', reduced)}>OpenMAIC · 聊天主页<ArrowUpRight size={14} /></button>}
         <button onClick={start} disabled={reduced} aria-label="重播完整演出"><RotateCcw size={14} /><span>REINITIALIZE</span></button>
       </>}

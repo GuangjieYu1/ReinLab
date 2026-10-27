@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
+import { isArchiveMotionPreview } from './motionPreview';
 
 /** 设置面板里填写的地址；与构建期环境变量分开保存，不进仓库。 */
 export const OPENMAIC_ORIGIN_KEY = 'reinlab-openmaic-origin-v1';
@@ -75,6 +76,14 @@ let departurePending = false;
 export function enterOpenMAIC(destination: 'reinlab' | 'workspace', reduced = false): void {
   if (departurePending) return;
   departurePending = true;
+  // The study uses the live archive, but never hands off to an external app.
+  // Guard before resolving a deployment origin or scheduling any navigation.
+  if (isArchiveMotionPreview()) {
+    void import('./archivePortalPreview').then(({ previewArchivePortal }) => {
+      previewArchivePortal(destination, reduced, () => { departurePending = false; });
+    }).catch(() => { departurePending = false; });
+    return;
+  }
   const origin = resolveOrigin();
   const curtain = document.createElement('div');
   curtain.className = 'rhine-portal-departure';

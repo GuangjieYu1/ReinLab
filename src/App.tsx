@@ -6,6 +6,7 @@ import BlurText from './components/reactbits/BlurText';
 import Conversation from './components/Conversation';
 import TemplateStudio from './components/TemplateStudio';
 import CinematicExperience from './components/cinematic/CinematicExperience';
+import { isArchiveMotionPreview } from './components/cinematic/motionPreview';
 import { enterOpenMAIC, hasBuildOrigin, readStoredOrigin, readStoredToken, writeStoredOrigin, writeStoredToken } from './components/cinematic/openMaicPortal';
 import { defaultTemplate, isTemplate, platforms, readStored, type Page, type Platform, type Template } from './model';
 
@@ -41,6 +42,7 @@ function isProjects(value: unknown): value is CustomProject[] {
 }
 
 function App() {
+  const motionPreview = isArchiveMotionPreview();
   const [page, setPage] = useState<Page>('home');
   const [platform, setPlatform] = useState<Platform>('learning');
   const [workspace, setWorkspace] = useState('线性代数');
@@ -238,7 +240,7 @@ function App() {
         </main>
         <footer className="terminal-footer"><span><i />TERMINAL READY<span className="footer-divider">/</span>示例数据 · 无模型连接</span><span>REINLAB SYSTEM <b>0.1 / DESIGN PREVIEW</b></span></footer>
       </div>
-      <CinematicExperience active={cinemaVisible} reduced={reduced} replayRequest={cinemaReplay} classroomRequest={classroomRequest}
+      <CinematicExperience active={cinemaVisible} reduced={reduced} replayRequest={cinemaReplay} classroomRequest={classroomRequest} motionPreview={motionPreview}
         onWorkbench={() => setCinemaVisible(false)}
         onOpenWorkspace={(id, name) => { setPlatform(id); setWorkspace(name); setActiveProject(null); navigate(id === 'research' ? 'research-lab' : 'workspace'); setCinemaVisible(false); }} />
       <AnimatePresence>{toast && <motion.div className="toast" role="status" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }}><Check size={15} /><span>{toast}</span><button className="icon-button" aria-label="关闭提示" onClick={() => setToast('')}><X size={13} /></button></motion.div>}</AnimatePresence>

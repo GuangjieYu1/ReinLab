@@ -1,0 +1,176 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,800;9..40,900&display=swap');
+/* Workbench shell, Rhine Lab tool chrome: a 44px bar, then the whole page is
+   the working surface. Paper ground, ink type, hairlines, sage for live
+   state, one gold accent for the agent and the current object. */
+.wb { --ink:#1d211a; --ink-2:#2f3826; --paper:#f7f5ee; --paper-2:#eeece5; --paper-3:#e6e3d9; --sage:#4a5639; --sage-2:#6f7f5c; --moss:#8a8d78; --gold:#a68b58; --gold-2:#c9b48a; --line:#d6d1c3; --line-2:#e3dfd3; --rust:#8a4b2c; --ok:#5d7448;
+  position:fixed; inset:0; display:grid; grid-template-rows:44px minmax(0,1fr); background:var(--paper-2); color:var(--ink);
+  font-family:'DM Sans','Noto Sans SC',-apple-system,sans-serif; font-size:12px; overflow:hidden; }
+.wb *, .wb *::before, .wb *::after { box-sizing:border-box; }
+:where(.wb) button { font:inherit; color:inherit; cursor:pointer; }
+:where(.wb) button:disabled { cursor:default; }
+.wb :focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
+.wb .mono { font-family:'IBM Plex Mono',monospace; }
+.wb .num { font-family:'DM Sans',sans-serif; font-weight:800; font-variant-numeric:tabular-nums; }
+
+/* Bar */
+.wb-bar { display:flex; align-items:stretch; height:44px; border-bottom:1.5px solid var(--ink); background:var(--paper); }
+.wb-back { display:grid; place-items:center; width:44px; flex:none; border-right:1px solid var(--line); color:var(--ink); text-decoration:none; font-size:16px; transition:background .2s, color .2s; }
+.wb-back:hover { background:var(--ink); color:var(--gold); }
+.wb-brand { display:flex; align-items:center; padding:0 16px; flex:none; border-right:1px solid var(--line); color:var(--ink); text-decoration:none; }
+.wb-brand b { font-size:13px; font-weight:800; letter-spacing:.04em; }
+.wb-tabs { display:flex; flex:none; }
+.wb-tabs > * { position:relative; display:flex; align-items:center; gap:6px; padding:0 12px; border:0; border-right:1px solid var(--line-2); background:none; color:var(--moss); text-decoration:none; font-size:12px; white-space:nowrap; }
+.wb-tabs em { font-style:normal; font-family:'DM Sans',sans-serif; font-weight:800; font-size:11.5px; letter-spacing:.04em; color:#767a66; }
+.wb-tabs > a { color:#aaac9b; } .wb-tabs > a em { color:#b6b7a6; }
+.wb-tabs sup { font-size:7px; letter-spacing:.1em; color:var(--gold); }
+.wb-tabs > [aria-pressed="true"] { background:var(--ink); color:var(--paper); }
+.wb-tabs > [aria-pressed="true"] em { color:var(--gold); }
+.wb-tabs > button:not([aria-pressed="true"]):hover { background:var(--paper-3); color:var(--ink); }
+.wb-crumb { position:relative; display:flex; align-items:center; gap:8px; min-width:0; flex:1; padding:0 14px; }
+.wb-crumb-logo { flex:none; width:26px; height:26px; }
+.wb-crumb-logo .entry-logo, .wb-crumb-logo img { width:100%; height:100%; display:block; }
+.wb-crumb-bench { font-size:12px; color:var(--sage); white-space:nowrap; }
+.wb-crumb > i { font-style:normal; color:var(--line); }
+.wb-crumb-file { display:flex; align-items:center; gap:7px; min-width:0; height:28px; padding:0 9px; border:0; background:none; font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; box-shadow:inset 0 0 0 1px transparent; transition:box-shadow .2s, background .2s; }
+.wb-crumb-file:hover, .wb-crumb-file[aria-expanded="true"] { box-shadow:inset 0 0 0 1px var(--ink); background:var(--paper); }
+.wb-crumb-file em { font-style:normal; font-family:'DM Sans',sans-serif; font-weight:800; font-size:11px; padding:1px 5px; background:var(--ink); color:var(--gold); }
+.wb-crumb-file b { font-size:9px; color:var(--moss); }
+.wb-menu { position:absolute; z-index:50; top:38px; left:48px; min-width:260px; padding:6px; background:var(--paper); box-shadow:0 18px 40px #1d211a2a, 0 0 0 1px var(--ink); }
+.wb-menu > span { display:block; padding:6px 8px 8px; font-size:9px; letter-spacing:.18em; color:var(--moss); border-bottom:1px solid var(--line); }
+.wb-menu button { display:flex; align-items:center; gap:10px; width:100%; padding:9px 8px; border:0; background:none; text-align:left; font-size:12.5px; }
+.wb-menu button em { font-style:normal; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--moss); }
+.wb-menu button:hover { background:var(--paper-3); }
+.wb-menu button[aria-selected="true"] { background:var(--ink); color:var(--paper); } .wb-menu button[aria-selected="true"] em { color:var(--gold); }
+.wb-status { display:flex; align-items:center; gap:7px; flex:none; padding:0 16px; border-left:1px solid var(--line); font-size:9px; letter-spacing:.16em; color:var(--ink); }
+.wb-status i { width:6px; height:6px; border-radius:50%; background:var(--gold); }
+.wb-status small { font-size:10px; letter-spacing:.02em; color:var(--moss); }
+.wb-body { position:relative; min-height:0; overflow:hidden; }
+
+/* Shared primitives */
+.p { display:flex; flex-direction:column; min-height:0; min-width:0; background:var(--paper); box-shadow:inset 0 0 0 1px var(--line); }
+.p-h { display:flex; align-items:center; gap:8px; height:32px; flex:none; padding:0 10px 0 12px; border-bottom:1px solid var(--line); font-size:9px; letter-spacing:.16em; color:var(--moss); white-space:nowrap; }
+.p-h > b { color:var(--ink); font-weight:700; }
+.p-h > :last-child:not(:first-child) { margin-left:auto; }
+.p-h.dark { background:var(--ink); color:#b9b3a0; border-color:var(--ink); } .p-h.dark > b { color:var(--paper); }
+.p-body { flex:1; min-height:0; overflow:auto; }
+.b { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:26px; padding:0 10px; border:0; background:var(--paper); font-size:11px; letter-spacing:.04em; white-space:nowrap; box-shadow:inset 0 0 0 1px var(--ink); transition:background .2s, color .2s; }
+.b:hover:not(:disabled) { background:var(--ink); color:var(--paper); }
+.b.solid { background:var(--ink); color:var(--paper); } .b.solid:hover:not(:disabled) { background:var(--ink-2); }
+.b.gold { background:var(--gold); color:#fffdf6; box-shadow:none; } .b.gold:hover:not(:disabled) { background:#8f7547; color:#fffdf6; }
+.b.ghost { box-shadow:none; background:none; color:var(--sage); } .b.ghost:hover:not(:disabled) { background:var(--paper-3); color:var(--ink); }
+.b:disabled { opacity:.45; }
+.b[aria-pressed="true"]:not(.solid) { background:var(--paper-3); box-shadow:inset 0 0 0 1.5px var(--ink); }
+.seg { display:inline-flex; box-shadow:inset 0 0 0 1px var(--ink); }
+.seg button { height:24px; padding:0 9px; border:0; background:none; font-size:10.5px; }
+.seg button + button { box-shadow:inset 1px 0 0 var(--line); }
+.seg button[aria-pressed="true"] { background:var(--ink); color:var(--paper); }
+.chip { display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 7px; font-size:10px; color:var(--sage); background:var(--paper-3); white-space:nowrap; }
+.chip.ink { background:var(--ink); color:var(--paper); } .chip.gold { background:none; color:var(--gold); box-shadow:inset 0 0 0 1px var(--gold); }
+.chip.sim { background:none; color:var(--gold); box-shadow:inset 0 0 0 1px var(--gold-2); font-size:9px; letter-spacing:.1em; }
+.dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--moss); flex:none; }
+.dot.ok { background:var(--ok); } .dot.run { background:var(--gold); animation:wb-pulse 1s ease-in-out infinite alternate; } .dot.fail { background:none; box-shadow:inset 0 0 0 1.5px var(--rust); } .dot.idle { background:none; box-shadow:inset 0 0 0 1px var(--moss); }
+@keyframes wb-pulse { to { opacity:.35; } }
+.tabs { display:flex; height:32px; flex:none; border-bottom:1px solid var(--line); }
+.tabs button { position:relative; padding:0 12px; border:0; background:none; font-size:11px; color:var(--moss); white-space:nowrap; }
+.tabs button[aria-selected="true"] { color:var(--ink); font-weight:600; }
+.tabs button[aria-selected="true"]::after { content:''; position:absolute; left:8px; right:8px; bottom:-1px; height:2px; background:var(--ink); }
+.tabs button em { font-style:normal; margin-left:4px; font-size:9px; color:var(--gold); }
+.kv { display:grid; grid-template-columns:auto 1fr; gap:6px 12px; margin:0; font-size:11.5px; }
+.kv dt { font-size:9px; letter-spacing:.14em; color:var(--moss); padding-top:2px; }
+.kv dd { margin:0; }
+.bar-meter { position:relative; height:4px; background:var(--line-2); overflow:hidden; }
+.bar-meter > i { position:absolute; inset:0 auto 0 0; background:var(--ink); transition:width .5s cubic-bezier(.2,.8,.2,1); }
+.bar-meter > i.gold { background:var(--gold); }
+.scroll-thin { scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+
+/* Chat column */
+.chat { min-width:0; }
+.chat-list { flex:1; min-height:0; overflow:auto; padding:12px 14px 6px; display:flex; flex-direction:column; gap:14px; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+.chat-msg { display:flex; flex-direction:column; gap:6px; animation:wb-in .35s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes wb-in { from { opacity:0; transform:translateY(6px); } }
+.chat-msg[data-who="me"] { align-items:flex-end; }
+.chat-msg[data-who="me"] .chat-text { max-width:88%; padding:8px 11px; background:var(--ink); color:var(--paper); line-height:1.6; }
+.chat-msg[data-who="sys"] .chat-text { align-self:center; padding:3px 9px; font-size:10px; color:var(--moss); letter-spacing:.06em; box-shadow:inset 0 0 0 1px var(--line); }
+.chat-who { display:flex; align-items:center; gap:6px; font-size:9px; letter-spacing:.16em; color:var(--moss); }
+.chat-who i { width:8px; height:8px; background:var(--gold); transform:rotate(45deg); }
+.chat-who time { margin-left:auto; font-family:'IBM Plex Mono',monospace; letter-spacing:0; }
+.chat-text { font-size:12.5px; line-height:1.7; color:#2b3226; }
+.chat-text p { margin:0 0 6px; } .chat-text p:last-child { margin:0; }
+.chat-text b { color:var(--ink); }
+.chat-text ul, .chat-text ol { margin:4px 0; padding-left:18px; }
+.chat-tools { margin:0; padding:0; list-style:none; border-left:2px solid var(--line); }
+.chat-tools li { display:flex; align-items:baseline; gap:8px; padding:3px 0 3px 9px; font-size:11px; color:var(--sage); }
+.chat-tools em { font-style:normal; flex:none; width:34px; font-family:'IBM Plex Mono',monospace; font-size:8.5px; letter-spacing:.06em; color:var(--moss); }
+.chat-tools li[data-kind="edit"] em { color:var(--gold); } .chat-tools li[data-kind="run"] em { color:var(--ok); }
+.chat-tools span { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-tools small { margin-left:auto; flex:none; font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--moss); }
+.chat-typing { display:flex; gap:4px; padding:4px 0; } .chat-typing i { width:5px; height:5px; border-radius:50%; background:var(--moss); animation:wb-pulse .6s ease-in-out infinite alternate; } .chat-typing i:nth-child(2) { animation-delay:.2s; } .chat-typing i:nth-child(3) { animation-delay:.4s; }
+.chat-suggest { display:flex; flex-wrap:wrap; gap:5px; padding:8px 12px 0; }
+.chat-suggest button { height:24px; padding:0 9px; border:0; background:var(--paper-3); font-size:11px; color:var(--sage); transition:background .2s, color .2s; }
+.chat-suggest button:hover:not(:disabled) { background:var(--ink); color:var(--paper); }
+.chat-input { margin:8px 10px 10px; padding:8px 10px 6px; background:var(--paper); box-shadow:inset 0 0 0 1px var(--ink); }
+.chat-input textarea { width:100%; border:0; resize:none; background:none; font:inherit; font-size:12.5px; line-height:1.55; color:var(--ink); outline:none; }
+.chat-input-foot { display:flex; align-items:center; gap:8px; }
+.chat-input-foot span { flex:1; font-size:9.5px; color:var(--moss); }
+.chat-input-foot button { width:26px; height:26px; border:0; background:var(--ink); color:var(--gold); font-size:14px; }
+.chat-input-foot button:disabled { background:var(--line); color:var(--paper); }
+.chat-card { padding:10px 12px; background:var(--paper-2); box-shadow:inset 0 0 0 1px var(--line); }
+.chat-card-h { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; font-size:9px; letter-spacing:.16em; color:var(--moss); }
+.chat-card-h b { color:var(--ink); }
+
+@media (max-width:1360px) { .wb-status small, .wb-crumb-bench, .wb-crumb > i { display:none; } .wb-tabs > * { padding:0 10px; } }
+@media (max-width:1100px) { .wb-tabs span { display:none; } }
+@media (max-width:760px) {
+  .wb { position:static; display:block; min-height:100vh; overflow:visible; }
+  .wb-bar { position:sticky; top:0; z-index:20; overflow-x:auto; }
+  .wb-brand, .wb-status { display:none; }
+  .wb-crumb { flex:none; } .wb-crumb-logo { display:none; }
+  .wb-body { overflow:visible; }
+}
+@media (prefers-reduced-motion:reduce) { .wb *, .wb *::before, .wb *::after { animation:none !important; transition:none !important; } }
+
+
+
+/* ———— 顶栏 · 莱茵生命设计语言（墨 / 纸 / 橙）。只改顶栏这一行，各工作台内容区逐个迁移 ———— */
+.wb .wb-bar { height:44px; background:#f0eeea; border-bottom:1.5px solid #141213; }
+.wb .wb-back { width:44px; border-right:1px solid #c9c6c0; color:#141213; }
+.wb .wb-back:hover { background:#141213; color:#ff7a1a; }
+.wb .wb-brand { gap:10px; padding:0 16px; border-right:1px solid #c9c6c0; color:#141213; }
+.wb .wb-brand b { font:800 13px/1 'Archivo','Noto Sans SC',sans-serif; font-stretch:125%; letter-spacing:.06em; }
+.wb .wb-tabs > * { gap:7px; padding:0 13px; border-right:1px solid #dcdad5; color:#6b6865; font-size:12px; }
+.wb .wb-tabs em { font:800 11.5px/1 'Archivo',sans-serif; font-stretch:125%; letter-spacing:.06em; color:#9a9792; }
+.wb .wb-tabs > a, .wb .wb-tabs > a em { color:#b6b3ac; }
+.wb .wb-tabs > [aria-pressed="true"] { background:#141213; color:#f0eeea; }
+.wb .wb-tabs > [aria-pressed="true"] em { color:#ff7a1a; }
+.wb .wb-tabs > button:not([aria-pressed="true"]):hover { background:#d9d7d1; color:#141213; }
+.wb .wb-crumb-bench { font-size:12px; color:#3a3837; }
+.wb .wb-crumb > i { color:#c9c6c0; }
+.wb .wb-crumb-file { font-weight:600; color:#141213; }
+.wb .wb-crumb-file em { font:800 11.5px/1 'Archivo',sans-serif; font-stretch:125%; padding:4px 6px; background:#141213; color:#f0eeea; }
+.wb .wb-crumb-file:hover, .wb .wb-crumb-file[aria-expanded="true"] { box-shadow:inset 0 0 0 1px #141213; background:#fbfbf9; }
+.wb .wb-crumb-file b { color:#9a9792; }
+.wb .wb-menu { background:#fbfbf9; box-shadow:0 12px 32px rgba(20,18,19,.14), 0 0 0 1px #141213; }
+.wb .wb-menu > span { color:#9a9792; border-bottom-color:#dcdad5; }
+.wb .wb-menu button:hover { background:#e6e4df; }
+.wb .wb-menu button[aria-selected="true"] { background:#141213; color:#f0eeea; } .wb .wb-menu button[aria-selected="true"] em { color:#ff7a1a; }
+.wb .wb-status { border-left:1px solid #c9c6c0; color:#141213; font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:.14em; }
+.wb .wb-status i { width:7px; height:7px; border-radius:0; background:#ff7a1a; }
+.wb .wb-status small { color:#9a9792; font-family:'DM Sans','Noto Sans SC',sans-serif; }
+.wb-engineering { background:#e6e4df; }
+.wb .wb-tabs > * { padding:0 11px; }
+@media (max-width:1600px) { .wb .wb-crumb-bench, .wb .wb-crumb > i { display:none; } .wb .wb-tabs span { display:none; } }
+
+/* ———— 顶栏已去掉：工作台之间的切换在入口完成。自己画头部的工作台占满整页；其余暂用一条细条 ———— */
+.wb { grid-template-rows:auto minmax(0,1fr); }
+.wb[data-own-header] { grid-template-rows:minmax(0,1fr); }
+.wb-strip { display:flex; align-items:stretch; gap:0; height:44px; background:#f0eeea; border-bottom:1.5px solid #141213; }
+.wb-strip > .wb-back { display:grid; place-items:center; width:44px; flex:none; border-right:1px solid #c9c6c0; color:#141213; text-decoration:none; font-size:16px; }
+.wb-strip > .wb-back:hover { background:#141213; color:#ff7a1a; }
+.wb-strip > .wb-crumb-logo { align-self:center; width:28px; height:28px; margin:0 10px 0 12px; }
+.wb-crumb-logo .entry-logo, .wb-crumb-logo img { width:100%; height:100%; display:block; }
+.wb-strip-bench { display:flex; align-items:center; gap:8px; padding-right:12px; font-size:12px; color:#3a3837; white-space:nowrap; }
+.wb-strip-bench b { font:800 13px/1 'Archivo',sans-serif; font-stretch:125%; letter-spacing:.06em; color:#141213; }
+.wb-strip .wb-file { position:relative; display:flex; align-items:center; }
+.wb-strip .wb-crumb-file span { max-width:240px; overflow:hidden; text-overflow:ellipsis; }
+.wb-strip .wb-menu { top:40px; left:0; }
+.wb-strip .wb-status { margin-left:auto; display:flex; align-items:center; gap:7px; padding:0 16px; border-left:1px solid #c9c6c0; }
