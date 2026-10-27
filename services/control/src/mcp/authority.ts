@@ -284,22 +284,20 @@ export class CapabilityAuthority {
         "本次运行已停止前向转发：上一笔用量待核对或运行已结束，未转发、未放宽。",
       );
     }
+    // 澄清被「关闭」不等于这次运行已经不要回答了：选定论文时会把澄清标记关闭，
+    // 而模型还需要把这一轮答完（run8 C5）。真正阻止花钱的是运行状态与预留（上面已校验），
+    // 取消/换档那几条路径也都会把原生运行一并取消。
     if (
       claims.role === "research-clarify" &&
+      !fenced &&
       !(
         await client.query(
           "select 1 from read_clarify_run r join read_clarification d using(account_id,dossier_id) where r.run_id=$1 and not r.closed and not d.closed",
           [claims.run],
         )
       ).rowCount
-    ) {
-      if (!fenced) throw tokenDenied();
-      throw new ApiFailure(
-        "MODEL_FORWARDING_FENCED",
-        403,
-        "本次运行已停止前向转发：澄清已结束，未转发。",
-      );
-    }
+    )
+      throw tokenDenied();
     return { claims, scope: saved.scope, catalog: saved.catalog };
   }
   async revoke(account: string, run: string) {

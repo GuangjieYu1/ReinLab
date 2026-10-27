@@ -373,6 +373,17 @@ it("unapproved paid options, model, tool and output shapes cannot create a reser
 });
 
 
+it("a live clarify keeps forwarding after the human picked a paper (run8 C5)",async()=>{
+ const f=await setup(true,"1.2.2");let forwarded=0;
+ try{
+  // 选定论文时会把澄清标记关闭，但这个 run 还要把这一轮答完；能挡住的只有运行状态与预留。
+  await f.admin.query("update read_clarify_run set closed=true where run_id=$1",[f.run]);
+  const app=new Hono();
+  registerRuntimeModel(app as never,f.authority,{prepare:async()=>async()=>{forwarded++;return complete();}});
+  expect((await send(app,f.model,{...request(),max_tokens:512})).status).toBe(200);
+  expect(forwarded).toBe(1);
+ }finally{await f.close();}
+});
 it("research1.2.2 admits 512 output tokens while keeping the run inside its own ceiling",async()=>{
  const f=await setup(true,"1.2.2");let forwarded=0;
  try{const app=new Hono();registerRuntimeModel(app as never,f.authority,{prepare:async()=>async()=>{forwarded++;return complete();}});
