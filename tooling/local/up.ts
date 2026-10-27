@@ -33,6 +33,8 @@ const cliEnvironment = {
   DOCKER_CONFIG: join(paths.state, "docker-client"),
   SUPABASE_TELEMETRY_DISABLED: "1",
   DO_NOT_TRACK: "1",
+  // The local runner must never trigger an implicit dependency install.
+  npm_config_verify_deps_before_run: "false",
 };
 const step = (code: string) => console.log(JSON.stringify({ code }));
 let startupLock: Awaited<ReturnType<typeof acquireStartupLock>> | undefined;
@@ -89,19 +91,19 @@ try {
     );
   }
   step("LOCAL_SUPABASE_STARTING");
+  // The CLI is invoked directly: routing it through pnpm would also run the
+  // package manager's dependency check, whose failure tore the stack down.
+  const supabaseBin = resolve("node_modules/.bin/supabase");
   await startLocalSupabase(async () => {
-    await quietCommand(
-      "pnpm",
-      ["exec", "supabase", "start", "--workdir", "infra"],
-      { env: cliEnvironment },
-    );
+    await quietCommand(supabaseBin, ["start", "--workdir", "infra"], {
+      env: cliEnvironment,
+    });
   }, delay);
   const status = parseSupabaseStatus(
-    await quietCommand(
-      "pnpm",
-      ["exec", "supabase", "status", "--workdir", "infra", "-o", "json"],
-      { env: cliEnvironment, timeoutMs: 30000 },
-    ),
+    await quietCommand(supabaseBin, ["status", "--workdir", "infra", "-o", "json"], {
+      env: cliEnvironment,
+      timeoutMs: 30000,
+    }),
   );
   let saved: Record<string, string> = {};
   try {
