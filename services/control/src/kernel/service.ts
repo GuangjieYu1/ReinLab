@@ -118,7 +118,12 @@ export class KernelService {
       { account, dossier: prepared.dossierId, run: runId },
       this.now(),
     );
-    await materializeLaunch(plan, token, layout.io);
+    try {
+      await materializeLaunch(plan, token, layout.io);
+    } catch (error) {
+      await this.failBeforeRun(account, prepared.dossierId, prepared.sessionId, runId);
+      throw error;
+    }
 
     const handle = executeRun(
       {
@@ -178,6 +183,28 @@ export class KernelService {
     return handle.cancel();
   }
 
+  /** A launch failure must not leave the session leased or the run "running". */
+  private async failBeforeRun(
+    account: string,
+    dossier: string,
+    sessionId: string,
+    runId: string,
+  ) {
+    await this.dependencies.db
+      .withAccount(account, async (client) => {
+        await client.query(
+          "update dsh_turn set state='failed', ended_at=now() where run_id=$1 and state='running'",
+          [runId],
+        );
+        await client.query(
+          "update run set state='failed', ended_at=now() where id=$1 and state in ('queued','running')",
+          [runId],
+        );
+        await confirmRelease(client, { account, dossier, sessionId, run: runId });
+      })
+      .catch(() => {});
+  }
+
   private async release(
     client: import("pg").PoolClient,
     account: string,
@@ -196,6 +223,10 @@ export class KernelService {
     const url = this.dependencies.controlUrl;
     if (typeof url !== "string" || url.trim() === "")
       throw new ApiFailure("KERNEL_CONTROL_URL_REQUIRED", 503, "控制面地址未配置。");
-    return url;
+    // `host.docker.internal` only resolves inside the account container; a host
+    // kernel reaches the control plane on loopback.
+    return this.dependencies.layout.shimMode === "host"
+      ? url.replace(/host\.docker\.internal/g, "127.0.0.1")
+      : url;
   }
 }
