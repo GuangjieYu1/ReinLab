@@ -64,13 +64,18 @@ export async function runTurn(input: {
     const handle = input.resume
       ? ((await harness.resumeSession(input.plan.sessionId)) as HarnessSessionHandle)
       : harness.session(input.plan.sessionId);
+    // Events are queued so they reach the business record in wire order even
+    // though the transport delivers them synchronously.
+    let queue: Promise<void> = Promise.resolve();
     const result = await handle.run(input.prompt, {
       onNotification: (notification) => {
         if (notification?.method !== "session.event") return;
         const event = (notification.params as { event?: HarnessEvent } | undefined)?.event;
-        if (event && typeof event.type === "string") void input.onEvent(event);
+        if (event && typeof event.type === "string")
+          queue = queue.then(() => Promise.resolve(input.onEvent(event))).catch(() => {});
       },
     });
+    await queue;
     let errorCode: string | null = "KERNEL_FAILED";
     for (const event of result.events)
       if (event.type === "turn/end") errorCode = failedReason(event.data?.reason);
