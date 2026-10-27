@@ -168,6 +168,12 @@ try {
     PORT: "3001",
     INTERNAL_SIGNING_KEY: signingKey,
     REINLAB_REAL_MODELS_ENABLED: realModels ? "1" : "0",
+    REINLAB_KERNEL_HOME: join(paths.state, "kernel"),
+    // Local runs use the host transport; the account-image path stays the
+    // production transport and is selected with REINLAB_KERNEL_TRANSPORT=container.
+    REINLAB_KERNEL_TRANSPORT: "host",
+    REINLAB_KERNEL_MODEL: "deepseek-v4-flash",
+    REINLAB_KERNEL_MAX_TOKENS: "32768",
   });
   await stopOwnedControl(join(paths.state, "worker.json"), resolve("tooling/local/worker.ts"));
   await stopOwnedControl(paths.process, resolve("tooling/local/control.ts"));

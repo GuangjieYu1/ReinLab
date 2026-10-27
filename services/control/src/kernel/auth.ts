@@ -1,4 +1,7 @@
-import { createPublicKey, sign, verify, type KeyObject } from "node:crypto";
+import { createPrivateKey, createPublicKey, sign, verify, type KeyObject } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { ensureSigningKey } from "../mcp/token";
 import { z } from "zod";
 import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
@@ -90,5 +93,21 @@ export class KernelAuth {
     } catch {
       throw invalid();
     }
+  }
+}
+
+/**
+ * Load (or create) the kernel scope key. The file lives under the same
+ * protected directory as the capability key and never leaves the host.
+ */
+export async function ensureKernelAuth(file: string): Promise<KernelAuth> {
+  if (!path.isAbsolute(file)) throw invalid();
+  // Reuses the reviewed key-file creation and permission checks.
+  await ensureSigningKey(file);
+  const pem = await readFile(file);
+  try {
+    return new KernelAuth(createPrivateKey(pem));
+  } finally {
+    pem.fill(0);
   }
 }

@@ -19,6 +19,10 @@ import { runtimePricingFromEnvironment } from "./bridge/openscience/pricing-envi
 import { startAuthProvisioner } from "./provisioner/auth-worker";
 import { localPeakPricing } from "./model/peak-pricing";
 import { readLocalLoginAlias } from "./local-login";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { ensureKernelAuth } from "./kernel/auth";
+import { KernelService } from "./kernel/service";
+import { createHarnessFactory, resolveDshModule } from "./kernel/dsh/harness";
 
 const config = runtimeConfiguration();
 const realModels = config.REINLAB_REAL_MODELS_ENABLED === "1";
@@ -99,6 +103,32 @@ const pipeline = new RuntimePipeline(database, {
     );
   },
 });
+const kernel = new KernelService({
+  db: database,
+  auth: await ensureKernelAuth(
+    config.REINLAB_KERNEL_SIGNING_KEY_FILE ??
+      path.join(homedir(), ".config/reinlab/mcp/kernel.pem"),
+  ),
+  factory: createHarnessFactory(),
+  model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
+  maxTokens: Number(config.REINLAB_KERNEL_MAX_TOKENS ?? 32768),
+  layout: {
+    home: config.REINLAB_KERNEL_HOME ?? path.join(homedir(), ".local/state/reinlab/kernel"),
+    shimModule: path.resolve("services/control/src/kernel/dsh/shim.mjs"),
+    shimContainerModule: "/opt/reinlab/shim.mjs",
+    dshModule: resolveDshModule(),
+    restrictPatch: path.resolve("plugins/reinlab-read-plugin/restrict.patch.yml"),
+    pluginEntry:
+      "file://" + path.resolve("plugins/reinlab-read-plugin/index.js"),
+    shimMode: config.REINLAB_KERNEL_TRANSPORT === "container" ? "docker" : "host",
+    io: {
+      mkdir: async (dir: string) => void (await mkdir(dir, { recursive: true, mode: 0o700 })),
+      write: async (file: string, body: string, mode = 0o600) =>
+        void (await writeFile(file, body, { mode })),
+      remove: async (file: string) => void (await rm(file, { force: true })),
+    },
+  },
+});
 const app = await createApp({
   pool,
   session: config.SUPABASE_ANON_KEY
@@ -110,6 +140,7 @@ const app = await createApp({
   pricing: pricingFromEnvironment(config),
   pipeline,
   mcp,
+  kernel,
   clarifyAuthorizationFile: config.REINLAB_CLARIFY_AUTHORIZATION_FILE,
   realModelsEnabled: realModels,
   auth: {
