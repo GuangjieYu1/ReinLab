@@ -8,7 +8,7 @@ const base = {
   maxTokens: 32768,
   bundler: {
     shimModule: "/app/reinlab/shim.mjs",
-    pluginPatch: "/opt/reinlab/patches/read-plugin.patch.yml",
+    pluginEntry: "file:///opt/reinlab/plugin/index.js",
     restrictPatch: "/opt/reinlab/patches/read-restrict.patch.yml",
   },
 };
@@ -55,11 +55,16 @@ describe("dsh launch plan", () => {
     };
     const plan = launchPlan({ ...base, run: "30000000-0000-4000-8000-000000000004", dossier: "20000000-0000-4000-8000-000000000004", sessionId: "ses_d" });
     await materializeLaunch(plan, "tok_live", io);
-    expect([...writes.keys()].sort()).toEqual([plan.paths.credentialsFile, plan.paths.patchFile].sort());
+    expect([...writes.keys()].sort()).toEqual(
+      [plan.paths.credentialsFile, plan.paths.tokenFile, plan.paths.patchFile].sort(),
+    );
+    expect(writes.get(plan.paths.credentialsFile)).toContain("version: 1");
     expect(writes.get(plan.paths.credentialsFile)).toContain("tok_live");
-    expect(writes.get(plan.paths.patchFile)).toContain(plan.paths.pidFile);
+    expect(writes.get(plan.paths.patchFile)).toContain(plan.paths.credentialsFile);
     await plan.release();
-    expect(removed.sort()).toEqual([plan.paths.credentialsFile, plan.paths.patchFile, plan.paths.pidFile].sort());
+    expect(removed.sort()).toEqual(
+      [plan.paths.credentialsFile, plan.paths.tokenFile, plan.paths.patchFile, plan.paths.pidFile].sort(),
+    );
   });
 
   it("refuses a plan whose control URL or model is missing", () => {

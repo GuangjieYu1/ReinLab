@@ -49,6 +49,20 @@ describe("dsh turn driver", () => {
     expect(resumed.close).toHaveBeenCalledTimes(1);
   });
 
+  it("hands the owning runtime to the caller so cancel closes that child only", async () => {
+    const f = fake([{ type: "turn/end", data: { reason: { kind: "completed" } } }]);
+    const seen: unknown[] = [];
+    await runTurn({
+      plan,
+      prompt: "hi",
+      resume: false,
+      factory: f.factory,
+      onEvent: () => {},
+      onHarness: (harness) => void seen.push(harness),
+    });
+    expect(seen).toEqual([f.harness]);
+  });
+
   it("streams events in wire order to the caller", async () => {
     const seen: string[] = [];
     const events = [

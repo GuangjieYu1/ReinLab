@@ -55,8 +55,11 @@ export async function runTurn(input: {
   resume: boolean;
   factory: HarnessFactory;
   onEvent: (event: HarnessEvent) => void | Promise<void>;
+  /** The exact runtime owning this turn, so a cancel closes this child only. */
+  onHarness?: (harness: HarnessLike) => void | Promise<void>;
 }): Promise<TurnOutcome> {
   const harness = input.factory(input.plan.options);
+  await input.onHarness?.(harness);
   try {
     const handle = input.resume
       ? ((await harness.resumeSession(input.plan.sessionId)) as HarnessSessionHandle)

@@ -12,7 +12,8 @@ export type LaunchBundler = {
   /** In-container dsh executable module. */
   dshModule: string;
   restrictPatch: string;
-  pluginPatch: string;
+  /** Package name or `file://` URL the profile loads as the reading plugin. */
+  pluginEntry: string;
 };
 
 export type LaunchInput = {
@@ -38,6 +39,7 @@ export type LaunchPaths = {
 };
 
 export type LaunchPlan = {
+  bundler: LaunchBundler;
   account: string;
   dossier: string;
   run: string;
@@ -96,7 +98,7 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
     dshBin: input.bundler.shimModule,
     dshHome: `${home}/dsh-home/accounts/${account}`,
     cwd: `${home}/accounts/${account}/dossiers/${dossier}`,
-    patches: [input.bundler.restrictPatch, input.bundler.pluginPatch, paths.patchFile],
+    patches: [input.bundler.restrictPatch, paths.patchFile],
     provider: "deepseek-official",
     model,
     maxTokens: input.maxTokens,
@@ -113,6 +115,7 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
     },
   };
   return {
+    bundler: input.bundler,
     account,
     dossier,
     run,
@@ -139,18 +142,24 @@ export async function materializeLaunch(
   await io.mkdir(plan.options.dshHome);
   await io.mkdir(plan.options.cwd);
   await io.mkdir(plan.paths.sessionDir);
+  await io.write(plan.paths.tokenFile, token + "\n", 0o600);
   await io.write(
     plan.paths.credentialsFile,
-    "deepseek:\n  apiKey: " + JSON.stringify(token) + "\n",
+    "version: 1\nrefs:\n  DEEPSEEK_API_KEY: " + JSON.stringify(token) + "\n",
     0o600,
   );
   await io.write(
     plan.paths.patchFile,
     [
       "# Generated per run; never shared between runs.",
+      "# The credential document is overridden to this run's file so concurrent",
+      "# runs never overwrite each other's token.",
+      "- id: credentials",
+      "  config:",
+      "    path: " + JSON.stringify(plan.paths.credentialsFile),
       "- insert:",
-      "    - id: reinlab-run",
-      "      name: '@reinlab/read-plugin'",
+      "    - id: reinlab-read",
+      "      name: " + JSON.stringify(plan.bundler.pluginEntry),
       "      config:",
       "        runId: " + JSON.stringify(plan.run),
       "        pidFile: " + JSON.stringify(plan.paths.pidFile),
@@ -163,6 +172,7 @@ export async function materializeLaunch(
   plan.release = async () => {
     for (const file of [
       plan.paths.credentialsFile,
+      plan.paths.tokenFile,
       plan.paths.patchFile,
       plan.paths.pidFile,
     ])
