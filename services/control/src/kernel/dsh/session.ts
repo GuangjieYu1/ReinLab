@@ -27,20 +27,27 @@ export type HarnessFactory = (options: LaunchPlan["options"]) => HarnessLike;
 export type TurnOutcome = {
   state: "completed" | "failed";
   errorCode: string | null;
+  errorDetail?: string;
   finalResponse: string;
   sessionId: string;
 };
 
-const failedReason = (reason: unknown) => {
-  const kind =
-    typeof reason === "object" && reason !== null
-      ? (reason as { kind?: unknown }).kind
-      : undefined;
+const failedReason = (reason: unknown): { code: string; detail?: string } | null => {
+  const value = typeof reason === "object" && reason !== null ? (reason as Record<string, any>) : {};
+  const kind = value.kind;
   if (kind === "completed") return null;
-  if (kind === "max-tokens") return "KERNEL_MAX_TOKENS";
-  if (kind === "aborted" || kind === "interrupted") return "KERNEL_INTERRUPTED";
-  if (kind === "blocked") return "KERNEL_BLOCKED";
-  return "KERNEL_FAILED";
+  if (kind === "max-tokens") return { code: "KERNEL_MAX_TOKENS" };
+  if (kind === "aborted" || kind === "interrupted") return { code: "KERNEL_INTERRUPTED" };
+  if (kind === "blocked") return { code: "KERNEL_BLOCKED" };
+  if (kind === "error") {
+    // Keep the provider/runtime code and message: "KERNEL_FAILED" alone hides
+    // the actual cause (e.g. MALFORMED_RESPONSE from an oversized tool payload).
+    const failure = value.error ?? {};
+    const code = typeof failure.code === "string" ? failure.code : "KERNEL_FAILED";
+    const detail = typeof failure.message === "string" ? failure.message : undefined;
+    return { code, ...(detail ? { detail } : {}) };
+  }
+  return { code: "KERNEL_FAILED" };
 };
 
 /**
@@ -93,12 +100,13 @@ export async function runTurn(input: {
       },
     });
     await queue;
-    let errorCode: string | null = "KERNEL_FAILED";
+    let failure: { code: string; detail?: string } | null = { code: "KERNEL_FAILED" };
     for (const event of result.events)
-      if (event.type === "turn/end") errorCode = failedReason(event.data?.reason);
+      if (event.type === "turn/end") failure = failedReason(event.data?.reason);
     return {
-      state: errorCode === null ? "completed" : "failed",
-      errorCode,
+      state: failure === null ? "completed" : "failed",
+      errorCode: failure?.code ?? null,
+      errorDetail: failure?.detail,
       finalResponse: result.finalResponse,
       sessionId: result.sessionId,
     };

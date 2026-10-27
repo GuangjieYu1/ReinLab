@@ -64,7 +64,11 @@ export function executeRun(
       });
       await dependencies.onState(
         outcome.state,
-        outcome.state === "failed" ? (outcome.errorCode ?? "KERNEL_FAILED") : undefined,
+        outcome.state === "failed"
+          ? [outcome.errorCode ?? "KERNEL_FAILED", outcome.errorDetail]
+              .filter(Boolean)
+              .join("：")
+          : undefined,
       );
       return outcome;
     } catch (error) {
