@@ -6,7 +6,7 @@ import { ApiFailure } from "../api/errors";
 import type { TokenClaims } from "../mcp/token";
 import type { AuthorizedCapability } from "../mcp/authority";
 import type { KernelToolCall } from "../api/kernel-tools";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export type DispatchDependencies = {
   db: Database;
@@ -82,8 +82,36 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
       const { catalog: current, handlers: table } = await paper();
       const handler = table[`papers.${call.tool}`];
       if (!handler) throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "该论文工具尚未接入。");
-      return handler(contextFor(current), call.args, randomUUID());
+      const result = await handler(contextFor(current), call.args, randomUUID());
+      // Reading a page is a citation receipt: the card check requires these rows,
+      // so the kernel path records them the same way the old engine did.
+      if (call.tool === "pages") await recordPageReads(dependencies.db, call, result);
+      return result;
     }
     throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "该工具尚未接入。");
   };
+}
+
+async function recordPageReads(
+  db: Database,
+  call: KernelToolCall,
+  result: Record<string, unknown>,
+): Promise<void> {
+  const assetId = typeof result?.assetId === "string" ? result.assetId : "";
+  const pages = Array.isArray(result?.pages) ? result.pages : [];
+  if (!assetId || pages.length === 0) return;
+  await db.withAccount(call.account, async (client) => {
+    for (const entry of pages as Array<{ page?: unknown; text?: unknown }>) {
+      const page = Number(entry?.page);
+      const text = typeof entry?.text === "string" ? entry.text : "";
+      if (!Number.isSafeInteger(page) || page < 1 || !text) continue;
+      const digest = createHash("sha256").update(text).digest("hex");
+      await client.query(
+        `insert into paper_page_read(account_id,dossier_id,run_id,asset_id,page,text_sha256,page_text)
+         values($1,$2,$3,$4,$5,$6,$7)
+         on conflict do nothing`,
+        [call.account, call.dossier, call.run, assetId, page, digest, text.slice(0, 4 * 1024 * 1024)],
+      );
+    }
+  });
 }
