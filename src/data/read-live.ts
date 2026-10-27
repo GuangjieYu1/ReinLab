@@ -79,12 +79,14 @@ export function createLiveReadAdapter(
     cursor = 0,
     snapshot = empty(),
     chosen: PaperCandidate | undefined,
+    lastPicked: PaperCandidate | undefined,
     pendingQuestion: { approvalId: string; text: string } | undefined,
     timer: ReturnType<typeof setInterval> | undefined,
     endReason: RunView["endReason"],
     failureMessage: string | undefined;
   const tools = new Map<string, { index: number; event: ReadEvent }>();
   const emitted = new Set<number>();
+  const announced = new Set<string>();
 
   const emit = (event: ReadEvent) => {
     snapshot.history.push(event);
@@ -148,33 +150,6 @@ export function createLiveReadAdapter(
       case "tool/call": {
         const name = String(data.name ?? "");
         tool(String(data.callId ?? event.seq), name, true);
-        if (name === "clarify_question") {
-          const args = JSON.parse(String(data.arguments ?? "{}") || "{}");
-          if (args.kind === "paper_pick") {
-            const candidates: PaperCandidate[] = Array.isArray(args.candidates)
-              ? args.candidates.map((candidate: any) => ({
-                  id: String(candidate.paperId ?? candidate.id ?? ""),
-                  title: String(candidate.title ?? ""),
-                  authors: String(candidate.authors ?? "检索结果"),
-                  venue: String(candidate.venue ?? "OpenAlex"),
-                  access: "full",
-                }))
-              : [];
-            emit({
-              type: "pick",
-              id: String(data.callId ?? event.seq),
-              query: String(args.question ?? ""),
-              candidates,
-              state: "pending",
-            });
-          } else {
-            pendingQuestion = {
-              approvalId: String(data.callId ?? ""),
-              text: String(args.question ?? "请补充线索。"),
-            };
-            emit({ type: "agent", id: "question:" + event.seq, text: String(args.question ?? "请补充线索。") });
-          }
-        }
         if (name === "card_layer" || name === "card_finding") tool(String(data.callId ?? event.seq), name, true);
         return;
       }
@@ -223,8 +198,69 @@ export function createLiveReadAdapter(
     return response?.events ?? [];
   }
 
+  async function refreshApprovals(): Promise<void> {
+    if (!runId) return;
+    const listed = (await ports.api("/v1/approvals?state=pending")) as {
+      items?: Array<{
+        id: string;
+        runId: string;
+        kind: string;
+        title: string;
+        effects?: unknown;
+        risk?: string;
+      }>;
+    };
+    for (const card of listed?.items ?? []) {
+      if (card.runId !== runId || announced.has(card.id)) continue;
+      // A question is the user's answer, not a permission: render it as a pick
+      // (candidates) or as a plain question, keyed by the real card id so the
+      // answer route addresses the same row.
+      if (card.kind === "question") {
+        announced.add(card.id);
+        const candidates = Array.isArray((card as any).effects?.candidates)
+          ? (card as any).effects.candidates
+          : [];
+        if (candidates.length > 0) {
+          emit({
+            type: "pick",
+            id: card.id,
+            query: String(card.title ?? ""),
+            candidates: candidates.map((candidate: any) => ({
+              id: String(candidate.paperId ?? candidate.id ?? ""),
+              title: String(candidate.title ?? ""),
+              authors: String(candidate.authors ?? "检索结果"),
+              venue: String(candidate.venue ?? "OpenAlex"),
+              access: "full",
+            })),
+            state: "pending",
+          });
+        } else {
+          pendingQuestion = { approvalId: card.id, text: String(card.title ?? "请补充线索。") };
+          emit({ type: "agent", id: "question:" + card.id, text: String(card.title ?? "请补充线索。") });
+        }
+        continue;
+      }
+      announced.add(card.id);
+      const effects = Array.isArray(card.effects)
+        ? card.effects
+            .map((entry) => (typeof entry === "string" ? entry : JSON.stringify(entry)))
+            .slice(0, 4)
+        : [];
+      emit({
+        type: "approval",
+        id: card.id,
+        action: "papers.fetch",
+        title: String(card.title ?? "等你批准"),
+        effects,
+        risk: card.risk === "danger" ? "danger" : card.risk === "read" ? "read" : "write",
+        state: "pending",
+      });
+    }
+  }
+
   async function refresh(): Promise<void> {
     if (!runId) return;
+    await refreshApprovals();
     const status = (await ports.api(`/v1/kernel/runs/${runId}`)) as {
       state?: string;
       usage?: { known?: boolean; knownCny?: string | null };
@@ -232,9 +268,11 @@ export function createLiveReadAdapter(
     };
     const state = readRunState(String(status.state ?? ""));
     const known = status.usage?.known === true;
+    const spent = known && status.usage?.knownCny ? Number(status.usage.knownCny) : null;
     patchRun({
       state,
-      spentCny: known && status.usage?.knownCny ? Number(status.usage.knownCny) : null,
+      spentCny: spent,
+      clarifySpentCny: spent ?? undefined,
       unknownCost: !known,
       ...(state === "done" ? { endReason: endReason ?? "completed" } : {}),
       ...(state === "failed" ? { message: failureMessage ?? status.session?.errorCode ?? "执行失败，可以重来。" } : {}),
@@ -388,7 +426,7 @@ export function createLiveReadAdapter(
       };
     },
     async start(_estimateId, _budgetCny) {
-      await startRun("就按我选的这篇开始精读", chosen?.id);
+      await startRun("就按我选的这篇开始精读", (chosen ?? lastPicked)?.id);
     },
     async cancel() {
       if (!runId) return;
@@ -427,6 +465,7 @@ export function createLiveReadAdapter(
       );
       const candidate = pick?.candidates.find((item) => item.id === candidateId);
       chosen = candidate;
+      lastPicked = candidate;
       patchRun({ chosen: candidate, state: "confirm" });
     },
     async ask() {
