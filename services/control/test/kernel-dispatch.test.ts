@@ -71,6 +71,34 @@ describe("kernel tool dispatch", () => {
     expect(result.papers[0].paperId).toContain("W3000000001");
   });
 
+  it("routes a finding card to the card layer and returns its receipt", async () => {
+    const calls: Array<{ tool: string; args: unknown }> = [];
+    const dispatch = createKernelDispatch({
+      db,
+      cacheRoot: mkdtempSync(join(tmpdir(), "papers-cache-")),
+      deposit: async () => {},
+      cardDeposit: async () => {},
+      cardHandlers: () => ({
+        "cards.card.finding": async (_context: unknown, args: unknown) => {
+          calls.push({ tool: "card.finding", args });
+          return { cardId: "card-1", cardType: "finding" };
+        },
+      }),
+      http: { get: async () => wire({ results: [] }) } as never,
+    });
+    const result = (await dispatch({
+      account,
+      dossier,
+      run: runId,
+      server: "cards",
+      tool: "card.finding",
+      args: { text: "工具调用显著提升事实性" },
+    })) as { cardId: string };
+    expect(result.cardId).toBe("card-1");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args).toMatchObject({ text: "工具调用显著提升事实性" });
+  });
+
   it("refuses tools it does not implement instead of inventing a result", async () => {
     const dispatch = createKernelDispatch({
       db,

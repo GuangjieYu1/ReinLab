@@ -13,6 +13,8 @@ export type DispatchDependencies = {
   cacheRoot: string;
   deposit: PaperDeposit;
   cardDeposit: CardDeposit;
+  /** Test seam: replace the frozen-schema card layer with a recording double. */
+  cardHandlers?: (db: Database, deposit: CardDeposit) => Record<string, unknown>;
   /** Transport override for tests; production uses the pinned HTTP client. */
   http?: Parameters<typeof paperHandlers>[3];
   catalog?: CapabilityCatalog;
@@ -65,7 +67,11 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
       }) as AuthorizedCapability;
 
     if (call.server === "cards") {
-      cards ??= dataHandlers(dependencies.db, dependencies.cardDeposit);
+      cards ??= (dependencies.cardHandlers
+        ? dependencies.cardHandlers(dependencies.db, dependencies.cardDeposit)
+        : dataHandlers(dependencies.db, dependencies.cardDeposit)) as ReturnType<
+        typeof dataHandlers
+      >;
       const handler = cards[`cards.${call.tool}`];
       if (!handler)
         throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "该卡片工具尚未接入。");

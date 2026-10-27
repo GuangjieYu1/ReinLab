@@ -59,5 +59,6 @@ pnpm --dir <后端工作树> local:up --real-models
 - 前端接线（Claude 负责）。
 - OpenScience 全量退役（`bridge/openscience/`、旧插件、`@synsci/*`、旧表）：按 PRD 在 B1 验收通过后做，本轮未删，以免验收期间无对照。
 - 账户镜像路径（`REINLAB_KERNEL_TRANSPORT=container`）代码保留但本机未验证（Docker Hub 受限）。
-- 发现卡（`card_finding`）的落盘链路已接入（`cards.card.finding` → 现有卡片处理器），但真机走查里模型还没主动产出卡片，
-  建议 Claude 验收时在页面侧确认；如需要我可以再加一条强约束提示词。
+- 发现卡（`card_finding`）：路由已由 `kernel-dispatch` 用例锁定（`cards.card.finding` → 现有卡片层 → 回执），
+  卡片本身仍由现有 `dataHandlers` 校验冻结 schema 与页码依据（旧套件覆盖）。真机走查里模型未主动产出卡片，
+  角色指令已加「至少一条」，仍属模型行为，建议 Claude 验收时在页面侧确认。
