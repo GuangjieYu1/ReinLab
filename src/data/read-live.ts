@@ -462,7 +462,11 @@ export function createLiveReadAdapter(
       };
     },
     async clarify(text) {
-      if (!runId) {
+      // 每段新对话都在全新档案里开始：旧档案里已下载的论文会让「下载审批」直接消失，
+      // 也违反「一次只批一次下载」的观看路径。
+      const running = snapshot.run.state === "running" || snapshot.run.state === "estimating" || snapshot.run.state === "confirm";
+      if (!runId || !running) {
+        dossier = undefined;
         await startRun(text);
         return;
       }
