@@ -83,6 +83,7 @@ export function createLiveReadAdapter(
     pendingQuestion: { approvalId: string; text: string } | undefined,
     freshReading = false,
     questionCardId: string | undefined,
+    localPhase: RunView["state"] | undefined,
     timer: ReturnType<typeof setInterval> | undefined,
     endReason: RunView["endReason"],
     failureMessage: string | undefined;
@@ -95,6 +96,12 @@ export function createLiveReadAdapter(
     for (const listener of subs) listener(event);
   };
   const patchRun = (patch: Partial<RunView>) => {
+    // Only emit when something actually changed: a per-poll re-render detaches
+    // the buttons mid-click and makes the page feel broken.
+    const changed = Object.entries(patch).some(
+      ([key, value]) => (snapshot.run as Record<string, unknown>)[key] !== value,
+    );
+    if (!changed) return;
     snapshot.run = { ...snapshot.run, ...patch };
     emit({ type: "run", run: patch });
   };
@@ -264,11 +271,19 @@ export function createLiveReadAdapter(
         continue;
       }
       announced.add(card.id);
-      const effects = Array.isArray(card.effects)
-        ? card.effects
-            .map((entry) => (typeof entry === "string" ? entry : JSON.stringify(entry)))
-            .slice(0, 4)
-        : [];
+      // A pending permission means the run is waiting on the user: show the
+      // run panel with the card instead of the local estimate step.
+      localPhase = undefined;
+      patchRun({ state: "running" });
+      const capability = (card as any).effects?.capability;
+      const effects =
+        capability === "papers.fetch" || !capability
+          ? [
+              "只读你选定的这一篇：下载全文并写入当前档案",
+              "只写 papers/ 下的这一个文件，可以撤销",
+              "不批准就停下，不会读、也不会编造内容",
+            ]
+          : [`操作：${String(capability)}`, "只处理这一次请求；参数变化后需要重新批准"];
       emit({
         type: "approval",
         id: card.id,
@@ -289,7 +304,13 @@ export function createLiveReadAdapter(
       usage?: { known?: boolean; knownCny?: string | null };
       session?: { errorCode?: string | null } | null;
     };
-    const state = readRunState(String(status.state ?? ""));
+    let state = readRunState(String(status.state ?? ""));
+    // A running kernel must not clobber the local choosing/estimating step: the
+    // user is picking a paper while the conversation turn is still open.
+    // The local choosing/estimating step owns the panel until the user confirms
+    // the start (start() clears it); a finished clarify turn must not yank the
+    // candidate/chosen card away.
+    if (localPhase) state = localPhase;
     const known = status.usage?.known === true;
     const spent = known && status.usage?.knownCny ? Number(status.usage.knownCny) : null;
     patchRun({
@@ -340,17 +361,32 @@ export function createLiveReadAdapter(
 
   async function startRun(query: string, chosenPaperId?: string): Promise<void> {
     const id = await ensureDossier();
-    const created = (await ports.api(
-      "/v1/kernel/runs",
-      {
-        dossierId: id,
-        query,
-        ...(chosenPaperId ? { chosenPaperId } : {}),
-        ...(freshReading ? { newSession: true } : {}),
-      },
-      crypto.randomUUID(),
-    )) as { id: string };
-    runId = created.id;
+    // The clarify turn may still be closing when the user confirms; the session
+    // lease frees only after it ends, so retry briefly instead of failing.
+    let created: { id: string } | undefined;
+    for (let attempt = 0; attempt < 40 && !created; attempt += 1) {
+      try {
+        created = (await ports.api(
+          "/v1/kernel/runs",
+          {
+            dossierId: id,
+            query,
+            ...(chosenPaperId ? { chosenPaperId } : {}),
+            ...(freshReading ? { newSession: true } : {}),
+          },
+          crypto.randomUUID(),
+        )) as { id: string };
+      } catch (error) {
+        const message = String((error as { message?: string })?.message ?? "");
+        if (!/占用|SESSION_BUSY/.test(message) || attempt === 39) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    }
+    if (!created) throw Error("开始精读失败，请重试。");
+    const createdRun = created;
+    runId = createdRun.id;
+    freshReading = false;
+    localPhase = undefined;
     cursor = 0;
     emitted.clear();
     tools.clear();
@@ -449,6 +485,7 @@ export function createLiveReadAdapter(
       failureMessage = undefined;
       snapshot = { ...empty(), dossier: snapshot.dossier };
       freshReading = true;
+      localPhase = undefined;
       patchRun({ state: "idle", message: undefined });
     },
     async cancelClarify() {
@@ -458,16 +495,22 @@ export function createLiveReadAdapter(
     },
     async unchoose() {
       chosen = undefined;
-      patchRun({ chosen: undefined });
+      localPhase = "idle";
+      patchRun({ chosen: undefined, state: "idle", estimate: undefined, query: undefined });
     },
     async estimate(_candidateId, budgetCny) {
-      return {
+      localPhase = "estimating";
+      patchRun({ state: "estimating" });
+      const estimate = {
         id: "kernel-estimate",
         model: "deepseek-v4-flash",
-        maxCny: budgetCny,
-        steps: 1,
+        maxCny: Math.min(budgetCny, 2.5),
+        steps: 48,
         note: "按页数粗估，不预留预算。",
       };
+      localPhase = "confirm";
+      patchRun({ state: "confirm", estimate });
+      return estimate;
     },
     async start(_estimateId, _budgetCny) {
       await startRun("就按我选的这篇开始精读", (chosen ?? lastPicked)?.id);
@@ -510,7 +553,24 @@ export function createLiveReadAdapter(
       const candidate = pick?.candidates.find((item) => item.id === candidateId);
       chosen = candidate;
       lastPicked = candidate;
-      patchRun({ chosen: candidate, state: "confirm" });
+      const answered = snapshot.history.find(
+        (event): event is Extract<ReadEvent, { type: "pick" }> =>
+          event.type === "pick" && (event.id === pickId || event.id === questionCardId),
+      );
+      if (answered) {
+        const updated = { ...answered, state: "answered" as const, chosen: candidateId };
+        snapshot.history = snapshot.history.map((event) =>
+          event.type === "pick" && event.id === answered.id ? updated : event,
+        );
+        emit(updated);
+      }
+      localPhase = "idle";
+      patchRun({ chosen: candidate, query: candidate?.title, state: "idle", estimate: undefined });
+      emit({
+        type: "agent",
+        id: "picked:" + crypto.randomUUID(),
+        text: `好，读《${candidate?.title ?? ""}》。可以按这篇的长度预估费用了。`,
+      });
     },
     async ask() {
       throw Error("追问未接入。");

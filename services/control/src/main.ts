@@ -179,12 +179,25 @@ if (realModels) {
     auth: kernelAuth,
     forward: (request: Request) => fetch(request, { redirect: "error" }),
     record: async (usage) => {
+      // Cost from the configured per-million rates; without rates it stays
+      // unknown instead of inventing a number.
+      const inRate = Number(config.MODEL_INPUT_CNY_PER_MILLION ?? Number.NaN);
+      const outRate = Number(config.MODEL_OUTPUT_CNY_PER_MILLION ?? Number.NaN);
+      let cost: string | null = usage.costCny ?? null;
+      if (
+        cost === null &&
+        usage.known &&
+        Number.isFinite(inRate) &&
+        Number.isFinite(outRate) &&
+        usage.inputTokens !== null &&
+        usage.outputTokens !== null
+      )
+        cost = (
+          (usage.inputTokens * inRate + usage.outputTokens * outRate) /
+          1_000_000
+        ).toFixed(6);
       await database.withAccount(usage.account, (client) =>
-        recordUsage(client, {
-          ...usage,
-          reasoningTokens: null,
-          costCny: usage.costCny ?? null,
-        }),
+        recordUsage(client, { ...usage, reasoningTokens: null, costCny: cost }),
       );
     },
     now: () => Math.floor(Date.now() / 1000),
