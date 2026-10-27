@@ -260,3 +260,7 @@
 .en-id { flex:none; }
 .en-tabs { min-width:0; }
 @media (max-width:1600px) { .en-tabs button { padding:0 14px 0 12px; gap:8px; } .en-tabs button > span small { display:none; } .en-tabs button > b { font-size:20px; } }
+
+/* 真实模式下未接后端的工作台：演示数据标记（BenchFrame） */
+.en-demo { align-self:center; margin:0 10px; padding:3px 8px; border:1.5px dashed var(--rh-accent); color:var(--rh-accent); font:600 11px/1 var(--rh-f-mono); letter-spacing:.08em; white-space:nowrap; }
+.en-demo-s { color:var(--rh-accent); font-weight:600; }

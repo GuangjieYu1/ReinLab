@@ -29,12 +29,13 @@
 
 拿不准某件事算不算「必须」时，默认不做，写一行 question 问。
 
-## 角色
+## 角色（以 design/WORKFLOW.md 为准，用户手写纲领）
 
-- **Codex = 架构设计**：和用户讨论后端设计，结论写成一页以内的设计卡（格式见 DEV_HANDOFF「设计卡」），不写实现代码。讨论时直接给推荐方案和理由，列选项最多三个，别写长文。
-- **DeepSeek = 实现**：只按用户点过头的设计卡实现；卡里没写的不做，有疑问写进 questions。
-- **Claude = 前端 + 验收**：按设计卡的验收项测试和真实走查。
+- **核心：功能！功能！功能！** 不要搞一堆边缘 case。
+- **Codex = 设计**：和用户 grill 后产出 PRD，不写代码。
+- **DSH（DeepSeek V4.1）= 后端代码**：实现、审核、测试；不改 Claude 负责的前端样式和交互，需要的前端文件按 Claude 给的清单原样同步；工作流 spec → TDD → 实现；每个功能一个分支，每批一个提交；有问题直接问用户。
+- **Claude（CC）= 前端代码 + 规划 + 验收**：定下一个功能和验收标准；按已定的前端效果做真实走查验收，判断问题属于设计还是实现。
 
 ## 交接
 
-先读主仓库 `design/DEV_HANDOFF.md`（/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab/design/DEV_HANDOFF.md）：分工、怎么跑、待办清单。
+先读主仓库 `design/WORKFLOW.md`（纲领）和 `design/DEV_HANDOFF.md`（/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab/design/DEV_HANDOFF.md）：分工、怎么跑、待办清单。

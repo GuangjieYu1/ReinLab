@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { BenchChrome } from './WorkbenchStudio';
+import { isDemoBench } from '../../backendMode';
 import '../../styles/rhine.css';
 import './engineering/engineering.css';
 import './engineering/motion.css';
@@ -14,6 +15,7 @@ export default function BenchFrame({ code, section, faces, face, onFace, chrome,
   strip?: ReactNode; tools?: ReactNode; status: ReactNode; shutterLines?: (face: FrameFace) => string[]; children: ReactNode;
 }) {
   const current = faces.find(f => f.id === face)!;
+  const demo = isDemoBench(code);
   // 切面快门：face 每变一次挂一块新的快门（首次进入不放，进入工作台的转场已经覆盖）。
   const [shutter, setShutter] = useState(0);
   const first = useRef(face);
@@ -25,10 +27,11 @@ export default function BenchFrame({ code, section, faces, face, onFace, chrome,
     if (!on || !el) return;
     el.style.width = `${on.offsetWidth}px`; el.style.transform = `translateX(${on.offsetLeft}px)`;
   }, [face]);
-  return <div className="en rh rh-grain" data-bench={code} data-motion={reduced ? 'reduce' : undefined} data-file={file}>
+  return <div className="en rh rh-grain" data-bench={code} data-demo={demo || undefined} data-motion={reduced ? 'reduce' : undefined} data-file={file}>
     <div className="en-faces" data-wb-bar>
       {chrome.back}
       <div className="en-id">{chrome.logo}<div><b>{code}</b><small>SECTION {section} · {current.en}</small></div>{chrome.file}<i /></div>
+      {demo && <span className="en-demo" title="这个工作台还没接真实后端：里面的回复、运行和结果都是示例，不代表真实执行">演示数据</span>}
       <div className="en-tabs" role="tablist" aria-label="工作台的面" ref={tabs}>
         <span className="en-tabs-bar" ref={bar} aria-hidden="true" />
         {faces.map((f, i) => <button key={f.id} role="tab" aria-selected={f.id === face} data-locked={f.locked || undefined} onClick={() => onFace(f.id)}>
@@ -42,7 +45,7 @@ export default function BenchFrame({ code, section, faces, face, onFace, chrome,
       {shutter > 0 && <Shutter key={shutter} code={code} section={section} index={faces.indexOf(current)} face={current} lines={shutterLines?.(current)} />}
       <div className="en-face" key={face} data-shuttered={shutter > 0 || undefined}>{children}</div>
     </div>
-    <footer className="en-statusbar">{status}<Pulse /><b>POWERED BY RHINE LAB</b></footer>
+    <footer className="en-statusbar">{demo && <span className="en-demo-s">演示数据 · 未接真实后端，结果不代表真实执行</span>}{status}<Pulse /><b>POWERED BY RHINE LAB</b></footer>
   </div>;
 }
 
