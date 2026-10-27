@@ -59,6 +59,7 @@ export async function recordUsage(
 }
 
 export type RunUsageState = {
+  /** True when every request reported token usage; cost is reported separately. */
   known: boolean;
   requests: number;
   unknownRequests: number;
@@ -86,7 +87,7 @@ export async function runUsage(
   const requests = Number(row.requests);
   const unknown = Number(row.unknown_requests);
   return {
-    known: requests > 0 && unknown === 0 && row.known_cny !== null,
+    known: requests > 0 && unknown === 0,
     requests,
     unknownRequests: unknown,
     knownCny: row.known_cny ?? null,
