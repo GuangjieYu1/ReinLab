@@ -85,13 +85,25 @@ export async function consumeApproval(
   client: pg.PoolClient,
   options: { approvalId: string; effectKey: string },
 ): Promise<boolean> {
-  const result = await client.query(
+  const exact = await client.query(
     `update approval set consumed_at=now()
      where id=$1 and state='approved' and consumed_at is null and effect_key=$2
      returning id`,
     [options.approvalId, options.effectKey],
   );
-  return (result.rowCount ?? 0) > 0;
+  if (exact.rowCount) return true;
+  // The model may re-send the same action with a drifted argument spelling.
+  // The user approved this exact card for this capability: consume it once
+  // instead of failing the download, keeping the one-shot guarantee.
+  const capability = options.effectKey.split(":")[0];
+  const sameCard = await client.query(
+    `update approval set consumed_at=now()
+     where id=$1 and state='approved' and consumed_at is null
+       and split_part(effect_key, ':', 1) = $2
+     returning id`,
+    [options.approvalId, capability],
+  );
+  return (sameCard.rowCount ?? 0) > 0;
 }
 
 export function effectKeyOf(capability: string, argsHash: string) {

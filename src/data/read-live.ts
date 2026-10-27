@@ -513,7 +513,15 @@ export function createLiveReadAdapter(
       return estimate;
     },
     async start(_estimateId, _budgetCny) {
-      await startRun("就按我选的这篇开始精读", (chosen ?? lastPicked)?.id);
+      const picked = chosen ?? lastPicked;
+      // The chosen paper travels with the instruction so this turn is
+      // deterministic: fetch this exact paper, no searching, no re-asking.
+      await startRun(
+        picked
+          ? `就按我选的这篇开始精读（paperId=${picked.id}）`
+          : "就按我选的这篇开始精读",
+        picked?.id,
+      );
     },
     async cancel() {
       if (!runId) return;

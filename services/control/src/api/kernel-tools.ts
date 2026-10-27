@@ -146,6 +146,8 @@ export function registerKernelTools(
         if (existing) return c.json({ result: existing });
 
         const effectKey = effectKeyOf(capability, argsHash(call));
+        // The user may have approved this exact action already; a retry without
+        // the id must execute it once instead of bouncing a 409 forever.
         if (typeof body.approvalId !== "string") {
           const card = await requestApproval(client, {
             account: call.account,
@@ -157,6 +159,30 @@ export function registerKernelTools(
             effects: [{ capability, argsHash: argsHash(call) }],
             risk: "write",
           });
+          if (card.state === "approved" && !card.consumed) {
+            const consumed = await consumeApproval(client, {
+              approvalId: card.id,
+              effectKey,
+            });
+            if (consumed) {
+              const result = await dependencies.dispatch(call);
+              await client.query(
+                "update approval set decision_receipt=$2 where id=$1 and decision_receipt is null",
+                [card.id, JSON.stringify(result)],
+              );
+              return c.json({ result });
+            }
+          }
+          if (card.state === "approved" && card.consumed) {
+            const receipt = (
+              await client.query("select decision_receipt from approval where id=$1", [
+                card.id,
+              ])
+            ).rows[0]?.decision_receipt;
+            if (receipt) return c.json({ result: { ...(receipt as object), reused: true } });
+            const reused = await existingPaperAsset(client, call);
+            if (reused) return c.json({ result: reused });
+          }
           return c.json({ state: card.state === "pending" ? "pending" : card.state, approvalId: card.id }, 409);
         }
         const consumed = await consumeApproval(client, {
