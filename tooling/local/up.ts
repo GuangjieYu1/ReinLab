@@ -243,9 +243,7 @@ try {
       credentials: "本机受保护状态目录；未输出任何值",
       stateDirectory: paths.state,
       realModels,
-      ...(realModels
-        ? { frontend: "http://127.0.0.1:5183", worker: "ready", hatchet: "http://127.0.0.1:58888" }
-        : {}),
+      ...(realModels ? { frontend: "http://127.0.0.1:5183" } : {}),
     }),
   );
 } catch (error) {
