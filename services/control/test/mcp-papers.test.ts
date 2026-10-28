@@ -248,7 +248,7 @@ it("公开可得但未写许可的 PDF 照实存全文，许可记为 null，不
   }
 });
 
-it("检索走 arXiv：候选是可下载的 arXiv 编号，下载得到全文，限流按业务错误报", async () => {
+it("检索走 arXiv：候选是可下载的 arXiv 编号，下载得到全文，限流按业务错误报", { timeout: 20000 }, async () => {
   const f = await mcpFixture(await implementedCatalog()),
     cache = await realpath(await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")));
   const previous = process.env.OPENALEX_API_KEY;
@@ -448,6 +448,51 @@ it("检索按来源分别报告结果与失败，DOI 候选能走 Unpaywall 拿�
       abstract: "We study things.",
       view_metadata: { title: "Crossref Paper", authors: ["Ada Lovelace"], venue: "Journal of Fixtures" },
     });
+  } finally {
+    await f.close();
+    await rm(cache, { recursive: true, force: true });
+  }
+});
+
+it("限流只偶发一次时自动重试，同一查询在缓存期内不再打上游", { timeout: 20000 }, async () => {
+  const f = await mcpFixture(await implementedCatalog()),
+    cache = await realpath(await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")));
+  try {
+    const authority = new CapabilityAuthority(
+        f.db,
+        new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
+      ),
+      context = await authority.validate(await authority.issue(f.account, f.run));
+    let calls = 0;
+    const http = new PaperHttp({
+      dns: async () => ["93.184.216.34"],
+      wire: async () => {
+        calls += 1;
+        if (calls === 1) return { status: 429, headers: {}, bytes: Buffer.from("slow down") };
+        return {
+          status: 200,
+          headers: { contentType: "application/atom+xml" },
+          bytes: Buffer.from(
+            `<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2403.05521v1</id><title>Retried Paper</title><summary>Abstract.</summary></entry></feed>`,
+          ),
+        };
+      },
+    });
+    const handlers = paperHandlers(f.db, cache, async () => {}, http);
+    const first = (await handlers["papers.search"](
+      context,
+      { query: "retry-fixture", source: "arxiv" },
+      randomUUID(),
+    )) as any;
+    expect(first.papers).toHaveLength(1);
+    expect(calls).toBe(2);
+    const again = (await handlers["papers.search"](
+      context,
+      { query: "retry-fixture", source: "arxiv" },
+      randomUUID(),
+    )) as any;
+    expect(again.papers).toHaveLength(1);
+    expect(calls).toBe(2);
   } finally {
     await f.close();
     await rm(cache, { recursive: true, force: true });

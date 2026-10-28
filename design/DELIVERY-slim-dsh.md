@@ -11,6 +11,10 @@
 pnpm --dir <后端工作树> local:up --real-models
 ```
 
+- 可选环境变量（都不填也能跑）：
+  - `OPENALEX_API_KEY`：有 key 时 OpenAlex 走自己的额度，没有就吃共享额度（429 属于正常现象，模型会换源）
+  - `REINLAB_UNPAYWALL_EMAIL`：Unpaywall / Crossref 的礼貌邮箱，默认 `research@reinlab.app`
+  - `DEEPSEEK_WEB_FEE_CNY`：网页检索/抓取每次成功请求的记账单价，默认 `0.005000`（官方 ¥5/千次）
 - 控制面 `http://127.0.0.1:3001`，前端 `http://127.0.0.1:5183`，Supabase `54321`
 - 启动输出里 `image:"host"`、`kernelTransport` 表明**没有构建账户镜像、没有起 OpenScience/Hatchet/worker**
 - 本机 Docker Hub 不通，已用公共镜像站（colima `registry-mirrors`）拉起 supabase；这是本机环境配置，不在仓库里
@@ -53,18 +57,35 @@ pnpm --dir <后端工作树> local:up --real-models
      补完还不够就照实结束（`KERNEL_LAYERS_SHORT` 记层数），界面写「讲解只生成了 N 层」，
      不写「已完成」。真机实测：模型首轮只写 4 层 → 提醒后补到 7 层，用量 ¥0.053。
 
-## 4. 已知失败
+## 4. 能力与提示词（本轮按新要求重做）
 
-**`services/control` 全量（2026-10-28）：166 文件 / 1192 用例全绿，0 失败。**
+**工具全部交给模型自己决定用不用、先用哪个**（提示词里没有任何操作步骤）：
 
-此前长期红的 5 个前端适配器用例文件已按新协议收敛：`batch7-adapter`、`read-lifecycle`、
-`read-security` 按 `/v1/kernel/*` 重写，只守四条核心性质（同一档案不串号、一次意图一个幂等键、
-不做乐观决定、取消只停当前运行）；`batch7-native`、`account-entrypoint-lock` 测的是
-OpenScience 原生内核与旧账户入口，随退役删除。
+| 能力 | 入口 | 说明 |
+|---|---|---|
+| 论文检索 | `papers_search{query, source?, limit?}` | 来源可选 `arxiv` / `openalex` / `crossref`，不指定就三家一起查。每个来源的成功/失败都随结果返回（`sources[]`），失败带 `{code,message}`，模型据此换源或问用户 |
+| 网页搜索 / 抓取 | `web_search` / `web_fetch`（DSH 自带） | 走 DeepSeek 官方 Search / Fetch API（[官方计费：每千次成功请求 ¥5](https://api-docs.deepseek.com/guides/search/)），控制面代理持有宿主密钥，成功调用按 ¥0.005/次如实记账 |
+| 下载全文 | `papers_fetch{paperId}` | 支持 `arxiv:` / `W…` / `doi:`；只允许下载**用户选定的这一篇**，且必须批准一次（同一次下载只有一张卡，重复调用返回已有资产） |
+| 按页读取 | `papers_pages{assetId, pages}` | 页码回执落在 `paper_page_read`，卡片引文按它核验 |
+| 讲解 / 发现卡 | `card_layer` / `card_finding` | 内核自己的写入器：research 卡片规范 + 「引文必须来自本轮读过的页」+ `card_created` 事件；讲解层不足 5 层后端提醒一次，补不回来就照实写层数 |
+| 问用户 | `clarify_question` | 带候选时是 `paper_pick` 选择卡，用户不选就不下载 |
 
-`pnpm lint` 另有 5 条改造前就存在的越界告警（`verify-*-live.ts`、`worker/src/main.ts`），非本轮引入。
+**出站**：改用系统解析器 `dns.lookup`（IPv4/IPv6 全局单播都认），单次请求 15s 超时；超时、解析失败、连接失败、上游 4xx/5xx 都会把错误码和一句原因原样返回给模型。
 
-## 5. 未做 / 待你确认
+**提示词只剩三条底线**：下载全文/写文件要用户批准一次；不编造论文、作者和页码；候选论文由用户来选。其余流程规则全部删除。
+
+**检索为什么之前「不稳」**：OpenAlex 现在按 IP 共享额度计费，匿名请求经常 429；arXiv 有速率限制。现在三家并行、每家各自重试一次、同一查询 60 秒内走本地缓存，全失败才报错并带上每家的原因。
+
+## 5. 测试与已知问题
+
+`services/control` 全量：167 文件 / 1207 用例全绿。验收脚本 `scripts/walkthrough/research-read.mjs` 保持原样（Claude 自己跑）。
+
+已知/刻意保留：
+- 澄清轮只给 `papers_search` + `clarify_question`（网页工具在这一轮关闭），候选 15–25 秒出来；要它澄清阶段也能查网页，把 `launch.ts` 里那行 `tool-web disabled` 去掉即可。
+- 单轮工具调用上限 40 次（`MAX_TOOL_CALLS`），到顶返回 `TOOL_CALL_LIMIT`。
+- 模型把工具参数写成不合法 JSON 时，同一次运行里自动让它重发一次。
+
+## 6. 未做 / 待你确认
 
 - 前端接线（Claude 负责）。前端目录本轮只动了两处，都是为了上面第 3 条在页面上如实显示：
   `src/data/read-live.ts`（适配器本体）与 `src/components/workbenches/research/read/ReadMode.tsx`

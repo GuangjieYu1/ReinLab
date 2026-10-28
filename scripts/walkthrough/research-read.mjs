@@ -62,8 +62,6 @@ const ok = (actual, note) => ({ verdict: '✓', actual, note });
 const part = (actual, note) => ({ verdict: '△', actual, note });
 const bad = (actual, note) => ({ verdict: '✗', actual, note });
 const money = s => { const m = String(s).match(/¥\s*([\d.]+)/); return m ? Number(m[1]) : NaN; };
-// 面板里同时有「预算 ¥5」「上限 ¥0.50」：花费只认「已花 ¥…」那句。
-const spentOf = s => { const m = String(s).match(/已花\s*¥\s*([\d.]+)/); return m ? Number(m[1]) : NaN; };
 
 // ───────── 一、入口 ─────────
 await page.goto(BASE + '/?preview=entry&design=mobius', { waitUntil: 'domcontentloaded' });
@@ -139,7 +137,7 @@ await step('W3', '正', '＋ 新建精读', '出现「想读哪篇？」，没�
 // ───────── 三、对话澄清 ─────────
 const talk = async t => { await page.locator('.ad-input textarea').fill(t); await page.keyboard.press('Enter'); };
 const lastPick = () => page.locator('.ad .rd-pick').last();
-async function waitReply(prevPicks, prevAgents, ms = 240000) {
+async function waitReply(prevPicks, prevAgents, ms = 90000) {
   // 等候选卡出现；助手先说「我先检索」之类的话不算答完。助手明确说没受理 / 要你补充时提前结束。
   const end = Date.now() + ms;
   while (Date.now() < end) {
@@ -277,68 +275,79 @@ if (!hasToolformer) {
   });
 
   // ───────── 五、运行 ─────────
-  const spentNow = async () => spentOf((await text('.rd-start-run small')) || (await text('.rd-run-cost')));
+  const spentNow = async () => money((await text('.rd-start-run small')) || (await text('.rd-run-cost')));
   let firstSpent = 0;
   await step('R1', '正', '确认开始', '运行开始；第一步是「下载全文」审批，主面板和助手面板都能看到', async () => {
     // 被拒的这一次只需要能走到审批：预算用预估上限，避免预留过多
     await page.locator('.rd-estimate .rd-go').click();
-    await page.locator('.rd-start-ap').first().waitFor({ timeout: 120000 });
-    const cards = await page.locator('.rd-start-ap').allTextContents();
-    if (cards.length > 1) console.log('DEBUG 审批卡数量 ' + cards.length + '：' + cards.map(c => c.replace(/\s+/g, ' ').slice(0, 90)).join(' || '));
+    await page.locator('.rd-start-ap').waitFor({ timeout: 120000 });
     const ap = (await text('.rd-start-ap')).replace(/\s+/g, ' ');
     const dock = await page.locator('.ad-approval').count();
     return dock ? ok(ap.slice(0, 200)) : part(`主面板有审批，助手面板没有：${ap.slice(0, 160)}`);
   });
-  await step('R2', '正', '点「批准」', '批准后真实下载，运行继续；花费照实显示', async () => {
-    const approve = page.locator('.rd-start-ap .rd-go', { hasText: '批准' });
-    if (await approve.count()) await approve.first().click();
-    // 批准后下载器可能马上又要别的东西：这里先确认运行面板还在，再进入下一步等讲解。
+  await step('R2', '错', '点「不下载」', '运行如实停下，说明因拒绝而停止，不偷偷下载；花费照实显示', async () => {
+    await page.locator('.rd-start-ap .rh-btn', { hasText: '不下载' }).click();
+    await page.locator('.rd-runbar[data-state="cancelled"], .rd-runbar[data-state="failed"], .rd-start-run h2').first().waitFor({ timeout: 60000 });
     await wait(4000);
-    const panel = await page.locator('.rd-start-run').count();
+    const h = await text('.rd-start-run h2');
     const msg = (await text('.rd-start-run')).replace(/\s+/g, ' ');
-    return panel && !/没有批准|已停止/.test(msg) ? ok(msg.slice(0, 160) || '已批准下载') : bad(msg.slice(0, 160) || '批准后运行面板消失');
+    firstSpent = money(msg);
+    const honest = /没有批准|拒绝|没有读|停止|取消|已停/.test(msg);
+    if (!honest) return bad(msg.slice(0, 200));
+    return /已完成/.test(h) ? part(`说明如实，但标题写「${h}」，容易误解为读完了：${msg.slice(0, 160)}`) : ok(msg.slice(0, 200));
   });
-  await step('R3', '正', '等讲解出来（最长 8 分钟）', '讲解逐层出现，带原文页码', async () => {
-    const end = Date.now() + (live ? 480000 : 40000);
-    while (Date.now() < end) {
-      if ((await page.locator('.rd-layer').count()) > 0) break;
-      const st = await page.locator('.rd-runbar').first().getAttribute('data-state').catch(() => null);
-      if (st === 'failed' || st === 'cancelled') break;
-      await wait(3000);
-    }
-    const layers = await page.locator('.rd-layer').count();
-    return layers > 0 ? ok(`讲解 ${layers} 层已出现`) : bad('没有出现讲解层');
-  });
-  await step('R4', '正', '等精读完成（最长 10 分钟），中途出现的审批逐项批准', '状态「已完成」；有讲解层和发现卡；花费照实', async () => {
-    const end = Date.now() + (live ? 600000 : 40000);
-    let approvals = 0;
-    while (Date.now() < end) {
-      const st = await page.locator('.rd-runbar').first().getAttribute('data-state').catch(() => null);
-      if (st === 'done' || st === 'failed' || st === 'cancelled') break;
-      const ap = page.locator('.ad-approval .rh-btn.is-solid, .rd-start-ap .rd-go', { hasText: '批准' });
-      if (await ap.count()) { await ap.first().click().catch(() => {}); approvals++; }
-      await wait(3000);
-    }
-    const st = await page.locator('.rd-runbar').first().getAttribute('data-state').catch(() => '?');
-    const layers = await page.locator('.rd-layer').count();
-    const findings = await page.locator('.rd-finding').count();
-    const cost = (await text('.rd-run-cost')).replace(/\s+/g, ' ');
-    const line = `状态 ${st}，讲解 ${layers} 层，发现卡 ${findings} 张，${cost}，途中批准 ${approvals} 次`;
-    return st === 'done' && layers ? ok(line) : bad(line);
-  });
-  await step('R5', '正', '追问：为什么要自监督地插入 API 调用？', '如实说明「追问第二期接入」，不编回答', async () => {
-    const a0 = await page.locator('.ad .ad-msg.is-agent').count();
-    await talk('为什么要自监督地插入 API 调用？'); await wait(5000);
-    const tail = (await text('.ad')).slice(-300);
-    return /未接入|第二期|P2-05/.test(tail) ? ok('如实说明追问还没接入') : part('回答内容需人工判断', tail);
-  });
-  await step('R6', '错', '检验页提交一个答案', '如实说明「评分未接入」', async () => {
-    await page.locator('.en-tabs button').nth(3).click(); await wait(1200);
-    if (!(await page.locator('.rd-q textarea').count())) return part('检验页没有题目（新档案尚未生成测验）');
-    await page.locator('.rd-q textarea').first().fill('它让模型自己判断哪里调用工具有用'); await page.locator('.rd-q .rh-btn').first().click(); await wait(1500);
-    const t = (await text('.rd-q')).replace(/\s+/g, ' ');
-    return /未接入/.test(t) ? ok('如实说明评分未接入') : part(t.slice(0, 160));
-  });
+  const left = CAP - (clarifySpent || 0.05) - (Number.isFinite(firstSpent) ? firstSpent : 0.1) - 0.05;
+  if (left < est) {
+    results.push({ id: 'STOP', kind: '—', action: '停止', expected: '—', actual: `剩余预算 ¥${left.toFixed(2)} 不够这篇的预估上限 ¥${est}，按授权上限停下`, verdict: '✗', at: Number(((Date.now() - t0) / 1000).toFixed(0)) });
+  } else {
+    await step('R3', '正', '重新开始 → 选同一篇 → 预估 → 确认 → 批准下载', '讲解逐层出现，带原文页码；运行条显示步骤和已花费', async () => {
+      const again = page.locator('.rd-start .rd-go', { hasText: '重新开始' });
+      if (await again.count()) { await again.click(); await wait(2500); }
+      if (!(await page.locator('.rd-chosen').count())) {
+        const btn = lastPick().locator('li button', { hasText: /Toolformer/i }).first();
+        if (await btn.isEnabled().catch(() => false)) await pickTool();
+        else if (!(await repick())) return bad('重新开始后再说一句也没能重新选到这篇');
+      }
+      await setBudget(Math.min(2.5, Math.floor(left * 10) / 10)); await estimate();
+      await page.locator('.rd-estimate .rd-go').waitFor({ timeout: 30000 });
+      if (await page.locator('.rd-estimate .rd-go').isDisabled()) return bad('预估超出剩余预算');
+      await page.locator('.rd-estimate .rd-go').click();
+      await page.locator('.rd-start-ap').waitFor({ timeout: 120000 });
+      await page.locator('.rd-start-ap .rd-go', { hasText: '批准' }).click();
+      await page.locator('.rd-runbar[data-state="running"], .rd-layer').first().waitFor({ timeout: 120000 });
+      return ok('已批准下载，运行中');
+    });
+    await step('R4', '正', '等精读完成（最长 10 分钟），中途出现的审批逐项批准', '状态「已完成」；有讲解层和发现卡；实际花费 ≤ 预算，未知用量标出', async () => {
+      const end = Date.now() + (live ? 600000 : 40000);
+      let approvals = 0;
+      while (Date.now() < end) {
+        const st = await page.locator('.rd-runbar').first().getAttribute('data-state').catch(() => null);
+        if (st === 'done' || st === 'failed' || st === 'cancelled') break;
+        const ap = page.locator('.ad-approval .rh-btn.is-solid, .rd-start-ap .rd-go', { hasText: '批准' });
+        if (await ap.count()) { await ap.first().click().catch(() => {}); approvals++; }
+        await wait(3000);
+      }
+      const st = await page.locator('.rd-runbar').first().getAttribute('data-state').catch(() => '?');
+      const layers = await page.locator('.rd-layer').count();
+      const findings = await page.locator('.rd-finding').count();
+      const cost = (await text('.rd-run-cost')).replace(/\s+/g, ' ');
+      const line = `状态 ${st}，讲解 ${layers} 层，发现卡 ${findings} 张，${cost}，途中批准 ${approvals} 次`;
+      return st === 'done' && layers && findings ? ok(line) : st === 'done' ? part(line) : bad(line);
+    });
+    await step('R5', '正', '追问：为什么要自监督地插入 API 调用？', '如实说明「追问第二期接入」，不编回答', async () => {
+      const a0 = await page.locator('.ad .ad-msg.is-agent').count();
+      await talk('为什么要自监督地插入 API 调用？'); await wait(5000);
+      const tail = (await text('.ad')).slice(-300);
+      return /未接入|第二期|P2-05/.test(tail) ? ok('如实说明追问还没接入') : part('回答内容需人工判断', tail);
+    });
+    await step('R6', '错', '检验页提交一个答案', '如实说明「评分未接入」', async () => {
+      await page.locator('.en-tabs button').nth(3).click(); await wait(1200);
+      if (!(await page.locator('.rd-q textarea').count())) return part('检验页没有题目（新档案尚未生成测验）');
+      await page.locator('.rd-q textarea').first().fill('它让模型自己判断哪里调用工具有用'); await page.locator('.rd-q .rh-btn').first().click(); await wait(1500);
+      const t = (await text('.rd-q')).replace(/\s+/g, ' ');
+      return /未接入/.test(t) ? ok('如实说明评分未接入') : part(t.slice(0, 160));
+    });
+  }
 }
 
 // ───────── 六、会话 ─────────

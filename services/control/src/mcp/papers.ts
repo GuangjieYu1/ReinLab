@@ -354,6 +354,7 @@ type Candidate = {
   isOpenAccess: boolean;
 };
 
+const SEARCH_SOURCES = ["arxiv", "openalex", "crossref"] as const;
 /** Crossref keeps metadata only: a candidate there is readable as abstract text. */
 async function crossrefPapers(
   http: PaperHttp,
@@ -365,9 +366,14 @@ async function crossrefPapers(
   url.searchParams.set("query", query);
   url.searchParams.set("rows", String(Math.min(limit, 20)));
   url.searchParams.set("select", "DOI,title,author,container-title,issued,abstract");
+  url.searchParams.set("mailto", unpaywallEmail());
   const response = await http.get(url.href, egress, 1024 * 1024);
   if (response.status !== 200)
-    throw new ApiFailure("PAPERS_UPSTREAM_STATUS", 503, `Crossref 返回 ${response.status}。`);
+    throw new ApiFailure(
+      "PAPERS_UPSTREAM_STATUS",
+      503,
+      `Crossref 返回 ${response.status}${response.status === 429 ? "（被限流，稍后或换 arXiv / OpenAlex）" : ""}。`,
+    );
   const body = JSON.parse(response.bytes.toString("utf8")) as {
     message?: { items?: Array<Record<string, any>> };
   };
@@ -469,25 +475,50 @@ const describeFailure = (error: unknown) => ({
   code: error instanceof ApiFailure ? error.code : "PAPERS_UPSTREAM_ERROR",
   message: String((error as Error)?.message ?? error).slice(0, 300),
 });
+/** 同一查询在 60 秒内只打一次上游：连续追问时不会被自己打成 429。 */
+type SearchCache = Map<string, { at: number; papers: Candidate[] }>;
+const SEARCH_CACHE_MS = 60_000;
+/** 限流/超时/连不上值得再试一次；参数或来源错了不重试。 */
+const TRANSIENT = new Set([
+  "PAPERS_UPSTREAM_STATUS",
+  "PAPERS_UNAVAILABLE",
+  "PAPERS_TIMEOUT",
+]);
+async function withRetry<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!(error instanceof ApiFailure) || !TRANSIENT.has(error.code)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    return run();
+  }
+}
 async function searchSource(
   http: PaperHttp,
   egress: string[],
   source: string,
   query: string,
   limit: number,
+  searchCache: SearchCache,
 ): Promise<{ source: string; papers: Candidate[] }> {
-  if (source === "arxiv") return { source, papers: await arxivPapers(http, egress, query, limit) };
-  if (source === "crossref")
-    return { source, papers: await crossrefPapers(http, egress, query, limit) };
-  if (source === "openalex")
-    return { source, papers: await openAlexPapers(http, egress, query, limit) };
-  throw new ApiFailure(
-    "PAPERS_SOURCE_UNKNOWN",
-    400,
-    `不认识的来源 ${source}；可用 arxiv、openalex、crossref。`,
-  );
+  if (!(SEARCH_SOURCES as readonly string[]).includes(source))
+    throw new ApiFailure(
+      "PAPERS_SOURCE_UNKNOWN",
+      400,
+      `不认识的来源 ${source}；可用 arxiv、openalex、crossref。`,
+    );
+  const key = `${source}|${limit}|${query.trim().toLowerCase()}`,
+    cached = searchCache.get(key);
+  if (cached && Date.now() - cached.at < SEARCH_CACHE_MS)
+    return { source, papers: cached.papers };
+  const papers = await withRetry(async () => {
+    if (source === "arxiv") return arxivPapers(http, egress, query, limit);
+    if (source === "crossref") return crossrefPapers(http, egress, query, limit);
+    return openAlexPapers(http, egress, query, limit);
+  });
+  searchCache.set(key, { at: Date.now(), papers });
+  return { source, papers };
 }
-const SEARCH_SOURCES = ["arxiv", "openalex", "crossref"] as const;
 export async function pdfPages(bytes: Buffer): Promise<string[]> {
   if (
     bytes.length > MAX_PDF ||
@@ -582,6 +613,8 @@ export function paperHandlers(
     }
     return name;
   };
+  // 缓存跟着这组 handler 走：换一个 handler（测试或换源）不会串结果。
+  const searchCache: SearchCache = new Map();
   const handlers: Record<string, CapabilityHandler> = {};
   handlers["papers.search"] = async (context, args) => {
     const egress = context.catalog.capabilities["papers.search"].egress,
@@ -596,7 +629,10 @@ export function paperHandlers(
     const results = await Promise.all(
       sources.map(async (source) => {
         try {
-          return { ...(await searchSource(http, egress, source, query, limit)), ok: true };
+          return {
+            ...(await searchSource(http, egress, source, query, limit, searchCache)),
+            ok: true,
+          };
         } catch (error) {
           return { source, papers: [] as Candidate[], ok: false, error: describeFailure(error) };
         }
