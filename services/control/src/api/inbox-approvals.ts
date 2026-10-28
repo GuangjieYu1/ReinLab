@@ -176,6 +176,11 @@ export async function decideInboxCard(
       "insert into card_decision(account_id,approval_id,request_hash,receipt)values($1,$2,$3,$4)",
       [account, row.id, hash, json(receipt)],
     );
+    // 等待期间的租约已经放开，决定之后还回去（被别的运行占着就保持原样）。
+    await client.query(
+      "update dsh_session set lease_run_id=$1 where lease_run_id is null and dossier_id=(select dossier_id from run where id=$1)",
+      [row.run_id],
+    );
     return { status: 200, body: receipt };
   });
 }

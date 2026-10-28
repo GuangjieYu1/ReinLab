@@ -6,7 +6,11 @@ type Registered = {
   execute: (args: Record<string, unknown>, exec?: unknown) => Promise<unknown>;
 };
 
-function mount(fetchImpl: ReturnType<typeof vi.fn>, mode: "clarify" | "read" = "clarify") {
+function mount(
+  fetchImpl: ReturnType<typeof vi.fn>,
+  mode: "clarify" | "read" = "clarify",
+  extra: Record<string, unknown> = {},
+) {
   const registered: Registered[] = [];
   const ctx = {
     tools: { register: (definition: Registered) => registered.push(definition) },
@@ -18,6 +22,7 @@ function mount(fetchImpl: ReturnType<typeof vi.fn>, mode: "clarify" | "read" = "
     fetch: fetchImpl,
     approvalPollMs: 1,
     approvalTimeoutMs: 2000,
+    ...extra,
   });
   return { registered, tool: (name: string) => registered.find((d) => d.name === name)! };
 }
@@ -111,6 +116,20 @@ describe("reading plugin", () => {
     const result = (await tool("papers_fetch").execute({ paperId: "W2" })) as Record<string, unknown>;
     expect(result).toMatchObject({ status: "stopped", reason: "rejected", message: "已停止 · 没有下载" });
     expect(requests.filter((r) => r.url.endsWith("/kernel/tool"))).toHaveLength(1);
+  });
+
+  it("审批一直没人点：标成过期、回「可以重新开始」，不当作拒绝", async () => {
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      requests.push({ url, init });
+      if (url.endsWith("/kernel/tool")) return json({ state: "pending", approvalId: "ap-exp" }, 409);
+      if (url.endsWith("/expire")) return json({ state: "expired" });
+      return json({ state: "pending" });
+    });
+    // 等的窗口压到 50ms，测试不必真等十分钟。
+    const { tool } = mount(fetchImpl, "read", { approvalTimeoutMs: 50, approvalPollMs: 10 });
+    const result = (await tool("papers_fetch").execute({ paperId: "W-exp" })) as Record<string, unknown>;
+    expect(result).toMatchObject({ status: "stopped", reason: "expired", message: "审批已过期，可以重新开始" });
+    expect(requests.some((r) => r.url.endsWith("/kernel/approvals/ap-exp/expire"))).toBe(true);
   });
 
   it("asks the user in-conversation for a paper pick and reports the answer", async () => {

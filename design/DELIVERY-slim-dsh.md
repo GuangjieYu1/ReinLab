@@ -122,7 +122,23 @@ pnpm --dir <后端工作树> local:up22 --real-models
 5. 另外给内核补了稳定的取消/收尾：模型把工具参数写成不合法 JSON 时同轮重发一次；
    单轮工具调用上限 40 次（`TOOL_CALL_LIMIT`）。
 
-## 8. 未做 / 待你确认
+## 8. 审批卡与等待（run15 之后）
+
+- **卡只在真的决定之后消失**：删掉了「待办里没看到权限卡就本地收掉」的推断——轮询还没同步到那张
+  新卡时，界面照样先把卡显示出来。现在只有三种情况会收起：用户点了「批准 / 不下载」（后端确认后）、
+  收到 `approval.decided`、或收到 `approval.expired`。
+- **过期不当成拒绝**：等满 10 分钟没人点，插件调用 `POST /kernel/approvals/:id/expire`，把卡标成
+  `expired` 并写 `approval.expired` 事件；界面收起卡片，运行条写「审批已过期，可以重新开始」，
+  `papers_fetch` 返回 `reason: "expired"`（不再是 `rejected`）。
+- **等待期间放开会话租约**：卡一挂起就把 `dsh_session.lease_run_id` 置空，决定/过期之后还回去
+  （被别的运行占着就保持原样）。这样等人时不挡下一轮；代价是并发时同一会话可能被两边先后使用，
+  只在「审批卡挂起」这个窗口出现，决定到达即恢复。
+- 审批等待与工具超时都按 10 分钟算（`approvalTimeoutMs: 600000`，工具 `timeoutMs: 660000`）。
+- 前端同步了 Claude 的新文件：`src/components/workbenches/richText.tsx`（新增）、
+  `research/read/ReadMode.tsx`、`agent-dock.css`；另外把结束标题改成「有 message 就用 message」，
+  过期提示才能显示出来。
+
+## 9. 未做 / 待你确认
 
 - 前端接线（Claude 负责）。前端目录本轮只动了两处，都是为了上面第 3 条在页面上如实显示：
   `src/data/read-live.ts`（适配器本体）与 `src/components/workbenches/research/read/ReadMode.tsx`

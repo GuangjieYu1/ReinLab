@@ -28,7 +28,8 @@ describe("精读生命周期（kernel 协议）", () => {
       if (path === "/v1/dossiers?view=read") return { items: [{ id: "dossier-1", title: "精读档案" }] };
       if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [] };
       if (path === "/v1/kernel/runs") return { id: "run-1", sessionId: "ds-1" };
-      if (path === "/v1/kernel/runs/run-1") return { state: "running", usage: { known: false } };
+      if (path === "/v1/kernel/runs/run-1")
+        return { state: "running", usage: { known: false } };
       if (path === "/v1/approvals?state=pending") return { items: [] };
       throw Error("UNEXPECTED_ROUTE " + path);
     });
@@ -62,7 +63,8 @@ describe("精读生命周期（kernel 协议）", () => {
             { seq: 2, action: "assistant/message", payload: { message: { id: "m-1", content: [{ type: "text", text: "先检索一下。" }] } } },
           ],
         };
-      if (path === "/v1/kernel/runs/run-1") return { state: "running", usage: { known: false } };
+      if (path === "/v1/kernel/runs/run-1")
+        return { state: "running", usage: { known: false } };
       if (path === "/v1/approvals?state=pending") return { items: [] };
       throw Error("UNEXPECTED_ROUTE " + path);
     });
@@ -141,7 +143,8 @@ describe("下载审批只出一张卡", () => {
     const ports = routes((path) => {
       if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [{ id: "run-1", state: "running" }] };
       if (path.startsWith("/v1/kernel/runs/run-1/events")) return { events: [fetchCall(1)] };
-      if (path === "/v1/kernel/runs/run-1") return { state: "running", usage: { known: false } };
+      if (path === "/v1/kernel/runs/run-1")
+        return { state: "running", usage: { known: false } };
       if (path === "/v1/approvals?state=pending")
         return { items: [{ id: "00000000-0000-4000-8000-0000000000aa", runId: "run-1", kind: "permission", title: "下载论文全文" }] };
       throw Error("UNEXPECTED_ROUTE " + path);
@@ -164,7 +167,8 @@ describe("审批卡落定后消失", () => {
     const ports = routes((path) => {
       if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [{ id: "run-1", state: "running" }] };
       if (path.startsWith("/v1/kernel/runs/run-1/events")) return { events };
-      if (path === "/v1/kernel/runs/run-1") return { state: "running", usage: { known: false } };
+      if (path === "/v1/kernel/runs/run-1")
+        return { state: "running", usage: { known: false } };
       if (path === "/v1/approvals?state=pending") return { items: [] };
       throw Error("UNEXPECTED_ROUTE " + path);
     });
@@ -186,7 +190,8 @@ describe("点卡片落地", () => {
         async (path: string) => {
           if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [{ id: "run-1", state: "running" }] };
           if (path.startsWith("/v1/kernel/runs/run-1/events")) return { events: [] };
-          if (path === "/v1/kernel/runs/run-1") return { state: "running", usage: { known: false } };
+          if (path === "/v1/kernel/runs/run-1")
+        return { state: "running", usage: { known: false } };
           if (path === "/v1/approvals?state=pending")
             return {
               items: [
@@ -215,5 +220,53 @@ describe("点卡片落地", () => {
     await adapter.decide("call-anything", true);
     expect(decided).toHaveLength(1);
     expect(decided[0].id).toBe("00000000-0000-4000-8000-0000000000cc");
+  });
+});
+
+describe("审批卡不会在用户看到之前消失", () => {
+  it("待办还没同步过来时继续显示卡片；过期后写「审批已过期」而不是拒绝", { timeout: 20000 }, async () => {
+    const fetchCall = {
+      seq: 1,
+      action: "tool/call",
+      payload: { name: "papers_fetch", callId: "call-1", arguments: JSON.stringify({ paperId: "arxiv:2302.04761" }) },
+    };
+    let expire = false,
+      finished = false;
+    const ports = routes((path) => {
+      if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [{ id: "run-1", state: "running" }] };
+      if (path.startsWith("/v1/kernel/runs/run-1/events"))
+        return {
+          events: expire
+            ? [fetchCall, { seq: 2, action: "approval.expired", payload: { approvalId: "00000000-0000-4000-8000-0000000000dd" } }]
+            : [fetchCall],
+        };
+      if (path === "/v1/kernel/runs/run-1")
+        return { state: finished ? "completed" : "running", usage: { known: false } };
+      // 审批行还没建好（或还没同步过来）：列表是空的。
+      if (path === "/v1/approvals?state=pending") return { items: [] };
+      throw Error("UNEXPECTED_ROUTE " + path);
+    });
+    const adapter = createLiveReadAdapter("dossier-1", ports as never);
+    const seen: any[] = [];
+    off = adapter.subscribe((event) => seen.push(event));
+    await adapter.load();
+    // 一个轮询周期之后，空列表不能把卡收掉。
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const approvals = seen.filter((event) => event.type === "approval");
+    expect(approvals.filter((event) => event.state === "pending")).toHaveLength(1);
+    expect(approvals.some((event) => event.state === "approved")).toBe(false);
+
+    // 后端说它过期了：卡片收起，但运行条要说明是过期，不是「你拒绝了」。
+    expire = true;
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    const expired = seen.filter((event) => event.type === "approval" && event.state === "expired");
+    expect(expired).toHaveLength(1);
+    const messages = seen.filter((event) => event.type === "run").map((event: any) => event.run.message);
+    expect(messages).toContain("审批已过期，可以重新开始");
+    // 这一轮后来结束了，也不能把「过期」改成「讲解只生成了 0 层」。
+    finished = true;
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    const lastRun = seen.filter((event) => event.type === "run").at(-1) as any;
+    expect(lastRun.run.message ?? "").toBe("审批已过期，可以重新开始");
   });
 });

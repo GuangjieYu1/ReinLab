@@ -55,12 +55,26 @@ export function createClient(config, fetchImpl = fetch) {
   };
 }
 
+/** Tell the control plane the user never answered, so the card is marked expired. */
+async function expireCard(config, approvalId) {
+  const controlUrl = required(config, "controlUrl").replace(/\/+$/, "");
+  const token = await readToken(config);
+  await (config.fetch ?? fetch)(
+    `${controlUrl}/kernel/approvals/${encodeURIComponent(approvalId)}/expire`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": token },
+      body: "{}",
+    },
+  ).catch(() => {});
+}
+
 /** Wait for the single approval card until the run's turn is abandoned. */
 async function awaitDecision(config, call, approvalId) {
   const fetchImpl = config.fetch ?? fetch;
   const controlUrl = required(config, "controlUrl").replace(/\/+$/, "");
-  // 最多等一分钟：本地走查里没人点就该收尾，不能把这一轮挂住（也就不会长期占着会话）。
-  const deadline = Date.now() + Number(config.approvalTimeoutMs ?? 60_000);
+  // 等人点卡是业务等待：默认十分钟，期间会话租约已由控制面放开。
+  const deadline = Date.now() + Number(config.approvalTimeoutMs ?? 600_000);
   for (;;) {
     const token = await readToken(config);
     const response = await fetchImpl(
@@ -71,7 +85,10 @@ async function awaitDecision(config, call, approvalId) {
     if (body.state === "approved") return { approved: true, approvalId };
     if (body.state === "rejected" || body.state === "expired")
       return { approved: false, approvalId };
-    if (Date.now() > deadline) return { approved: false, approvalId, timedOut: true };
+    if (Date.now() > deadline) {
+      await expireCard(config, approvalId);
+      return { approved: false, approvalId, timedOut: true };
+    }
     await poll(Number(config.approvalPollMs ?? 750));
   }
 }
@@ -114,14 +131,16 @@ export function apply(ctx, config) {
       },
       output,
       // Waiting for the user's decision is not a slow tool: keep the turn open.
-      timeoutMs: 120_000,
+      timeoutMs: 660_000,
       async execute(args) {
         const first = await call("papers", "fetch", args);
         if (first.error) return first.error;
         if (!first.pending) return first.result;
         const decision = await awaitDecision(config, call, first.approvalId);
         if (!decision.approved)
-          return { status: "stopped", reason: "rejected", message: "已停止 · 没有下载" };
+          return decision.timedOut
+            ? { status: "stopped", reason: "expired", message: "审批已过期，可以重新开始" }
+            : { status: "stopped", reason: "rejected", message: "已停止 · 没有下载" };
         const second = await call("papers", "fetch", args, {
           approvalId: decision.approvalId,
         });
@@ -195,7 +214,7 @@ export function apply(ctx, config) {
         candidates: { type: "array", items: { type: "object", additionalProperties: true }, description: "真实候选论文。" },
       },
       output,
-      timeoutMs: 120_000,
+      timeoutMs: 660_000,
       async execute(args) {
         const askArgs =
           Array.isArray(args.candidates) && args.candidates.length > 0

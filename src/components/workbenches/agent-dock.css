@@ -92,3 +92,4 @@
 .ad-input textarea { border-color:var(--rh-ink); }
 .ad-input .rh-btn.is-solid:disabled { background:var(--rh-paper-3); border-color:var(--rh-paper-3); color:var(--rh-ink-4); opacity:1; }
 .ad-stream { overflow-x:clip; }
+.ad-msg a, .rd-pick > b a { color:var(--rh-accent); text-decoration:underline; text-underline-offset:2px; }

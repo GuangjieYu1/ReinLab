@@ -96,6 +96,7 @@ export function createLiveReadAdapter(
     questionCardId: string | undefined,
     localPhase: RunView["state"] | undefined,
     rejected = false,
+    expired = false,
     fetchCardShown = false,
     permissionCardShown = false,
     shownPermissionId: string | undefined = undefined,
@@ -352,6 +353,26 @@ export function createLiveReadAdapter(
         }
         return;
       }
+      case "approval.expired": {
+        // 人没来得及批：卡片收起来，但要说清是「过期」，不是「你拒绝了」。
+        const expiredId =
+          shownPermissionId ?? String(data.approvalId ?? "approval:" + event.seq);
+        permissionCardShown = false;
+        fetchCardShown = false;
+        shownPermissionId = undefined;
+        expired = true;
+        emit({
+          type: "approval",
+          id: expiredId,
+          action: "papers.fetch",
+          title: "下载论文全文",
+          effects: [],
+          risk: "write",
+          state: "expired",
+        });
+        patchRun({ message: "审批已过期，可以重新开始" });
+        return;
+      }
       case "tool/result": {
         const callId = String(data.callId ?? data.message?.source?.callId ?? "");
         const resultText = Array.isArray(data.message?.content)
@@ -423,12 +444,6 @@ export function createLiveReadAdapter(
         risk?: string;
       }>;
     };
-    // 待办里已经没有权限卡了（同意后被消费 / 拒绝 / 过期）：本地那张也收掉，
-    // 不能让界面一直挂「右边有 1 个审批等你」。
-    if (!(listed?.items ?? []).some((item) => item.kind === "permission"))
-      for (const entry of snapshot.history)
-        if (entry.type === "approval" && entry.state === "pending")
-          emit({ ...entry, state: "approved" });
     for (const card of listed?.items ?? []) {
       // 认运行，也认当前档案：重新开始后运行会换，卡片仍属于这段精读。
       const sameDossier =
@@ -494,7 +509,7 @@ export function createLiveReadAdapter(
 
   /** 讲不满 5 层时照实写层数：刷新、轮询两个入口说的是同一句话。 */
   function shortfall(): Partial<RunView> {
-    if (endReason !== "completed" || snapshot.layers.length >= 5) return {};
+    if (expired || endReason !== "completed" || snapshot.layers.length >= 5) return {};
     return {
       endReason: "completed",
       message: snapshot.layers.length
@@ -528,6 +543,8 @@ export function createLiveReadAdapter(
       ...(state === "done"
         ? rejected
           ? { endReason: "rejected" as const, message: "已停止 · 没有下载" }
+          : expired
+          ? { endReason: endReason ?? ("completed" as const), message: "审批已过期，可以重新开始" }
           : {
               endReason: endReason ?? "completed",
               // 后端已经提醒补写过一次；到这里还是不满 5 层就照实写层数，不说「已完成」。

@@ -186,7 +186,7 @@ export async function materializeLaunch(
       "        tokenFile: " + JSON.stringify(plan.paths.tokenFile),
       "        controlUrl: " + JSON.stringify(plan.options.env.REINLAB_CONTROL_URL),
       "        mode: " + JSON.stringify(plan.mode),
-      "        approvalTimeoutMs: 90000",
+      "        approvalTimeoutMs: 600000",
       "",
     ].join("\n"),
     0o600,

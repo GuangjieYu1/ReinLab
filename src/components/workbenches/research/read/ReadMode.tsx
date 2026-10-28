@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import BenchFrame from '../../BenchFrame';
+import { RichText } from '../../richText';
 import { scrollWithin } from '../../scrollWithin';
 import AgentDock, { type DockEvent, type Suggestion } from '../../AgentDock';
 import Explorer, { Tree, type ExplorerSection, type ExplorerView } from '../../engineering/Explorer';
@@ -27,7 +28,7 @@ const ANIMS: { id: Anim; title: string; en: string; ref: string }[] = [
 const clock = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const END_TEXT: Record<NonNullable<RunView['endReason']>, string> = { completed: '已完成', rejected: '已停止 · 没有下载', cancelled: '已停止', budget: '预算用完，已暂停', abstract_only: '没拿到全文', failed: '出错停止' };
 // 讲解层没写满时后端给了照实的话（「讲解只生成了 N 层」），结束标题就用它，不写「已完成」。
-const runText = (r: RunView) => (r.endReason && (r.state === 'done' || r.state === 'cancelled' || r.state === 'failed') ? (r.endReason === 'completed' && r.message ? r.message : END_TEXT[r.endReason]) : RUN_TEXT[r.state]);
+const runText = (r: RunView) => (r.endReason && (r.state === 'done' || r.state === 'cancelled' || r.state === 'failed') ? (r.message ? r.message : END_TEXT[r.endReason]) : RUN_TEXT[r.state]);
 const RUN_TEXT: Record<RunView['state'], string> = { idle: '未开始', estimating: '正在预估', confirm: '等你确认预算', queued: '排队中', running: '运行中', waiting: '等你批准', done: '已完成', failed: '失败', cancelled: '已停止' };
 const active = (r: RunView) => r.state === 'queued' || r.state === 'running' || r.state === 'waiting';
 const money = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `¥${v < 0.1 ? v.toFixed(3) : v.toFixed(2)}`);
@@ -92,7 +93,7 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
 
   const logEvents: (DockEvent | null)[] = state.log.map((e: ReadEvent): DockEvent | null => {
     if (e.type === 'user') return { id: e.id, kind: 'user', text: e.text, at: at(e.id) };
-    if (e.type === 'agent') return { id: e.id, kind: 'agent', at: at(e.id), text: <><p>{e.text}</p>{(e.refs?.length || (e.anim && state.anims.includes(e.anim))) && <p>{e.refs?.map(r => <b key={r} className="ad-ref" onClick={() => { setFace('explain'); cite([r]); }}>{paper?.sections.find(s => s.id === r)?.no ?? r}</b>)}{e.anim && state.anims.includes(e.anim) && <> · <b className="ad-ref" onClick={() => openAnim(e.anim as Anim)}>打开动画</b></>}</p>}</> };
+    if (e.type === 'agent') return { id: e.id, kind: 'agent', at: at(e.id), text: <><p><RichText text={e.text} /></p>{(e.refs?.length || (e.anim && state.anims.includes(e.anim))) && <p>{e.refs?.map(r => <b key={r} className="ad-ref" onClick={() => { setFace('explain'); cite([r]); }}>{paper?.sections.find(s => s.id === r)?.no ?? r}</b>)}{e.anim && state.anims.includes(e.anim) && <> · <b className="ad-ref" onClick={() => openAnim(e.anim as Anim)}>打开动画</b></>}</p>}</> };
     if (e.type === 'tool') return { id: e.id, kind: 'tool', action: e.action, label: e.label, state: e.state, detail: e.detail, ms: e.ms };
     if (e.type === 'pick') return { id: e.id, kind: 'card', body: <PickCard e={e} repick={!run.chosen && !paper && (run.state === 'idle' || run.state === 'confirm')} onPick={c => void adapter.pick(e.id, c)} /> };
     if (e.type === 'approval') return { id: e.id, kind: 'approval', action: e.action, title: e.title, effects: e.effects, risk: e.risk, state: e.state, onApprove: () => void adapter.decide(e.id, true), onReject: () => void adapter.decide(e.id, false) };
@@ -261,7 +262,7 @@ function PickCard({ e, onPick, repick = false }: { e: Extract<ReadEvent, { type:
   // 答过的卡默认锁住；「换一篇」之后（repick）可以直接改选，不必再让助手列一次
   const done = e.state !== 'pending' && !repick;
   return <div className="rd-pick" data-done={done || undefined}>
-    <b>候选 · 「{e.query}」</b>
+    <b>候选 · 「<RichText text={e.query} />」</b>
     <ul>{e.candidates.map(c => <li key={c.id}><button disabled={done} aria-pressed={e.chosen === c.id} onClick={() => onPick(c.id)}>
       <span><b>{c.title}</b><small>{shortAuthors(c.authors)} · {c.venue}{c.pages ? ` · ${c.pages} 页` : ''} · {c.access === 'full' ? '有开放全文' : '只有摘要'}</small></span>{c.note && <em>{c.note}</em>}</button></li>)}</ul>
     {!done && <button className="rh-btn" onClick={() => onPick(null)}>都不是</button>}

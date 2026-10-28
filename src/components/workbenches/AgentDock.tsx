@@ -12,7 +12,7 @@ export type DockEvent =
   | { id: string; kind: 'user'; text: string; at: string }
   | { id: string; kind: 'agent'; text: ReactNode; at: string }
   | { id: string; kind: 'tool'; action: string; label: string; detail?: string; state: 'running' | 'done' | 'failed'; ms?: number }
-  | { id: string; kind: 'approval'; action: string; title: string; effects: string[]; risk: Risk; state: 'pending' | 'approved' | 'rejected'; onApprove: () => void; onReject: () => void }
+  | { id: string; kind: 'approval'; action: string; title: string; effects: string[]; risk: Risk; state: 'pending' | 'approved' | 'rejected' | 'expired'; onApprove: () => void; onReject: () => void }
   | { id: string; kind: 'card'; body: ReactNode };
 
 /** 新事件（id 可省略，由宿主生成）。对联合类型逐个去掉 id。 */

@@ -159,6 +159,9 @@ export function registerKernelTools(
             risk: "read",
             kind: "question",
           });
+          await client.query("update dsh_session set lease_run_id=null where lease_run_id=$1", [
+            call.run,
+          ]);
           return c.json({ state: "pending", approvalId: card.id }, 409);
         }
         if (APPROVAL_REQUIRED.has(capability)) {
@@ -222,6 +225,11 @@ export function registerKernelTools(
               const reused = await existingPaperAsset(client, call);
               if (reused) return c.json({ result: reused });
             }
+            if (card.state === "pending")
+              await client.query(
+                "update dsh_session set lease_run_id=null where lease_run_id=$1",
+                [call.run],
+              );
             return c.json({ state: card.state === "pending" ? "pending" : card.state, approvalId: card.id }, 409);
           }
           // Already downloaded for this dossier: consume the approval and return
@@ -311,6 +319,30 @@ export function registerKernelTools(
     });
   });
 
+  /** 人一直不点：由插件在等待超时后调用，把这张卡标成过期并留下事件。 */
+  app.post("/kernel/approvals/:id/expire", async (c) => {
+    const claims = authenticate(c.req.raw);
+    return dependencies.db.withAccount(claims.account, async (client) => {
+      const row = (
+        await client.query(
+          "update approval set state='expired' where id=$1 and account_id=$2 and state='pending' returning run_id",
+          [c.req.param("id"), claims.account],
+        )
+      ).rows[0];
+      if (!row) return c.json({ state: "expired" });
+      await client.query(
+        "update dsh_session set lease_run_id=null where lease_run_id=$1",
+        [row.run_id],
+      );
+      await appendApprovalEvent(client, claims.account, row.run_id, "approval.expired", {
+        approvalId: c.req.param("id"),
+        reason: "expired",
+      });
+      await leaseBack(client, row.run_id);
+      return c.json({ state: "expired" });
+    });
+  });
+
   app.post("/kernel/approvals/:id/decide", async (c) => {
     const claims = authenticate(c.req.raw);
     const body = (await c.req.json().catch(() => ({}))) as { decision?: unknown };
@@ -322,11 +354,49 @@ export function registerKernelTools(
         approvalId: c.req.param("id"),
         decision,
       });
+      const decided = (
+        await client.query("select run_id from approval where id=$1 and account_id=$2", [
+          c.req.param("id"),
+          claims.account,
+        ])
+      ).rows[0];
+      if (decided) await leaseBack(client, decided.run_id);
       return c.json({ state: card.state });
     });
   });
 }
 
+/** 决定/过期之后，把会话租约还回这一轮（被别人占用时保持原样）。 */
+async function leaseBack(client: pg.PoolClient, run: string) {
+  await client.query(
+    "update dsh_session set lease_run_id=$1 where lease_run_id is null and dossier_id=(select dossier_id from run where id=$1)",
+    [run],
+  );
+}
+async function appendApprovalEvent(
+  client: pg.PoolClient,
+  account: string,
+  run: string,
+  action: string,
+  payload: Record<string, unknown>,
+) {
+  const row = (
+    await client.query("select dossier_id from run where id=$1 and account_id=$2", [run, account])
+  ).rows[0];
+  if (!row) return;
+  await client.query(
+    `insert into event(account_id,dossier_id,run_id,role_id,kind,action,payload,dedupe_key)
+     values($1,$2,$3,'research-read','dsh',$4,$5,$6)`,
+    [
+      account,
+      row.dossier_id,
+      run,
+      action,
+      JSON.stringify(payload),
+      `dsh:${run}:${action}:${String(payload.approvalId ?? Date.now())}`,
+    ],
+  );
+}
 async function existingPaperAsset(
   client: pg.PoolClient,
   call: KernelToolCall,

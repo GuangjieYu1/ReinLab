@@ -56,7 +56,7 @@ export type ReadEvent =
   /** 选论文：检索后列出候选，等你选一篇（live 对应原生 question）。state 为 none 表示没找到。 */
   | { type: 'pick'; id: string; query: string; candidates: PaperCandidate[]; state: 'pending' | 'answered' | 'none'; chosen?: string }
   /** 运行中的审批（例如把全文下载进档案）。 */
-  | { type: 'approval'; id: string; action: string; title: string; effects: string[]; risk: 'read' | 'write' | 'danger'; state: 'pending' | 'approved' | 'rejected' };
+  | { type: 'approval'; id: string; action: string; title: string; effects: string[]; risk: 'read' | 'write' | 'danger'; state: 'pending' | 'approved' | 'rejected' | 'expired' };
 
 export type ReadSnapshot = {
   dossier: { id: string; title: string };
