@@ -51,7 +51,8 @@ export function createClient(config, fetchImpl = fetch) {
 async function awaitDecision(config, call, approvalId) {
   const fetchImpl = config.fetch ?? fetch;
   const controlUrl = required(config, "controlUrl").replace(/\/+$/, "");
-  const deadline = Date.now() + Number(config.approvalTimeoutMs ?? 1_800_000);
+  // 最多等一分钟：本地走查里没人点就该收尾，不能把这一轮挂住（也就不会长期占着会话）。
+  const deadline = Date.now() + Number(config.approvalTimeoutMs ?? 60_000);
   for (;;) {
     const token = await readToken(config);
     const response = await fetchImpl(
