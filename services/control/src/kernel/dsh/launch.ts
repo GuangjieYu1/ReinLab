@@ -115,6 +115,8 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
       SHIM_PID_FILE: paths.pidFile,
       SHIM_DSH_MODULE: input.bundler.dshModule,
       SHIM_TOKEN_FILE: paths.tokenFile,
+      // 内核子进程必须用控制面同一个 Node 22：shim 会把它当作 dsh 的解释器。
+      SHIM_NODE: process.execPath,
     },
   };
   return {

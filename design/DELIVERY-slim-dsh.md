@@ -8,8 +8,14 @@
 真实模型需要 `~/.config/reinlab/local.env`（`DEEPSEEK_API_KEY`，0600），然后：
 
 ```sh
-pnpm --dir <后端工作树> local:up --real-models
+pnpm --dir <后端工作树> local:up22 --real-models
 ```
+
+`local:up22` 走 `tooling/local/start.sh`：固定用项目工具链的 Node 22
+（`~/.local/share/reinlab/toolchains/node-v22*/bin/node`，可用 `REINLAB_NODE_BIN` 指定），
+不依赖 PATH 上的 `node`；内核拉起的 `dsh` 子进程也固定用同一个 Node。
+在 Electron 运行时（例如从 DSH 桌面应用里跑 `pnpm local:up`）会直接报
+`LOCAL_ELECTRON_RUNTIME_FORBIDDEN` 并退出——dsh 不接受 Electron 的运行时指纹。
 
 - 可选环境变量（都不填也能跑）：
   - `OPENALEX_API_KEY`：有 key 时 OpenAlex 走自己的额度，没有就吃共享额度（429 属于正常现象，模型会换源）
@@ -94,8 +100,9 @@ pnpm --dir <后端工作树> local:up --real-models
   旧澄清链（`clarify/`、`api/read-clarify`、`api/runtime`、`api/gates`、`api/budget`、`api/promotions`、
   `api/ledger`）、bench 发布（`harness/`）、账户机器供给（`provisioner/`）、`tooling/local/{worker,hatchet,image}`。
 - **依赖**：`@synsci/*` 全部移除（workspace 与 lockfile）；`pnpm-workspace.yaml` 不再列 `@synsci/openscience`。
-- **本地启动**：`local:up --real-models` 只起 supabase + 控制面 + 前端；不再构建账户镜像、
+- **本地启动**：`local:up22 --real-models` 只起 supabase + 控制面 + 前端；不再构建账户镜像、
   不再起 Hatchet/worker（`image:"host"`）。数据库迁移走 `services/control/src/db/bootstrap.ts`。
+  遗留的 `reinlab-hatchet-803a04fcd69a` 容器已停掉并删除。
 - **旧表**：新迁移 `202610280001_retire_openscience.sql` 删掉 os_binding/os_usage/mcp_*/run_harness/bench_*
   /read_candidate/read_clarification/promotion/memory_item/thread/gate/artifact/delegation/
   account_machine*/credential* 等，并补上 `role_def('research-read')` 种子（干净库也能直接建运行）。

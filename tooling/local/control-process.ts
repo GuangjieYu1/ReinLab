@@ -200,10 +200,19 @@ export async function startControlProcess(options: {
   recordFile: string;
   timeoutMs?: number;
   port?: number;
+  /** Pinned Node runtime; never the Electron/parent executable. */
+  node?: string;
 }) {
   const instance = randomUUID();
+  const executable = options.node ?? process.execPath;
+  if (
+    process.env.REINLAB_LOCAL_STACK === "1" &&
+    process.versions.electron &&
+    !options.node
+  )
+    throw Error("LOCAL_ELECTRON_RUNTIME_FORBIDDEN");
   const child = spawn(
-    process.execPath,
+    executable,
     ["--import", "tsx", options.script, "--instance", instance],
     {
       cwd: options.cwd,
@@ -226,7 +235,7 @@ export async function startControlProcess(options: {
     const record: ControlRecord = {
       pid: child.pid,
       instance,
-      executable: process.execPath,
+      executable,
       script: options.script,
     };
     await writeControlRecord(options.recordFile, record);

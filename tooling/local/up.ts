@@ -17,7 +17,11 @@ import { acquireStartupLock } from "./startup-lock";
 import { startControlProcess, stopOwnedControl } from "./control-process";
 import { bootstrapLocalDatabase } from "../../services/control/src/db/bootstrap";
 import { realModelMode } from "./real-models";
+import { ensureNode22 } from "./runtime";
 
+// 固定跑在项目工具链的 Node 22 上：Electron 直接报错，PATH 上的 node 不作为依据。
+const scriptPath = resolve("tooling/local/up.ts");
+const nodeBin = await ensureNode22(scriptPath);
 const paths = localPaths(),
   credentialRoot = join(homedir(), ".local/state/reinlab/account-credentials");
 const cliEnvironment = {
@@ -167,6 +171,8 @@ try {
     // Local runs use the host transport; the account-image path stays the
     // production transport and is selected with REINLAB_KERNEL_TRANSPORT=container.
     REINLAB_KERNEL_TRANSPORT: "host",
+    // 内核拉起的 dsh 子进程也用同一个 Node 22。
+    SHIM_NODE: nodeBin,
     REINLAB_KERNEL_MODEL: "deepseek-v4-flash",
     REINLAB_KERNEL_MAX_TOKENS: "32768",
   });
@@ -175,8 +181,9 @@ try {
   await startControlProcess({
     script: resolve("tooling/local/control.ts"),
     cwd: paths.root,
-    env: { ...cliEnvironment },
+    env: { ...cliEnvironment, SHIM_NODE: nodeBin },
     recordFile: paths.process,
+    node: nodeBin,
   });
   await stopOwnedControl(
     join(paths.state, "frontend.json"),
@@ -189,6 +196,7 @@ try {
       env: { ...cliEnvironment },
       recordFile: join(paths.state, "frontend.json"),
       port: 5183,
+      node: nodeBin,
     });
   console.log(
     JSON.stringify({

@@ -19,6 +19,14 @@ import { registerMessagesProxy } from "./model/messages-proxy";
 import { recordUsage } from "./run/usage";
 import { readRuntimeConfiguration } from "./configuration";
 
+// dsh will not boot inside Electron. The local stack entry sets
+// REINLAB_LOCAL_STACK=1 so this fails fast with a readable reason, while tests
+// that import this module are unaffected.
+if (
+  process.env.REINLAB_LOCAL_STACK === "1" &&
+  (process.versions as { electron?: string }).electron
+)
+  throw new Error("CONTROL_ELECTRON_RUNTIME_FORBIDDEN");
 const config = runtimeConfiguration();
 const realModels = config.REINLAB_REAL_MODELS_ENABLED === "1";
 if (
