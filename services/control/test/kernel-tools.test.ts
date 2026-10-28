@@ -157,6 +157,32 @@ describe("kernel tool gateway", () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
 
+  it("把工具失败报成错误码加一句原因，而不是只有 KERNEL_TOOL_HTTP_500", async () => {
+    const known = build(
+      vi.fn(async () => {
+        throw new ApiFailure("PAPERS_UPSTREAM_STATUS", 503, "检索来源返回 429，暂不可用。");
+      }),
+    );
+    const upstream = await call(known.app, { server: "papers", tool: "search", args: { query: "x" } });
+    expect(upstream.status).toBe(503);
+    expect(upstream.body).toMatchObject({
+      code: "PAPERS_UPSTREAM_STATUS",
+      message: "检索来源返回 429，暂不可用。",
+    });
+
+    const silent = vi.spyOn(console, "error").mockImplementation(() => {});
+    const unexpected = build(
+      vi.fn(async () => {
+        throw new Error("boom: unexpected");
+      }),
+    );
+    const crashed = await call(unexpected.app, { server: "papers", tool: "search", args: { query: "x" } });
+    expect(crashed.status).toBe(500);
+    expect(crashed.body).toMatchObject({ code: "KERNEL_TOOL_FAILED" });
+    expect(String((crashed.body as { message: string }).message)).toContain("boom");
+    silent.mockRestore();
+  });
+
   it("stops without dispatching when the user rejects the download", async () => {
     const dispatch = vi.fn(async () => ({ ok: true }));
     const { app } = build(dispatch);

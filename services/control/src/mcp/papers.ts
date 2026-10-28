@@ -60,9 +60,20 @@ const deny = () =>
     403,
     "论文不属于本档案，或来源不在允许范围。"
   );
+/**
+ * Paper handles we accept. `W…` is an OpenAlex work, `arxiv:…` an arXiv id; a
+ * bare arXiv id is normalized so a model quoting only the number still reads.
+ */
 function paperId(raw: unknown) {
-  if (typeof raw !== "string" || !/^W[0-9]{1,30}$/.test(raw)) throw deny();
-  return raw;
+  if (typeof raw !== "string") throw deny();
+  if (/^W[0-9]{1,30}$/.test(raw)) return raw;
+  if (/^arxiv:[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$/i.test(raw)) return raw.toLowerCase();
+  if (/^[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$/.test(raw)) return "arxiv:" + raw;
+  throw deny();
+}
+/** OpenAlex now meters anonymous traffic per IP budget; a key restores it. */
+function openAlexKey() {
+  return (process.env.OPENALEX_API_KEY ?? "").trim();
 }
 function abstract(work: z.infer<typeof Work>) {
   const words = new Map<number, string>();
@@ -77,6 +88,239 @@ function abstract(work: z.infer<typeof Work>) {
   if (Buffer.byteLength(text) > 262144)
     throw new ApiFailure("PAPER_TOO_LARGE", 413, "论文摘要超过大小限制。");
   return text;
+}
+const ARXIV_API = "https://export.arxiv.org/api/query";
+/** One paper as `papers.fetch` sees it, whatever upstream produced it. */
+type PaperRecord = {
+  bytes: Buffer | null;
+  fileUrl: string;
+  recordUrl: string;
+  license: string | null;
+  isOpenAccess: boolean;
+  abstractText: string;
+  viewMetadata: {
+    title: string | null;
+    authors: string[];
+    venue: string | null;
+    sizeBytes: number | null;
+  };
+};
+const decodeXml = (value: string) =>
+  value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+type ArxivEntry = { id: string; title: string; summary: string; abs: string; authors: string[] };
+/** arXiv answers in Atom, so the fields we need are read without an XML dependency. */
+function atomEntries(xml: string): ArxivEntry[] {
+  const entries: ArxivEntry[] = [];
+  for (const [, body] of xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)) {
+    const pick = (tag: string) =>
+      decodeXml(body.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`))?.[1] ?? "");
+    const abs = pick("id"),
+      id = abs.replace(/^.*\/abs\//, "");
+    if (!/^[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$/i.test(id)) continue;
+    entries.push({
+      id,
+      abs,
+      title: pick("title").slice(0, 1000),
+      summary: pick("summary"),
+      authors: [...body.matchAll(/<name>([\s\S]*?)<\/name>/g)]
+        .map(([, name]) => decodeXml(name).slice(0, 300))
+        .filter(Boolean)
+        .slice(0, 50),
+    });
+  }
+  return entries;
+}
+/** arXiv throttles abrupt sequences: one short retry keeps a reading session moving. */
+async function arxivGet(http: PaperHttp, egress: string[], url: string, maximum: number) {
+  let response = await http.get(url, egress, maximum);
+  if (response.status === 429 || response.status === 503) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    response = await http.get(url, egress, maximum);
+  }
+  return response;
+}
+async function arxivPapers(
+  http: PaperHttp,
+  egress: string[],
+  query: string,
+  limit: number,
+) {
+  // arXiv reads `all:` as AND over terms; punctuation would be parsed as syntax,
+  // and function words only narrow the result set.
+  const stop = new Set(["a", "an", "the", "of", "to", "in", "on", "for", "and", "with", "is", "are", "how", "what", "why", "does", "do", "themselves", "its", "their", "we", "can", "using"]);
+  const terms = query
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((term) => term.length > 1 && !stop.has(term.toLowerCase()))
+    .slice(0, 12);
+  if (!terms.length) throw new ApiFailure("PAPERS_QUERY_EMPTY", 400, "检索词为空。");
+  // A long question is all-AND and easily matches nothing, so the search narrows
+  // from the full phrase to its head terms instead of answering "没找到" too early.
+  const ladder = [...new Set([Math.min(terms.length, 8), 3, 1])]
+    .filter((size) => size <= terms.length)
+    .sort((a, b) => b - a);
+  for (const [attempt, size] of ladder.entries()) {
+    const url = new URL(ARXIV_API);
+    url.searchParams.set(
+      "search_query",
+      terms.slice(0, size).map((term) => "all:" + term).join(" AND "),
+    );
+    url.searchParams.set("start", "0");
+    url.searchParams.set("max_results", String(Math.min(limit, 20)));
+    url.searchParams.set("sortBy", "relevance");
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1200));
+    const response = await arxivGet(http, egress, url.href, 1024 * 1024);
+    if (response.status !== 200)
+      throw new ApiFailure("PAPERS_UPSTREAM_STATUS", 503, `检索来源返回 ${response.status}，暂不可用。`);
+    const papers = atomEntries(response.bytes.toString("utf8")).map((entry) => ({
+      paperId: "arxiv:" + entry.id,
+      title: entry.title,
+      source: entry.abs || "https://arxiv.org/abs/" + entry.id,
+      isOpenAccess: true,
+    }));
+    if (papers.length) return papers;
+  }
+  return [];
+}
+async function arxivRecord(
+  http: PaperHttp,
+  egress: string[],
+  id: string,
+): Promise<PaperRecord> {
+  const url = new URL(ARXIV_API);
+  url.searchParams.set("id_list", id);
+  const response = await arxivGet(http, egress, url.href, 1024 * 1024);
+  if (response.status !== 200)
+    throw new ApiFailure("PAPERS_UNAVAILABLE", 503, "论文元数据暂不可用。");
+  const entry = atomEntries(response.bytes.toString("utf8"))[0];
+  if (!entry) throw deny();
+  const fileUrl = "https://arxiv.org/pdf/" + id;
+  let bytes: Buffer | null = null;
+  try {
+    const pdf = await arxivGet(http, egress, fileUrl, MAX_PDF);
+    if (pdf.status === 200 && pdf.bytes.subarray(0, 5).equals(Buffer.from("%PDF-"))) {
+      await pdfPages(pdf.bytes);
+      bytes = pdf.bytes;
+    }
+  } catch (error) {
+    if (error instanceof ApiFailure && error.code === "PAPERS_EGRESS_DENIED") throw error;
+  }
+  return {
+    bytes,
+    fileUrl,
+    recordUrl: entry.abs || "https://arxiv.org/abs/" + id,
+    // arXiv preprints carry no per-item licence URL; openness is stated, terms are not invented.
+    license: null,
+    isOpenAccess: true,
+    abstractText: entry.summary,
+    viewMetadata: {
+      title: entry.title,
+      authors: entry.authors,
+      venue: "arXiv",
+      sizeBytes: bytes?.length ?? null,
+    },
+  };
+}
+async function openAlexPapers(
+  http: PaperHttp,
+  egress: string[],
+  query: string,
+  limit: number,
+) {
+  const url = new URL("https://api.openalex.org/works");
+  url.searchParams.set("search", query);
+  url.searchParams.set("per-page", String(limit));
+  url.searchParams.set("api_key", openAlexKey());
+  const response = await http.get(url.href, egress, 1024 * 1024);
+  if (response.status !== 200)
+    throw new ApiFailure("PAPERS_UPSTREAM_STATUS", 503, `检索来源返回 ${response.status}，暂不可用。`);
+  let body: unknown;
+  try {
+    body = JSON.parse(response.bytes.toString("utf8"));
+  } catch {
+    throw new ApiFailure("PAPERS_UPSTREAM_INVALID", 503, "检索来源返回的不是 JSON，暂不可用。");
+  }
+  const parsed = z.object({ results: z.array(Work).max(20) }).safeParse(body);
+  if (!parsed.success) {
+    const detail =
+      typeof (body as { message?: unknown })?.message === "string"
+        ? String((body as { message?: string }).message).slice(0, 120)
+        : "缺少 results 字段";
+    throw new ApiFailure("PAPERS_UPSTREAM_INVALID", 503, `检索来源返回异常：${detail}`);
+  }
+  return parsed.data.results.map((work) => ({
+    paperId: paperId(work.id.split("/").at(-1)),
+    title: work.title ?? "",
+    source: work.id,
+    isOpenAccess: work.open_access?.is_oa === true,
+  }));
+}
+async function openAlexRecord(
+  http: PaperHttp,
+  egress: string[],
+  id: string,
+): Promise<PaperRecord> {
+  const url = new URL("https://api.openalex.org/works/" + id);
+  if (openAlexKey()) url.searchParams.set("api_key", openAlexKey());
+  const response = await http.get(url.href, egress, 1024 * 1024);
+  if (response.status !== 200)
+    throw new ApiFailure("PAPERS_UNAVAILABLE", 503, "论文元数据暂不可用。");
+  const work = Work.parse(JSON.parse(response.bytes.toString("utf8")));
+  if (work.id !== "https://openalex.org/" + id) throw deny();
+  // `best_oa_location` is not always downloadable: OpenAlex may point it at a
+  // non-OA record while another listed location has the arXiv PDF. Prefer the
+  // first location that is openly available with a PDF, then fall back.
+  const location =
+    (work.locations ?? []).find((entry) => entry.is_oa && entry.pdf_url) ?? work.best_oa_location;
+  let bytes: Buffer | null = null;
+  const abstractText = abstract(work);
+  // A licensed re-use statement is recorded when the source states one, but it
+  // is not a precondition for reading an openly available PDF: a missing
+  // license is stored as null instead of silently downgrading to abstract-only.
+  if (work.open_access?.is_oa && location?.is_oa && location.pdf_url) {
+    try {
+      const pdf = await http.get(location.pdf_url, egress, MAX_PDF);
+      if (pdf.status === 200 && pdf.bytes.subarray(0, 5).equals(Buffer.from("%PDF-"))) {
+        await pdfPages(pdf.bytes);
+        bytes = pdf.bytes;
+      }
+    } catch (error) {
+      if (error instanceof ApiFailure && error.code === "PAPERS_EGRESS_DENIED") throw error;
+    }
+  }
+  const rawWork = work as Record<string, any>;
+  return {
+    bytes,
+    fileUrl: location?.pdf_url ?? work.id,
+    recordUrl: work.id,
+    license: location?.license ?? null,
+    isOpenAccess: work.open_access?.is_oa === true,
+    abstractText,
+    viewMetadata: {
+      title: typeof work.title === "string" ? work.title.slice(0, 1000) : null,
+      authors: Array.isArray(rawWork.authorships)
+        ? rawWork.authorships.slice(0, 50).flatMap((a: any) =>
+            typeof a?.author?.display_name === "string"
+              ? [a.author.display_name.slice(0, 300)]
+              : [],
+          )
+        : [],
+      venue:
+        typeof rawWork.primary_location?.source?.display_name === "string"
+          ? rawWork.primary_location.source.display_name.slice(0, 500)
+          : null,
+      sizeBytes: bytes?.length ?? null,
+    },
+  };
 }
 export async function pdfPages(bytes: Buffer): Promise<string[]> {
   if (
@@ -174,113 +418,42 @@ export function paperHandlers(
   };
   const handlers: Record<string, CapabilityHandler> = {};
   handlers["papers.search"] = async (context, args) => {
-    const url = new URL("https://api.openalex.org/works");
-    url.searchParams.set("search", String(args.query));
-    url.searchParams.set("per-page", String(args.limit ?? 10));
-    const response = await http.get(
-      url.href,
-      context.catalog.capabilities["papers.search"].egress,
-      1024 * 1024
-    );
-    if (response.status !== 200)
-      throw new ApiFailure("PAPERS_UNAVAILABLE", 503, "论文检索来源暂不可用。");
-    const results = z
-      .array(Work)
-      .max(20)
-      .parse(JSON.parse(response.bytes.toString("utf8")).results);
+    const egress = context.catalog.capabilities["papers.search"].egress,
+      query = String(args.query),
+      limit = Number(args.limit ?? 10);
     const result = {
-      papers: results.map((work) => ({
-        paperId: paperId(work.id.split("/").at(-1)),
-        title: work.title ?? "",
-        source: work.id,
-        isOpenAccess: work.open_access?.is_oa === true,
-      })),
+      papers: openAlexKey()
+        ? await openAlexPapers(http, egress, query, limit)
+        : await arxivPapers(http, egress, query, limit),
     };
-    if (context.claims.role === "research-clarify")
-      captureSearch(result, results);
+    if (context.claims.role === "research-clarify") captureSearch(result, []);
     return result;
   };
   handlers["papers.fetch"] = async (context, args) => {
     const id = paperId(args.paperId),
-      cap = context.catalog.capabilities["papers.fetch"];
-    const response = await http.get(
-      "https://api.openalex.org/works/" + id,
-      cap.egress,
-      1024 * 1024
-    );
-    if (response.status !== 200)
-      throw new ApiFailure("PAPERS_UNAVAILABLE", 503, "论文元数据暂不可用。");
-    const work = Work.parse(JSON.parse(response.bytes.toString("utf8")));
-    if (work.id !== "https://openalex.org/" + id) throw deny();
-    // `best_oa_location` is not always downloadable: OpenAlex may point it at a
-    // non-OA record while another listed location has the arXiv PDF. Prefer the
-    // first location that is openly available with a PDF, then fall back.
-    const assetId = randomUUID(),
-      location =
-        (work.locations ?? []).find(
-          (entry) => entry.is_oa && entry.pdf_url,
-        ) ?? work.best_oa_location,
-      abstractText = abstract(work);
-    let bytes: Buffer | null = null,
-      license = location?.license ?? null,
-      source = work.id;
-    // A licensed re-use statement is recorded when the source states one, but it
-    // is not a precondition for reading an openly available PDF: a missing
-    // license is stored as null instead of silently downgrading to abstract-only.
-    if (work.open_access?.is_oa && location?.is_oa && location.pdf_url) {
-      try {
-        const pdf = await http.get(location.pdf_url, cap.egress, MAX_PDF);
-        if (
-          pdf.status === 200 &&
-          pdf.bytes.subarray(0, 5).equals(Buffer.from("%PDF-"))
-        ) {
-          await pdfPages(pdf.bytes);
-          bytes = pdf.bytes;
-          source = location.pdf_url;
-        }
-      } catch (error) {
-        if (
-          error instanceof ApiFailure &&
-          error.code === "PAPERS_EGRESS_DENIED"
-        )
-          throw error; /* Closed/unavailable full text remains explicitly abstract-only. */
-      }
-    }
-    const digest = bytes ? await cache(bytes) : null,
-      status = bytes ? "full_text" : "abstract_only",
+      cap = context.catalog.capabilities["papers.fetch"],
+      record = id.startsWith("arxiv:")
+        ? await arxivRecord(http, cap.egress, id.slice("arxiv:".length))
+        : await openAlexRecord(http, cap.egress, id),
+      assetId = randomUUID(),
+      digest = record.bytes ? await cache(record.bytes) : null,
+      status = record.bytes ? "full_text" : "abstract_only",
+      source = record.bytes ? record.fileUrl : record.recordUrl,
       metadata = {
         paperId: id,
         source,
-        license,
-        isOpenAccess: work.open_access?.is_oa === true,
+        license: record.license,
+        isOpenAccess: record.isOpenAccess,
         status,
-        abstract: abstractText,
+        abstract: record.abstractText,
         sha256: digest,
       };
-    const rawWork = work as Record<string, any>;
-    const viewMetadata = {
-      title: typeof work.title === "string" ? work.title.slice(0, 1000) : null,
-      authors: Array.isArray(rawWork.authorships)
-        ? rawWork.authorships
-            .slice(0, 50)
-            .flatMap((a: any) =>
-              typeof a?.author?.display_name === "string"
-                ? [a.author.display_name.slice(0, 300)]
-                : []
-            )
-        : [],
-      venue:
-        typeof rawWork.primary_location?.source?.display_name === "string"
-          ? rawWork.primary_location.source.display_name.slice(0, 500)
-          : null,
-      sizeBytes: bytes?.length ?? null,
-    };
     // The shared server never receives a user's volume. Only the control-plane port deposits files.
-    await deposit(context, assetId, bytes, {
+    await deposit(context, assetId, record.bytes, {
       ...metadata,
-      ...(scrub(viewMetadata) as object),
+      ...(scrub(record.viewMetadata) as object),
     });
-    const file = "papers/" + assetId + (bytes ? ".pdf" : ".json");
+    const file = "papers/" + assetId + (record.bytes ? ".pdf" : ".json");
     await db.withAccount(context.claims.account, (c) =>
       c.query(
         "insert into paper_asset(id,account_id,dossier_id,run_id,paper_id,source,license,status,is_open_access,sha256,path,abstract,view_metadata) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
@@ -291,13 +464,13 @@ export function paperHandlers(
           context.claims.run,
           id,
           source,
-          license,
+          record.license,
           status,
           metadata.isOpenAccess,
           digest,
           file,
-          abstractText,
-          JSON.stringify(scrub(viewMetadata)),
+          record.abstractText,
+          JSON.stringify(scrub(record.viewMetadata)),
         ]
       )
     );
@@ -305,7 +478,7 @@ export function paperHandlers(
       assetId,
       status,
       source,
-      license,
+      license: record.license,
       isOpenAccess: metadata.isOpenAccess,
       path: file,
     };

@@ -99,149 +99,163 @@ export function registerKernelTools(
     };
     const capability = `${body.server}.${body.tool}`;
 
-    return dependencies.db.withAccount(claims.account, async (client) => {
-      if (ASKS_THE_USER.has(capability)) {
-        if (typeof body.approvalId === "string") {
-          const answered = (
-            await client.query(
-              "select state,effects from approval where id=$1 and account_id=$2",
-              [body.approvalId, call.account],
-            )
-          ).rows[0];
-          if (!answered)
-            throw new ApiFailure("APPROVAL_NOT_FOUND", 404, "这段时间的提问已不存在。");
-          if (answered.state === "approved")
-            return c.json({
-              result: { state: "answered", ...(answered.effects?.answer ?? {}) },
-            });
-          if (answered.state === "rejected" || answered.state === "expired")
-            return c.json({ result: { state: "cancelled" } });
-          return c.json({ state: "pending", approvalId: body.approvalId }, 409);
-        }
-        // The candidate choice belongs to the user: keep the turn open on a
-        // question card and hand the answer back to the kernel.
-        const card = await requestApproval(client, {
-          account: call.account,
-          dossier: call.dossier,
-          run: call.run,
-          capability,
-          argsHash: argsHash(call),
-          title:
-            typeof args.question === "string" && args.question.trim() !== ""
-              ? args.question.trim().slice(0, 300)
-              : "请选择要读的论文",
-          effects: [
-            {
-              kind: typeof args.kind === "string" ? args.kind : "text",
-              candidates: Array.isArray(args.candidates) ? args.candidates : [],
-            },
-          ],
-          risk: "read",
-          kind: "question",
-        });
-        return c.json({ state: "pending", approvalId: card.id }, 409);
-      }
-      if (APPROVAL_REQUIRED.has(capability)) {
-        const existing = await existingPaperAsset(client, call);
-        if (existing) return c.json({ result: existing });
-
-        const effectKey = effectKeyOf(capability, argsHash(call));
-        // The user may have approved this exact action already; a retry without
-        // the id must execute it once instead of bouncing a 409 forever.
-        if (typeof body.approvalId !== "string") {
+    try {
+      return await dependencies.db.withAccount(claims.account, async (client) => {
+        if (ASKS_THE_USER.has(capability)) {
+          if (typeof body.approvalId === "string") {
+            const answered = (
+              await client.query(
+                "select state,effects from approval where id=$1 and account_id=$2",
+                [body.approvalId, call.account],
+              )
+            ).rows[0];
+            if (!answered)
+              throw new ApiFailure("APPROVAL_NOT_FOUND", 404, "这段时间的提问已不存在。");
+            if (answered.state === "approved")
+              return c.json({
+                result: { state: "answered", ...(answered.effects?.answer ?? {}) },
+              });
+            if (answered.state === "rejected" || answered.state === "expired")
+              return c.json({ result: { state: "cancelled" } });
+            return c.json({ state: "pending", approvalId: body.approvalId }, 409);
+          }
+          // The candidate choice belongs to the user: keep the turn open on a
+          // question card and hand the answer back to the kernel.
           const card = await requestApproval(client, {
             account: call.account,
             dossier: call.dossier,
             run: call.run,
             capability,
             argsHash: argsHash(call),
-            title: "下载论文全文",
-            effects: [{ capability, argsHash: argsHash(call) }],
-            risk: "write",
+            title:
+              typeof args.question === "string" && args.question.trim() !== ""
+                ? args.question.trim().slice(0, 300)
+                : "请选择要读的论文",
+            effects: [
+              {
+                kind: typeof args.kind === "string" ? args.kind : "text",
+                candidates: Array.isArray(args.candidates) ? args.candidates : [],
+              },
+            ],
+            risk: "read",
+            kind: "question",
           });
-          if (card.state === "approved" && !card.consumed) {
-            const consumed = await consumeApproval(client, {
-              approvalId: card.id,
-              effectKey,
+          return c.json({ state: "pending", approvalId: card.id }, 409);
+        }
+        if (APPROVAL_REQUIRED.has(capability)) {
+          const existing = await existingPaperAsset(client, call);
+          if (existing) return c.json({ result: existing });
+
+          const effectKey = effectKeyOf(capability, argsHash(call));
+          // The user may have approved this exact action already; a retry without
+          // the id must execute it once instead of bouncing a 409 forever.
+          if (typeof body.approvalId !== "string") {
+            const card = await requestApproval(client, {
+              account: call.account,
+              dossier: call.dossier,
+              run: call.run,
+              capability,
+              argsHash: argsHash(call),
+              title: "下载论文全文",
+              effects: [{ capability, argsHash: argsHash(call) }],
+              risk: "write",
             });
-            if (consumed) {
-              const result = await dependencies.dispatch(call);
-              await client.query(
-                "update approval set decision_receipt=$2 where id=$1 and decision_receipt is null",
-                [card.id, JSON.stringify(result)],
-              );
-              return c.json({ result });
+            if (card.state === "approved" && !card.consumed) {
+              const consumed = await consumeApproval(client, {
+                approvalId: card.id,
+                effectKey,
+              });
+              if (consumed) {
+                const result = await dependencies.dispatch(call);
+                await client.query(
+                  "update approval set decision_receipt=$2 where id=$1 and decision_receipt is null",
+                  [card.id, JSON.stringify(result)],
+                );
+                return c.json({ result });
+              }
             }
+            if (card.state === "approved" && card.consumed) {
+              const receipt = (
+                await client.query("select decision_receipt from approval where id=$1", [
+                  card.id,
+                ])
+              ).rows[0]?.decision_receipt;
+              if (receipt) return c.json({ result: { ...(receipt as object), reused: true } });
+              const reused = await existingPaperAsset(client, call);
+              if (reused) return c.json({ result: reused });
+            }
+            return c.json({ state: card.state === "pending" ? "pending" : card.state, approvalId: card.id }, 409);
           }
-          if (card.state === "approved" && card.consumed) {
-            const receipt = (
-              await client.query("select decision_receipt from approval where id=$1", [
-                card.id,
-              ])
-            ).rows[0]?.decision_receipt;
-            if (receipt) return c.json({ result: { ...(receipt as object), reused: true } });
+          // Already downloaded for this dossier: consume the approval and return
+          // the existing asset instead of downloading the same paper again.
+          const already = await existingPaperAsset(client, call);
+          if (already) {
+            await consumeApproval(client, { approvalId: body.approvalId, effectKey });
+            return c.json({ result: already });
+          }
+          const consumed = await consumeApproval(client, {
+            approvalId: body.approvalId,
+            effectKey,
+          });
+          if (!consumed) {
             const reused = await existingPaperAsset(client, call);
             if (reused) return c.json({ result: reused });
+            // The action already ran for this exact approval: return its result
+            // instead of running (and downloading) a second time.
+            const receipt = (
+              await client.query(
+                "select decision_receipt from approval where id=$1 and account_id=$2",
+                [body.approvalId, claims.account],
+              )
+            ).rows[0]?.decision_receipt;
+            if (receipt)
+              return c.json({ result: { ...(receipt as Record<string, unknown>), reused: true } });
+            throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这次动作没有可用的批准，请重新请求。");
           }
-          return c.json({ state: card.state === "pending" ? "pending" : card.state, approvalId: card.id }, 409);
         }
-        // Already downloaded for this dossier: consume the approval and return
-        // the existing asset instead of downloading the same paper again.
-        const already = await existingPaperAsset(client, call);
-        if (already) {
-          await consumeApproval(client, { approvalId: body.approvalId, effectKey });
-          return c.json({ result: already });
+        const result = (await dependencies.dispatch(call)) as Record<string, unknown>;
+        // 论文视图要标题/作者/来源：从资产元数据补上，界面才能切到「读这篇」。
+        const assetId =
+          typeof result?.assetId === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.assetId)
+            ? result.assetId
+            : undefined;
+        if (call.server === "papers" && call.tool === "fetch" && assetId) {
+          const meta = (
+            await client
+              .query("select view_metadata from paper_asset where account_id=$1 and id=$2", [
+                call.account,
+                assetId,
+              ])
+          ).rows[0]?.view_metadata as Record<string, unknown> | undefined;
+          if (meta)
+            Object.assign(result, {
+              title: meta.title ?? null,
+              authors: meta.authors ?? [],
+              venue: meta.venue ?? null,
+              license: meta.license ?? result.license ?? null,
+            });
         }
-        const consumed = await consumeApproval(client, {
-          approvalId: body.approvalId,
-          effectKey,
-        });
-        if (!consumed) {
-          const reused = await existingPaperAsset(client, call);
-          if (reused) return c.json({ result: reused });
-          // The action already ran for this exact approval: return its result
-          // instead of running (and downloading) a second time.
-          const receipt = (
-            await client.query(
-              "select decision_receipt from approval where id=$1 and account_id=$2",
-              [body.approvalId, claims.account],
-            )
-          ).rows[0]?.decision_receipt;
-          if (receipt)
-            return c.json({ result: { ...(receipt as Record<string, unknown>), reused: true } });
-          throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这次动作没有可用的批准，请重新请求。");
-        }
-      }
-      const result = (await dependencies.dispatch(call)) as Record<string, unknown>;
-      // 论文视图要标题/作者/来源：从资产元数据补上，界面才能切到「读这篇」。
-      const assetId =
-        typeof result?.assetId === "string" &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.assetId)
-          ? result.assetId
-          : undefined;
-      if (call.server === "papers" && call.tool === "fetch" && assetId) {
-        const meta = (
-          await client
-            .query("select view_metadata from paper_asset where account_id=$1 and id=$2", [
-              call.account,
-              assetId,
-            ])
-        ).rows[0]?.view_metadata as Record<string, unknown> | undefined;
-        if (meta)
-          Object.assign(result, {
-            title: meta.title ?? null,
-            authors: meta.authors ?? [],
-            venue: meta.venue ?? null,
-            license: meta.license ?? result.license ?? null,
-          });
-      }
-      if (APPROVAL_REQUIRED.has(capability) && typeof body.approvalId === "string")
-        await client.query(
-          "update approval set decision_receipt=$2 where id=$1 and decision_receipt is null",
-          [body.approvalId, JSON.stringify(result)],
-        );
-      return c.json({ result });
-    });
+        if (APPROVAL_REQUIRED.has(capability) && typeof body.approvalId === "string")
+          await client.query(
+            "update approval set decision_receipt=$2 where id=$1 and decision_receipt is null",
+            [body.approvalId, JSON.stringify(result)],
+          );
+        return c.json({ result });
+      });
+    } catch (error) {
+      // 工具失败必须带错误码和一句原因，模型与日志才有据可查。
+      if (error instanceof ApiFailure)
+        return c.json({ code: error.code, message: error.message, error: error.code }, error.status);
+      const detail = String((error as Error)?.message ?? error);
+      console.error(
+        JSON.stringify({ code: "KERNEL_TOOL_FAILED", tool: capability, message: detail.slice(0, 300) }),
+      );
+      return c.json(
+        { code: "KERNEL_TOOL_FAILED", message: detail.slice(0, 300), error: detail.slice(0, 300) },
+        500,
+      );
+    }
   });
 
   app.get("/kernel/approvals/:id", async (c) => {

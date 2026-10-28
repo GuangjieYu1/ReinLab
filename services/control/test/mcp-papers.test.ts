@@ -247,3 +247,110 @@ it("公开可得但未写许可的 PDF 照实存全文，许可记为 null，不
     await f.close();
   }
 });
+
+it("检索走 arXiv：候选是可下载的 arXiv 编号，下载得到全文，限流按业务错误报", async () => {
+  const f = await mcpFixture(await implementedCatalog()),
+    cache = await realpath(await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")));
+  const previous = process.env.OPENALEX_API_KEY;
+  delete process.env.OPENALEX_API_KEY;
+  try {
+    const authority = new CapabilityAuthority(
+        f.db,
+        new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
+      ),
+      context = await authority.validate(await authority.issue(f.account, f.run));
+    const atom = (id: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/${id}v2</id>
+    <title>Toolformer &amp; Tools</title>
+    <summary>Language models learn to call tools.</summary>
+    <author><name>Ada Lovelace</name></author>
+    <author><name>Alan Turing</name></author>
+  </entry>
+</feed>`;
+    let throttled = false,
+      narrow = false;
+    const seen: string[] = [];
+    const http = new PaperHttp({
+      dns: async () => ["93.184.216.34"],
+      wire: async (url) => {
+        seen.push(url.href);
+        if (url.hostname === "arxiv.org")
+          return { status: 200, headers: { contentType: "application/pdf" }, bytes: pdf() };
+        if (throttled) return { status: 429, headers: {}, bytes: Buffer.from("Too Many Requests") };
+        if (narrow && (url.searchParams.get("search_query") ?? "").split("all:").length > 4)
+          return {
+            status: 200,
+            headers: { contentType: "application/atom+xml" },
+            bytes: Buffer.from('<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>'),
+          };
+        return {
+          status: 200,
+          headers: { contentType: "application/atom+xml" },
+          bytes: Buffer.from(atom("2403.05521")),
+        };
+      },
+    });
+    const handlers = paperHandlers(f.db, cache, async () => {}, http);
+    const search = (await handlers["papers.search"](
+      context,
+      { query: "Toolformer: language models use tools" },
+      randomUUID(),
+    )) as { papers: Array<Record<string, unknown>> };
+    expect(search.papers).toEqual([
+      {
+        paperId: "arxiv:2403.05521v2",
+        title: "Toolformer & Tools",
+        source: "http://arxiv.org/abs/2403.05521v2",
+        isOpenAccess: true,
+      },
+    ]);
+    // arXiv learns AND-ed terms, so punctuation from the question must not leak through.
+    expect(decodeURIComponent(seen[0])).toContain("all:Toolformer+AND+all:language+AND+all:models");
+
+    const fetched = await handlers["papers.fetch"](
+      context,
+      { paperId: "2403.05521v2" },
+      randomUUID(),
+    );
+    expect(fetched).toMatchObject({ status: "full_text", isOpenAccess: true, license: null });
+    const saved = await f.db.withAccount(f.account, (c) =>
+      c.query("select paper_id,abstract,view_metadata from paper_asset where id=$1", [fetched.assetId]),
+    );
+    expect(saved.rows[0]).toMatchObject({
+      paper_id: "arxiv:2403.05521v2",
+      abstract: "Language models learn to call tools.",
+      view_metadata: { title: "Toolformer & Tools", authors: ["Ada Lovelace", "Alan Turing"], venue: "arXiv" },
+    });
+    const pages = await handlers["papers.pages"](
+      context,
+      { assetId: fetched.assetId, pages: [2] },
+      randomUUID(),
+    );
+    expect(pages.pages[0]).toMatchObject({ page: 2, text: "PAGE_TWO" });
+
+    // 长问题全 AND 往往一条都匹配不到，检索应自动收窄而不是直接回"没找到"。
+    narrow = true;
+    const relaxed = (await handlers["papers.search"](
+      context,
+      { query: "Toolformer language models teach themselves to use tools" },
+      randomUUID(),
+    )) as { papers: Array<Record<string, unknown>> };
+    expect(relaxed.papers).toHaveLength(1);
+    narrow = false;
+
+    throttled = true;
+    await expect(
+      handlers["papers.search"](context, { query: "toolformer" }, randomUUID()),
+    ).rejects.toMatchObject({ code: "PAPERS_UPSTREAM_STATUS" });
+    await expect(
+      handlers["papers.search"](context, { query: "!!!" }, randomUUID()),
+    ).rejects.toMatchObject({ code: "PAPERS_QUERY_EMPTY" });
+  } finally {
+    if (previous === undefined) delete process.env.OPENALEX_API_KEY;
+    else process.env.OPENALEX_API_KEY = previous;
+    await f.close();
+    await rm(cache, { recursive: true, force: true });
+  }
+});
