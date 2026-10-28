@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { ApiFailure } from "../api/errors";
-import type { CardDeposit } from "../mcp/data-handlers";
+import type { CardDeposit } from "../mcp/handler";
 import type { PaperDeposit } from "../mcp/papers";
 
 const unsafe = () =>

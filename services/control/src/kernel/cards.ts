@@ -6,8 +6,8 @@ import type { Database } from "../db/database";
 import { ApiFailure } from "../api/errors";
 import { appendEvent, scrub } from "../ledger";
 import { verifyCardSources } from "../mcp/card-integrity";
-import type { AuthorizedCapability } from "../mcp/authority";
-import type { CapabilityHandler } from "../mcp/engine";
+import type { AuthorizedCapability } from "../mcp/handler";
+import type { CapabilityHandler } from "../mcp/handler";
 
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const ajv = new Ajv({ strict: true, validateFormats: true });

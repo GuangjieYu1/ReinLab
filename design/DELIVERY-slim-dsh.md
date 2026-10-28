@@ -16,6 +16,7 @@ pnpm --dir <后端工作树> local:up --real-models
   - `REINLAB_UNPAYWALL_EMAIL`：Unpaywall / Crossref 的礼貌邮箱，默认 `research@reinlab.app`
   - `DEEPSEEK_WEB_FEE_CNY`：网页检索/抓取每次成功请求的记账单价，默认 `0.005000`（官方 ¥5/千次）
 - 控制面 `http://127.0.0.1:3001`，前端 `http://127.0.0.1:5183`，Supabase `54321`
+- 只有新内核：启动不会再起 OpenScience / Hatchet / worker，也不再构建账户镜像
 - 启动输出里 `image:"host"`、`kernelTransport` 表明**没有构建账户镜像、没有起 OpenScience/Hatchet/worker**
 - 本机 Docker Hub 不通，已用公共镜像站（colima `registry-mirrors`）拉起 supabase；这是本机环境配置，不在仓库里
 
@@ -85,7 +86,36 @@ pnpm --dir <后端工作树> local:up --real-models
 - 单轮工具调用上限 40 次（`MAX_TOOL_CALLS`），到顶返回 `TOOL_CALL_LIMIT`。
 - 模型把工具参数写成不合法 JSON 时，同一次运行里自动让它重发一次。
 
-## 6. 未做 / 待你确认
+## 6. B2：OpenScience 退役（本轮）
+
+- **代码**：删掉 `services/control/src/bridge/openscience/`（整目录）、`plugins/reinlab-os-plugin/`、
+  `services/account-runtime/`（含 OpenScience 二进制构建）、`services/worker/`（Hatchet worker）、
+  旧的能力层（`mcp/engine`、`mcp/authority`、`mcp/data-handlers`、`mcp/protocol`、`mcp/account-port`）、
+  旧澄清链（`clarify/`、`api/read-clarify`、`api/runtime`、`api/gates`、`api/budget`、`api/promotions`、
+  `api/ledger`）、bench 发布（`harness/`）、账户机器供给（`provisioner/`）、`tooling/local/{worker,hatchet,image}`。
+- **依赖**：`@synsci/*` 全部移除（workspace 与 lockfile）；`pnpm-workspace.yaml` 不再列 `@synsci/openscience`。
+- **本地启动**：`local:up --real-models` 只起 supabase + 控制面 + 前端；不再构建账户镜像、
+  不再起 Hatchet/worker（`image:"host"`）。数据库迁移走 `services/control/src/db/bootstrap.ts`。
+- **旧表**：新迁移 `202610280001_retire_openscience.sql` 删掉 os_binding/os_usage/mcp_*/run_harness/bench_*
+  /read_candidate/read_clarification/promotion/memory_item/thread/gate/artifact/delegation/
+  account_machine*/credential* 等，并补上 `role_def('research-read')` 种子（干净库也能直接建运行）。
+  现在 public 只剩：account/approval/budget_*/card_decision/dossier/dsh_*/event/http_request/
+  paper_asset/paper_page_read/role_def/run/usage_record。
+- **旧测试**：随旧路径一起删（能力层、bench、机器供给、docker、hatchet、旧澄清）；论文与内核用例
+  改用新的 `test/kernel-fixture.ts`。`services/control` 44 文件 / 551 用例、`tooling` 15 文件全绿，
+  仅 `tooling/local/control-process.test.ts` 一条在本机沙箱里不稳定（`5fde2c2` 基线同样失败）。
+
+## 7. 验收后顺手修的三处（B2 同批）
+
+1. `user/message` 里 `source.kind = runtime-context` 的消息不再显示（工作目录/沙箱策略，含本机路径）。
+2. 审批卡：待办里没有对应权限卡时，本地那张同步收成已批准；点了批准/拒绝后立即消失，
+   不再一直挂「右边有 1 个审批等你」。
+3. 讲解层按 `no` 排序（`useRead` 里排序，模型写卡顺序不再影响显示）。
+4. 澄清阶段也开放 `web_search` / `web_fetch`（纲领第 9 条）：用不用由模型决定。
+5. 另外给内核补了稳定的取消/收尾：模型把工具参数写成不合法 JSON 时同轮重发一次；
+   单轮工具调用上限 40 次（`TOOL_CALL_LIMIT`）。
+
+## 8. 未做 / 待你确认
 
 - 前端接线（Claude 负责）。前端目录本轮只动了两处，都是为了上面第 3 条在页面上如实显示：
   `src/data/read-live.ts`（适配器本体）与 `src/components/workbenches/research/read/ReadMode.tsx`

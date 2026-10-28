@@ -219,6 +219,9 @@ export function createLiveReadAdapter(
     const data = event.payload ?? {};
     switch (event.action) {
       case "user/message": {
+        // 运行时会把自己的工作目录、沙箱策略当 user 消息塞进来：那是基础设施，
+        // 不是用户说的话（还带本机路径），不显示。
+        if (data.source?.kind === "runtime-context") return;
         const text = textOf(data);
         if (text) emit({ type: "user", id: String(data.id ?? "user:" + event.seq), text });
         return;
@@ -420,6 +423,12 @@ export function createLiveReadAdapter(
         risk?: string;
       }>;
     };
+    // 待办里已经没有权限卡了（同意后被消费 / 拒绝 / 过期）：本地那张也收掉，
+    // 不能让界面一直挂「右边有 1 个审批等你」。
+    if (!(listed?.items ?? []).some((item) => item.kind === "permission"))
+      for (const entry of snapshot.history)
+        if (entry.type === "approval" && entry.state === "pending")
+          emit({ ...entry, state: "approved" });
     for (const card of listed?.items ?? []) {
       // 认运行，也认当前档案：重新开始后运行会换，卡片仍属于这段精读。
       const sameDossier =
@@ -654,7 +663,10 @@ export function createLiveReadAdapter(
           // 否则刷新后同一张审批会显示两遍。
           const before = snapshot.history.length;
           apply(event);
-          if (snapshot.history.length === before) snapshot.history.push(toHistory(event));
+          if (snapshot.history.length === before) {
+            const history = toHistory(event);
+            if (history) snapshot.history.push(history);
+          }
         }
         const status = (await ports.api(`/v1/kernel/runs/${runId}`)) as {
           state?: string;
@@ -874,11 +886,14 @@ export function createLiveReadAdapter(
 }
 
 /** One stored kernel event in the history shape a re-opened page can render. */
-function toHistory(event: KernelEvent): ReadEvent {
+function toHistory(event: KernelEvent): ReadEvent | null {
   const data = event.payload ?? {};
+  // 运行时上下文不是用户说的话，刷新后也不该出现（里面有本机路径）。
+  if (event.action === "user/message" && data.source?.kind === "runtime-context") return null;
   switch (event.action) {
     case "user/message":
       return { type: "user", id: String(data.id ?? "u:" + event.seq), text: String(data.text ?? data.content ?? "") };
+
     case "assistant/message":
       return {
         type: "agent",

@@ -12,12 +12,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { accountFiles } from "../src/mcp/files";
 import { PaperHttp } from "../src/mcp/paper-http";
 import { paperHandlers } from "../src/mcp/papers";
-import { CapabilitySigner } from "../src/mcp/token";
-import { CapabilityAuthority } from "../src/mcp/authority";
-import { implementedCatalog, mcpFixture } from "./mcp-fixture";
+import { kernelFixture } from "./kernel-fixture";
 
 // No real request is permitted: simulate Node's lookup callback contract, including all:true.
 vi.mock("node:https", () => ({
@@ -120,18 +117,12 @@ it("independent papers: every redirect rechecks all DNS answers before a connect
 });
 
 it("independent papers: 非开放获取只存摘要，跨账号/档案读不到资产", async () => {
-  const f = await mcpFixture(await implementedCatalog()),
+  const f = await kernelFixture(),
     cache = await realpath(
       await mkdtemp(path.join(tmpdir(), "reinlab-independent-paper-cache-")),
     );
   try {
-    const authority = new CapabilityAuthority(
-      f.db,
-      new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
-    );
-    const context = await authority.validate(
-      await authority.issue(f.account, f.run),
-    );
+    const context = f.context;
     let connections = 0,
       deposited: Buffer | null | undefined;
     const http = new PaperHttp({
@@ -203,18 +194,12 @@ it("independent papers: 非开放获取只存摘要，跨账号/档案读不到�
 });
 
 it("independent papers: cached public PDF retains original anchors and tampered bytes fail closed", async () => {
-  const f = await mcpFixture(await implementedCatalog()),
+  const f = await kernelFixture(),
     cache = await realpath(
       await mkdtemp(path.join(tmpdir(), "reinlab-independent-paper-cache-")),
     );
   try {
-    const authority = new CapabilityAuthority(
-      f.db,
-      new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
-    );
-    const context = await authority.validate(
-      await authority.issue(f.account, f.run),
-    );
+    const context = f.context;
     const http = new PaperHttp({
       dns: async () => ["93.184.216.34"],
       wire: async (url) => ({
@@ -280,47 +265,5 @@ it("independent papers: cached public PDF retains original anchors and tampered 
   } finally {
     await f.close();
     await rm(cache, { recursive: true, force: true });
-  }
-});
-
-it("independent papers: binary deposit ignores supplied paths and writes only fixed papers asset names", async () => {
-  const root = await realpath(
-      await mkdtemp(path.join(tmpdir(), "reinlab-independent-paper-deposit-")),
-    ),
-    dossier = randomUUID(),
-    assetId = randomUUID();
-  try {
-    const dir = path.join(root, "dossiers", dossier);
-    await mkdir(path.join(dir, "findings"), { recursive: true });
-    const bytes = Buffer.concat([pdf(), Buffer.from([0, 255, 128])]);
-    await accountFiles(
-      root,
-      dossier,
-      "importPaper",
-      {
-        assetId,
-        pdf: bytes.toString("base64"),
-        metadata: { path: "../escape", source: "fixture" },
-        path: "findings/escape.pdf",
-      },
-      ["findings/"],
-    );
-    expect(await readFile(path.join(dir, `papers/${assetId}.pdf`))).toEqual(
-      bytes,
-    );
-    await expect(
-      readFile(path.join(dir, "findings/escape.pdf")),
-    ).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(
-      accountFiles(
-        root,
-        dossier,
-        "importPaper",
-        { assetId: "../escape", pdf: bytes.toString("base64"), metadata: {} },
-        [],
-      ),
-    ).rejects.toMatchObject({ code: "FILE_SCOPE_DENIED" });
-  } finally {
-    await rm(root, { recursive: true, force: true });
   }
 });

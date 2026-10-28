@@ -13,12 +13,10 @@ import { localPaths } from "./paths";
 import { quietCommand } from "./process";
 import { startLocalSupabase } from "./supabase-start";
 import { setTimeout as delay } from "node:timers/promises";
-import { accountImageTag, ensureLocalAccountImage } from "./image";
 import { acquireStartupLock } from "./startup-lock";
 import { startControlProcess, stopOwnedControl } from "./control-process";
-import { bootstrapLocalDatabase } from "../../services/control/src/provisioner/local-bootstrap";
+import { bootstrapLocalDatabase } from "../../services/control/src/db/bootstrap";
 import { realModelMode } from "./real-models";
-import { upgradeLocalRealAccounts } from "../../services/control/scripts/local-real-upgrade";
 
 const paths = localPaths(),
   credentialRoot = join(homedir(), ".local/state/reinlab/account-credentials");
@@ -127,20 +125,9 @@ try {
     SUPABASE_ANON_KEY: status.anonKey,
     INTERNAL_SIGNING_KEY: signingKey,
   });
-  // The host kernel transport needs no account image; the image stays the
-  // production transport and is built only when it is selected.
+  // 只有新内核：本机不再构建、也不再升级账户镜像。
   const kernelTransport = "host";
-  let image = "host";
-  if (kernelTransport === "container") {
-    step("LOCAL_ACCOUNT_IMAGE_BUILDING");
-    image = await accountImageTag();
-    await ensureLocalAccountImage({
-      image,
-      pinFile: join(paths.state, "account-image-" + image.split(":")[1] + ".env"),
-      run: (args, timeoutMs) =>
-        quietCommand("docker", args, { env: cliEnvironment, timeoutMs }),
-    });
-  }
+  const image = "host";
   if (realModels) {
     const keyFile = join(homedir(), ".config/reinlab/local.env"),
       info = await lstat(keyFile),
@@ -183,21 +170,7 @@ try {
     REINLAB_KERNEL_MODEL: "deepseek-v4-flash",
     REINLAB_KERNEL_MAX_TOKENS: "32768",
   });
-  await stopOwnedControl(join(paths.state, "worker.json"), resolve("tooling/local/worker.ts"));
   await stopOwnedControl(paths.process, resolve("tooling/local/control.ts"));
-  if (realModels && kernelTransport === "container") {
-    step("LOCAL_REAL_ACCOUNT_IMAGES_UPGRADING");
-    const upgrade = await upgradeLocalRealAccounts(paths.runtime, paths.setup);
-    console.log(
-      JSON.stringify({
-        code: "LOCAL_REAL_ACCOUNT_IMAGES",
-        ...upgrade,
-        message: upgrade.deferred
-          ? "部分账户仍有未结束运行，已保留原机器；结束旧运行后重新执行启动命令。"
-          : "空闲账户已使用当前镜像，保留原卷与凭据。",
-      }),
-    );
-  }
   step("LOCAL_CONTROL_STARTING");
   await startControlProcess({
     script: resolve("tooling/local/control.ts"),
@@ -205,21 +178,6 @@ try {
     env: { ...cliEnvironment },
     recordFile: paths.process,
   });
-  if (realModels && kernelTransport === "container") {
-    step("LOCAL_HATCHET_STARTING");
-    await quietCommand(process.execPath, ["--import", "tsx", resolve("tooling/local/hatchet.ts")], {
-      cwd: paths.root, env: cliEnvironment, timeoutMs: 300000,
-    });
-    step("LOCAL_WORKER_STARTING");
-    await startControlProcess({
-      script: resolve("tooling/local/worker.ts"),
-      cwd: paths.root,
-      env: { ...cliEnvironment },
-      recordFile: join(paths.state, "worker.json"),
-      port: 0,
-      timeoutMs: 60000,
-    });
-  }
   await stopOwnedControl(
     join(paths.state, "frontend.json"),
     resolve("tooling/local/live-frontend.ts"),

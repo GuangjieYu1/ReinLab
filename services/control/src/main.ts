@@ -1,23 +1,12 @@
 import { runtimeConfiguration } from "./configuration";
 import { pricingFromEnvironment } from "./budget/pricing";
-import { paperHandlers } from "./mcp/papers";
 import { homedir } from "node:os";
 import path from "node:path";
-import { ensureSigningKey } from "./mcp/token";
-import { CapabilityAuthority } from "./mcp/authority";
-import { CapabilityEngine } from "./mcp/engine";
-import { dataHandlers } from "./mcp/data-handlers";
-import { accountPort } from "./mcp/account-port";
 import { serve } from "@hono/node-server";
 import pg from "pg";
 import nodeProcess from "node:process";
 import { createApp } from "./api/app";
 import { Database } from "./db/database";
-import { provisionerFromEnvironment } from "./provisioner";
-import { RuntimePipeline } from "./bridge/openscience/pipeline";
-import { runtimePricingFromEnvironment } from "./bridge/openscience/pricing-environment";
-import { startAuthProvisioner } from "./provisioner/auth-worker";
-import { localPeakPricing } from "./model/peak-pricing";
 import { readLocalLoginAlias } from "./local-login";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { ensureKernelAuth } from "./kernel/auth";
@@ -49,66 +38,7 @@ const pool = new pg.Pool({
   connectionString: config.DATABASE_URL_APP,
   max: 10,
 });
-const database = new Database(pool),
-  mcpAccount = accountPort(database);
-const authority = new CapabilityAuthority(
-  database,
-  await ensureSigningKey(
-    config.REINLAB_MCP_SIGNING_KEY_FILE ??
-      path.join(homedir(), ".config/reinlab/mcp/signing.pem"),
-  ),
-);
-const mcp = new CapabilityEngine(authority, {
-  ...mcpAccount.handlers,
-  ...dataHandlers(database, mcpAccount.cardDeposit),
-  ...paperHandlers(
-    database,
-    path.join(homedir(), ".local/state/reinlab/papers"),
-    mcpAccount.deposit,
-  ),
-});
-const pipeline = new RuntimePipeline(database, {
-  realModels,
-  pricingContext: realModels ? localPeakPricing() : runtimePricingFromEnvironment(config),
-  cleanupCapabilities: async (account, run) => {
-    await mcpAccount.cleanup(account, run);
-  },
-  prepareCapabilities: async (account, run) => {
-    const token = await authority.issue(account, run);
-    if (!config.REINLAB_CONTROL_URL)
-      throw new Error("MCP_CONTROL_URL_REQUIRED");
-    const modelGateway = await database.withAccount(
-      account,
-      async (c) =>
-        (
-          await c.query(
-            "select role_options->>'modelGateway' enabled from os_binding where run_id=$1",
-            [run],
-          )
-        ).rows[0]?.enabled === "true",
-    );
-    const clarify = await database.withAccount(
-      account,
-      async (c) =>
-        (
-          await c.query("select run_id from read_clarify_run where run_id=$1", [
-            run,
-          ])
-        ).rowCount,
-    );
-    await mcpAccount.bootstrap(
-      account,
-      run,
-      token,
-      config.REINLAB_CONTROL_URL,
-      modelGateway && realModels
-        ? await authority.issueRuntimeModel(account, run, token)
-        : clarify
-          ? await authority.issueModel(account, run, token)
-          : undefined,
-    );
-  },
-});
+const database = new Database(pool);
 const kernelHome =
   config.REINLAB_KERNEL_HOME ?? path.join(homedir(), ".local/state/reinlab/kernel");
 const kernelAuth = await ensureKernelAuth(
@@ -155,11 +85,8 @@ const app = await createApp({
           : undefined }
     : undefined,
   pricing: pricingFromEnvironment(config),
-  pipeline,
-  mcp,
   kernel,
   kernelTools: { auth: kernelAuth, dispatch: kernelDispatch },
-  clarifyAuthorizationFile: config.REINLAB_CLARIFY_AUTHORIZATION_FILE,
   realModelsEnabled: realModels,
   auth: {
     issuer: config.SUPABASE_URL.replace(/\/$/, "") + "/auth/v1",
@@ -218,12 +145,6 @@ if (realModels) {
     },
   });
 }
-const stopProvisioner = config.DATABASE_URL_PROVISIONER
-  ? await startAuthProvisioner(
-      config.DATABASE_URL_PROVISIONER,
-      provisionerFromEnvironment(new Database(pool)),
-    )
-  : undefined;
 const server = serve(
   {
     fetch: app.fetch,
@@ -271,8 +192,6 @@ const shutdown = () => {
   force.unref();
   void (async () => {
     try {
-      await pipeline.shutdown();
-      await stopProvisioner?.();
       await closed;
     } finally {
       clearTimeout(force);

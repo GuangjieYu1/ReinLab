@@ -7,7 +7,7 @@ import { defaultModelEnvironment, parseSupabaseStatus, writePrivateEnv } from '.
 const status = { API_URL: 'http://127.0.0.1:54321', DB_URL: 'postgresql://postgres:fixture-local-password@127.0.0.1:54322/postgres', ANON_KEY: 'fixture-public-key-padding', SERVICE_ROLE_KEY: 'fixture-service-key-padding', JWT_SECRET: 'fixture-jwt-secret-padding-32-characters' };
 describe('local stack configuration', () => {
   it('keeps all model tiers and fixed FX explicit without embedding credentials', () => {
-    expect(defaultModelEnvironment()).toEqual({ MODEL_ROUTE_CHEAP: 'deepseek/deepseek-v4-flash', MODEL_ROUTE_MID: 'deepseek/deepseek-v4-flash', MODEL_ROUTE_STRONG: 'deepseek/deepseek-v4-flash', MODEL_USD_CNY_RATE: '7.2' });
+    expect(defaultModelEnvironment()).toEqual({ MODEL_ROUTE_CHEAP: 'deepseek/deepseek-v4-flash', MODEL_ROUTE_MID: 'deepseek/deepseek-v4-flash', MODEL_ROUTE_STRONG: 'deepseek/deepseek-v4-flash', MODEL_USD_CNY_RATE: '7.2', MODEL_INPUT_CNY_PER_MILLION: '2', MODEL_OUTPUT_CNY_PER_MILLION: '8' });
   });
   it('accepts only a complete CLI local stack status', () => {
     expect(parseSupabaseStatus(JSON.stringify(status))).toMatchObject({ apiUrl: status.API_URL, databaseUrl: status.DB_URL, anonKey: status.ANON_KEY });

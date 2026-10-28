@@ -3,10 +3,8 @@ packages:
   - services/*
   - plugins/*
 allowBuilds:
-  '@synsci/openscience': set this to true or false
   esbuild@0.25.12: true
   sharp@0.32.6: true
-  "@synsci/openscience@2.0.150": true
   "supabase@2.121.0": true
   '@hatchet-dev/typescript-sdk@1.43.0': false
   'protobufjs@7.6.6': false
@@ -14,6 +12,7 @@ allowBuilds:
   '@google/genai': false
   koffi: false
   node-pty: false
+  '@synsci/openscience': set this to true or false
 minimumReleaseAgeExclude:
   # DSH 0.2.1-rc.4 的传递依赖，发布日期与所钉版本同期。
   - '@aws-sdk/nested-clients@3.997.51'

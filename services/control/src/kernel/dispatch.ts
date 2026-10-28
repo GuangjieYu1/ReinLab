@@ -1,11 +1,11 @@
 import type { Database } from "../db/database";
 import { loadCapabilityCatalog, type CapabilityCatalog } from "../mcp/registry";
 import { paperHandlers, type PaperDeposit } from "../mcp/papers";
-import { dataHandlers, type CardDeposit } from "../mcp/data-handlers";
+import type { CardDeposit, CapabilityHandler } from "../mcp/handler";
 import { kernelCardHandlers } from "./cards";
 import { ApiFailure } from "../api/errors";
 import type { TokenClaims } from "../mcp/token";
-import type { AuthorizedCapability } from "../mcp/authority";
+import type { AuthorizedCapability } from "../mcp/handler";
 import type { KernelToolCall } from "../api/kernel-tools";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -36,7 +36,7 @@ const PLACEHOLDER_SCOPE = {
 export function createKernelDispatch(dependencies: DispatchDependencies) {
   let catalog: CapabilityCatalog | undefined = dependencies.catalog;
   let handlers: ReturnType<typeof paperHandlers> | undefined;
-  let cards: ReturnType<typeof dataHandlers> | undefined;
+  let cards: Record<string, CapabilityHandler> | undefined;
 
   const loadCatalog = async () => {
     catalog ??= await loadCapabilityCatalog();
@@ -73,9 +73,12 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
       call = { ...call, args: await withAssetId(dependencies.db, call) };
       // 内核运行没有 run_harness 行，冻结清单那条卡片写入路径在这里必然 403；
       // 用内核自己的写入器：同样的卡片规范和「引用必须来自本轮读过的页」。
-      cards ??= (dependencies.cardHandlers
-        ? dependencies.cardHandlers(dependencies.db, dependencies.cardDeposit)
-        : kernelCardHandlers(dependencies.db)) as ReturnType<typeof dataHandlers>;
+      cards ??= dependencies.cardHandlers
+        ? (dependencies.cardHandlers(dependencies.db, dependencies.cardDeposit) as Record<
+            string,
+            CapabilityHandler
+          >)
+        : kernelCardHandlers(dependencies.db);
       const handler = cards[`cards.${call.tool}`];
       if (!handler)
         throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "该卡片工具尚未接入。");

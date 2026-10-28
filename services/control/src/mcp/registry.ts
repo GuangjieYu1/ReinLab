@@ -1,9 +1,22 @@
 import Ajv from "ajv";
 import { createHash } from "node:crypto";
-import type { BenchRole, CapabilityRegistryDocument } from "@reinlab/contracts";
+import { CapabilityRegistryDocument } from "@reinlab/contracts";
+import type { BenchRole } from "@reinlab/contracts";
 import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
-import { loadRegistryDocument } from "../harness/manifest";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
+const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+/** The reviewed capability registry, validated on load (no bench bundle involved). */
+async function loadRegistryDocument(root = repositoryRoot) {
+  const raw = JSON.parse(
+    await readFile(new URL("tools/registry.json", "file://" + root.replace(/\/?$/, "/")), "utf8"),
+  );
+  const parsed = CapabilityRegistryDocument.safeParse(raw);
+  if (!parsed.success) throw unavailable();
+  return parsed.data;
+}
 
 export type CapabilityCatalog = {
   revision: string;

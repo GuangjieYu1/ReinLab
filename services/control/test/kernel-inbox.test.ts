@@ -1,12 +1,12 @@
 import { it, expect } from "vitest";
 import { randomUUID, randomBytes } from "node:crypto";
 import { SignJWT } from "jose";
-import { mcpFixture } from "./mcp-fixture";
+import { kernelFixture } from "./kernel-fixture";
 import { createApp } from "../src/api/app";
 import { requestApproval } from "../src/run/approval";
 
 it("收件箱只显示一张下载审批，决定后内核卡片变为 approved 且不产生第二张", async () => {
-  const f = await mcpFixture();
+  const f = await kernelFixture();
   try {
     const secret = randomBytes(48),
       issuer = "https://kernel-inbox.fixture/auth/v1";

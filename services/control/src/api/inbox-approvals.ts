@@ -1,15 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Hono } from "hono";
 import type { JsonValue } from "@reinlab/contracts";
 import type { Database } from "../db/database";
-import type { CapabilityEngine } from "../mcp/engine";
-import { pendingMcpApproval } from "../mcp/approval-bridge";
 import { appendEvent, scrub } from "../ledger";
-import { lockBudget } from "../budget";
-import { transitionGate } from "../gates";
 import { mutate, canonical, type ApiEnv, type ApiContext } from "./context";
 import { ApiFailure, denied } from "./errors";
+
 const Decision = z
   .object({
     decision: z.enum(["approve", "reject"]),
@@ -21,59 +18,26 @@ const capabilityLabel: Record<string, string> = {
   "papers.search": "检索论文",
   "papers.fetch": "下载论文全文",
   "papers.pages": "按页读取原文",
-  "files.write": "写入档案文件",
   "cards.card.layer": "写入分层讲解",
   "cards.card.quiz": "写入检查题",
   "cards.card.finding": "记录发现",
 };
-/** 收件箱只给人看的话：原生权限的原始载荷留在账本里，不塞进证据区。 */
-function nativeCard(row: Record<string, any>) {
-  const payload = Array.isArray(row.effects) ? row.effects[0] : row.effects;
-  const properties = payload?.properties ?? payload ?? {};
-  let bridged: ReturnType<typeof pendingMcpApproval> = null;
-  try {
-    bridged = pendingMcpApproval(properties);
-  } catch {
-    bridged = null;
-  }
-  const permission =
-    typeof properties.permission === "string" ? properties.permission : "";
-  const stored = String(row.title ?? "");
-  const generic =
-    !stored.trim() || stored === "执行权限等待你的决定" || stored === "fixture";
-  return {
-    title: generic
-      ? bridged
-        ? "批准能力调用 " + bridged.capability
-        : row.kind === "permission"
-          ? "内核请求一次执行权限"
-          : stored
-      : stored,
-    effects: bridged
-      ? [
-          "操作：" +
-            (capabilityLabel[bridged.capability] ?? bridged.capability) +
-            "（" +
-            bridged.capability +
-            "）",
-          "只处理这一次请求；参数变化后需要重新批准。",
-        ]
-      : row.kind === "permission" && !Array.isArray(properties.questions)
-        ? [
-            permission === "reinlab_mcp_approval"
-              ? "内核要求确认这次能力调用。"
-              : "内核要求一次受控执行权限。",
-            "只处理这一次请求；参数变化后需要重新批准。",
-          ]
-        : scrub(publicValue(row.effects)),
-  };
-}
 const conflict = () =>
   new ApiFailure(
     "APPROVAL_CONFLICT",
     409,
     "审批已处理、过期或请求对象已变化，请刷新。",
   );
+/** 卡片里只有给人看的短句；参数哈希留在账本里，不回给界面。 */
+function describe(effects: any) {
+  const capability =
+    typeof effects?.capability === "string" ? effects.capability : "";
+  if (!capability) return [];
+  return [
+    "操作：" + (capabilityLabel[capability] ?? capability) + "（" + capability + "）",
+    "只处理这一次请求；参数变化后需要重新批准。",
+  ];
+}
 function publicValue(v: any): JsonValue {
   if (Array.isArray(v)) return v.map(publicValue);
   if (v && typeof v === "object")
@@ -96,87 +60,74 @@ function publicValue(v: any): JsonValue {
     );
   return v;
 }
+
+/**
+ * Reading approvals: the only cards left are kernel ones (`effect_key` set) and
+ * in-conversation questions. Deciding one records the user's one-shot consent;
+ * the consuming worker call is what actually reads the approval back.
+ */
 export function registerApprovalInbox(app: Hono<ApiEnv>, db: Database) {
   app.get("/v1/approvals", (c) =>
     db.withAccount(c.get("accountId"), async (client) => {
       const state = z
-        .enum(["pending", "indeterminate"])
+        .enum(["pending", "indeterminate", "approved", "rejected", "expired"])
         .safeParse(c.req.query("state") ?? "pending");
       if (!state.success)
         throw new ApiFailure("INVALID_INPUT", 400, "待处理决定状态无效。");
       const rows = (
         await client.query(
-          `select a.*,r.dossier_id,r.role_id,r.state run_state,r.ended_at,d.bench,d.title dossier_title, ma.id mcp_id from approval a join run r on r.account_id=a.account_id and r.id=a.run_id join dossier d on d.account_id=r.account_id and d.id=r.dossier_id left join os_binding b on b.account_id=a.account_id and b.run_id=a.run_id and b.session_id=a.os_session_id left join mcp_approval ma on ma.account_id=a.account_id and ma.id=a.id where a.account_id=$1 and a.state=$2 and not(r.role_id='research-clarify' and a.kind='question') and ((a.os_request_id is not null and b.phase='accepted' and b.receipt is not null and a.kind in ('permission','question')) or (a.os_request_id is null and r.state in ('running','waiting') and r.ended_at is null and (ma.id is not null or a.effect_key is not null or a.effects->>'operation' in ('approval.request','gate.request_open')))) order by a.id limit 200`,
+          `select a.id,a.run_id "runId",a.kind,a.title,a.effects,a.risk,a.state,
+                  a.decision_sent "sent",r.dossier_id "dossierId",d.title "dossierTitle",
+                  r.role_id "roleId",r.state "runState"
+             from approval a
+             join run r on r.account_id=a.account_id and r.id=a.run_id
+             join dossier d on d.account_id=r.account_id and d.id=r.dossier_id
+            where a.account_id=$1 and a.state=$2 and a.effect_key is not null
+            order by a.id limit 200`,
           [c.get("accountId"), state.data],
         )
       ).rows;
-      const wrapped = new Set<string>();
-      for (const row of rows.filter((r) => r.os_request_id))
-        for (const e of Array.isArray(row.effects) ? row.effects : []) {
-          const binding = pendingMcpApproval(e?.properties ?? e);
-          if (binding) wrapped.add(binding.approvalId);
-        }
       return c.json({
-        items: rows
-          .filter((r) => !wrapped.has(r.id))
-          .map((r) => {
-            const card = r.os_request_id
-              ? nativeCard(r)
-              : {
-                  title: scrub(String(r.title).slice(0, 300)),
-                  effects: scrub(publicValue(r.effects)),
-                };
-            return {
-            id: r.id,
-            runId: r.run_id,
-            kind: r.kind,
-            title: scrub(String(card.title).slice(0, 300)),
-            effects: scrub(card.effects),
-            risk: r.risk,
-            state: r.state,
-            sent: r.decision_sent ?? false,
-            source: {
-              bench: r.bench,
-              dossierId: r.dossier_id,
-              dossierTitle: scrub(r.dossier_title),
-              runId: r.run_id,
-              roleId: r.role_id,
-            },
-            };
-          }),
+        items: rows.map((row) => ({
+          id: row.id,
+          runId: row.runId,
+          kind: row.kind,
+          title: scrub(String(row.title).slice(0, 300)),
+          effects: scrub(describe(row.effects) as JsonValue),
+          risk: row.risk,
+          state: row.state,
+          sent: row.sent ?? false,
+          source: {
+            dossierId: row.dossierId,
+            dossierTitle: scrub(row.dossierTitle),
+            runId: row.runId,
+            roleId: row.roleId,
+          },
+        })),
       });
     }),
   );
 }
-/** Returns null only for an existing native approval; native prepare/dispatch stays unchanged. */
+
+/** Called by the runtime route for `/v1/approvals/:id/decide`. */
 export async function decideInboxCard(
   c: ApiContext,
   db: Database,
-  mcp?: CapabilityEngine,
 ): Promise<Response | null> {
   const id = z.string().uuid().safeParse(c.req.param("id"));
   if (!id.success) throw denied();
-  const account = c.get("accountId"),
-    native = await db.withAccount(
-      account,
-      async (client) =>
-        (
-          await client.query("select os_request_id from approval where id=$1", [
-            id.data,
-          ])
-        ).rows[0],
-    );
-  if (!native) throw denied();
-  if (native.os_request_id) return null;
+  const account = c.get("accountId");
   return mutate(c, db, Decision, async (client, input) => {
-    await lockBudget(client, account);
     const row = (
       await client.query(
-        "select a.*,r.dossier_id,r.role_id,r.state run_state,r.ended_at from approval a join run r on r.account_id=a.account_id and r.id=a.run_id where a.id=$1 for update of a",
+        `select a.*,r.dossier_id,r.role_id,r.state run_state,r.ended_at
+           from approval a join run r on r.account_id=a.account_id and r.id=a.run_id
+          where a.id=$1 and a.effect_key is not null for update of a`,
         [id.data],
       )
     ).rows[0];
     if (!row) throw denied();
+    // 一次决定落在同一个请求上：同参数重复提交返回同一回执，不同参数报冲突。
     const hash = createHash("sha256").update(canonical(input)).digest("hex"),
       old = (
         await client.query(
@@ -194,79 +145,33 @@ export async function decideInboxCard(
       row.ended_at
     )
       throw conflict();
-    const cap = (
-      await client.query("select id from mcp_approval where id=$1", [id.data])
-    ).rows[0];
-    let receipt: Record<string, JsonValue>;
-    if (cap) {
-      if (!mcp)
-        throw new ApiFailure("MCP_UNAVAILABLE", 503, "能力层暂不可用。");
-      receipt = await mcp.decideClient(
-        client,
-        account,
-        id.data,
-        input.decision,
-      );
-    } else {
-      const effects = row.effects;
-      // A kernel card binds one concrete action (effect_key); there is no
-      // further business transition to apply here.
-      if (
-        !row.effect_key &&
-        !["approval.request", "gate.request_open"].includes(effects?.operation)
-      )
-        throw conflict();
-      if (
-        input.decision === "approve" &&
-        effects.operation === "gate.request_open"
-      ) {
-        const snapshot = z
-          .object({
-            gateId: z.string().uuid(),
-            state: z.literal("review"),
-            revision: z.number().int().nonnegative(),
-            artifactId: z.string().uuid(),
-          })
-          .strict()
-          .safeParse(effects.gateSnapshot);
-        if (!snapshot.success) throw conflict();
-        const gate = (
-          await client.query(
-            "select dossier_id,review_artifact_id from gate where id=$1",
-            [snapshot.data.gateId],
-          )
-        ).rows[0];
-        if (
-          !gate ||
-          gate.dossier_id !== row.dossier_id ||
-          gate.review_artifact_id !== snapshot.data.artifactId
-        )
-          throw conflict();
-        await transitionGate(client, account, {
-          gateId: snapshot.data.gateId,
-          expectedState: "review",
-          expectedRevision: snapshot.data.revision,
-          targetState: "approved",
-          actor: "user",
-          operationId: randomUUID(),
-        });
-      }
-      await client.query(
-        "update approval set state=$2,decided_scope='once',decided_at=now() where id=$1",
-        [row.id, input.decision === "approve" ? "approved" : "rejected"],
-      );
-      receipt = { approvalId: row.id, decision: input.decision, scope: "once" };
-      await appendEvent(client, account, {
-        dossierId: row.dossier_id,
-        runId: row.run_id,
-        roleId: row.role_id,
-        kind: "approval",
-        action: "approval.decided",
-        risk: "write",
-        payload: receipt,
-        dedupeKey: "inbox-approval-decided:" + row.id,
-      });
-    }
+    const receipt = {
+      approvalId: row.id,
+      decision: input.decision,
+      scope: "once",
+    } as unknown as Record<string, JsonValue>;
+    await client.query(
+      `update approval
+          set state=$2, decided_scope='once', decided_at=now(), decision_sent=true,
+              decision_hash=$3, decision_input=$4
+        where id=$1`,
+      [
+        row.id,
+        input.decision === "approve" ? "approved" : "rejected",
+        hash,
+        json(input),
+      ],
+    );
+    await appendEvent(client, account, {
+      dossierId: row.dossier_id,
+      runId: row.run_id,
+      roleId: row.role_id,
+      kind: "approval",
+      action: "approval.decided",
+      risk: "write",
+      payload: receipt,
+      dedupeKey: "inbox-approval-decided:" + row.id,
+    });
     await client.query(
       "insert into card_decision(account_id,approval_id,request_hash,receipt)values($1,$2,$3,$4)",
       [account, row.id, hash, json(receipt)],

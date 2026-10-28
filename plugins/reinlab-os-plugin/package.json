@@ -1,9 +1,0 @@
-{
-  "name": "@reinlab/os-plugin",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@synsci/plugin": "2.0.150"
-  }
-}

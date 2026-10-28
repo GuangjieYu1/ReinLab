@@ -1,13 +1,12 @@
 import { it, expect } from "vitest";
-import { generateKeyPairSync, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PaperHttp, publicIPv4 } from "../src/mcp/paper-http";
 import { paperHandlers } from "../src/mcp/papers";
-import { CapabilityAuthority } from "../src/mcp/authority";
 import { CapabilitySigner } from "../src/mcp/token";
-import { mcpFixture, implementedCatalog } from "./mcp-fixture";
+import { kernelFixture } from "./kernel-fixture";
 function pdf() {
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
@@ -83,18 +82,12 @@ it("T-MCP-7 whitelist and pinned DNS reject redirects/private addresses before m
     expect(publicIPv4(ip)).toBe(false);
 });
 it("T-MCP-7 fixture OA full text preserves original PDF page anchors; non-OA remains abstract_only", async () => {
-  const f = await mcpFixture(await implementedCatalog()),
+  const f = await kernelFixture(),
     cache = await realpath(
       await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")),
     );
   try {
-    const authority = new CapabilityAuthority(
-        f.db,
-        new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
-      ),
-      context = await authority.validate(
-        await authority.issue(f.account, f.run),
-      );
+    const context = f.context;
     const deposits: Array<Record<string, unknown>> = [];
     let full = true,
       networkCalls = 0;
@@ -200,14 +193,10 @@ it("T-MCP-7 fixture OA full text preserves original PDF page anchors; non-OA rem
 });
 
 it("公开可得但未写许可的 PDF 照实存全文，许可记为 null，不降级为只有摘要", async () => {
-  const f = await mcpFixture(await implementedCatalog()),
+  const f = await kernelFixture(),
     cache = await realpath(await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")));
   try {
-    const authority = new CapabilityAuthority(
-        f.db,
-        new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
-      ),
-      context = await authority.validate(await authority.issue(f.account, f.run));
+    const context = f.context;
     const http = new PaperHttp({
       dns: async () => ["93.184.216.34"],
       wire: async (url) =>
@@ -249,16 +238,12 @@ it("公开可得但未写许可的 PDF 照实存全文，许可记为 null，不
 });
 
 it("检索走 arXiv：候选是可下载的 arXiv 编号，下载得到全文，限流按业务错误报", { timeout: 20000 }, async () => {
-  const f = await mcpFixture(await implementedCatalog()),
+  const f = await kernelFixture(),
     cache = await realpath(await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")));
   const previous = process.env.OPENALEX_API_KEY;
   delete process.env.OPENALEX_API_KEY;
   try {
-    const authority = new CapabilityAuthority(
-        f.db,
-        new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
-      ),
-      context = await authority.validate(await authority.issue(f.account, f.run));
+    const context = f.context;
     const atom = (id: string) => `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <entry>
@@ -359,14 +344,10 @@ it("检索走 arXiv：候选是可下载的 arXiv 编号，下载得到全文，
 });
 
 it("检索按来源分别报告结果与失败，DOI 候选能走 Unpaywall 拿到全文", async () => {
-  const f = await mcpFixture(await implementedCatalog()),
+  const f = await kernelFixture(),
     cache = await realpath(await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")));
   try {
-    const authority = new CapabilityAuthority(
-        f.db,
-        new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
-      ),
-      context = await authority.validate(await authority.issue(f.account, f.run));
+    const context = f.context;
     const http = new PaperHttp({
       dns: async () => ["93.184.216.34"],
       wire: async (url) => {
@@ -455,14 +436,10 @@ it("检索按来源分别报告结果与失败，DOI 候选能走 Unpaywall 拿�
 });
 
 it("限流只偶发一次时自动重试，同一查询在缓存期内不再打上游", { timeout: 20000 }, async () => {
-  const f = await mcpFixture(await implementedCatalog()),
+  const f = await kernelFixture(),
     cache = await realpath(await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")));
   try {
-    const authority = new CapabilityAuthority(
-        f.db,
-        new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
-      ),
-      context = await authority.validate(await authority.issue(f.account, f.run));
+    const context = f.context;
     let calls = 0;
     const http = new PaperHttp({
       dns: async () => ["93.184.216.34"],

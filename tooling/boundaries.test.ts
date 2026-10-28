@@ -32,7 +32,7 @@ describe('依赖边界', () => {
     "import type {X} from '@synsci/sdk'", "import x = require('@synsci/sdk')",
     "const x = import('@synsci/' + 'sdk')", "const x = require(name)",
   ])('控制面越界：%s', source => expect(checkSource('services/control/src/api/a.ts', source)).not.toEqual([]));
-  it('翻译层允许 SDK', () => expect(checkSource('services/control/src/bridge/openscience/a.ts', "import {x} from '@synsci/sdk'" )).toEqual([]));
+  it('SDK 任何位置都不再允许', () => expect(checkSource('services/control/src/kernel/a.ts', "import {x} from '@synsci/sdk'" )).not.toEqual([]));
   it.each(['../../services/control/src/main', '@reinlab/control', '@synsci/openscience', '@synsci/plugin'])('前端禁止 %s', spec => expect(checkSource('src/lib/a.ts', `import x from '${spec}'`)).not.toEqual([]));
   it('前端允许共享契约', () => expect(checkSource('src/lib/a.ts', "import {x} from '@reinlab/contracts'" )).toEqual([]));
   it.each(['hono', 'pg', '@reinlab/control', '@synsci/sdk'])('契约禁止服务端包 %s', spec => expect(checkSource('packages/contracts/src/a.ts', `export * from '${spec}'`)).not.toEqual([]));

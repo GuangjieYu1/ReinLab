@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { createHash } from "node:crypto";
-import type { AuthorizedCapability } from "./authority";
+import type { AuthorizedCapability } from "./handler";
 import { ApiFailure } from "../api/errors";
 const denied = (message = "卡片引用不是本次运行已读取的原文。") =>
   new ApiFailure("CARD_CITATION_UNVERIFIED", 403, message);

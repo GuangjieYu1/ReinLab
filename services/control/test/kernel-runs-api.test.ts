@@ -5,7 +5,7 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SignJWT } from "jose";
-import { mcpFixture } from "./mcp-fixture";
+import { kernelFixture } from "./kernel-fixture";
 import { createApp } from "../src/api/app";
 import { KernelAuth } from "../src/kernel/auth";
 import { KernelService } from "../src/kernel/service";
@@ -34,7 +34,7 @@ function completing(): HarnessFactory {
 }
 
 it("建立精读运行、读到已完成状态与内核事件，并可取消", async () => {
-  const f = await mcpFixture();
+  const f = await kernelFixture();
   try {
     const secret = randomBytes(48),
       issuer = "https://kernel-runs.fixture/auth/v1";

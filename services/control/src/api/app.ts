@@ -1,14 +1,4 @@
 import { registerSession, type SessionPort } from "./session";
-import { registerPromotions } from "./promotions";
-import { registerMcp } from "../mcp/protocol";
-import type { CapabilityEngine } from "../mcp/engine";
-import {
-  registerRuntime,
-  registerHarness,
-  type RuntimeApiPort,
-} from "./runtime";
-import { HarnessStore } from "../harness/store";
-import { loadBenchBundle, loadToolRegistry } from "../harness/manifest";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
@@ -24,16 +14,9 @@ import { Database } from "../db/database";
 import { createVerifier, type JwtConfig } from "./auth";
 import { mutate, type ApiEnv } from "./context";
 import { ApiFailure, denied } from "./errors";
-import { registerLedger } from "./ledger";
-import { registerReadView } from "./read-view";
-import { registerReadClarify } from "./read-clarify";
-import { registerClarifyModel, authorizedModelPort } from "../clarify/model";
-import { registerRuntimeModel } from "../model/gateway";
-import { localModelPort } from "../model/host-port";
-import { registerGates } from "./gates";
 import { registerKernelRuns } from "./kernel-runs";
+import { registerApprovalInbox, decideInboxCard } from "./inbox-approvals";
 import { registerKernelTools, type KernelToolCall } from "./kernel-tools";
-import { registerBudget } from "./budget";
 import { pricingFromEnvironment, type PricingService } from "../budget/pricing";
 import { monthlyBudgetSnapshot, currentPeriod } from "../budget";
 
@@ -42,10 +25,6 @@ export async function createApp(options: {
   session?: SessionPort;
   auth: JwtConfig;
   pricing?: PricingService;
-  harness?: HarnessStore;
-  pipeline?: RuntimeApiPort;
-  mcp?: CapabilityEngine;
-  onRunQueued?: (accountId: string, runId: string) => Promise<void>;
   kernel?: import("../kernel/service").KernelService;
   kernelTools?: {
     auth: import("../kernel/auth").KernelAuth;
@@ -70,14 +49,6 @@ export async function createApp(options: {
     );
   const database = new Database(options.pool);
   await database.assertSafeRole();
-  const registry = options.harness ? undefined : await loadToolRegistry();
-  const harness =
-    options.harness ??
-    new HarnessStore(
-      database,
-      await loadBenchBundle({ benchId: "research", registry: registry! }),
-      registry!,
-    );
   const verify = createVerifier(options.auth);
   const app = new Hono<ApiEnv>();
   app.use("*", secureHeaders());
@@ -96,15 +67,6 @@ export async function createApp(options: {
     );
     if (!exists.rowCount)
       throw new ApiFailure("ACCOUNT_NOT_READY", 404, "账户尚未完成初始化。");
-    const readOnlyView =
-      c.req.query("view") === "read" ||
-      /\/read-(state|events)$/.test(c.req.path);
-    if (c.req.method === "GET" && options.pipeline && !readOnlyView)
-      try {
-        await options.pipeline.recoverAccount(c.get("accountId"));
-      } catch {
-        console.error(JSON.stringify({ code: "RUNTIME_RECOVERY_DEFERRED" }));
-      }
     if (c.req.method === "DELETE")
       throw new ApiFailure("SCOPE_DENIED", 403, "危险删除操作不开放。");
     await next();
@@ -114,7 +76,6 @@ export async function createApp(options: {
   });
   if (options.session) registerSession(app, options.session);
   app.get("/health", (c) => c.json({ status: "ok" }));
-  registerReadView(app, database);
   app.get("/v1/me", async (c) =>
     database.withAccount(c.get("accountId"), async (client) => {
       const account = await client.query(
@@ -123,10 +84,6 @@ export async function createApp(options: {
       );
       if (!account.rowCount)
         throw new ApiFailure("ACCOUNT_NOT_READY", 404, "账户尚未完成初始化。");
-      const machine = await client.query(
-        'select state,os_version as "osVersion",last_health_at as "lastHealthAt" from account_machine where account_id=$1',
-        [c.get("accountId")],
-      );
       return c.json(
         AccountProfile.parse(
           JSON.parse(
@@ -135,7 +92,8 @@ export async function createApp(options: {
               displayName: account.rows[0].display_name,
               monthlyBudgetCny: Number(account.rows[0].monthly_budget_cny),
               budget: await monthlyBudgetSnapshot(client),
-              machine: machine.rows[0] ?? null,
+              // 本机只有新内核：不再有 OpenScience 机器状态。
+              machine: null,
             }),
           ),
         ),
@@ -166,7 +124,7 @@ export async function createApp(options: {
           input.bench,
           input.title,
           "/data/dossiers/" + id,
-          harness.bundle.manifest.version,
+          "2.0.0",
         ],
       );
       return {
@@ -189,10 +147,6 @@ export async function createApp(options: {
         [c.get("accountId"), id],
       );
       if (!dossier.rowCount) throw denied();
-      const gates = await client.query(
-        "select id,subject,state,revision from gate where dossier_id=$1",
-        [id],
-      );
       const runs = await client.query(
         'select id,mode,state,budget_cny as "budgetCny",spent_cny as "spentCny" from run where dossier_id=$1 order by created_at',
         [id],
@@ -206,7 +160,7 @@ export async function createApp(options: {
           JSON.parse(
             JSON.stringify({
               dossier: dossier.rows[0],
-              gates: gates.rows,
+              gates: [],
               activeRuns: runs.rows
                 .filter(
                   (r) =>
@@ -227,66 +181,12 @@ export async function createApp(options: {
       );
     }),
   );
-  if (options.mcp) {
-    app.use(
-      "/mcp/*",
-      bodyLimit({
-        maxSize: 5 * 1024 * 1024,
-        onError: (c) => c.json({ code: "PAYLOAD_TOO_LARGE" }, 413),
-      }),
-    );
-    registerClarifyModel(
-      app,
-      options.mcp.authority,
-      options.testOnlyClarifyModelTransport
-        ? {
-            async prepare() {
-              return options.testOnlyClarifyModelTransport!;
-            },
-          }
-        : authorizedModelPort(options.clarifyAuthorizationFile),
-    );
-    registerRuntimeModel(
-      app,
-      options.mcp.authority,
-      options.testOnlyRuntimeModelTransport
-        ? { prepare: async () => options.testOnlyRuntimeModelTransport! }
-        : localModelPort(options.realModelsEnabled === true),
-    );
-    app.get("/mcp/clarify-candidates", async (c) => {
-      const token = c.req.header("authorization")?.match(/^Bearer (\S+)$/)?.[1],
-        a = await options.mcp!.authority.validate(token);
-      if (a.claims.role !== "research-clarify" || !["1.2.0", "1.2.1", "1.2.2"].includes(a.claims.version))
-        throw denied();
-      const requested = c.req.query('paperIds')?.split(',');
-      if (requested && (!requested.length || requested.length>5 || new Set(requested).size!==requested.length || requested.some(id=>!/^W[0-9]{1,30}$/.test(id)))) throw denied();
-      const rows = await database.withAccount(
-        a.claims.account,
-        async (client) =>
-          (
-            await client.query(
-              "select distinct on(paper_id) paper_id,metadata from read_candidate where run_id=$1 and ($2::text[] is null or paper_id=any($2::text[])) order by paper_id,created_at desc limit 5",
-              [a.claims.run,requested??null],
-            )
-          ).rows,
-      );
-      if (requested && rows.length!==requested.length) throw denied();
-      if (requested) rows.sort((x,y)=>requested.indexOf(x.paper_id)-requested.indexOf(y.paper_id));
-      return c.json({
-        options: [
-          ...rows.map((r) => ({
-            label: r.paper_id,
-            description: String(r.metadata.title).slice(0, 180),
-          })),
-          { label: "都不是", description: "请继续澄清，不替你选第一项。" },
-        ],
-      });
-    });
-    registerMcp(app, options.mcp);
-  }
-  registerPromotions(app, database);
-  registerLedger(app, database);
-  registerGates(app, database);
+  registerApprovalInbox(app, database);
+  app.post("/v1/approvals/:id/decide", async (c) => {
+    const card = await decideInboxCard(c, database);
+    if (card) return card;
+    throw denied();
+  });
   if (options.kernel) registerKernelRuns(app, { db: database, kernel: options.kernel });
   if (options.kernelTools)
     registerKernelTools(app, {
@@ -295,39 +195,19 @@ export async function createApp(options: {
       now: () => Math.floor(Date.now() / 1000),
       dispatch: options.kernelTools.dispatch,
     });
-  registerBudget(
-    app,
-    database,
-    options.pricing ?? pricingFromEnvironment(),
-    harness,
-    options.onRunQueued ??
-      (options.pipeline
-        ? async (account, run) => {
-            await options.pipeline!.submit(account, run);
-          }
-        : undefined),
-  );
-  registerRuntime(app, database, options.pipeline, options.mcp);
-  registerReadClarify(
-    app,
-    database,
-    harness,
-    options.pricing ?? pricingFromEnvironment(),
-    options.pipeline,
-    options.onRunQueued ??
-      (options.pipeline
-        ? async (account, run) => {
-            await options.pipeline!.submit(account, run);
-          }
-        : undefined),
-  );
-  registerHarness(app, database, harness);
   app.notFound((c) =>
     c.json({ code: "NOT_FOUND", message: "接口不存在。" }, 404),
   );
   app.onError((error, c) => {
     if (error instanceof ApiFailure)
       return c.json({ code: error.code, message: error.message }, error.status);
+    console.error(
+      JSON.stringify({
+        code: "API_UNEXPECTED",
+        path: c.req.path,
+        message: String((error as Error)?.message ?? error).slice(0, 300),
+      }),
+    );
     return c.json(
       { code: "INTERNAL_ERROR", message: "服务暂时无法处理请求，请稍后重试。" },
       500,

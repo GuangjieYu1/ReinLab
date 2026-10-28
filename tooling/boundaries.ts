@@ -11,7 +11,7 @@ function denied(file: string, spec: string): boolean {
   if (['module', 'node:module', 'vm', 'node:vm'].includes(spec)) return true;
   const resolved = spec.startsWith('.') ? path.posix.normalize(path.posix.join(path.posix.dirname(file), spec)) : spec;
   if (resolved === '.artifacts' || resolved.startsWith('.artifacts/')) return true;
-  if (sdk(spec) && !file.startsWith('services/control/src/bridge/openscience/')) return true;
+  if (sdk(spec)) return true;
   if (file.startsWith('packages/contracts/')) return spec !== 'zod' && !spec.startsWith('zod/') && !(spec.startsWith('.') && resolved.startsWith('packages/contracts/'));
   if (file.startsWith('src/')) return spec.startsWith('/') || spec.startsWith('file:') || server(spec) || spec.startsWith('@synsci/') || (spec.startsWith('.') && !resolved.startsWith('src/') && !resolved.startsWith('packages/contracts/'));
   return false;
@@ -45,7 +45,7 @@ export function checkSource(file: string, source: string, resolve?: (spec: strin
     if (!target || !ts.isStringLiteralLike(target)) { if (!legacyLoader) out.push(`${file}: 禁止无法静态验证的模块导入`); return; }
     if (denied(file, target.text)) out.push(`${file}:${tree.getLineAndCharacterOfPosition(node.getStart()).line + 1}: 禁止依赖 ${target.text}`);
     const identity = resolve?.(target.text);
-    if (identity && ((sdk(identity) && !file.startsWith('services/control/src/bridge/openscience/')) || (file.startsWith('src/') && /^(services|plugins)\//.test(identity)) || (file.startsWith('packages/contracts/') && !identity.startsWith('packages/contracts/') && !/(?:^|\/)node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?zod\//.test(identity)))) out.push(`${file}: 导入解析后越界 ${target.text}`);
+    if (identity && ((sdk(identity)) || (file.startsWith('src/') && /^(services|plugins)\//.test(identity)) || (file.startsWith('packages/contracts/') && !identity.startsWith('packages/contracts/') && !/(?:^|\/)node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?zod\//.test(identity)))) out.push(`${file}: 导入解析后越界 ${target.text}`);
   }
   function visit(node: ts.Node) {
     if (ts.isIdentifier(node) && ['getBuiltinModule', 'eval', 'Function'].includes(node.text)) out.push(`${file}: 禁止无法静态校验的模块加载入口 ${node.text}`);

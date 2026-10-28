@@ -18,10 +18,9 @@ import { z } from "zod";
 import type { Database } from "../db/database";
 import { ApiFailure } from "../api/errors";
 import { scrub } from "../ledger";
-import { captureSearch } from "../clarify/candidates";
 import { PaperHttp } from "./paper-http";
-import type { AuthorizedCapability } from "./authority";
-import type { CapabilityHandler } from "./engine";
+import type { AuthorizedCapability } from "./handler";
+import type { CapabilityHandler } from "./handler";
 const exec = promisify(execFile),
   MAX_PDF = 8 * 1024 * 1024;
 const Work = z
@@ -664,7 +663,6 @@ export function paperHandlers(
           .map((entry) => `${entry.source}=${entry.error?.code}`)
           .join("，")}`,
       );
-    if (context.claims.role === "research-clarify") captureSearch(result, []);
     return result;
   };
   handlers["papers.fetch"] = async (context, args) => {
