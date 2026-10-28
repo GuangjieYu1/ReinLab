@@ -67,6 +67,9 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
       }) as AuthorizedCapability;
 
     if (call.server === "cards") {
+      // 卡片里的 paperId 可能是论文站点的 id（W…/arXiv 号），而页码回执按资产 id 记录：
+      // 落卡前把它换成这次运行下载的资产 id，引用才核得上。
+      call = { ...call, args: await withAssetId(dependencies.db, call) };
       cards ??= (dependencies.cardHandlers
         ? dependencies.cardHandlers(dependencies.db, dependencies.cardDeposit)
         : dataHandlers(dependencies.db, dependencies.cardDeposit)) as ReturnType<
@@ -114,4 +117,44 @@ async function recordPageReads(
       );
     }
   });
+}
+
+async function withAssetId(
+  db: Database,
+  call: KernelToolCall,
+): Promise<Record<string, unknown>> {
+  const args = { ...(call.args ?? {}) } as Record<string, any>;
+  const isAssetId = (value: unknown) =>
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  const resolve = async (value: unknown): Promise<string | undefined> => {
+    if (typeof value !== "string" || value === "" || isAssetId(value)) return undefined;
+    const row = (
+      await db.withAccount(call.account, (client) =>
+        client.query(
+          "select id from paper_asset where account_id=$1 and dossier_id=$2 and run_id=$3 and paper_id=$4 order by created_at desc limit 1",
+          [call.account, call.dossier, call.run, value],
+        ),
+      )
+    ).rows[0];
+    return row?.id;
+  };
+  const mapped = await resolve(args.paperId);
+  if (mapped) args.paperId = mapped;
+  if (Array.isArray(args.evidence)) {
+    for (const entry of args.evidence) {
+      const asset = await resolve(entry?.paperId);
+      if (asset) entry.paperId = asset;
+    }
+  }
+  if (Array.isArray(args.items)) {
+    for (const item of args.items) {
+      if (!Array.isArray(item?.citations)) continue;
+      for (const citation of item.citations) {
+        const asset = await resolve(citation?.paperId);
+        if (asset) citation.paperId = asset;
+      }
+    }
+  }
+  return args;
 }
