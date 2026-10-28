@@ -316,8 +316,10 @@ if (!hasToolformer) {
       await page.locator('.rd-estimate .rd-go').waitFor({ timeout: 30000 });
       if (await page.locator('.rd-estimate .rd-go').isDisabled()) return bad('预估超出剩余预算');
       await page.locator('.rd-estimate .rd-go').click();
-      await page.locator('.rd-start-ap').waitFor({ timeout: 120000 });
-      await page.locator('.rd-start-ap .rd-go', { hasText: '批准' }).click();
+      await page.locator('.rd-start-ap').first().waitFor({ timeout: 120000 });
+      const apCards = await page.locator('.rd-start-ap').allTextContents();
+      if (apCards.length > 1) console.log('DEBUG R3 审批卡 ' + apCards.length + '：' + apCards.map(c => c.replace(/\s+/g, ' ').slice(0, 80)).join(' || '));
+      await page.locator('.rd-start-ap .rd-go', { hasText: '批准' }).first().click();
       await page.locator('.rd-runbar[data-state="running"], .rd-layer').first().waitFor({ timeout: 120000 });
       return ok('已批准下载，运行中');
     });

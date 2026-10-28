@@ -155,6 +155,19 @@ export function createLiveReadAdapter(
   };
 
   const emit = (event: ReadEvent) => {
+    // 同一个动作同时来两条「待批准」（工具调用一条、轮询一条）时只留一条：
+    // 界面上就是一张卡，不会出现两个「批准」按钮。
+    if (
+      event.type === "approval" &&
+      event.state === "pending" &&
+      snapshot.history.some(
+        (entry) =>
+          entry.type === "approval" &&
+          entry.action === event.action &&
+          entry.state === "pending",
+      )
+    )
+      return;
     snapshot.history.push(event);
     for (const listener of subs) listener(event);
   };
