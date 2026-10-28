@@ -175,7 +175,7 @@ export async function materializeLaunch(
       "      6) 读完页后用 card_layer 写 5 层讲解，一层一次调用；参数必须是 card 对象：",
       "         {card:{paperId:<资产id>,no:\"1..5\",title:\"一句话/直觉/机理/证据/局限\",en:<英文小标题>,",
       "         body:[{text:<讲解>,refs:[{paperId:<资产id>,page:<页码>,quote:<该页原文片段>}]}]}}",
-      "         不要只把讲解写在聊天里；",
+      "         必须先把 5 层讲解卡写完，再给用户总结；没写完卡片之前不要结束这一轮；不要只把讲解写在聊天里；",
       "      6b) 五层写完后至少调用一次 card_finding，把有页码依据的发现保存下来，再给用户总结；",
       "      7) 写卡片要小：一次只写一条，正文不超过 200 字、证据不超过 3 条，避免超长 JSON 解析失败。",
       "- id: credentials",
