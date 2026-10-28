@@ -1,6 +1,8 @@
 import type {
   FindingCard,
   LayerCard,
+  PaperView,
+  SourceSection,
   PaperCandidate,
   ReadAdapter,
   ReadEvent,
@@ -93,6 +95,53 @@ export function createLiveReadAdapter(
   const tools = new Map<string, { index: number; event: ReadEvent }>();
   const emitted = new Set<number>();
   const announced = new Set<string>();
+
+  const sections = new Map<number, SourceSection>();
+  let paperView: PaperView | undefined;
+  const emitPaper = () => {
+    if (!paperView) return;
+    const merged: PaperView = {
+      ...paperView,
+      sections: [...sections.values()].sort(
+        (a, b) => Number(a.no.replace(/\D/g, "")) - Number(b.no.replace(/\D/g, "")),
+      ),
+    };
+    snapshot.paper = merged;
+    emit({ type: "paper", paper: merged });
+  };
+  /** 论文视图：下载成功后带着标题/作者，读到页后带上按页的原文段落。 */
+  const updatePaper = (result: Record<string, any>) => {
+    const assetId = String(result.assetId ?? "");
+    if (!assetId) return;
+    if (!paperView || paperView.id !== assetId) {
+      paperView = {
+        id: assetId,
+        title: String(result.title ?? "选定的论文"),
+        authors: Array.isArray(result.authors)
+          ? result.authors.join("，").slice(0, 200)
+          : String(result.authors ?? ""),
+        venue: String(result.venue ?? "来源未知"),
+        access: result.status === "full_text" ? "full" : "abstract_only",
+        ...(typeof result.license === "string" ? { license: result.license } : {}),
+        sections: [],
+      };
+      sections.clear();
+      emitPaper();
+    }
+    if (Array.isArray(result.pages)) {
+      for (const page of result.pages) {
+        const no = Number(page?.page);
+        if (!Number.isSafeInteger(no) || no < 1) continue;
+        sections.set(no, {
+          id: String(page.anchor ?? "p" + no),
+          no: "p." + no,
+          title: "第 " + no + " 页",
+          gist: [String(page.text ?? "").slice(0, 400)],
+        });
+      }
+      emitPaper();
+    }
+  };
 
   const emit = (event: ReadEvent) => {
     snapshot.history.push(event);
@@ -251,6 +300,17 @@ export function createLiveReadAdapter(
       }
       case "tool/result": {
         const callId = String(data.callId ?? data.message?.source?.callId ?? "");
+        const resultText = Array.isArray(data.message?.content)
+          ? data.message.content.map((block: any) => block?.text ?? "").join("")
+          : "";
+        const parsedResult = (() => {
+          try {
+            return JSON.parse(resultText) as Record<string, any>;
+          } catch {
+            return undefined;
+          }
+        })();
+        if (parsedResult && parsedResult.assetId) updatePaper(parsedResult);
         if (callId) {
           const existing = tools.get(callId);
           if (existing) {
@@ -583,6 +643,17 @@ export function createLiveReadAdapter(
       return estimate;
     },
     async start(_estimateId, _budgetCny) {
+      // 一按「确认开始」就把面板切到排队/运行，别继续显示上一轮的「已完成」。
+      rejected = false;
+      fetchCardShown = false;
+      patchRun({
+        state: "queued",
+        endReason: undefined,
+        message: undefined,
+        spentCny: 0,
+        unknownCost: false,
+        accounting: undefined,
+      });
       // 选定之后澄清轮的任务就结束了：先让它收尾，避免它继续占着会话，
       // 正式精读才不会被 SESSION_BUSY 挡在门外。
       if (runId) {

@@ -212,7 +212,29 @@ export function registerKernelTools(
           throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这次动作没有可用的批准，请重新请求。");
         }
       }
-      const result = await dependencies.dispatch(call);
+      const result = (await dependencies.dispatch(call)) as Record<string, unknown>;
+      // 论文视图要标题/作者/来源：从资产元数据补上，界面才能切到「读这篇」。
+      const assetId =
+        typeof result?.assetId === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.assetId)
+          ? result.assetId
+          : undefined;
+      if (call.server === "papers" && call.tool === "fetch" && assetId) {
+        const meta = (
+          await client
+            .query("select view_metadata from paper_asset where account_id=$1 and id=$2", [
+              call.account,
+              assetId,
+            ])
+        ).rows[0]?.view_metadata as Record<string, unknown> | undefined;
+        if (meta)
+          Object.assign(result, {
+            title: meta.title ?? null,
+            authors: meta.authors ?? [],
+            venue: meta.venue ?? null,
+            license: meta.license ?? result.license ?? null,
+          });
+      }
       if (APPROVAL_REQUIRED.has(capability) && typeof body.approvalId === "string")
         await client.query(
           "update approval set decision_receipt=$2 where id=$1 and decision_receipt is null",
