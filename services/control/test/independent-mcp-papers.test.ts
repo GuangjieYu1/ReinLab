@@ -92,8 +92,9 @@ it("independent papers: every redirect rechecks all DNS answers before a connect
   const http = new PaperHttp({
     dns: async () =>
       ++lookups === 1 ? ["93.184.216.34"] : ["93.184.216.34", "10.0.0.2"],
-    wire: async (_url, address) => {
-      expect(address).toBe("93.184.216.34");
+    wire: async (_url, target) => {
+      // 出站目标带着系统解析器给的 family，wire 只连这一个地址。
+      expect(target).toEqual({ address: "93.184.216.34", family: 4 });
       connections++;
       return {
         status: 302,

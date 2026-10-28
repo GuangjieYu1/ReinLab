@@ -61,14 +61,18 @@ const deny = () =>
     "论文不属于本档案，或来源不在允许范围。"
   );
 /**
- * Paper handles we accept. `W…` is an OpenAlex work, `arxiv:…` an arXiv id; a
- * bare arXiv id is normalized so a model quoting only the number still reads.
+ * Paper handles we accept. `W…` is an OpenAlex work, `arxiv:…` an arXiv id and
+ * `doi:…` a DOI; a bare id or DOI is normalized so a model quoting only the
+ * identifier still reads.
  */
 function paperId(raw: unknown) {
   if (typeof raw !== "string") throw deny();
-  if (/^W[0-9]{1,30}$/.test(raw)) return raw;
-  if (/^arxiv:[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$/i.test(raw)) return raw.toLowerCase();
-  if (/^[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$/.test(raw)) return "arxiv:" + raw;
+  const value = raw.trim();
+  if (/^W[0-9]{1,30}$/.test(value)) return value;
+  if (/^arxiv:[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$/i.test(value)) return value.toLowerCase();
+  if (/^[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$/.test(value)) return "arxiv:" + value;
+  const doi = value.replace(/^doi:/i, "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+  if (/^10\.[0-9]{4,9}\/\S{1,200}$/i.test(doi)) return "doi:" + doi.toLowerCase();
   throw deny();
 }
 /** OpenAlex now meters anonymous traffic per IP budget; a key restores it. */
@@ -239,10 +243,15 @@ async function openAlexPapers(
   const url = new URL("https://api.openalex.org/works");
   url.searchParams.set("search", query);
   url.searchParams.set("per-page", String(limit));
-  url.searchParams.set("api_key", openAlexKey());
+  // 共享额度下匿名也能查；有 key 才带上，空的 api_key 会被上游当成无效参数。
+  if (openAlexKey()) url.searchParams.set("api_key", openAlexKey());
   const response = await http.get(url.href, egress, 1024 * 1024);
   if (response.status !== 200)
-    throw new ApiFailure("PAPERS_UPSTREAM_STATUS", 503, `检索来源返回 ${response.status}，暂不可用。`);
+    throw new ApiFailure(
+      "PAPERS_UPSTREAM_STATUS",
+      503,
+      `OpenAlex 返回 ${response.status}${response.status === 429 ? "（共享额度用尽；可改用 arXiv 或 Crossref，或稍后再试）" : ""}。`,
+    );
   let body: unknown;
   try {
     body = JSON.parse(response.bytes.toString("utf8"));
@@ -322,6 +331,154 @@ async function openAlexRecord(
     },
   };
 }
+const CROSSREF_API = "https://api.crossref.org/works";
+const UNPAYWALL_API = "https://api.unpaywall.org/v2/";
+/** Unpaywall asks for a contact address; it is a courtesy field, not a credential. */
+const unpaywallEmail = () =>
+  (process.env.REINLAB_UNPAYWALL_EMAIL ?? "research@reinlab.app").trim();
+const stripTags = (value: string) =>
+  decodeXml(value.replace(/<[^>]*>/g, " ")).slice(0, 262144);
+type Candidate = {
+  paperId: string;
+  title: string;
+  source: string;
+  isOpenAccess: boolean;
+};
+
+/** Crossref keeps metadata only: a candidate there is readable as abstract text. */
+async function crossrefPapers(
+  http: PaperHttp,
+  egress: string[],
+  query: string,
+  limit: number,
+): Promise<Candidate[]> {
+  const url = new URL(CROSSREF_API);
+  url.searchParams.set("query", query);
+  url.searchParams.set("rows", String(Math.min(limit, 20)));
+  url.searchParams.set("select", "DOI,title,author,container-title,issued,abstract");
+  const response = await http.get(url.href, egress, 1024 * 1024);
+  if (response.status !== 200)
+    throw new ApiFailure("PAPERS_UPSTREAM_STATUS", 503, `Crossref 返回 ${response.status}。`);
+  const body = JSON.parse(response.bytes.toString("utf8")) as {
+    message?: { items?: Array<Record<string, any>> };
+  };
+  return (body.message?.items ?? []).flatMap((item) => {
+    const doi = typeof item.DOI === "string" ? item.DOI : "";
+    if (!doi) return [];
+    const title = Array.isArray(item.title) ? String(item.title[0] ?? "") : "";
+    return [
+      {
+        paperId: "doi:" + doi.toLowerCase(),
+        title: title.slice(0, 1000),
+        source: "https://doi.org/" + doi,
+        isOpenAccess: false,
+      },
+    ];
+  });
+}
+
+/** Crossref metadata plus the first openly licensed PDF Unpaywall can find. */
+async function crossrefRecord(
+  http: PaperHttp,
+  egress: string[],
+  doi: string,
+): Promise<PaperRecord> {
+  const url = new URL(CROSSREF_API + "/" + encodeURIComponent(doi));
+  const response = await http.get(url.href, egress, 1024 * 1024);
+  if (response.status !== 200)
+    throw new ApiFailure("PAPERS_UNAVAILABLE", 503, `Crossref 返回 ${response.status}。`);
+  const message = (JSON.parse(response.bytes.toString("utf8")) as { message?: Record<string, any> })
+    .message ?? {};
+  const title = Array.isArray(message.title) ? String(message.title[0] ?? "") : "";
+  const authors = Array.isArray(message.author)
+    ? message.author
+        .slice(0, 50)
+        .flatMap((author: any) => {
+          const name = [author?.given, author?.family].filter((part) => typeof part === "string" && part).join(" ");
+          return name ? [name.slice(0, 300)] : [];
+        })
+    : [];
+  const venue = Array.isArray(message["container-title"])
+    ? String(message["container-title"][0] ?? "")
+    : "";
+  const metadataUrl = "https://doi.org/" + doi;
+  const abstractText = typeof message.abstract === "string" ? stripTags(message.abstract) : "";
+  let bytes: Buffer | null = null,
+    fileUrl = metadataUrl,
+    license: string | null = null,
+    isOpenAccess = false;
+  try {
+    const unpaywall = await http.get(
+      UNPAYWALL_API + encodeURIComponent(doi) + "?email=" + encodeURIComponent(unpaywallEmail()),
+      egress,
+      1024 * 1024,
+    );
+    if (unpaywall.status === 200) {
+      const found = JSON.parse(unpaywall.bytes.toString("utf8")) as {
+        is_oa?: boolean;
+        best_oa_location?: { url_for_pdf?: string | null; license?: string | null } | null;
+        oa_locations?: Array<{ url_for_pdf?: string | null; license?: string | null }>;
+      };
+      const location =
+        [found.best_oa_location, ...(found.oa_locations ?? [])].find(
+          (entry) => entry && typeof entry.url_for_pdf === "string" && entry.url_for_pdf,
+        ) ?? undefined;
+      if (found.is_oa === true && location?.url_for_pdf) {
+        isOpenAccess = true;
+        license = location.license ?? null;
+        const pdf = await http.get(location.url_for_pdf, egress, MAX_PDF);
+        if (pdf.status === 200 && pdf.bytes.subarray(0, 5).equals(Buffer.from("%PDF-"))) {
+          await pdfPages(pdf.bytes);
+          bytes = pdf.bytes;
+          fileUrl = location.url_for_pdf;
+        }
+      }
+    }
+  } catch (error) {
+    if (error instanceof ApiFailure && error.code === "PAPERS_EGRESS_DENIED") throw error;
+  }
+  return {
+    bytes,
+    fileUrl,
+    recordUrl: metadataUrl,
+    license,
+    isOpenAccess,
+    abstractText:
+      abstractText ||
+      (bytes ? "" : "Crossref 没有这篇的摘要；拿到的是书目信息，正文需要另外下载。"),
+    viewMetadata: {
+      title: title.slice(0, 1000) || null,
+      authors,
+      venue: venue.slice(0, 500) || null,
+      sizeBytes: bytes?.length ?? null,
+    },
+  };
+}
+
+/** One source's failure is data for the model, not a reason to fail the call. */
+const describeFailure = (error: unknown) => ({
+  code: error instanceof ApiFailure ? error.code : "PAPERS_UPSTREAM_ERROR",
+  message: String((error as Error)?.message ?? error).slice(0, 300),
+});
+async function searchSource(
+  http: PaperHttp,
+  egress: string[],
+  source: string,
+  query: string,
+  limit: number,
+): Promise<{ source: string; papers: Candidate[] }> {
+  if (source === "arxiv") return { source, papers: await arxivPapers(http, egress, query, limit) };
+  if (source === "crossref")
+    return { source, papers: await crossrefPapers(http, egress, query, limit) };
+  if (source === "openalex")
+    return { source, papers: await openAlexPapers(http, egress, query, limit) };
+  throw new ApiFailure(
+    "PAPERS_SOURCE_UNKNOWN",
+    400,
+    `不认识的来源 ${source}；可用 arxiv、openalex、crossref。`,
+  );
+}
+const SEARCH_SOURCES = ["arxiv", "openalex", "crossref"] as const;
 export async function pdfPages(bytes: Buffer): Promise<string[]> {
   if (
     bytes.length > MAX_PDF ||
@@ -420,12 +577,48 @@ export function paperHandlers(
   handlers["papers.search"] = async (context, args) => {
     const egress = context.catalog.capabilities["papers.search"].egress,
       query = String(args.query),
-      limit = Number(args.limit ?? 10);
+      limit = Number(args.limit ?? 10),
+      requested = typeof args.source === "string" ? args.source.trim().toLowerCase() : "";
+    // 来源由调用方决定；没指定就把三家都问一遍，谁失败谁把错误交回去。
+    const sources =
+      requested && requested !== "auto"
+        ? [requested]
+        : [...SEARCH_SOURCES];
+    const results = await Promise.all(
+      sources.map(async (source) => {
+        try {
+          return { ...(await searchSource(http, egress, source, query, limit)), ok: true };
+        } catch (error) {
+          return { source, papers: [] as Candidate[], ok: false, error: describeFailure(error) };
+        }
+      }),
+    );
+    const seen = new Set<string>();
+    const papers = results
+      .flatMap((result) => result.papers)
+      .filter((candidate) => {
+        if (!candidate.paperId || seen.has(candidate.paperId)) return false;
+        seen.add(candidate.paperId);
+        return true;
+      })
+      .slice(0, Math.min(limit, 20));
     const result = {
-      papers: openAlexKey()
-        ? await openAlexPapers(http, egress, query, limit)
-        : await arxivPapers(http, egress, query, limit),
+      papers,
+      sources: results.map(({ source, ok, papers: found, ...rest }) => ({
+        source,
+        ok,
+        count: found.length,
+        ...(rest.error ? { error: rest.error } : {}),
+      })),
     };
+    if (!papers.length && results.every((entry) => !entry.ok))
+      throw new ApiFailure(
+        "PAPERS_UNAVAILABLE",
+        503,
+        `所有来源都失败了：${results
+          .map((entry) => `${entry.source}=${entry.error?.code}`)
+          .join("，")}`,
+      );
     if (context.claims.role === "research-clarify") captureSearch(result, []);
     return result;
   };
@@ -434,7 +627,9 @@ export function paperHandlers(
       cap = context.catalog.capabilities["papers.fetch"],
       record = id.startsWith("arxiv:")
         ? await arxivRecord(http, cap.egress, id.slice("arxiv:".length))
-        : await openAlexRecord(http, cap.egress, id),
+        : id.startsWith("doi:")
+          ? await crossrefRecord(http, cap.egress, id.slice("doi:".length))
+          : await openAlexRecord(http, cap.egress, id),
       assetId = randomUUID(),
       digest = record.bytes ? await cache(record.bytes) : null,
       status = record.bytes ? "full_text" : "abstract_only",

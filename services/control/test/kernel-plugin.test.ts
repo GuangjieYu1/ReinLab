@@ -32,16 +32,25 @@ describe("reading plugin", () => {
   });
 
   it("exposes only reading tools, with no general writer, shell or subagent", () => {
-    const { registered } = mount(vi.fn());
-    expect(registered.map((d) => d.name).sort()).toEqual(
-      ["clarify_question", "papers_search"].sort(),
+    // 每轮都拿到同一套能力：用什么、先用哪个由模型决定，工具集不再按阶段裁剪。
+    const surface = ["card_finding", "card_layer", "clarify_question", "papers_fetch", "papers_pages", "papers_search"].sort();
+    expect(mount(vi.fn()).registered.map((d) => d.name).sort()).toEqual(surface);
+    expect(mount(vi.fn(), "read").registered.map((d) => d.name).sort()).toEqual(surface);
+    for (const name of ["files.write", "bash", "web_search"]) {
+      expect(mount(vi.fn()).registered.map((d) => d.name)).not.toContain(name);
+    }
+  });
+
+  it("工具失败把错误码和原因交回模型，不结束这一轮", async () => {
+    const { tool } = mount(
+      vi.fn(async () =>
+        json({ code: "PAPERS_UPSTREAM_STATUS", message: "OpenAlex 返回 429（共享额度用尽）", error: "PAPERS_UPSTREAM_STATUS" }, 503),
+      ),
     );
-    const read = mount(vi.fn(), "read");
-    expect(read.registered.map((d) => d.name).sort()).toEqual(
-      ["card_finding", "card_layer", "clarify_question", "papers_fetch", "papers_pages", "papers_search"].sort(),
-    );
-    expect(registered.map((d) => d.name)).not.toContain("files.write");
-    expect(registered.map((d) => d.name)).not.toContain("bash");
+    const result = (await tool("papers_search").execute({ query: "x" })) as any;
+    expect(result).toEqual({
+      error: { code: "PAPERS_UPSTREAM_STATUS", message: "OpenAlex 返回 429（共享额度用尽）", status: 503 },
+    });
   });
 
   it("forwards a search to the control plane with the run token", async () => {

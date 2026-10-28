@@ -697,6 +697,10 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 20
+          },
+          "source": {
+            "enum": ["arxiv", "openalex", "crossref", "auto"],
+            "type": "string"
           }
         },
         "required": ["query"],
@@ -727,6 +731,29 @@
               "required": ["paperId", "title", "source", "isOpenAccess"],
               "additionalProperties": false
             }
+          },
+          "sources": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "source": { "type": "string" },
+                "ok": { "type": "boolean" },
+                "count": { "type": "integer" },
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "code": { "type": "string" },
+                    "message": { "type": "string" }
+                  },
+                  "required": ["code", "message"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["source", "ok", "count"],
+              "additionalProperties": false
+            }
           }
         },
         "required": ["papers"],
@@ -737,6 +764,7 @@
         "api.openalex.org",
         "arxiv.org",
         "export.arxiv.org",
+        "api.crossref.org",
         "api.unpaywall.org"
       ],
       "availability": "implemented",
@@ -798,6 +826,7 @@
         "api.openalex.org",
         "arxiv.org",
         "export.arxiv.org",
+        "api.crossref.org",
         "api.unpaywall.org"
       ],
       "availability": "implemented",

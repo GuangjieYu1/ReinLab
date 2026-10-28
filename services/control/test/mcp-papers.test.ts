@@ -340,16 +340,115 @@ it("检索走 arXiv：候选是可下载的 arXiv 编号，下载得到全文，
     expect(relaxed.papers).toHaveLength(1);
     narrow = false;
 
+    // 每个来源的失败都带回错误码；三家都没成才是本次调用失败。
     throttled = true;
+    const failed = await handlers["papers.search"](context, { query: "toolformer" }, randomUUID()).catch(
+      (error: any) => error,
+    );
+    expect(failed).toMatchObject({ code: "PAPERS_UNAVAILABLE" });
+    expect(String(failed.message)).toContain("arxiv=PAPERS_UPSTREAM_STATUS");
     await expect(
-      handlers["papers.search"](context, { query: "toolformer" }, randomUUID()),
-    ).rejects.toMatchObject({ code: "PAPERS_UPSTREAM_STATUS" });
-    await expect(
-      handlers["papers.search"](context, { query: "!!!" }, randomUUID()),
-    ).rejects.toMatchObject({ code: "PAPERS_QUERY_EMPTY" });
+      handlers["papers.search"](context, { query: "!!!", source: "arxiv" }, randomUUID()),
+    ).rejects.toMatchObject({ code: "PAPERS_UNAVAILABLE" });
   } finally {
     if (previous === undefined) delete process.env.OPENALEX_API_KEY;
     else process.env.OPENALEX_API_KEY = previous;
+    await f.close();
+    await rm(cache, { recursive: true, force: true });
+  }
+});
+
+it("检索按来源分别报告结果与失败，DOI 候选能走 Unpaywall 拿到全文", async () => {
+  const f = await mcpFixture(await implementedCatalog()),
+    cache = await realpath(await mkdtemp(path.join(tmpdir(), "reinlab-paper-cache-")));
+  try {
+    const authority = new CapabilityAuthority(
+        f.db,
+        new CapabilitySigner(generateKeyPairSync("ed25519").privateKey),
+      ),
+      context = await authority.validate(await authority.issue(f.account, f.run));
+    const http = new PaperHttp({
+      dns: async () => ["93.184.216.34"],
+      wire: async (url) => {
+        if (url.hostname === "api.openalex.org")
+          return { status: 429, headers: {}, bytes: Buffer.from('{"error":"Rate limit exceeded"}') };
+        if (url.hostname === "api.crossref.org" && url.pathname === "/works")
+          return {
+            status: 200,
+            headers: { contentType: "application/json" },
+            bytes: Buffer.from(
+              JSON.stringify({ message: { items: [{ DOI: "10.1234/abc", title: ["Crossref Paper"] }] } }),
+            ),
+          };
+        if (url.hostname === "api.crossref.org")
+          return {
+            status: 200,
+            headers: { contentType: "application/json" },
+            bytes: Buffer.from(
+              JSON.stringify({
+                message: {
+                  title: ["Crossref Paper"],
+                  abstract: "<jats:p>We study things.</jats:p>",
+                  author: [{ given: "Ada", family: "Lovelace" }],
+                  "container-title": ["Journal of Fixtures"],
+                },
+              }),
+            ),
+          };
+        if (url.hostname === "api.unpaywall.org")
+          return {
+            status: 200,
+            headers: { contentType: "application/json" },
+            bytes: Buffer.from(
+              JSON.stringify({
+                is_oa: true,
+                best_oa_location: { url_for_pdf: "https://arxiv.org/pdf/10.1234", license: "cc-by" },
+              }),
+            ),
+          };
+        if (url.hostname === "arxiv.org")
+          return { status: 200, headers: { contentType: "application/pdf" }, bytes: pdf() };
+        return {
+          status: 200,
+          headers: { contentType: "application/atom+xml" },
+          bytes: Buffer.from(
+            `<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2403.05521v1</id><title>arXiv Paper</title><summary>Abstract.</summary></entry></feed>`,
+          ),
+        };
+      },
+    });
+    const handlers = paperHandlers(f.db, cache, async () => {}, http);
+
+    const all = (await handlers["papers.search"](context, { query: "fixtures" }, randomUUID())) as any;
+    expect(all.papers.map((paper: any) => paper.paperId).sort()).toEqual([
+      "arxiv:2403.05521v1",
+      "doi:10.1234/abc",
+    ]);
+    expect(all.sources).toEqual([
+      { source: "arxiv", ok: true, count: 1 },
+      { source: "openalex", ok: false, count: 0, error: { code: "PAPERS_UPSTREAM_STATUS", message: expect.any(String) } },
+      { source: "crossref", ok: true, count: 1 },
+    ]);
+
+    const only = (await handlers["papers.search"](context, { query: "fixtures", source: "crossref" }, randomUUID())) as any;
+    expect(only.papers).toEqual([
+      { paperId: "doi:10.1234/abc", title: "Crossref Paper", source: "https://doi.org/10.1234/abc", isOpenAccess: false },
+    ]);
+    await expect(
+      handlers["papers.search"](context, { query: "fixtures", source: "semantic-scholar" }, randomUUID()),
+    ).rejects.toMatchObject({ code: "PAPERS_UNAVAILABLE" });
+
+    const fetched = await handlers["papers.fetch"](context, { paperId: "10.1234/abc" }, randomUUID());
+    expect(fetched).toMatchObject({ status: "full_text", license: "cc-by", isOpenAccess: true });
+    const saved = await f.db.withAccount(f.account, (c) =>
+      c.query("select paper_id,abstract,view_metadata from paper_asset where id=$1", [fetched.assetId]),
+    );
+    expect(saved.rows[0]).toMatchObject({
+      paper_id: "doi:10.1234/abc",
+      abstract: "We study things.",
+      view_metadata: { title: "Crossref Paper", authors: ["Ada Lovelace"], venue: "Journal of Fixtures" },
+    });
+  } finally {
     await f.close();
     await rm(cache, { recursive: true, force: true });
   }

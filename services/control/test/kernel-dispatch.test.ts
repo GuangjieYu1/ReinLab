@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -147,5 +147,59 @@ describe("kernel tool dispatch", () => {
     await expect(
       dispatch({ account, dossier, run: runId, server: "papers", tool: "delete", args: {} }),
     ).rejects.toMatchObject({ code: "KERNEL_TOOL_UNSUPPORTED" });
+  });
+
+  it("层的写入落在内核卡片层：引用本轮读过的页才通过，并留下 card_created", async () => {
+    const assetId = randomUUID();
+    const pageText = "Toolformer learns to call APIs.";
+    await admin.query(
+      "insert into paper_asset(id,account_id,dossier_id,run_id,paper_id,source,status,is_open_access,sha256,path,abstract,view_metadata) values($1,$2,$3,$4,'arxiv:2302.04761v1','https://arxiv.org/abs/2302.04761','full_text',true,repeat('a',64),'papers/x.pdf','', '{}')",
+      [assetId, account, dossier, runId],
+    );
+    await admin.query(
+      "insert into paper_page_read(account_id,dossier_id,run_id,asset_id,page,page_text,text_sha256) values($1,$2,$3,$4,1,$5,$6)",
+      [account, dossier, runId, assetId, pageText, createHash("sha256").update(pageText).digest("hex")],
+    );
+    const dispatch = createKernelDispatch({
+      db,
+      cacheRoot: mkdtempSync(join(tmpdir(), "papers-cache-")),
+      deposit: async () => {},
+      cardDeposit: async () => {},
+      http: { get: async () => wire({ results: [] }) } as never,
+    });
+    const card = {
+      paperId: assetId,
+      no: "1",
+      title: "一句话",
+      en: "One-liner",
+      body: [{ text: "它学会了调用工具。", refs: [{ paperId: assetId, page: 1, quote: "learns to call APIs" }] }],
+    };
+    const saved = (await dispatch({
+      account,
+      dossier,
+      run: runId,
+      server: "cards",
+      tool: "card.layer",
+      args: { card },
+    })) as { cardId: string };
+    expect(saved.cardId).toEqual(expect.any(String));
+    const stored = await admin.query(
+      "select payload from event where run_id=$1 and action='card_created' and payload->>'cardType'='layer'",
+      [runId],
+    );
+    expect(stored.rows).toHaveLength(1);
+    expect(stored.rows[0].payload.card.body[0].text).toBe("它学会了调用工具。");
+
+    // 没读过的页不能写进卡片：引文必须来自本轮的回执。
+    await expect(
+      dispatch({
+        account,
+        dossier,
+        run: runId,
+        server: "cards",
+        tool: "card.layer",
+        args: { card: { ...card, no: "2", body: [{ text: "编的", refs: [{ paperId: assetId, page: 1, quote: "never read this" }] }] } },
+      }),
+    ).rejects.toMatchObject({ code: "CARD_CITATION_UNVERIFIED" });
   });
 });

@@ -71,4 +71,25 @@ describe("dsh launch plan", () => {
     expect(() => launchPlan({ ...base, controlUrl: "", run: "30000000-0000-4000-8000-000000000005", dossier: "20000000-0000-4000-8000-000000000005", sessionId: "s" })).toThrow();
     expect(() => launchPlan({ ...base, model: "", run: "30000000-0000-4000-8000-000000000006", dossier: "20000000-0000-4000-8000-000000000006", sessionId: "s" })).toThrow();
   });
+
+  it("提示词只留三条底线，操作步骤交给模型；网页搜索走控制面代理", async () => {
+    const writes = new Map<string, string>();
+    const plan = launchPlan({ ...base, run: "30000000-0000-4000-8000-000000000007", dossier: "20000000-0000-4000-8000-000000000007", sessionId: "ses_e" });
+    await materializeLaunch(plan, "tok_live", {
+      write: async (file: string, body: string) => void writes.set(file, body),
+      remove: async () => {},
+      mkdir: async () => {},
+    });
+    const patch = writes.get(plan.paths.patchFile) ?? "";
+    for (const line of ["下载全文、写文件，要先得到用户批准", "不编造论文、作者和页码", "候选论文由用户来选"]) {
+      expect(patch).toContain(line);
+    }
+    // 操作步骤类的规则不该再出现在提示词里。
+    for (const banned of ["只搜", "不要重复同一查询", "读第 1-3 页", "至少写一条", "先写完 5 层"]) {
+      expect(patch).not.toContain(banned);
+    }
+    expect(patch).toContain("searchProvider: deepseek-search-api");
+    expect(patch).toContain("fetchProvider: deepseek-fetch-api");
+    expect(patch).toContain(base.controlUrl + "/llm/deepseek/v1/tools");
+  });
 });

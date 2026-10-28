@@ -42,7 +42,15 @@ export function createClient(config, fetchImpl = fetch) {
     if (response.status === 409 && body.state === "pending")
       return { pending: true, approvalId: body.approvalId };
     if (!response.ok)
-      throw new Error(body.error || `KERNEL_TOOL_HTTP_${response.status}`);
+      // 错误码和原因原样交给模型：换源、改参数还是问用户，由它自己决定。
+      return {
+        pending: false,
+        error: {
+          code: String(body.code ?? body.error ?? `KERNEL_TOOL_HTTP_${response.status}`),
+          message: String(body.message ?? body.error ?? `工具返回 ${response.status}`),
+          status: response.status,
+        },
+      };
     return { pending: false, result: body.result };
   };
 }
@@ -70,67 +78,46 @@ async function awaitDecision(config, call, approvalId) {
 
 const text = (value) => [{ type: "text", text: JSON.stringify(value) }];
 
+const output = { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) };
+/** 工具失败就是返回值里的一段数据，不结束这一轮。 */
+const unwrap = (outcome) => (outcome.error ? { error: outcome.error } : outcome.result);
+
 export function apply(ctx, config) {
   const call = createClient(config, (config && config.fetch) || fetch);
-  const mode = config && config.mode === "read" ? "read" : "clarify";
   const register = (definition) => ctx.tools.register(definition);
-  // A reading turn must not search or ask again: its tool surface is download,
-  // page reading and cards only. The clarification turn keeps search + asking.
-  const clarifyTurn = mode === "clarify";
-  const readTurn = mode === "read";
+  // 两个阶段给同一套能力：用什么、先用哪个、要不要再问用户，都由模型自己决定。
 
-  if (readTurn) {
-    // A reading turn cannot search or ask again. Registering instructive stubs
-    // (instead of leaving the names missing) steers the model straight back to
-    // the download instead of ending the turn on an unknown-tool error.
-    const redirect = (name) =>
-      defineTool({
-        name,
-        description: "这一轮不要检索、不要提问；用户已经选定论文。",
-        parameters: {},
-        output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
-        async execute() {
-          return {
-            error: "这一轮不要检索、不要提问。请直接调用 papers_fetch，参数用本轮输入里的 paperId。",
-          };
-        },
-      });
-    register(redirect("papers_search"));
-    register(redirect("clarify_question"));
-  }
-  if (clarifyTurn)
-    register(
-      defineTool({
-        name: "papers_search",
+  register(
+    defineTool({
+      name: "papers_search",
       description:
-        "Search real papers by free-text query. Returns candidates from the literature index; you do not choose for the user.",
+        "按关键词检索真实论文。可用来源：arxiv（有全文）、openalex（元数据+开放全文）、crossref（书目元数据+DOI）。不指定来源时三家一起查；每家成功与否和失败原因都会在 sources 里返回。",
       parameters: {
-        query: { type: "string", required: true, description: "Search query." },
-        limit: { type: "integer", description: "Max results, 1-20." },
+        query: { type: "string", required: true, description: "检索词。" },
+        source: { type: "string", description: "arxiv | openalex | crossref | auto（默认全部）。" },
+        limit: { type: "integer", description: "最多返回几条，1-20。" },
       },
-      output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
+      output,
       async execute(args) {
-        const result = await call("papers", "search", args);
-        if (result.pending) throw new Error("APPROVAL_NOT_SUPPORTED_FOR_SEARCH");
-        return result.result;
+        return unwrap(await call("papers", "search", args));
       },
     }),
   );
 
-  if (readTurn)
-    register(
-      defineTool({
-        name: "papers_fetch",
+  register(
+    defineTool({
+      name: "papers_fetch",
       description:
-        "Download one chosen paper into the dossier. Requires the user's single approval; a repeat call for the same paper returns the existing asset instead of downloading again.",
+        "把一篇论文下载进当前档案并登记资产。paperId 支持 arxiv:、W（OpenAlex）、doi:。下载要用户批准一次；同一篇重复调用返回已有资产。",
       parameters: {
-        paperId: { type: "string", required: true, description: "Provider paper id (e.g. arXiv/OpenAlex id)." },
+        paperId: { type: "string", required: true, description: "arxiv:2302.04761v1 / W123456 / doi:10.1000/xyz。" },
       },
-      output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
+      output,
       // Waiting for the user's decision is not a slow tool: keep the turn open.
       timeoutMs: 60_000,
       async execute(args) {
         const first = await call("papers", "fetch", args);
+        if (first.error) return first.error;
         if (!first.pending) return first.result;
         const decision = await awaitDecision(config, call, first.approvalId);
         if (!decision.approved)
@@ -138,42 +125,32 @@ export function apply(ctx, config) {
         const second = await call("papers", "fetch", args, {
           approvalId: decision.approvalId,
         });
-        if (second.pending) throw new Error("APPROVAL_NOT_CONSUMED");
-        const saved = second.result ?? {};
-        return {
-          ...saved,
-          next:
-            "下一步必须调用 papers_pages(" +
-            String(saved.assetId ?? "") +
-            ', [1,2,3]) 读取实际页码，然后至少调用一次 card_finding。',
-        };
+        if (second.error) return second.error;
+        if (second.pending) return { error: { code: "APPROVAL_NOT_CONSUMED", message: "审批没生效，请重试。" } };
+        return second.result ?? {};
       },
     }),
   );
 
-  if (readTurn)
-    register(
-      defineTool({
-        name: "papers_pages",
-      description: "Read specific pages of an already downloaded paper and return their text.",
+  register(
+    defineTool({
+      name: "papers_pages",
+      description: "读取已下载论文的具体页码，返回该页原文。",
       parameters: {
-        assetId: { type: "string", required: true, description: "Dossier paper asset id." },
-        pages: { type: "array", required: true, items: { type: "integer" }, description: "Page numbers, 1-based, at most 20." },
+        assetId: { type: "string", required: true, description: "档案里的论文资产 id。" },
+        pages: { type: "array", required: true, items: { type: "integer" }, description: "页码，从 1 开始，最多 20 页。" },
       },
-      output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
+      output,
       async execute(args) {
-        const result = await call("papers", "pages", args);
-        if (result.pending) throw new Error("APPROVAL_NOT_SUPPORTED_FOR_PAGES");
-        return result.result;
+        return unwrap(await call("papers", "pages", args));
       },
     }),
   );
 
-  if (readTurn)
-    register(
-      defineTool({
-        name: "card_layer",
-      description: "Save one layered explanation card. Every claim must cite pages actually read in this run.",
+  register(
+    defineTool({
+      name: "card_layer",
+      description: "保存一层讲解卡。卡片里的说法都要有实际读到的页码依据。",
       parameters: {
         card: {
           type: "object",
@@ -183,47 +160,41 @@ export function apply(ctx, config) {
             "{\"paperId\":\"资产id\",\"no\":\"1\",\"title\":\"一句话\",\"en\":\"One-liner\",\"body\":[{\"text\":\"…\",\"refs\":[{\"paperId\":\"资产id\",\"page\":2,\"quote\":\"原文片段\"}]}]}",
         },
       },
-      output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
+      output,
       async execute(args) {
-        const result = await call("cards", "card.layer", { card: args.card ?? args });
-        if (result.pending) throw new Error("APPROVAL_NOT_SUPPORTED_FOR_CARDS");
-        return result.result;
+        return unwrap(await call("cards", "card.layer", { card: args.card ?? args }));
       },
     }),
   );
 
-  if (readTurn)
-    register(
-      defineTool({
-        name: "card_finding",
-      description: "Save one discovery card with its evidence pages for the current dossier.",
+  register(
+    defineTool({
+      name: "card_finding",
+      description: "保存一条发现卡，带上依据页码。",
       parameters: {
-        text: { type: "string", required: true, description: "The finding." },
-        evidence: { type: "array", required: true, items: { type: "object", additionalProperties: true }, description: "paperId/page/quote evidence." },
-        confidence: { type: "string", description: "low | mid | high." },
-        status: { type: "string", description: "hypothesis | supported | refuted." },
+        text: { type: "string", required: true, description: "发现内容。" },
+        evidence: { type: "array", required: true, items: { type: "object", additionalProperties: true }, description: "paperId/page/quote 依据。" },
+        confidence: { type: "string", description: "low | mid | high。" },
+        status: { type: "string", description: "hypothesis | supported | refuted。" },
       },
-      output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
+      output,
       async execute(args) {
-        const result = await call("cards", "card.finding", { card: args.card ?? args });
-        if (result.pending) throw new Error("APPROVAL_NOT_SUPPORTED_FOR_FINDINGS");
-        return result.result;
+        return unwrap(await call("cards", "card.finding", { card: args.card ?? args }));
       },
     }),
   );
 
-  if (clarifyTurn)
-    register(
-      defineTool({
-        name: "clarify_question",
+  register(
+    defineTool({
+      name: "clarify_question",
       description:
-        "Ask the user a question inside this dossier's conversation, optionally with candidate papers to choose from. Never pick for the user.",
+        "在这一段对话里向用户提问；带 candidates 时用户会看到可选论文卡。不要替用户选。",
       parameters: {
-        question: { type: "string", required: true, description: "What to ask." },
-        kind: { type: "string", description: "text | paper_pick." },
-        candidates: { type: "array", items: { type: "object", additionalProperties: true }, description: "Real candidates for paper_pick." },
+        question: { type: "string", required: true, description: "要问的问题。" },
+        kind: { type: "string", description: "text | paper_pick。" },
+        candidates: { type: "array", items: { type: "object", additionalProperties: true }, description: "真实候选论文。" },
       },
-      output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
+      output,
       timeoutMs: 60_000,
       async execute(args) {
         const askArgs =
@@ -231,12 +202,14 @@ export function apply(ctx, config) {
             ? { ...args, kind: "paper_pick" }
             : args;
         const first = await call("cards", "clarify.question", askArgs);
+        if (first.error) return first.error;
         if (!first.pending) return first.result;
         const decision = await awaitDecision(config, call, first.approvalId);
         if (!decision.approved) return { state: "cancelled" };
         const answered = await call("cards", "clarify.question", args, {
           approvalId: decision.approvalId,
         });
+        if (answered.error) return answered.error;
         return answered.pending
           ? { state: "answered", approvalId: decision.approvalId }
           : answered.result;

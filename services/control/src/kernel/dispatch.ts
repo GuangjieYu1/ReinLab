@@ -2,6 +2,7 @@ import type { Database } from "../db/database";
 import { loadCapabilityCatalog, type CapabilityCatalog } from "../mcp/registry";
 import { paperHandlers, type PaperDeposit } from "../mcp/papers";
 import { dataHandlers, type CardDeposit } from "../mcp/data-handlers";
+import { kernelCardHandlers } from "./cards";
 import { ApiFailure } from "../api/errors";
 import type { TokenClaims } from "../mcp/token";
 import type { AuthorizedCapability } from "../mcp/authority";
@@ -70,11 +71,11 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
       // 卡片里的 paperId 可能是论文站点的 id（W…/arXiv 号），而页码回执按资产 id 记录：
       // 落卡前把它换成这次运行下载的资产 id，引用才核得上。
       call = { ...call, args: await withAssetId(dependencies.db, call) };
+      // 内核运行没有 run_harness 行，冻结清单那条卡片写入路径在这里必然 403；
+      // 用内核自己的写入器：同样的卡片规范和「引用必须来自本轮读过的页」。
       cards ??= (dependencies.cardHandlers
         ? dependencies.cardHandlers(dependencies.db, dependencies.cardDeposit)
-        : dataHandlers(dependencies.db, dependencies.cardDeposit)) as ReturnType<
-        typeof dataHandlers
-      >;
+        : kernelCardHandlers(dependencies.db)) as ReturnType<typeof dataHandlers>;
       const handler = cards[`cards.${call.tool}`];
       if (!handler)
         throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "该卡片工具尚未接入。");

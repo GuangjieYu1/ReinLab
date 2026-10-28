@@ -25,6 +25,7 @@ import { KernelService } from "./kernel/service";
 import { createHarnessFactory, resolveDshModule } from "./kernel/dsh/harness";
 import { localAccountPort } from "./kernel/local-account";
 import { createKernelDispatch } from "./kernel/dispatch";
+import { registerWebToolsProxy } from "./model/web-tools-proxy";
 import { registerMessagesProxy } from "./model/messages-proxy";
 import { recordUsage } from "./run/usage";
 import { readRuntimeConfiguration } from "./configuration";
@@ -203,6 +204,18 @@ if (realModels) {
     now: () => Math.floor(Date.now() / 1000),
     providerBaseUrl: "https://api.deepseek.com/anthropic",
     providerKey,
+  });
+  // DeepSeek Search / Fetch API：内核的 web_search / web_fetch 走这里，宿主密钥不外发。
+  registerWebToolsProxy(app, {
+    auth: kernelAuth,
+    now: () => Math.floor(Date.now() / 1000),
+    providerBaseUrl: "https://api.deepseek.com",
+    providerKey,
+    feeCny: config.DEEPSEEK_WEB_FEE_CNY ?? "0.005000",
+    forward: (request: Request) => fetch(request, { redirect: "error" }),
+    record: async (usage) => {
+      await database.withAccount(usage.account, (client) => recordUsage(client, usage));
+    },
   });
 }
 const stopProvisioner = config.DATABASE_URL_PROVISIONER

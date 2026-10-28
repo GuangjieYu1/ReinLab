@@ -35,7 +35,7 @@ export type MessagesProxyDependencies = {
   provider?: string;
 };
 
-const tokenOf = (request: Request) => {
+export const tokenOf = (request: Request) => {
   const key = request.headers.get("x-api-key");
   if (key) return key.trim();
   const bearer = request.headers.get("authorization")?.match(/^Bearer (\S+)$/)?.[1];
