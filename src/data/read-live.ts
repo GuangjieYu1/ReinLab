@@ -446,7 +446,17 @@ export function createLiveReadAdapter(
       ...(state === "done"
         ? rejected
           ? { endReason: "rejected" as const, message: "已停止 · 没有下载" }
-          : { endReason: endReason ?? "completed" }
+          : {
+              endReason: endReason ?? "completed",
+              // 后端已经提醒补写过一次；到这里还是不满 5 层就照实写层数，不说「已完成」。
+              ...(snapshot.layers.length < 5
+                ? {
+                    message: snapshot.layers.length
+                      ? `讲解只生成了 ${snapshot.layers.length} 层`
+                      : "这一轮没有写出分层讲解",
+                  }
+                : {}),
+            }
         : {}),
       ...(state === "failed" ? { message: failureMessage ?? status.session?.errorCode ?? "执行失败，可以重来。" } : {}),
     });
@@ -488,8 +498,16 @@ export function createLiveReadAdapter(
     return dossier;
   }
 
+  // 一次用户意图一个键：同一次开始重试（会话被占、响应丢失）不会再开第二个运行。
+  let startKey: string | undefined,
+    startSignature: string | undefined;
   async function startRun(query: string, chosenPaperId?: string): Promise<void> {
-    const id = await ensureDossier();
+    const id = await ensureDossier(),
+      signature = JSON.stringify([id, query, chosenPaperId ?? null, freshReading]);
+    if (signature !== startSignature) {
+      startSignature = signature;
+      startKey = crypto.randomUUID();
+    }
     // The clarify turn may still be closing when the user confirms; the session
     // lease frees only after it ends, so retry briefly instead of failing.
     let created: { id: string } | undefined;
@@ -503,7 +521,7 @@ export function createLiveReadAdapter(
             ...(chosenPaperId ? { chosenPaperId } : {}),
             ...(freshReading ? { newSession: true } : {}),
           },
-          crypto.randomUUID(),
+          startKey ?? crypto.randomUUID(),
         )) as { id: string };
       } catch (error) {
         const message = String((error as { message?: string })?.message ?? "");
@@ -513,6 +531,8 @@ export function createLiveReadAdapter(
     }
     if (!created) throw Error("开始精读失败，请重试。");
     const createdRun = created;
+    startKey = undefined;
+    startSignature = undefined;
     runId = createdRun.id;
     rejected = false;
     fetchCardShown = false;
@@ -701,9 +721,8 @@ export function createLiveReadAdapter(
         const pending = (await ports.api("/v1/approvals?state=pending")) as {
           items?: Array<{ id: string; runId: string; title: string }>;
         };
-        const hit =
-          (pending?.items ?? []).find((item) => item.runId === runId) ??
-          (pending?.items ?? [])[0];
+        // 只认这一轮的待办：别的运行（含上一段精读）的审批不能借卡片 id 被点掉。
+        const hit = (pending?.items ?? []).find((item) => item.runId === runId);
         if (!hit) {
           // 已经不在待办里：按当前结果收尾，不重复提交
           if (!approve) {

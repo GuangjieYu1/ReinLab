@@ -191,6 +191,26 @@ export class KernelService {
             await this.release(client, account, prepared.dossierId, prepared.sessionId, runId, state);
           });
         },
+        // 讲解层是这一轮的产品承诺：结束时不到 5 层就提醒补写一次。
+        layers:
+          prepared.mode === "read"
+            ? {
+                minimum: 5,
+                count: async () =>
+                  Number(
+                    (
+                      await db.withAccount(account, (client) =>
+                        client.query(
+                          "select count(*)::int n from event where run_id=$1 and action='card_created' and payload->>'cardType'='layer'",
+                          [runId],
+                        ),
+                      )
+                    ).rows[0]?.n ?? 0,
+                  ),
+                reminder: (have, minimum) =>
+                  `讲解卡现在只有 ${have} 层，还没到 ${minimum} 层。请只补写讲解：用 card_layer 继续写第 ${have + 1} 到第 ${minimum} 层（参数是 card 对象，含 no/title/en/body[{text,refs}]），写完就停，不要重复已写的层，不要再检索，也不要总结。`,
+              }
+            : undefined,
         release: plan.release,
       },
       { plan, prompt: prepared.message, resume: prepared.resume, token },

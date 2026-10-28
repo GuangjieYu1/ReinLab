@@ -23,6 +23,16 @@ export type PipelineDependencies = {
   ) => void | Promise<void>;
   /** Release the run-scoped files once the runtime is gone. */
   release: () => Promise<void>;
+  /**
+   * A read turn that stops short of the promised layers gets exactly one
+   * reminder turn; if it is still short the run ends as it really is.
+   */
+  layers?: {
+    minimum: number;
+    /** How many layer cards this run already wrote. */
+    count: () => Promise<number>;
+    reminder: (have: number, minimum: number) => string;
+  };
 };
 
 export type RunHandle = {
@@ -49,7 +59,7 @@ export function executeRun(
 
   const done = (async () => {
     try {
-      const outcome = await runTurn({
+      let outcome = await runTurn({
         plan: request.plan,
         prompt: request.prompt,
         resume: request.resume,
@@ -62,6 +72,38 @@ export function executeRun(
         onSession: (sessionId, resumed) =>
           dependencies.onSession?.(sessionId, resumed),
       });
+      if (outcome.state === "completed" && !cancelRequested && dependencies.layers) {
+        const { minimum, count, reminder } = dependencies.layers;
+        const have = await count();
+        if (have < minimum) {
+          // 模型以为讲完了：同一次运行里提醒它补写，只补一层是一层，不丢已经写下的。
+          const again = await runTurn({
+            plan: request.plan,
+            prompt: reminder(have, minimum),
+            resume: true,
+            factory: dependencies.factory,
+            onEvent: (event) => dependencies.onEvent(event),
+            onHarness: (harness) => {
+              owned = harness;
+            },
+            onSession: (sessionId, resumed) =>
+              dependencies.onSession?.(sessionId, resumed),
+          });
+          outcome = again;
+          if (again.state === "completed") {
+            const after = await count();
+            if (after < minimum)
+              console.error(
+                JSON.stringify({
+                  code: "KERNEL_LAYERS_SHORT",
+                  run: request.plan.run,
+                  layers: after,
+                  minimum,
+                }),
+              );
+          }
+        }
+      }
       await dependencies.onState(
         outcome.state,
         outcome.state === "failed"

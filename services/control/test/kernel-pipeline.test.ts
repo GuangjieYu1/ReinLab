@@ -162,4 +162,53 @@ describe("run pipeline", () => {
     expect(status).toBe("cancelled");
     expect(close).toHaveBeenCalled();
   });
+
+  it("讲解不够 5 层时补一次提醒，补完还不够就照实结束", async () => {
+    const prompts: string[] = [];
+    const completed = () => ({ sessionId: "ds", events: [{ type: "turn/end", data: { reason: { kind: "completed" } } }], finalResponse: "ok" });
+    const factory = () => ({
+      session: () => ({ run: async (text: string) => { prompts.push(text); return completed(); } }),
+      resumeSession: async () => ({ run: async (text: string) => { prompts.push(text); return completed(); } }),
+      close: vi.fn(async () => {}),
+    });
+    const states: string[] = [];
+    const handle = executeRun(
+      {
+        factory,
+        onEvent: () => {},
+        onState: (state) => void states.push(state),
+        release: async () => {},
+        layers: {
+          minimum: 5,
+          count: async () => 2,
+          reminder: (have, minimum) => `只写了 ${have} 层，补到 ${minimum} 层。`,
+        },
+      },
+      { plan: run("f"), prompt: "开始精读", resume: false, token: "t" },
+    );
+    await handle.done;
+    expect(prompts).toEqual(["开始精读", "只写了 2 层，补到 5 层。"]);
+    expect(states).toEqual(["completed"]);
+  });
+
+  it("讲解够层数就不多跑一轮", async () => {
+    const prompts: string[] = [];
+    const completed = () => ({ sessionId: "ds", events: [{ type: "turn/end", data: { reason: { kind: "completed" } } }], finalResponse: "ok" });
+    const handle = executeRun(
+      {
+        factory: () => ({
+          session: () => ({ run: async (text: string) => { prompts.push(text); return completed(); } }),
+          resumeSession: async () => ({ run: async (text: string) => { prompts.push(text); return completed(); } }),
+          close: vi.fn(async () => {}),
+        }),
+        onEvent: () => {},
+        onState: () => {},
+        release: async () => {},
+        layers: { minimum: 5, count: async () => 5, reminder: () => "不该出现" },
+      },
+      { plan: run("g"), prompt: "开始精读", resume: false, token: "t" },
+    );
+    await handle.done;
+    expect(prompts).toEqual(["开始精读"]);
+  });
 });
