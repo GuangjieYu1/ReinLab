@@ -252,7 +252,8 @@ export function createLiveReadAdapter(
         }
         if (name === "card_layer" || name === "card_finding") {
           tool(String(data.callId ?? event.seq), name, true);
-          const args = JSON.parse(String(data.arguments ?? "{}") || "{}");
+          const raw = JSON.parse(String(data.arguments ?? "{}") || "{}");
+          const args = raw.card ?? raw;
           if (name === "card_finding") {
             const evidence = Array.isArray(args.evidence) ? args.evidence : [];
             const finding: FindingCard = {
@@ -275,17 +276,17 @@ export function createLiveReadAdapter(
               emit({ type: "finding", finding });
             }
           } else {
-            const items = Array.isArray(args.items) ? args.items : [];
+            const body = Array.isArray(args.body) ? args.body : [];
             const layer: LayerCard = {
               id: "layer:" + String(data.callId ?? event.seq),
-              no: String(args.layer ?? "L1"),
-              title: String(args.layer ?? "讲解"),
-              en: "",
-              body: items
-                .map((item: any) => ({
-                  text: String(item?.text ?? ""),
-                  refs: (Array.isArray(item?.citations) ? item.citations : [])
-                    .map((citation: any) => (citation?.page ? "p." + String(citation.page) : ""))
+              no: String(args.no ?? "1"),
+              title: String(args.title ?? "讲解"),
+              en: String(args.en ?? ""),
+              body: body
+                .map((entry: any) => ({
+                  text: String(entry?.text ?? ""),
+                  refs: (Array.isArray(entry?.refs) ? entry.refs : [])
+                    .map((ref: any) => (ref?.page ? "p." + String(ref.page) : ""))
                     .filter(Boolean),
                 }))
                 .filter((entry: { text: string }) => entry.text),

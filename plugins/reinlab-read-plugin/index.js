@@ -175,13 +175,17 @@ export function apply(ctx, config) {
         name: "card_layer",
       description: "Save one layered explanation card. Every claim must cite pages actually read in this run.",
       parameters: {
-        paperId: { type: "string", required: true, description: "Dossier paper asset id." },
-        layer: { type: "string", required: true, description: "Layer label, e.g. 'L1 动机'." },
-        items: { type: "array", required: true, items: { type: "object", additionalProperties: true }, description: "Claims with citations." },
+        card: {
+          type: "object",
+          additionalProperties: true,
+          required: true,
+          description:
+            "{\"paperId\":\"资产id\",\"no\":\"1\",\"title\":\"一句话\",\"en\":\"One-liner\",\"body\":[{\"text\":\"…\",\"refs\":[{\"paperId\":\"资产id\",\"page\":2,\"quote\":\"原文片段\"}]}]}",
+        },
       },
       output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
       async execute(args) {
-        const result = await call("cards", "card.layer", args);
+        const result = await call("cards", "card.layer", { card: args.card ?? args });
         if (result.pending) throw new Error("APPROVAL_NOT_SUPPORTED_FOR_CARDS");
         return result.result;
       },
@@ -201,7 +205,7 @@ export function apply(ctx, config) {
       },
       output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => text(v) },
       async execute(args) {
-        const result = await call("cards", "card.finding", args);
+        const result = await call("cards", "card.finding", { card: args.card ?? args });
         if (result.pending) throw new Error("APPROVAL_NOT_SUPPORTED_FOR_FINDINGS");
         return result.result;
       },
