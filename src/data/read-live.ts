@@ -1,5 +1,6 @@
 import type {
   FindingCard,
+  LayerCard,
   PaperCandidate,
   ReadAdapter,
   ReadEvent,
@@ -182,7 +183,52 @@ export function createLiveReadAdapter(
           }
         }
         tool(String(data.callId ?? event.seq), name, true);
-        if (name === "card_layer" || name === "card_finding") tool(String(data.callId ?? event.seq), name, true);
+        if (name === "card_layer" || name === "card_finding") {
+          tool(String(data.callId ?? event.seq), name, true);
+          const args = JSON.parse(String(data.arguments ?? "{}") || "{}");
+          if (name === "card_finding") {
+            const evidence = Array.isArray(args.evidence) ? args.evidence : [];
+            const finding: FindingCard = {
+              id: "finding:" + String(data.callId ?? event.seq),
+              n: snapshot.findings.length + 1,
+              text: String(args.text ?? ""),
+              refs: evidence
+                .map((item: any) => (item?.page ? "p." + String(item.page) : ""))
+                .filter(Boolean),
+              confidence: ["low", "mid", "high"].includes(args.confidence)
+                ? args.confidence
+                : "mid",
+              status: ["hypothesis", "supported", "refuted"].includes(args.status)
+                ? args.status
+                : "hypothesis",
+              at: new Date().toISOString(),
+            };
+            if (finding.text) {
+              snapshot.findings.push(finding);
+              emit({ type: "finding", finding });
+            }
+          } else {
+            const items = Array.isArray(args.items) ? args.items : [];
+            const layer: LayerCard = {
+              id: "layer:" + String(data.callId ?? event.seq),
+              no: String(args.layer ?? "L1"),
+              title: String(args.layer ?? "讲解"),
+              en: "",
+              body: items
+                .map((item: any) => ({
+                  text: String(item?.text ?? ""),
+                  refs: (Array.isArray(item?.citations) ? item.citations : [])
+                    .map((citation: any) => (citation?.page ? "p." + String(citation.page) : ""))
+                    .filter(Boolean),
+                }))
+                .filter((entry: { text: string }) => entry.text),
+            };
+            if (layer.body.length) {
+              snapshot.layers.push(layer);
+              emit({ type: "layer", layer });
+            }
+          }
+        }
         return;
       }
       case "tool/result": {
@@ -193,21 +239,6 @@ export function createLiveReadAdapter(
             Object.assign(existing.event, { state: "done" });
             emit({ ...existing.event });
           }
-        }
-        const result = data.message?.content;
-        const asText = Array.isArray(result) ? result.map((b: any) => b?.text ?? "").join("") : "";
-        if (asText.includes("card_finding") || asText.includes("finding")) {
-          const card: FindingCard = {
-            id: "finding:" + event.seq,
-            n: snapshot.findings.length + 1,
-            text: asText.slice(0, 2000),
-            refs: [],
-            confidence: "mid",
-            status: "hypothesis",
-            at: new Date().toISOString(),
-          };
-          snapshot.findings.push(card);
-          emit({ type: "finding", finding: card });
         }
         return;
       }

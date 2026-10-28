@@ -261,8 +261,8 @@ async function existingPaperAsset(
   if (!paperId) return null;
   const row = (
     await client.query(
-      "select id assetId,status,license,path,paper_id \"paperId\" from paper_asset where account_id=$1 and dossier_id=$2 and paper_id=$3 and status='full_text' order by created_at desc limit 1",
-      [call.account, call.dossier, paperId],
+      "select id assetId,status,license,path,paper_id \"paperId\" from paper_asset where account_id=$1 and dossier_id=$2 and paper_id=$3 and run_id=$4 and status='full_text' order by created_at desc limit 1",
+      [call.account, call.dossier, paperId, call.run],
     )
   ).rows[0];
   return row ? { ...row, reused: true } : null;
