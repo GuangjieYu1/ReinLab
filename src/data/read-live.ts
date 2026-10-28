@@ -86,6 +86,7 @@ export function createLiveReadAdapter(
     questionCardId: string | undefined,
     localPhase: RunView["state"] | undefined,
     rejected = false,
+    fetchCardShown = false,
     timer: ReturnType<typeof setInterval> | undefined,
     endReason: RunView["endReason"],
     failureMessage: string | undefined;
@@ -185,6 +186,7 @@ export function createLiveReadAdapter(
         tool(String(data.callId ?? event.seq), name, true);
         if (name === "papers_fetch") {
           const callId = String(data.callId ?? event.seq);
+          fetchCardShown = true;
           emit({
             type: "approval",
             id: callId,
@@ -323,6 +325,7 @@ export function createLiveReadAdapter(
         }
         continue;
       }
+      if (fetchCardShown) continue;
       announced.add(card.id);
       // A pending permission means the run is waiting on the user: show the
       // run panel with the card instead of the local estimate step.
@@ -443,6 +446,7 @@ export function createLiveReadAdapter(
     const createdRun = created;
     runId = createdRun.id;
     rejected = false;
+    fetchCardShown = false;
     freshReading = false;
     localPhase = undefined;
     cursor = 0;
