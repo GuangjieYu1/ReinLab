@@ -118,7 +118,7 @@ it("independent papers: every redirect rechecks all DNS answers before a connect
   }
 });
 
-it("independent papers: missing license never fetches PDF, and foreign tenant/dossier cannot access asset", async () => {
+it("independent papers: 非开放获取只存摘要，跨账号/档案读不到资产", async () => {
   const f = await mcpFixture(await implementedCatalog()),
     cache = await realpath(
       await mkdtemp(path.join(tmpdir(), "reinlab-independent-paper-cache-")),
@@ -144,7 +144,8 @@ it("independent papers: missing license never fetches PDF, and foreign tenant/do
           bytes: Buffer.from(
             JSON.stringify({
               id: "https://openalex.org/W99",
-              open_access: { is_oa: true },
+              // 许可缺失不再是降级理由（开放全文照取，许可记 null）；这条用例守的是非 OA 不下载与隔离。
+              open_access: { is_oa: false },
               best_oa_location: {
                 is_oa: true,
                 pdf_url: "https://arxiv.org/pdf/fixture",

@@ -31,6 +31,12 @@ const wire = (body: unknown) => ({
   status: 200,
   bytes: Buffer.from(JSON.stringify(body)),
 });
+const atom = (id: string, title: string) => ({
+  status: 200,
+  bytes: Buffer.from(
+    `<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/${id}v1</id><title>${title}</title><summary>summary</summary><author><name>Fixture Author</name></author></entry></feed>`,
+  ),
+});
 
 beforeAll(async () => {
   await applyMigrations(admin, resolve("infra/supabase/migrations"));
@@ -56,7 +62,9 @@ describe("kernel tool dispatch", () => {
       cacheRoot: mkdtempSync(join(tmpdir(), "papers-cache-")),
       deposit: async () => {},
       cardDeposit: async () => {},
-      http: { get: async () => wire({ results: [work] }) } as never,
+      http: {
+        get: async () => atom("2302.04761", "Toolformer: Language Models Can Teach Themselves to Use Tools"),
+      } as never,
     });
     const result = (await dispatch({
       account,
@@ -68,7 +76,33 @@ describe("kernel tool dispatch", () => {
     })) as { papers: Array<{ paperId: string; title: string }> };
     expect(result.papers).toHaveLength(1);
     expect(result.papers[0].title).toContain("Toolformer");
-    expect(result.papers[0].paperId).toContain("W3000000001");
+    expect(result.papers[0].paperId).toBe("arxiv:2302.04761v1");
+  });
+
+  it("configured OpenAlex 仍按 work 编号返回候选", async () => {
+    const previous = process.env.OPENALEX_API_KEY;
+    process.env.OPENALEX_API_KEY = "fixture-key";
+    try {
+      const dispatch = createKernelDispatch({
+        db,
+        cacheRoot: mkdtempSync(join(tmpdir(), "papers-cache-")),
+        deposit: async () => {},
+        cardDeposit: async () => {},
+        http: { get: async () => wire({ results: [work] }) } as never,
+      });
+      const result = (await dispatch({
+        account,
+        dossier,
+        run: runId,
+        server: "papers",
+        tool: "search",
+        args: { query: "toolformer" },
+      })) as { papers: Array<{ paperId: string; title: string }> };
+      expect(result.papers[0].paperId).toBe("W3000000001");
+    } finally {
+      if (previous === undefined) delete process.env.OPENALEX_API_KEY;
+      else process.env.OPENALEX_API_KEY = previous;
+    }
   });
 
   it("routes a finding card to the card layer and returns its receipt", async () => {

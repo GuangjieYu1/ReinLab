@@ -17,6 +17,14 @@ type Ports = {
   generation: () => number;
 };
 /** The bench-mounting adapter: no dossier yet, created on first `clarify`. */
+/** 候选没写来源时，按编号说清是哪一家，不一律写 OpenAlex。 */
+const defaultVenue = (candidate: any) =>
+  String(candidate.paperId ?? "").startsWith("arxiv:")
+    ? "arXiv"
+    : String(candidate.paperId ?? "").startsWith("W")
+      ? "OpenAlex"
+      : "检索结果";
+
 export const liveReadAdapter = () => createLiveReadAdapter();
 type LiveReadAdapter = ReadAdapter & {
   dispatchUnavailable(to: "swarm" | "auto", text: string): void;
@@ -224,7 +232,7 @@ export function createLiveReadAdapter(
                     id: String(candidate.paperId ?? candidate.id ?? ""),
                     title: String(candidate.title ?? ""),
                     authors: String(candidate.authors ?? "检索结果"),
-                    venue: String(candidate.venue ?? "OpenAlex"),
+                    venue: String(candidate.venue ?? defaultVenue(candidate)),
                     access: "full",
                   }))
                 : [],
@@ -375,7 +383,7 @@ export function createLiveReadAdapter(
               id: String(candidate.paperId ?? candidate.id ?? ""),
               title: String(candidate.title ?? ""),
               authors: String(candidate.authors ?? "检索结果"),
-              venue: String(candidate.venue ?? "OpenAlex"),
+              venue: String(candidate.venue ?? defaultVenue(candidate)),
               access: "full",
             })),
             state: "pending",
