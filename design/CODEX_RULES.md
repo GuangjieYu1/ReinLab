@@ -36,6 +36,14 @@
 - **DSH（DeepSeek V4.1）= 后端代码**：实现、审核、测试；不改 Claude 负责的前端样式和交互，需要的前端文件按 Claude 给的清单原样同步；工作流 spec → TDD → 实现；每个功能一个分支，每批一个提交；有问题直接问用户。
 - **Claude（CC）= 前端代码 + 规划 + 验收**：定下一个功能和验收标准；按已定的前端效果做真实走查验收，判断问题属于设计还是实现。
 
+## 设计 skill / 提示词
+
+不要教模型做事：给工具，让它自己决定策略；提示词只留底线（批准、不编造、用户来选）。详见 design/WORKFLOW.md 第 9 条。
+
+## 验收脚本
+
+`scripts/walkthrough/` 归 Claude 维护，开发方不要修改；认为有问题就提出来。
+
 ## 交接
 
 先读主仓库 `design/WORKFLOW.md`（纲领）和 `design/DEV_HANDOFF.md`（/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab/design/DEV_HANDOFF.md）：分工、怎么跑、待办清单。
