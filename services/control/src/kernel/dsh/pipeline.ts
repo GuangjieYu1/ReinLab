@@ -73,6 +73,27 @@ export function executeRun(
         onSession: (sessionId, resumed) =>
           dependencies.onSession?.(sessionId, resumed),
       });
+      if (
+        outcome.state === "failed" &&
+        !cancelRequested &&
+        outcome.errorCode === "MALFORMED_RESPONSE"
+      ) {
+        // 模型有一次把工具参数写成了不合法 JSON：同一次运行里让它重发一次，
+        // 不因为一次格式错误就整轮失败。
+        const again = await runTurn({
+          plan: request.plan,
+          prompt:
+            "上一次的工具调用参数不是合法 JSON，整轮因此中断。请把那次调用重发一次，参数保持简短（长引用可以拆成几次写）。",
+          resume: true,
+          factory: dependencies.factory,
+          onEvent: (event) => dependencies.onEvent(event),
+          onHarness: (harness) => {
+            owned = harness;
+          },
+          onSession: (sessionId, resumed) => dependencies.onSession?.(sessionId, resumed),
+        });
+        outcome = again;
+      }
       if (outcome.state === "completed" && !cancelRequested && dependencies.followUp) {
         const followUp = dependencies.followUp;
         const reminder = await followUp.reminder();

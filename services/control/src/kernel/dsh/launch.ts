@@ -165,6 +165,9 @@ export async function materializeLaunch(
       "      底线：1) 下载全文、写文件，要先得到用户批准；",
       "      2) 不编造论文、作者和页码；",
       "      3) 候选论文由用户来选，不替用户选。",
+      // 澄清轮只做「找候选 + 让用户选」：网页工具在这一轮关掉，候选能更快出来。
+      // 这是能力边界，不是提示词规则；精读轮把它打开。
+      ...(plan.mode === "clarify" ? ["- id: tool-web", "  disabled: true"] : []),
       "- id: web",
       "  config:",
       "    searchProvider: deepseek-search-api",
@@ -184,7 +187,7 @@ export async function materializeLaunch(
       "        tokenFile: " + JSON.stringify(plan.paths.tokenFile),
       "        controlUrl: " + JSON.stringify(plan.options.env.REINLAB_CONTROL_URL),
       "        mode: " + JSON.stringify(plan.mode),
-      "        approvalTimeoutMs: 60000",
+      "        approvalTimeoutMs: 30000",
       "",
     ].join("\n"),
     0o600,

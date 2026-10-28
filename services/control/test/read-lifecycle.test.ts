@@ -130,3 +130,50 @@ describe("精读生命周期（kernel 协议）", () => {
     expect(snapshot.run.message).toBe("讲解只生成了 2 层");
   });
 });
+
+describe("下载审批只出一张卡", () => {
+  it("工具调用和轮询同时说同一件事时只推一个审批事件", async () => {
+    const fetchCall = (seq: number) => ({
+      seq,
+      action: "tool/call",
+      payload: { name: "papers_fetch", callId: "call-" + seq, arguments: JSON.stringify({ paperId: "arxiv:2302.04761" }) },
+    });
+    const ports = routes((path) => {
+      if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [{ id: "run-1", state: "running" }] };
+      if (path.startsWith("/v1/kernel/runs/run-1/events")) return { events: [fetchCall(1)] };
+      if (path === "/v1/kernel/runs/run-1") return { state: "running", usage: { known: false } };
+      if (path === "/v1/approvals?state=pending")
+        return { items: [{ id: "00000000-0000-4000-8000-0000000000aa", runId: "run-1", kind: "permission", title: "下载论文全文" }] };
+      throw Error("UNEXPECTED_ROUTE " + path);
+    });
+    const adapter = createLiveReadAdapter("dossier-1", ports as never);
+    const events: any[] = [];
+    off = adapter.subscribe((event) => events.push(event));
+    await adapter.load();
+    const approvals = events.filter((event) => event.type === "approval");
+    expect(approvals).toHaveLength(1);
+  });
+});
+
+describe("审批卡落定后消失", () => {
+  it("approval.decided 之后不再留一张待批的卡", async () => {
+    const events = [
+      { seq: 1, action: "tool/call", payload: { name: "papers_fetch", callId: "call-1", arguments: JSON.stringify({ paperId: "arxiv:2302.04761" }) } },
+      { seq: 2, action: "approval.decided", payload: { approvalId: "00000000-0000-4000-8000-0000000000bb", decision: "approve", scope: "once" } },
+    ];
+    const ports = routes((path) => {
+      if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [{ id: "run-1", state: "running" }] };
+      if (path.startsWith("/v1/kernel/runs/run-1/events")) return { events };
+      if (path === "/v1/kernel/runs/run-1") return { state: "running", usage: { known: false } };
+      if (path === "/v1/approvals?state=pending") return { items: [] };
+      throw Error("UNEXPECTED_ROUTE " + path);
+    });
+    const adapter = createLiveReadAdapter("dossier-1", ports as never);
+    const seen: any[] = [];
+    off = adapter.subscribe((event) => seen.push(event));
+    const snapshot = await adapter.load();
+    const approvals = snapshot.history.filter((event) => event.type === "approval");
+    expect(approvals.map((event) => (event as any).state)).toEqual(["pending", "approved"]);
+    expect(seen.filter((event) => event.type === "approval").map((event) => (event as any).state)).toEqual(["pending", "approved"]);
+  });
+});

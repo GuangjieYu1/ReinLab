@@ -282,7 +282,9 @@ if (!hasToolformer) {
   await step('R1', '正', '确认开始', '运行开始；第一步是「下载全文」审批，主面板和助手面板都能看到', async () => {
     // 被拒的这一次只需要能走到审批：预算用预估上限，避免预留过多
     await page.locator('.rd-estimate .rd-go').click();
-    await page.locator('.rd-start-ap').waitFor({ timeout: 120000 });
+    await page.locator('.rd-start-ap').first().waitFor({ timeout: 120000 });
+    const cards = await page.locator('.rd-start-ap').allTextContents();
+    if (cards.length > 1) console.log('DEBUG 审批卡数量 ' + cards.length + '：' + cards.map(c => c.replace(/\s+/g, ' ').slice(0, 90)).join(' || '));
     const ap = (await text('.rd-start-ap')).replace(/\s+/g, ' ');
     const dock = await page.locator('.ad-approval').count();
     return dock ? ok(ap.slice(0, 200)) : part(`主面板有审批，助手面板没有：${ap.slice(0, 160)}`);

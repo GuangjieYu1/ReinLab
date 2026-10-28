@@ -308,6 +308,29 @@ export function createLiveReadAdapter(
         }
         return;
       }
+      case "approval.decided": {
+        // 审批落定后，卡片要立刻从待办里消失：否则界面会一直显示同一张卡，
+        // 人会重复点、脚本会一直点。
+        const decision = String(data.decision ?? "");
+        if (decision === "approve" || decision === "reject") {
+          permissionCardShown = false;
+          fetchCardShown = false;
+          emit({
+            type: "approval",
+            id: String(data.approvalId ?? "approval:" + event.seq),
+            action: "papers.fetch",
+            title: "下载论文全文",
+            effects: [],
+            risk: "write",
+            state: decision === "approve" ? "approved" : "rejected",
+          });
+          if (decision === "reject") {
+            rejected = true;
+            patchRun({ endReason: "rejected", message: "已停止 · 没有下载" });
+          }
+        }
+        return;
+      }
       case "tool/result": {
         const callId = String(data.callId ?? data.message?.source?.callId ?? "");
         const resultText = Array.isArray(data.message?.content)
@@ -608,8 +631,11 @@ export function createLiveReadAdapter(
         tools.clear();
         snapshot = { ...empty(), dossier: { id: dossier, title: snapshot.dossier.title } };
         for (const event of await fetchEvents(0)) {
-          snapshot.history.push(toHistory(event));
+          // apply 自己会往 history 里放（审批、卡片、消息），只有它没放时才补一条通用记录，
+          // 否则刷新后同一张审批会显示两遍。
+          const before = snapshot.history.length;
           apply(event);
+          if (snapshot.history.length === before) snapshot.history.push(toHistory(event));
         }
         const status = (await ports.api(`/v1/kernel/runs/${runId}`)) as {
           state?: string;

@@ -20,6 +20,9 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   cards: ["card.layer", "card.finding", "clarify.question"],
 };
 
+/** One turn must not call tools forever: the budget page already promises a step cap. */
+const MAX_TOOL_CALLS = 40;
+
 /** Actions that need the user's one-shot approval before they run. */
 const APPROVAL_REQUIRED = new Set(["papers.fetch"]);
 
@@ -102,6 +105,21 @@ export function registerKernelTools(
 
     try {
       return await dependencies.db.withAccount(claims.account, async (client) => {
+        // 单轮工具调用上限：模型自己决定用哪个工具，但不能无限打下去。
+        const used = Number(
+          (
+            await client.query(
+              "select count(*)::int n from event where run_id=$1 and action='tool/call'",
+              [claims.run],
+            )
+          ).rows[0]?.n ?? 0,
+        );
+        if (used >= MAX_TOOL_CALLS)
+          throw new ApiFailure(
+            "TOOL_CALL_LIMIT",
+            409,
+            `这一轮已经调用工具 ${used} 次（上限 ${MAX_TOOL_CALLS}），先把已经拿到的内容收尾。`,
+          );
         if (ASKS_THE_USER.has(capability)) {
           if (typeof body.approvalId === "string") {
             const answered = (
