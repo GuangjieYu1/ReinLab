@@ -532,6 +532,13 @@ export function createLiveReadAdapter(
       return estimate;
     },
     async start(_estimateId, _budgetCny) {
+      // 选定之后澄清轮的任务就结束了：先让它收尾，避免它继续占着会话，
+      // 正式精读才不会被 SESSION_BUSY 挡在门外。
+      if (runId) {
+        await ports
+          .api(`/v1/kernel/runs/${runId}/cancel`, {}, crypto.randomUUID())
+          .catch(() => {});
+      }
       const picked = chosen ?? lastPicked;
       // The chosen paper travels with the instruction so this turn is
       // deterministic: fetch this exact paper, no searching, no re-asking.
