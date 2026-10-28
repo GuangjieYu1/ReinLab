@@ -84,6 +84,7 @@ export function createLiveReadAdapter(
     freshReading = false,
     questionCardId: string | undefined,
     localPhase: RunView["state"] | undefined,
+    rejected = false,
     timer: ReturnType<typeof setInterval> | undefined,
     endReason: RunView["endReason"],
     failureMessage: string | undefined;
@@ -320,7 +321,11 @@ export function createLiveReadAdapter(
       spentCny: spent,
       clarifySpentCny: spent ?? undefined,
       unknownCost: !known,
-      ...(state === "done" ? { endReason: endReason ?? "completed" } : {}),
+      ...(state === "done"
+        ? rejected
+          ? { endReason: "rejected" as const, message: "已停止 · 没有下载" }
+          : { endReason: endReason ?? "completed" }
+        : {}),
       ...(state === "failed" ? { message: failureMessage ?? status.session?.errorCode ?? "执行失败，可以重来。" } : {}),
     });
     if (state === "done" || state === "failed" || state === "cancelled") {
@@ -387,6 +392,7 @@ export function createLiveReadAdapter(
     if (!created) throw Error("开始精读失败，请重试。");
     const createdRun = created;
     runId = createdRun.id;
+    rejected = false;
     freshReading = false;
     localPhase = undefined;
     cursor = 0;
@@ -550,7 +556,10 @@ export function createLiveReadAdapter(
         decision: approve ? "approve" : "reject",
         scope: "once",
       });
-      if (!approve) patchRun({ endReason: "rejected" });
+      if (!approve) {
+        rejected = true;
+        patchRun({ endReason: "rejected", message: "已停止 · 没有下载" });
+      }
     },
     async pick(pickId, candidateId) {
       const answer = await ports.api(
