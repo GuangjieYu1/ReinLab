@@ -84,4 +84,38 @@ describe("精读生命周期（kernel 协议）", () => {
     generation = 2;
     await expect(adapter.load()).rejects.toThrow(/会话已变化/);
   });
+
+  it("讲不满 5 层刷新后照实写层数，不写已完成", async () => {
+    const layer = (seq: number, no: number) => ({
+      seq,
+      action: "tool/call",
+      payload: {
+        name: "card_layer",
+        callId: "layer-" + no,
+        arguments: JSON.stringify({
+          card: { no: String(no), title: "第 " + no + " 层", en: "Layer " + no, body: [{ text: "讲解正文", refs: [] }] },
+        }),
+      },
+    });
+    const ports = routes((path) => {
+      if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [{ id: "run-1", state: "completed" }] };
+      if (path.startsWith("/v1/kernel/runs/run-1/events"))
+        return {
+          events: [
+            layer(1, 1),
+            layer(2, 2),
+            { seq: 3, action: "turn/end", payload: { reason: { kind: "completed" } } },
+          ],
+        };
+      if (path === "/v1/kernel/runs/run-1") return { state: "completed", usage: { known: true, knownCny: "0.01" } };
+      if (path === "/v1/approvals?state=pending") return { items: [] };
+      throw Error("UNEXPECTED_ROUTE " + path);
+    });
+    const adapter = createLiveReadAdapter("dossier-1", ports as never);
+    off = adapter.subscribe(() => {});
+    const snapshot = await adapter.load();
+    expect(snapshot.layers).toHaveLength(2);
+    expect(snapshot.run.state).toBe("done");
+    expect(snapshot.run.message).toBe("讲解只生成了 2 层");
+  });
 });

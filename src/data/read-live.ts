@@ -421,6 +421,17 @@ export function createLiveReadAdapter(
     }
   }
 
+  /** 讲不满 5 层时照实写层数：刷新、轮询两个入口说的是同一句话。 */
+  function shortfall(): Partial<RunView> {
+    if (endReason !== "completed" || snapshot.layers.length >= 5) return {};
+    return {
+      endReason: "completed",
+      message: snapshot.layers.length
+        ? `讲解只生成了 ${snapshot.layers.length} 层`
+        : "这一轮没有写出分层讲解",
+    };
+  }
+
   async function refresh(): Promise<void> {
     if (!runId) return;
     await refreshApprovals();
@@ -449,13 +460,7 @@ export function createLiveReadAdapter(
           : {
               endReason: endReason ?? "completed",
               // 后端已经提醒补写过一次；到这里还是不满 5 层就照实写层数，不说「已完成」。
-              ...(snapshot.layers.length < 5
-                ? {
-                    message: snapshot.layers.length
-                      ? `讲解只生成了 ${snapshot.layers.length} 层`
-                      : "这一轮没有写出分层讲解",
-                  }
-                : {}),
+              ...shortfall(),
             }
         : {}),
       ...(state === "failed" ? { message: failureMessage ?? status.session?.errorCode ?? "执行失败，可以重来。" } : {}),
@@ -588,10 +593,12 @@ export function createLiveReadAdapter(
           state?: string;
           usage?: { known?: boolean };
         };
+        const loaded = readRunState(String(status.state ?? ""));
         patchRun({
-          state: readRunState(String(status.state ?? "")),
+          state: loaded,
           spentCny: null,
           unknownCost: status.usage?.known !== true,
+          ...(loaded === "done" ? shortfall() : {}),
         });
         startPolling();
         return snapshot;
