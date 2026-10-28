@@ -6,6 +6,10 @@ import type { ReadAdapter, ReadEvent, ReadSnapshot } from './readTypes';
 export type ReadState = (ReadSnapshot & { log: ReadEvent[] }) | null;
 type Action = { t: 'load'; s: ReadSnapshot } | { t: 'event'; e: ReadEvent } | { t: 'reset' };
 
+/** 讲解层按卡片编号排：模型写的顺序不保证是 1、2、3。 */
+const byLayerNo = (a: { no?: string }, b: { no?: string }) =>
+  Number(String(a.no ?? '').replace(/\D/g, '') || 0) - Number(String(b.no ?? '').replace(/\D/g, '') || 0);
+const sortLayers = <T extends { no?: string }>(list: T[]) => [...list].sort(byLayerNo);
 const upsert = <T extends { id: string }>(list: T[], item: T) => {
   const i = list.findIndex(x => x.id === item.id);
   return i < 0 ? [...list, item] : list.map((x, k) => (k === i ? item : x));
@@ -17,14 +21,14 @@ const log = (l: ReadEvent[], e: ReadEvent) => {
 };
 
 function reduce(s: ReadState, a: Action): ReadState {
-  if (a.t === 'load') return { ...a.s, log: a.s.history };
+  if (a.t === 'load') return { ...a.s, layers: sortLayers(a.s.layers), log: a.s.history };
   if (a.t === 'reset' || !s) return s;
   const e = a.e;
   switch (e.type) {
     case 'run': return { ...s, run: { ...s.run, ...e.run } };
     case 'paper': return { ...s, paper: e.paper };
     case 'section': return s.paper ? { ...s, paper: { ...s.paper, sections: upsert(s.paper.sections, e.section) } } : s;
-    case 'layer': return { ...s, layers: upsert(s.layers, e.layer) };
+    case 'layer': return { ...s, layers: sortLayers(upsert(s.layers, e.layer)) };
     case 'quiz': return { ...s, quizzes: upsert(s.quizzes, e.quiz) };
     case 'finding': return { ...s, findings: upsert(s.findings, e.finding) };
     default: return { ...s, log: log(s.log, e) };
