@@ -183,6 +183,22 @@ export function createLiveReadAdapter(
           }
         }
         tool(String(data.callId ?? event.seq), name, true);
+        if (name === "papers_fetch") {
+          const callId = String(data.callId ?? event.seq);
+          emit({
+            type: "approval",
+            id: callId,
+            action: "papers.fetch",
+            title: "下载论文全文",
+            effects: [
+              "只读你选定的这一篇：下载全文并写入当前档案",
+              "只写 papers/ 下的这一个文件，可以撤销",
+              "不批准就停下，不会读、也不会编造内容",
+            ],
+            risk: "write",
+            state: "pending",
+          });
+        }
         if (name === "card_layer" || name === "card_finding") {
           tool(String(data.callId ?? event.seq), name, true);
           const args = JSON.parse(String(data.arguments ?? "{}") || "{}");
@@ -594,7 +610,27 @@ export function createLiveReadAdapter(
       patchRun({ state: "cancelled", endReason: "cancelled" });
     },
     async decide(approvalId, approve) {
-      await ports.decide("approval", approvalId, {
+      let target = approvalId;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(target)) {
+        // 卡片来自工具调用事件：落到这一轮真实的审批行上
+        const pending = (await ports.api("/v1/approvals?state=pending")) as {
+          items?: Array<{ id: string; runId: string; title: string }>;
+        };
+        const hit =
+          (pending?.items ?? []).find((item) => item.runId === runId) ??
+          (pending?.items ?? [])[0];
+        if (!hit) {
+          // 已经不在待办里：按当前结果收尾，不重复提交
+          if (!approve) {
+            rejected = true;
+            patchRun({ endReason: "rejected", message: "已停止 · 没有下载" });
+          }
+          return;
+        }
+        target = hit.id;
+      }
+      const approvalIdSafe = target;
+      await ports.decide("approval", approvalIdSafe, {
         decision: approve ? "approve" : "reject",
         scope: "once",
       });
