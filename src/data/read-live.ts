@@ -243,7 +243,10 @@ export function createLiveReadAdapter(
       }>;
     };
     for (const card of listed?.items ?? []) {
-      if (card.runId !== runId || announced.has(card.id)) continue;
+      // 认运行，也认当前档案：重新开始后运行会换，卡片仍属于这段精读。
+      const sameDossier =
+        (card as { source?: { dossierId?: string } }).source?.dossierId === dossier;
+      if ((card.runId !== runId && !sameDossier) || announced.has(card.id)) continue;
       // A question is the user's answer, not a permission: render it as a pick
       // (candidates) or as a plain question, keyed by the real card id so the
       // answer route addresses the same row.
@@ -458,7 +461,8 @@ export function createLiveReadAdapter(
     },
     subscribe(on) {
       subs.add(on);
-      if (runId) startPolling();
+      // 订阅即轮询：重新开始等场景下运行 id 会换，不能因为当时没有 runId 就不轮询。
+      startPolling();
       return () => {
         subs.delete(on);
         if (subs.size === 0 && timer) {
