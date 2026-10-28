@@ -589,6 +589,7 @@ export function createLiveReadAdapter(
         await ports
           .api(`/v1/kernel/runs/${runId}/cancel`, {}, crypto.randomUUID())
           .catch(() => {});
+        await new Promise((resolve) => setTimeout(resolve, 1200));
       }
       const picked = chosen ?? lastPicked;
       // The chosen paper travels with the instruction so this turn is
