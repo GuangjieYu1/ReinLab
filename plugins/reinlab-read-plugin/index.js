@@ -114,7 +114,7 @@ export function apply(ctx, config) {
       },
       output,
       // Waiting for the user's decision is not a slow tool: keep the turn open.
-      timeoutMs: 60_000,
+      timeoutMs: 120_000,
       async execute(args) {
         const first = await call("papers", "fetch", args);
         if (first.error) return first.error;
@@ -195,7 +195,7 @@ export function apply(ctx, config) {
         candidates: { type: "array", items: { type: "object", additionalProperties: true }, description: "真实候选论文。" },
       },
       output,
-      timeoutMs: 60_000,
+      timeoutMs: 120_000,
       async execute(args) {
         const askArgs =
           Array.isArray(args.candidates) && args.candidates.length > 0

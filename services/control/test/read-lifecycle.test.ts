@@ -177,3 +177,43 @@ describe("审批卡落定后消失", () => {
     expect(seen.filter((event) => event.type === "approval").map((event) => (event as any).state)).toEqual(["pending", "approved"]);
   });
 });
+
+describe("点卡片落地", () => {
+  it("同一档案里上一轮留下的下载卡也能点（面板显示的是它）", async () => {
+    const decided: Array<{ kind: string; id: string; body: any }> = [];
+    const ports = {
+      api: Object.assign(
+        async (path: string) => {
+          if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [{ id: "run-1", state: "running" }] };
+          if (path.startsWith("/v1/kernel/runs/run-1/events")) return { events: [] };
+          if (path === "/v1/kernel/runs/run-1") return { state: "running", usage: { known: false } };
+          if (path === "/v1/approvals?state=pending")
+            return {
+              items: [
+                {
+                  id: "00000000-0000-4000-8000-0000000000cc",
+                  runId: "run-old",
+                  kind: "permission",
+                  title: "下载论文全文",
+                  source: { dossierId: "dossier-1" },
+                },
+              ],
+            };
+          throw Error("UNEXPECTED_ROUTE " + path);
+        },
+        {},
+      ),
+      decide: async (kind: string, id: string, body: any) => {
+        decided.push({ kind, id, body });
+        return {};
+      },
+      generation: () => 1,
+    };
+    const adapter = createLiveReadAdapter("dossier-1", ports as never);
+    off = adapter.subscribe(() => {});
+    await adapter.load();
+    await adapter.decide("call-anything", true);
+    expect(decided).toHaveLength(1);
+    expect(decided[0].id).toBe("00000000-0000-4000-8000-0000000000cc");
+  });
+});

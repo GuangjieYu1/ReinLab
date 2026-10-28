@@ -98,6 +98,7 @@ export function createLiveReadAdapter(
     rejected = false,
     fetchCardShown = false,
     permissionCardShown = false,
+    shownPermissionId: string | undefined = undefined,
     timer: ReturnType<typeof setInterval> | undefined,
     endReason: RunView["endReason"],
     failureMessage: string | undefined;
@@ -261,6 +262,7 @@ export function createLiveReadAdapter(
           const callId = String(data.callId ?? event.seq);
           fetchCardShown = true;
           permissionCardShown = true;
+          shownPermissionId = callId;
           emit({
             type: "approval",
             id: callId,
@@ -324,13 +326,16 @@ export function createLiveReadAdapter(
       case "approval.decided": {
         // 审批落定后，卡片要立刻从待办里消失：否则界面会一直显示同一张卡，
         // 人会重复点、脚本会一直点。
-        const decision = String(data.decision ?? "");
+        const decision = String(data.decision ?? ""),
+          // 卡片用的是弹出时那个 id，落定也要用它，界面才替换掉而不是再叠一张。
+          decidedId = shownPermissionId ?? String(data.approvalId ?? "approval:" + event.seq);
         if (decision === "approve" || decision === "reject") {
           permissionCardShown = false;
           fetchCardShown = false;
+          shownPermissionId = undefined;
           emit({
             type: "approval",
-            id: String(data.approvalId ?? "approval:" + event.seq),
+            id: decidedId,
             action: "papers.fetch",
             title: "下载论文全文",
             effects: [],
@@ -452,6 +457,7 @@ export function createLiveReadAdapter(
       if (permissionCardShown) continue;
       announced.add(card.id);
       permissionCardShown = true;
+      shownPermissionId = card.id;
       // A pending permission means the run is waiting on the user: show the
       // run panel with the card instead of the local estimate step.
       localPhase = undefined;
@@ -790,7 +796,13 @@ export function createLiveReadAdapter(
           items?: Array<{ id: string; runId: string; title: string }>;
         };
         // 只认这一轮的待办：别的运行（含上一段精读）的审批不能借卡片 id 被点掉。
-        const hit = (pending?.items ?? []).find((item) => item.runId === runId);
+        const items = pending?.items ?? [];
+        const hit =
+          items.find((item) => item.runId === runId) ??
+          // 同一档案里上一轮留下的卡也能点：面板显示的就是它。
+          items.find(
+            (item) => (item as { source?: { dossierId?: string } }).source?.dossierId === dossier,
+          );
         if (!hit) {
           // 已经不在待办里：按当前结果收尾，不重复提交
           if (!approve) {
