@@ -86,24 +86,35 @@ describe("精读生命周期（kernel 协议）", () => {
   });
 
   it("讲不满 5 层刷新后照实写层数，不写已完成", async () => {
-    const layer = (seq: number, no: number) => ({
-      seq,
-      action: "tool/call",
-      payload: {
-        name: "card_layer",
-        callId: "layer-" + no,
-        arguments: JSON.stringify({
-          card: { no: String(no), title: "第 " + no + " 层", en: "Layer " + no, body: [{ text: "讲解正文", refs: [] }] },
-        }),
+    const layer = (seq: number, no: number) => [
+      {
+        seq,
+        action: "tool/call",
+        payload: {
+          name: "card_layer",
+          callId: "layer-" + no,
+          arguments: JSON.stringify({
+            card: { no: String(no), title: "第 " + no + " 层", en: "Layer " + no, body: [{ text: "讲解正文", refs: [] }] },
+          }),
+        },
       },
-    });
+      // 卡片写成功才有回执；没有回执的卡片不算写进去。
+      {
+        seq: seq + 100,
+        action: "tool/result",
+        payload: {
+          callId: "layer-" + no,
+          message: { content: [{ text: JSON.stringify({ cardId: "card-" + no }) }] },
+        },
+      },
+    ];
     const ports = routes((path) => {
       if (path === "/v1/kernel/dossiers/dossier-1/runs") return { runs: [{ id: "run-1", state: "completed" }] };
       if (path.startsWith("/v1/kernel/runs/run-1/events"))
         return {
           events: [
-            layer(1, 1),
-            layer(2, 2),
+            ...layer(1, 1),
+            ...layer(2, 2),
             { seq: 3, action: "turn/end", payload: { reason: { kind: "completed" } } },
           ],
         };
