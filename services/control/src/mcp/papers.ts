@@ -61,19 +61,28 @@ const deny = () =>
     "论文不属于本档案，或来源不在允许范围。"
   );
 /**
- * Paper handles we accept. `W…` is an OpenAlex work, `arxiv:…` an arXiv id and
- * `doi:…` a DOI; a bare id or DOI is normalized so a model quoting only the
- * identifier still reads.
+ * Canonical paper handle: `W…` (OpenAlex), `arxiv:…` (version stripped, so
+ * `2302.04761` and `2302.04761v1` are the same paper) or `doi:…`. A bare id or
+ * DOI is normalized the same way, so a model quoting only the identifier reads.
  */
-function paperId(raw: unknown) {
-  if (typeof raw !== "string") throw deny();
+export function paperHandle(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
   const value = raw.trim();
   if (/^W[0-9]{1,30}$/.test(value)) return value;
-  if (/^arxiv:[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$/i.test(value)) return value.toLowerCase();
-  if (/^[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$/.test(value)) return "arxiv:" + value;
+  const arxiv = value
+    .replace(/^arxiv:/i, "")
+    .replace(/^https?:\/\/arxiv\.org\/(abs|pdf)\//i, "")
+    .replace(/\.pdf$/i, "")
+    .replace(/v[0-9]+$/i, "");
+  if (/^[0-9]{4}\.[0-9]{4,5}$/.test(arxiv)) return "arxiv:" + arxiv;
   const doi = value.replace(/^doi:/i, "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
   if (/^10\.[0-9]{4,9}\/\S{1,200}$/i.test(doi)) return "doi:" + doi.toLowerCase();
-  throw deny();
+  return null;
+}
+function paperId(raw: unknown) {
+  const handle = paperHandle(raw);
+  if (!handle) throw deny();
+  return handle;
 }
 /** OpenAlex now meters anonymous traffic per IP budget; a key restores it. */
 function openAlexKey() {

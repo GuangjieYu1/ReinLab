@@ -319,7 +319,7 @@ it("检索走 arXiv：候选是可下载的 arXiv 编号，下载得到全文，
       c.query("select paper_id,abstract,view_metadata from paper_asset where id=$1", [fetched.assetId]),
     );
     expect(saved.rows[0]).toMatchObject({
-      paper_id: "arxiv:2403.05521v2",
+      paper_id: "arxiv:2403.05521",
       abstract: "Language models learn to call tools.",
       view_metadata: { title: "Toolformer & Tools", authors: ["Ada Lovelace", "Alan Turing"], venue: "arXiv" },
     });

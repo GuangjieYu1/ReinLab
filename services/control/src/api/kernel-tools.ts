@@ -3,6 +3,7 @@ import type pg from "pg";
 import { createHash } from "node:crypto";
 import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
+import { paperHandle } from "../mcp/papers";
 import type { Database } from "../db/database";
 import type { KernelAuth } from "../kernel/auth";
 import {
@@ -145,7 +146,7 @@ export function registerKernelTools(
         if (APPROVAL_REQUIRED.has(capability)) {
           const existing = await existingPaperAsset(client, call);
           if (existing) return c.json({ result: existing });
-          // 底线：候选论文由用户来选。这一轮没有用户选定的编号就不下载，先请它把候选交出去。
+          // 底线：只读用户选定的这一篇。没选定、或者选的不是这一篇，都不下载。
           const chosen = (
             await client.query("select input->>'chosenPaperId' chosen from run where id=$1 and account_id=$2", [
               call.run,
@@ -157,6 +158,12 @@ export function registerKernelTools(
               "PAPER_NOT_CHOSEN",
               409,
               "用户还没选定论文：先把真实候选交给用户，由用户选一篇后再下载。",
+            );
+          if (paperHandle(String(args.paperId)) !== paperHandle(chosen))
+            throw new ApiFailure(
+              "PAPER_NOT_CHOSEN",
+              409,
+              `这一轮只读用户选定的这一篇（${String(chosen)}）；不要下载别的论文。`,
             );
 
           const effectKey = effectKeyOf(capability, argsHash(call));

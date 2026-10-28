@@ -62,6 +62,8 @@ const ok = (actual, note) => ({ verdict: '✓', actual, note });
 const part = (actual, note) => ({ verdict: '△', actual, note });
 const bad = (actual, note) => ({ verdict: '✗', actual, note });
 const money = s => { const m = String(s).match(/¥\s*([\d.]+)/); return m ? Number(m[1]) : NaN; };
+// 面板里同时有「预算 ¥5」「上限 ¥0.50」：花费只认「已花 ¥…」那句。
+const spentOf = s => { const m = String(s).match(/已花\s*¥\s*([\d.]+)/); return m ? Number(m[1]) : NaN; };
 
 // ───────── 一、入口 ─────────
 await page.goto(BASE + '/?preview=entry&design=mobius', { waitUntil: 'domcontentloaded' });
@@ -275,7 +277,7 @@ if (!hasToolformer) {
   });
 
   // ───────── 五、运行 ─────────
-  const spentNow = async () => money((await text('.rd-start-run small')) || (await text('.rd-run-cost')));
+  const spentNow = async () => spentOf((await text('.rd-start-run small')) || (await text('.rd-run-cost')));
   let firstSpent = 0;
   await step('R1', '正', '确认开始', '运行开始；第一步是「下载全文」审批，主面板和助手面板都能看到', async () => {
     // 被拒的这一次只需要能走到审批：预算用预估上限，避免预留过多
@@ -291,12 +293,12 @@ if (!hasToolformer) {
     await wait(4000);
     const h = await text('.rd-start-run h2');
     const msg = (await text('.rd-start-run')).replace(/\s+/g, ' ');
-    firstSpent = money(msg);
+    firstSpent = spentOf(msg);
     const honest = /没有批准|拒绝|没有读|停止|取消|已停/.test(msg);
     if (!honest) return bad(msg.slice(0, 200));
     return /已完成/.test(h) ? part(`说明如实，但标题写「${h}」，容易误解为读完了：${msg.slice(0, 160)}`) : ok(msg.slice(0, 200));
   });
-  const left = CAP - (clarifySpent || 0.05) - (Number.isFinite(firstSpent) ? firstSpent : 0.1) - 0.05;
+  const left = CAP - (clarifySpent || 0.05) - (Number.isFinite(firstSpent) ? firstSpent : 0.1) - 0.1;
   if (left < est) {
     results.push({ id: 'STOP', kind: '—', action: '停止', expected: '—', actual: `剩余预算 ¥${left.toFixed(2)} 不够这篇的预估上限 ¥${est}，按授权上限停下`, verdict: '✗', at: Number(((Date.now() - t0) / 1000).toFixed(0)) });
   } else {

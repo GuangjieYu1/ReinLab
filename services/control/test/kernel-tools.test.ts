@@ -70,23 +70,49 @@ afterAll(async () => {
   await admin.end();
 });
 
-const clarifyRun = randomUUID();
+const downloadRun = (await import("node:crypto")).randomUUID();
 describe("kernel tool gateway", () => {
-  beforeAll(async () => {
+  /** 一次下载走一个自己的 run：选定编号不同，审批与资产天然分开。 */
+  const runFor = async (chosen: string) => {
+    const id = randomUUID();
     await admin.query(
-      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input) values($1,$2,$3,'research-read','read',$4,'running',1,'{}')`,
-      [clarifyRun, account, dossier, randomUUID()],
+      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input) values($1,$2,$3,'research-read','read',$4,'running',1,$5)`,
+      [id, account, dossier, randomUUID(), JSON.stringify(chosen ? { chosenPaperId: chosen } : {})],
     );
+    return { id, token: auth.issue({ account, dossier, run: id }, now) };
+  };
+
+  it("只读选定这一篇：别的论文、以及同一篇的另一种写法", async () => {
+    const dispatch = vi.fn(async () => ({ assetId: "asset-chosen", status: "full_text" }));
+    const { app } = build(dispatch);
+    const chosenRun = await runFor("arxiv:2403.05521");
+    const other = await call(
+      app,
+      { server: "papers", tool: "fetch", args: { paperId: "arxiv:2404.00001" } },
+      chosenRun.token,
+    );
+    expect(other.status).toBe(409);
+    expect(other.body).toMatchObject({ code: "PAPER_NOT_CHOSEN" });
+    expect(dispatch).not.toHaveBeenCalled();
+
+    // 同一篇的带版本号写法不另开一张卡。
+    const samePaper = await call(
+      app,
+      { server: "papers", tool: "fetch", args: { paperId: "arXiv:2403.05521v3" } },
+      chosenRun.token,
+    );
+    expect(samePaper.status).toBe(409);
+    expect(samePaper.body).toMatchObject({ state: "pending" });
   });
 
   it("用户没选定论文时拒绝下载，先把候选交出去", async () => {
     const dispatch = vi.fn(async () => ({ assetId: "asset-x", status: "full_text" }));
     const { app } = build(dispatch);
-    const clarifyToken = auth.issue({ account, dossier, run: clarifyRun }, now);
+    const clarify = await runFor("");
     const refused = await call(
       app,
-      { server: "papers", tool: "fetch", args: { paperId: "W-clarify-1" } },
-      clarifyToken,
+      { server: "papers", tool: "fetch", args: { paperId: "arxiv:2404.00001" } },
+      clarify.token,
     );
     expect(refused.status).toBe(409);
     expect(refused.body).toMatchObject({ code: "PAPER_NOT_CHOSEN" });
@@ -115,18 +141,19 @@ describe("kernel tool gateway", () => {
   it("shows exactly one download card and only downloads after it is approved", async () => {
     const dispatch = vi.fn(async () => ({ assetId: "asset-1", status: "full_text" }));
     const { app } = build(dispatch);
-    const first = await call(app, { server: "papers", tool: "fetch", args: { paperId: "W-fetch-1" } });
+    const own = await runFor("arxiv:2302.04771");
+    const first = await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04771" } }, own.token);
     expect(first.status).toBe(409);
     expect(first.body).toMatchObject({ state: "pending" });
     const approvalId = (first.body as { approvalId: string }).approvalId;
     expect(dispatch).not.toHaveBeenCalled();
 
     // The same concrete action asks again but still yields that one card.
-    const repeat = await call(app, { server: "papers", tool: "fetch", args: { paperId: "W-fetch-1" } });
+    const repeat = await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04771" } }, own.token);
     expect((repeat.body as { approvalId: string }).approvalId).toBe(approvalId);
     const cards = await admin.query(
       "select count(*)::int n from approval where account_id=$1 and run_id=$2 and effect_key is not null",
-      [account, runId],
+      [account, own.id],
     );
     expect(cards.rows[0].n).toBe(1);
 
@@ -134,15 +161,15 @@ describe("kernel tool gateway", () => {
     const premature = await call(app, {
       server: "papers",
       tool: "fetch",
-      args: { paperId: "W-fetch-1" },
+      args: { paperId: "arxiv:2302.04771" },
       approvalId,
-    });
+    }, own.token);
     expect(premature.status).toBe(409);
     expect(dispatch).not.toHaveBeenCalled();
 
     const decided = await app.request(`/kernel/approvals/${approvalId}/decide`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": token },
+      headers: { "content-type": "application/json", "x-api-key": own.token },
       body: JSON.stringify({ decision: "approve" }),
     });
     expect((await decided.json()) as { state: string }).toEqual({ state: "approved" });
@@ -150,9 +177,9 @@ describe("kernel tool gateway", () => {
     const approved = await call(app, {
       server: "papers",
       tool: "fetch",
-      args: { paperId: "W-fetch-1" },
+      args: { paperId: "arxiv:2302.04771" },
       approvalId,
-    });
+    }, own.token);
     expect(approved.status).toBe(200);
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
@@ -160,20 +187,21 @@ describe("kernel tool gateway", () => {
   it("never downloads twice for one approved action", async () => {
     const dispatch = vi.fn(async () => ({ assetId: "asset-2", status: "full_text" }));
     const { app } = build(dispatch);
-    const first = await call(app, { server: "papers", tool: "fetch", args: { paperId: "W-fetch-2" } });
+    const own = await runFor("arxiv:2302.04772");
+    const first = await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04772" } }, own.token);
     const approvalId = (first.body as { approvalId: string }).approvalId;
     await app.request(`/kernel/approvals/${approvalId}/decide`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": token },
+      headers: { "content-type": "application/json", "x-api-key": own.token },
       body: JSON.stringify({ decision: "approve" }),
     });
-    await call(app, { server: "papers", tool: "fetch", args: { paperId: "W-fetch-2" }, approvalId });
+    await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04772" }, approvalId }, own.token);
     const again = await call(app, {
       server: "papers",
       tool: "fetch",
-      args: { paperId: "W-fetch-2" },
+      args: { paperId: "arxiv:2302.04772" },
       approvalId,
-    });
+    }, own.token);
     expect(again.status).toBe(200);
     expect(again.body).toMatchObject({ result: { assetId: expect.any(String), reused: true } });
     expect(dispatch).toHaveBeenCalledTimes(1);
@@ -208,23 +236,24 @@ describe("kernel tool gateway", () => {
   it("stops without dispatching when the user rejects the download", async () => {
     const dispatch = vi.fn(async () => ({ ok: true }));
     const { app } = build(dispatch);
-    const first = await call(app, { server: "papers", tool: "fetch", args: { paperId: "W-fetch-3" } });
+    const own = await runFor("arxiv:2302.04773");
+    const first = await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04773" } }, own.token);
     const approvalId = (first.body as { approvalId: string }).approvalId;
     await app.request(`/kernel/approvals/${approvalId}/decide`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": token },
+      headers: { "content-type": "application/json", "x-api-key": own.token },
       body: JSON.stringify({ decision: "reject" }),
     });
     const rejected = await call(app, {
       server: "papers",
       tool: "fetch",
-      args: { paperId: "W-fetch-3" },
+      args: { paperId: "arxiv:2302.04773" },
       approvalId,
-    });
+    }, own.token);
     expect(rejected.status).toBe(409);
     expect(dispatch).not.toHaveBeenCalled();
     const poll = await app.request(`/kernel/approvals/${approvalId}`, {
-      headers: { "x-api-key": token },
+      headers: { "x-api-key": own.token },
     });
     expect((await poll.json()) as { state: string }).toEqual({ state: "rejected" });
   });
