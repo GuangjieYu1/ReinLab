@@ -24,14 +24,15 @@ export type PipelineDependencies = {
   /** Release the run-scoped files once the runtime is gone. */
   release: () => Promise<void>;
   /**
-   * A read turn that stops short of the promised layers gets exactly one
-   * reminder turn; if it is still short the run ends as it really is.
+   * One extra turn when the turn ended while a product promise is still unmet
+   * (讲解层没写满 / 候选还没交给用户选)。补完还不够就照实结束，并记下 code。
    */
-  layers?: {
-    minimum: number;
-    /** How many layer cards this run already wrote. */
-    count: () => Promise<number>;
-    reminder: (have: number, minimum: number) => string;
+  followUp?: {
+    /** Return the reminder to send, or null when nothing is missing. */
+    reminder: () => Promise<string | null>;
+    /** Logged when the reminder turn left the same thing missing. */
+    code: string;
+    detail: () => Promise<string>;
   };
 };
 
@@ -72,14 +73,14 @@ export function executeRun(
         onSession: (sessionId, resumed) =>
           dependencies.onSession?.(sessionId, resumed),
       });
-      if (outcome.state === "completed" && !cancelRequested && dependencies.layers) {
-        const { minimum, count, reminder } = dependencies.layers;
-        const have = await count();
-        if (have < minimum) {
-          // 模型以为讲完了：同一次运行里提醒它补写，只补一层是一层，不丢已经写下的。
+      if (outcome.state === "completed" && !cancelRequested && dependencies.followUp) {
+        const followUp = dependencies.followUp;
+        const reminder = await followUp.reminder();
+        if (reminder) {
+          // 模型以为这一轮已经结束：同一次运行里提醒一次，补到什么算什么。
           const again = await runTurn({
             plan: request.plan,
-            prompt: reminder(have, minimum),
+            prompt: reminder,
             resume: true,
             factory: dependencies.factory,
             onEvent: (event) => dependencies.onEvent(event),
@@ -90,18 +91,14 @@ export function executeRun(
               dependencies.onSession?.(sessionId, resumed),
           });
           outcome = again;
-          if (again.state === "completed") {
-            const after = await count();
-            if (after < minimum)
-              console.error(
-                JSON.stringify({
-                  code: "KERNEL_LAYERS_SHORT",
-                  run: request.plan.run,
-                  layers: after,
-                  minimum,
-                }),
-              );
-          }
+          if (again.state === "completed" && (await followUp.reminder()))
+            console.error(
+              JSON.stringify({
+                code: followUp.code,
+                run: request.plan.run,
+                detail: await followUp.detail(),
+              }),
+            );
         }
       }
       await dependencies.onState(

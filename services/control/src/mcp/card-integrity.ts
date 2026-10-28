@@ -2,12 +2,8 @@ import type pg from "pg";
 import { createHash } from "node:crypto";
 import type { AuthorizedCapability } from "./authority";
 import { ApiFailure } from "../api/errors";
-const denied = () =>
-  new ApiFailure(
-    "CARD_CITATION_UNVERIFIED",
-    403,
-    "卡片引用不是本次运行已读取的原文。",
-  );
+const denied = (message = "卡片引用不是本次运行已读取的原文。") =>
+  new ApiFailure("CARD_CITATION_UNVERIFIED", 403, message);
 const normalized = (value: string) => value.replace(/\s+/gu, " ").trim();
 export async function verifyCardSources(
   client: pg.PoolClient,
@@ -37,11 +33,17 @@ export async function verifyCardSources(
         )
       ).rowCount
     )
-      throw denied();
+      throw denied(
+        `这篇还没有本轮读过的页（paperId=${card.paperId}）。先调用 papers_pages 读页，再写卡片。`,
+      );
   }
   for (const anchor of anchors) {
-    if (!normalized(anchor.quote).length) throw denied();
-    if (card.paperId && card.paperId !== anchor.paperId) throw denied();
+    if (!normalized(anchor.quote).length)
+      throw denied("引文不能为空：quote 要写该页上的原话。");
+    if (card.paperId && card.paperId !== anchor.paperId)
+      throw denied(
+        `卡片 paperId=${card.paperId}，但这条引用写的是 ${anchor.paperId}；两者要一致。`,
+      );
     const rows = await client.query(
       "select page_text,text_sha256 from paper_page_read where account_id=$1 and dossier_id=$2 and run_id=$3 and asset_id=$4 and page=$5",
       [
@@ -52,14 +54,17 @@ export async function verifyCardSources(
         anchor.page,
       ],
     );
-    if (
-      !rows.rows.some(
-        (row) =>
-          createHash("sha256").update(row.page_text).digest("hex") ===
-            row.text_sha256 &&
-          normalized(row.page_text).includes(normalized(anchor.quote)),
-      )
-    )
-      throw denied();
+    const matching = rows.rows.some(
+      (row) =>
+        createHash("sha256").update(row.page_text).digest("hex") ===
+          row.text_sha256 &&
+        normalized(row.page_text).includes(normalized(anchor.quote)),
+    );
+    if (!matching)
+      throw denied(
+        rows.rows.length === 0
+          ? `第 ${anchor.page} 页还没读过：先 papers_pages 读这一页。`
+          : `第 ${anchor.page} 页找不到这段原文："${normalized(anchor.quote).slice(0, 60)}"。quote 必须逐字来自读过的这一页。`,
+      );
   }
 }

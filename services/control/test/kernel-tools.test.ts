@@ -61,7 +61,7 @@ beforeAll(async () => {
     [dossier, account],
   );
   await admin.query(
-    "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input) values($1,$2,$3,'research-read','read',$4,'running',1,'{}')",
+    `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input) values($1,$2,$3,'research-read','read',$4,'running',1,'{"chosenPaperId":"arxiv:2302.04761v1"}')`,
     [runId, account, dossier, randomUUID()],
   );
 });
@@ -70,7 +70,29 @@ afterAll(async () => {
   await admin.end();
 });
 
+const clarifyRun = randomUUID();
 describe("kernel tool gateway", () => {
+  beforeAll(async () => {
+    await admin.query(
+      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input) values($1,$2,$3,'research-read','read',$4,'running',1,'{}')`,
+      [clarifyRun, account, dossier, randomUUID()],
+    );
+  });
+
+  it("用户没选定论文时拒绝下载，先把候选交出去", async () => {
+    const dispatch = vi.fn(async () => ({ assetId: "asset-x", status: "full_text" }));
+    const { app } = build(dispatch);
+    const clarifyToken = auth.issue({ account, dossier, run: clarifyRun }, now);
+    const refused = await call(
+      app,
+      { server: "papers", tool: "fetch", args: { paperId: "W-clarify-1" } },
+      clarifyToken,
+    );
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({ code: "PAPER_NOT_CHOSEN" });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("rejects a foreign token and tools outside the reading surface", async () => {
     const { app, dispatch } = build();
     expect((await call(app, { server: "papers", tool: "search", args: {} }, null)).status).toBe(401);

@@ -145,6 +145,19 @@ export function registerKernelTools(
         if (APPROVAL_REQUIRED.has(capability)) {
           const existing = await existingPaperAsset(client, call);
           if (existing) return c.json({ result: existing });
+          // 底线：候选论文由用户来选。这一轮没有用户选定的编号就不下载，先请它把候选交出去。
+          const chosen = (
+            await client.query("select input->>'chosenPaperId' chosen from run where id=$1 and account_id=$2", [
+              call.run,
+              call.account,
+            ])
+          ).rows[0]?.chosen;
+          if (!chosen)
+            throw new ApiFailure(
+              "PAPER_NOT_CHOSEN",
+              409,
+              "用户还没选定论文：先把真实候选交给用户，由用户选一篇后再下载。",
+            );
 
           const effectKey = effectKeyOf(capability, argsHash(call));
           // The user may have approved this exact action already; a retry without

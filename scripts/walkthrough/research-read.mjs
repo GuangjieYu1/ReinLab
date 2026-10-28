@@ -137,7 +137,7 @@ await step('W3', '正', '＋ 新建精读', '出现「想读哪篇？」，没�
 // ───────── 三、对话澄清 ─────────
 const talk = async t => { await page.locator('.ad-input textarea').fill(t); await page.keyboard.press('Enter'); };
 const lastPick = () => page.locator('.ad .rd-pick').last();
-async function waitReply(prevPicks, prevAgents, ms = 90000) {
+async function waitReply(prevPicks, prevAgents, ms = 240000) {
   // 等候选卡出现；助手先说「我先检索」之类的话不算答完。助手明确说没受理 / 要你补充时提前结束。
   const end = Date.now() + ms;
   while (Date.now() < end) {

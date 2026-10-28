@@ -163,7 +163,7 @@ describe("run pipeline", () => {
     expect(close).toHaveBeenCalled();
   });
 
-  it("讲解不够 5 层时补一次提醒，补完还不够就照实结束", async () => {
+  it("有未兑现的承诺时补一次提醒，补不回来就照实结束", async () => {
     const prompts: string[] = [];
     const completed = () => ({ sessionId: "ds", events: [{ type: "turn/end", data: { reason: { kind: "completed" } } }], finalResponse: "ok" });
     const factory = () => ({
@@ -178,10 +178,10 @@ describe("run pipeline", () => {
         onEvent: () => {},
         onState: (state) => void states.push(state),
         release: async () => {},
-        layers: {
-          minimum: 5,
-          count: async () => 2,
-          reminder: (have, minimum) => `只写了 ${have} 层，补到 ${minimum} 层。`,
+        followUp: {
+          code: "KERNEL_LAYERS_SHORT",
+          detail: async () => "layers=2",
+          reminder: async () => "只写了 2 层，补到 5 层。",
         },
       },
       { plan: run("f"), prompt: "开始精读", resume: false, token: "t" },
@@ -204,7 +204,7 @@ describe("run pipeline", () => {
         onEvent: () => {},
         onState: () => {},
         release: async () => {},
-        layers: { minimum: 5, count: async () => 5, reminder: () => "不该出现" },
+        followUp: { code: "KERNEL_LAYERS_SHORT", detail: async () => "layers=5", reminder: async () => null },
       },
       { plan: run("g"), prompt: "开始精读", resume: false, token: "t" },
     );

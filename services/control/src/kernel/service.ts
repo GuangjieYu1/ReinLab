@@ -191,26 +191,46 @@ export class KernelService {
             await this.release(client, account, prepared.dossierId, prepared.sessionId, runId, state);
           });
         },
-        // 讲解层是这一轮的产品承诺：结束时不到 5 层就提醒补写一次。
-        layers:
+        // 这一轮的产品承诺没兑现时，后端再提醒一次；补不回来就照实结束。
+        followUp:
           prepared.mode === "read"
             ? {
-                minimum: 5,
-                count: async () =>
-                  Number(
-                    (
-                      await db.withAccount(account, (client) =>
-                        client.query(
-                          "select count(*)::int n from event where run_id=$1 and action='card_created' and payload->>'cardType'='layer'",
-                          [runId],
-                        ),
-                      )
-                    ).rows[0]?.n ?? 0,
-                  ),
-                reminder: (have, minimum) =>
-                  `讲解卡现在只有 ${have} 层，还没到 ${minimum} 层。请只补写讲解：用 card_layer 继续写第 ${have + 1} 到第 ${minimum} 层（参数是 card 对象，含 no/title/en/body[{text,refs}]），写完就停，不要重复已写的层，不要再检索，也不要总结。`,
+                code: "KERNEL_LAYERS_SHORT",
+                detail: async () =>
+                  "layers=" +
+                  (await KernelService.countEvents(this.dependencies.db, account, runId, "card_created", "payload->>'cardType'='layer'")),
+                reminder: async () => {
+                  const have = await KernelService.countEvents(this.dependencies.db, account, runId, "card_created", "payload->>'cardType'='layer'");
+                  if (have >= 5) return null;
+                  return `讲解卡现在只有 ${have} 层，还没到 5 层。请只补写讲解：用 card_layer 继续写第 ${have + 1} 到第 5 层（参数是 card 对象，含 no/title/en/body[{text,refs}]），写完就停，不要重复已写的层，不要再检索，也不要总结。`;
+                },
               }
-            : undefined,
+            : {
+                code: "KERNEL_PICK_MISSING",
+                detail: async () =>
+                  "searches=" +
+                  (await KernelService.countEvents(this.dependencies.db, account, runId, "tool/call", "payload->>'name'='papers_search'")),
+                reminder: async () => {
+                  // 候选必须由用户点选：检索过却还没把候选交给用户时，补一次。
+                  const cards = await KernelService.countEvents(
+                    this.dependencies.db,
+                    account,
+                    runId,
+                    "tool/call",
+                    "payload->>'name'='clarify_question' and payload->>'arguments' like '%candidates%'",
+                  );
+                  if (cards > 0) return null;
+                  const searches = await KernelService.countEvents(
+                    this.dependencies.db,
+                    account,
+                    runId,
+                    "tool/call",
+                    "payload->>'name'='papers_search'",
+                  );
+                  if (searches === 0) return null;
+                  return "这一轮检索到了候选，但用户还没看到可选列表。请调用 clarify_question，带 kind=paper_pick 和 candidates（用检索到的真实候选），让用户自己选。";
+                },
+              },
         release: plan.release,
       },
       { plan, prompt: prepared.message, resume: prepared.resume, token },
@@ -235,6 +255,26 @@ export class KernelService {
       throw new ApiFailure("RUN_NOT_ATTACHED", 409, "这次运行不在当前进程里，无法确认停止。");
     }
     return handle.cancel();
+  }
+
+  /** Count this run's events matching one action (and an optional predicate). */
+  private static async countEvents(
+    db: Database,
+    account: string,
+    run: string,
+    action: string,
+    predicate: string,
+  ): Promise<number> {
+    return Number(
+      (
+        await db.withAccount(account, (client) =>
+          client.query(
+            `select count(*)::int n from event where run_id=$1 and action=$2 and (${predicate})`,
+            [run, action],
+          ),
+        )
+      ).rows[0]?.n ?? 0,
+    );
   }
 
   /** A launch failure must not leave the session leased or the run "running". */

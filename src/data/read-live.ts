@@ -97,10 +97,13 @@ export function createLiveReadAdapter(
     localPhase: RunView["state"] | undefined,
     rejected = false,
     fetchCardShown = false,
+    permissionCardShown = false,
     timer: ReturnType<typeof setInterval> | undefined,
     endReason: RunView["endReason"],
     failureMessage: string | undefined;
   const tools = new Map<string, { index: number; event: ReadEvent }>();
+  /** 卡片先攒着，等写入回执成功了再显示。 */
+  const pendingCards = new Map<string, { kind: "layer"; card: LayerCard } | { kind: "finding"; card: FindingCard }>();
   const emitted = new Set<number>();
   const announced = new Set<string>();
 
@@ -241,9 +244,10 @@ export function createLiveReadAdapter(
           }
         }
         tool(String(data.callId ?? event.seq), name, true);
-        if (name === "papers_fetch") {
+        if (name === "papers_fetch" && !permissionCardShown && !fetchCardShown) {
           const callId = String(data.callId ?? event.seq);
           fetchCardShown = true;
+          permissionCardShown = true;
           emit({
             type: "approval",
             id: callId,
@@ -279,10 +283,9 @@ export function createLiveReadAdapter(
                 : "hypothesis",
               at: new Date().toISOString(),
             };
-            if (finding.text) {
-              snapshot.findings.push(finding);
-              emit({ type: "finding", finding });
-            }
+            // 写成功才显示：失败的卡片不该出现在讲解/发现里。
+            if (finding.text)
+              pendingCards.set(String(data.callId ?? event.seq), { kind: "finding", card: finding });
           } else {
             const body = Array.isArray(args.body) ? args.body : [];
             const layer: LayerCard = {
@@ -299,10 +302,8 @@ export function createLiveReadAdapter(
                 }))
                 .filter((entry: { text: string }) => entry.text),
             };
-            if (layer.body.length) {
-              snapshot.layers.push(layer);
-              emit({ type: "layer", layer });
-            }
+            if (layer.body.length)
+              pendingCards.set(String(data.callId ?? event.seq), { kind: "layer", card: layer });
           }
         }
         return;
@@ -323,8 +324,26 @@ export function createLiveReadAdapter(
         if (callId) {
           const existing = tools.get(callId);
           if (existing) {
-            Object.assign(existing.event, { state: "done" });
+            Object.assign(existing.event, {
+              state: parsedResult?.error ? "failed" : "done",
+              ...(parsedResult?.error
+                ? { detail: `${parsedResult.error.code}：${parsedResult.error.message}` }
+                : {}),
+            });
             emit({ ...existing.event });
+          }
+          const written = pendingCards.get(callId);
+          if (written && !parsedResult?.error) {
+            pendingCards.delete(callId);
+            if (written.kind === "layer") {
+              if (!snapshot.layers.some((entry) => entry.no === written.card.no)) {
+                snapshot.layers.push(written.card);
+                emit({ type: "layer", layer: written.card });
+              }
+            } else {
+              snapshot.findings.push(written.card);
+              emit({ type: "finding", finding: written.card });
+            }
           }
         }
         return;
@@ -394,8 +413,9 @@ export function createLiveReadAdapter(
         }
         continue;
       }
-      if (fetchCardShown) continue;
+      if (permissionCardShown) continue;
       announced.add(card.id);
+      permissionCardShown = true;
       // A pending permission means the run is waiting on the user: show the
       // run panel with the card instead of the local estimate step.
       localPhase = undefined;
@@ -546,6 +566,8 @@ export function createLiveReadAdapter(
     cursor = 0;
     emitted.clear();
     tools.clear();
+    pendingCards.clear();
+    permissionCardShown = false;
     endReason = undefined;
     failureMessage = undefined;
     patchRun({ state: "running", spentCny: null });
