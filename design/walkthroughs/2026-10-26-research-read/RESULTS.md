@@ -399,3 +399,23 @@ PLAYWRIGHT_MODULE=<…/playwright/index.mjs> node scripts/walkthrough/research-r
 1. 查清 `papers.search` 的 500。修完连续检索 5 次都成功。
 2. `/kernel/tool` 出错时，工具结果要带上**错误码和一句原因**（比如 `PAPERS_UPSTREAM_TIMEOUT: OpenAlex 25 秒未响应`），不要只有 `KERNEL_TOOL_HTTP_500`。
 3. **每次提交后，先自己用真实页面跑一遍「说一句 → 候选」再交付**。run10 → run11 之间就是因为这一步没做，回归了。
+
+---
+
+## 验收 run12（`c0b048e`）· 2026-10-28 14:30
+
+| ID | 判定 | 实际 |
+|---|---|---|
+| E1–E4、W1–W3、C4 | ✓ | 全部符合 |
+| C1–C3b | ✗ **阻塞** | 3 次 `papers_search` 都返回 `queryA ETIMEOUT export.arxiv.org`（事件 11284 / 11286 / 11292）。现在错误原因能看到了，这一条改进有效。模型处理得体：不编造论文，改用 `clarify_question(text)` 请用户补充线索 |
+
+**原因：这台机器访问外部检索源的网络本身不稳定**，代码逻辑没问题：
+- OpenAlex：匿名额度按 IP 共享，已经被用完（429，DSH 查到的）。
+- arXiv：同一时间从宿主请求 3 次，耗时分别是 3.8 秒、1.4 秒、**41 秒**；控制面用的 `dns.resolve4`（c-ares，`queryA`）直接超时，系统解析（`getaddrinfo`）却能解析出来。
+
+**这一条不改，精读的第一步就时好时坏，后面的验收都会被它拖住。修复（DSH）：**
+1. 出站解析改用系统解析器（`dns.lookup`），保留解析后的地址核对（防 DNS 重绑定）；单次检索设 8 秒超时，失败换下一个源。
+2. 检索源按顺序兜底：arXiv → OpenAlex（有 `OPENALEX_API_KEY` 时）→ Crossref。全部失败才把错误告诉模型。
+3. 同一个查询在本地缓存结果（24 小时），重复检索不再打到外网。
+
+另外：run `ffe4af91…`（新档案那段澄清）在走查结束后还停在 `running`，「等人回答」60 秒超时以后没有收尾。这一条属于地基里的「运行生命周期」，记下来，不阻塞。
