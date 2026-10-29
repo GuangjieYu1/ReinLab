@@ -95,6 +95,38 @@ describe("live read adapter over the DSH kernel", () => {
     expect(actions).toContain("papers.search");
   });
 
+  it("重新加载时从已落库的卡片事件还原讲解层与发现卡", async () => {
+    // 之前只从进行中的工具调用生成卡片，刷新或续接后数据库里的成果在页面上全丢。
+    const { instance } = adapter({
+      "/v1/dossiers": () => ({ items: [{ id: "d-1", title: "档案" }] }),
+      "/v1/kernel/dossiers/d-1/runs": () => ({ runs: [{ id: "r-1", state: "completed" }] }),
+      "/v1/kernel/runs/r-1/events": () => ({
+        events: [
+          event(1, "card_created", {
+            cardId: "c-1",
+            cardType: "layer",
+            card: { paperId: "p", no: "1", title: "提出问题", en: "Problem", body: [{ text: "这一层讲问题。", refs: [{ page: 2 }] }] },
+          }),
+          event(2, "card_created", {
+            cardId: "c-2",
+            cardType: "layer",
+            card: { paperId: "p", no: "2", title: "方法", en: "Method", body: [{ text: "这一层讲方法。" }] },
+          }),
+          event(3, "card_created", {
+            cardId: "c-3",
+            cardType: "finding",
+            card: { text: "核心发现", evidence: [{ page: 3 }], confidence: "high", status: "supported" },
+          }),
+        ],
+      }),
+      "/v1/kernel/runs/r-1": () => ({ state: "completed", usage: { known: false } }),
+    });
+    const snapshot = await instance.load();
+    expect(snapshot.layers.map((l) => l.no)).toEqual(["1", "2"]);
+    expect(snapshot.findings).toHaveLength(1);
+    expect(snapshot.findings[0]).toMatchObject({ text: "核心发现", confidence: "high" });
+  });
+
   it("rejects load with a readable reason when the kernel is unreachable", async () => {
     const { instance } = adapter({
       "/v1/dossiers": () => {

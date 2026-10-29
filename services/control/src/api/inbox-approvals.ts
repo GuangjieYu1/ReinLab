@@ -30,13 +30,27 @@ const conflict = () =>
     "审批已处理、过期或请求对象已变化，请刷新。",
   );
 /** 卡片里只有给人看的短句；参数哈希留在账本里，不回给界面。 */
+/** 审批卡上「会发生什么」：说人话，不把能力名甩给用户。 */
 function describe(effects: any) {
   const capability =
     typeof effects?.capability === "string" ? effects.capability : "";
   if (!capability) return [];
+  const what = capabilityLabel[capability];
+  if (capability === "papers.fetch")
+    return [
+      "把这篇论文下载进当前档案，并登记成正式资料",
+      "只写这一篇，不会顺带改别的档案",
+      "不批准就不下载，也不会编造内容",
+    ];
+  if (capability === "courses.plan")
+    return [
+      "把这份学习计划写进课程档案，之后可以照着它安排学习",
+      "只写这一次提交的内容；改了计划需要重新确认",
+      "不批准就不入档，已聊过的内容不会丢",
+    ];
   return [
-    "操作：" + (capabilityLabel[capability] ?? capability) + "（" + capability + "）",
-    "只处理这一次请求；参数变化后需要重新批准。",
+    what ? "这次要做的是：" + what : "这次请求需要你确认",
+    "只处理这一次；内容变化后会重新问一次",
   ];
 }
 function publicValue(v: any): JsonValue {
@@ -86,7 +100,7 @@ export function registerApprovalInbox(
         await client.query(
           `select a.id,a.run_id "runId",a.kind,a.title,a.effects,a.risk,a.state,
                   a.decision_sent "sent",r.dossier_id "dossierId",d.title "dossierTitle",
-                  r.role_id "roleId",r.state "runState"
+                  d.bench "bench",r.role_id "roleId",r.state "runState"
              from approval a
              join run r on r.account_id=a.account_id and r.id=a.run_id
              join dossier d on d.account_id=r.account_id and d.id=r.dossier_id
@@ -108,6 +122,8 @@ export function registerApprovalInbox(
           source: {
             dossierId: row.dossierId,
             dossierTitle: scrub(row.dossierTitle),
+            // 收件箱要显示这是哪个工作台的请求。
+            bench: row.bench,
             runId: row.runId,
             roleId: row.roleId,
           },

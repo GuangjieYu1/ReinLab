@@ -139,4 +139,5 @@ describe("运行生命周期收尾", () => {
     expect(await state(own.run)).toBe("waiting");
     expect(await card(keep)).toBe("pending");
   });
+
 });

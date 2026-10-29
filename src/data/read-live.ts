@@ -424,6 +424,57 @@ export function createLiveReadAdapter(
         }
         return;
       }
+      // 卡片是已经落库的成果：刷新页面、或者回答后续接的那一轮，都要能看见。
+      // 之前只从进行中的工具调用里生成，重新加载就全丢了。
+      case "card_created": {
+        const card = (data.card ?? {}) as any;
+        const cardType = String(data.cardType ?? "");
+        const cardId = String(data.cardId ?? "card:" + event.seq);
+        if (cardType === "layer") {
+          const body = Array.isArray(card.body) ? card.body : [];
+          const layer: LayerCard = {
+            id: "layer:" + cardId,
+            no: String(card.no ?? "1"),
+            title: String(card.title ?? "讲解"),
+            en: String(card.en ?? ""),
+            body: body
+              .map((entry: any) => ({
+                text: String(entry?.text ?? ""),
+                refs: (Array.isArray(entry?.refs) ? entry.refs : [])
+                  .map((ref: any) => (ref?.page ? "p." + String(ref.page) : ""))
+                  .filter(Boolean),
+              }))
+              .filter((entry: { text: string }) => entry.text),
+          };
+          if (layer.body.length && !snapshot.layers.some((entry) => entry.no === layer.no)) {
+            snapshot.layers.push(layer);
+            emit({ type: "layer", layer });
+          }
+          return;
+        }
+        if (cardType === "finding") {
+          const evidence = Array.isArray(card.evidence) ? card.evidence : [];
+          const finding: FindingCard = {
+            id: "finding:" + cardId,
+            n: Number(card.n ?? snapshot.findings.length + 1),
+            text: String(card.text ?? ""),
+            refs: evidence
+              .map((item: any) => (item?.page ? "p." + String(item.page) : ""))
+              .filter(Boolean),
+            confidence: ["low", "mid", "high"].includes(card.confidence) ? card.confidence : "mid",
+            status: ["hypothesis", "supported", "refuted"].includes(card.status)
+              ? card.status
+              : "hypothesis",
+            at: String(card.at ?? new Date().toISOString()),
+          };
+          if (finding.text && !snapshot.findings.some((entry) => entry.id === finding.id)) {
+            snapshot.findings.push(finding);
+            emit({ type: "finding", finding });
+          }
+          return;
+        }
+        return;
+      }
       case "turn/end": {
         const kind = String(data.reason?.kind ?? "");
         endReason = kind === "completed" ? "completed" : "failed";

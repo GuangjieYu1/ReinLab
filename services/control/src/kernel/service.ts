@@ -202,6 +202,29 @@ export class KernelService {
                where id=$1 and state not in ('completed','failed','cancelled','interrupted')`,
               [runId, next],
             );
+            // 任务结束了，它名下的待批卡也就没有意义：一并关掉并写明原因，
+            // 免得收件箱里一直挂着点不动的旧卡。
+            if (next !== "waiting") {
+              const closed = await client.query(
+                `update approval set state='expired'
+                  where account_id=$1 and run_id=$2 and state='pending'
+                  returning id`,
+                [account, runId],
+              );
+              for (const row of closed.rows)
+                await client.query(
+                  `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+                   values($1::uuid,$2::uuid,$3::uuid,'approval','approval.expired',$4,$5)
+                   on conflict do nothing`,
+                  [
+                    account,
+                    prepared.dossierId,
+                    runId,
+                    JSON.stringify({ approvalId: row.id, reason: "run_ended" }),
+                    "run-ended:" + row.id,
+                  ],
+                );
+            }
             await this.release(client, account, prepared.dossierId, prepared.sessionId, runId, next);
           });
         },
