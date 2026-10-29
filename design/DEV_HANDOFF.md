@@ -26,19 +26,35 @@
 
 ## 代码在哪
 
-- **后端 + 接线（DeepSeek 在这里实现；Codex 只读这里来做设计）**：`/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab`
-  - 当前分支：`codex/p1-clarify-continuation`，最新提交 `8786118`
-  - **注意：** Codex 停手前留下了一批**未提交**的改动，30 个文件，大约是走查修复做到一半：澄清生命周期迁移、`clarify/lifecycle.ts`、`research-clarify-v1-2-1.md`、`research@1.2.0` 发布文件等。先读 `git status` 和 `git diff`，决定接着做还是丢弃；不要在不了解的情况下直接提交。
-- **前端源头（Claude 维护）**：`/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab`。需要同步的文件，Claude 每次会列清单，一律原样复制。
+**一个仓库、一条主线、一个 checkout**：`/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab`（`main`）。
+
+2026-10-29 起前后端已用正常 Git 合并到一处（[PRD 02 第 1 项](prd/02-foundation.md)），不再有「前端源头 / 后端源头」两处长期分支，也不再复制文件同步。
+
+| 目录 / 文件 | 职责 | 维护方 |
+|---|---|---|
+| `src/components/`、`src/styles/`、静态资源及页面入口 | 页面、交互、展示及前端启动接线 | Claude |
+| `src/data/` | 浏览器请求、事件到页面状态的转换、前端数据适配 | Claude |
+| `packages/contracts/` | 前后端共享的数据契约 | Claude 定义前端所需语义；DSH 落实服务端兼容，共同维护 |
+| `services/control/` | API、登录、账户、档案、运行管理 | DSH |
+| `plugins/` | DSH 工作台插件 | DSH |
+| `tooling/`、`infra/` | 全栈启动、运行环境与基础设施 | DSH |
+| 根依赖、workspace、构建及测试配置 | 保证同一 checkout 可安装、构建、测试和启动 | DSH 整合，涉及前端要求与 Claude 协作 |
+| `design/` | PRD、接口说明、验收记录 | 按 WORKFLOW 的角色分工 |
+
+以后功能分支从 `main` 开始，通过 Git 合并集成。临时工作树仍可用，但不再作为运行或同步源。
 
 ## 怎么跑
 
+在统一 checkout 根目录：
+
 ```
-pnpm --dir /Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab local:up --real-models
+pnpm local:up --real-models
 ```
 
-- 起控制面、Hatchet、worker、真实模式前端：http://127.0.0.1:5183
+- 一条命令起 supabase、控制面与真实模式前端：http://127.0.0.1:5183
+- 前端、控制面与插件都取自当前 checkout，不引用另一个工作树
 - DeepSeek key 只由宿主网关从 `~/.config/reinlab/local.env` 读进内存。**开发 agent 自己用的 key 要另开一个**，不要和实验室运行用的混在一起
+- 本地实例标识由仓库派生：主目录与旧工作树共用同一个实例，原账号、Provider 配置和业务数据继续可用，不会静默换成空实例
 - 测试：`REINLAB_REQUIRE_NATIVE=1 pnpm test`（Node 22）；类型：`pnpm lint` 和各包的 `tsc`
 - 验证账户：`~/.local/state/reinlab/<实例>/verification-users.env`，内容不要贴进对话或日志
 
