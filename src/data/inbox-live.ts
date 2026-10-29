@@ -1,4 +1,4 @@
-import type { InboxAdapter, InboxPromotion, InboxQuestion, PromotionItem, EvidenceView } from '../components/inbox/inboxTypes';
+import type { InboxReport, InboxAdapter, InboxPromotion, InboxQuestion, PromotionItem, EvidenceView } from '../components/inbox/inboxTypes';
 import { api, decide, inbox, sessionGeneration } from './research-live';
 
 type Ports = { api: typeof api; decide: typeof decide; inbox: typeof inbox; generation: typeof sessionGeneration };
@@ -41,6 +41,22 @@ export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, gene
     return [...promotions.values()].find(p => p.items.some(i => field === 'evidence' ? i.evidence.includes(ref) : i.supersedes === ref));
   };
   return {
+    // 任务报告：GET /v1/reports（只读，结束了的任务；不需要批准）
+    async reports() {
+      const value = await ports.api("/v1/reports");
+      const list = Array.isArray(value?.items) ? value.items : [];
+      const STATE: Record<string, InboxReport["state"]> = { completed: "completed", interrupted: "interrupted", failed: "failed", cancelled: "cancelled" };
+      return list.map((r: any): InboxReport => {
+        const layers = Number(r.produced?.layers ?? 0), findings = Number(r.produced?.findings ?? 0);
+        const at = r.endedAt ? new Date(r.endedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+        return {
+          id: String(r.runId), runId: String(r.runId),
+          title: `精读${r.state === "completed" ? "完成" : "结束"}：${r.dossierTitle ?? "未命名档案"}${layers ? `（讲解 ${layers} 层、发现 ${findings} 张）` : ""}`,
+          state: STATE[r.state] ?? "failed", reason: r.reason ?? undefined, artifacts: layers + findings, at,
+          source: { bench: "research", dossierId: String(r.dossierId), dossierTitle: String(r.dossierTitle ?? ""), runId: String(r.runId), roleId: "research-read" },
+        };
+      });
+    },
     async load() {
       const expected = ports.generation();
       const data = await ports.inbox();
