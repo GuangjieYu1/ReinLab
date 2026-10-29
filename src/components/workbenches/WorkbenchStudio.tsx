@@ -13,7 +13,7 @@ import DataBench from './data/DataStudio';
 import ExplorationBench from './explore/ExploreStudio';
 import CourseStudio from './course/CourseStudio';
 import './workbench-shell.css';
-import InboxHost from '../inbox/InboxHost';
+import InboxHost, { INBOX_REFRESH } from '../inbox/InboxHost';
 import { liveBackend } from '../../data/research-live';
 import { liveInboxAdapter } from '../../data/inbox-live';
 import DossierMenu from '../dossier/DossierMenu';
@@ -95,6 +95,7 @@ export default function WorkbenchStudio() {
     if (e.type === 'dossier.changed' && e.id === dossierId) void dossiers().get(e.id).then(setDossier, () => {});
     if (e.type === 'dossier.deleted' && e.id === dossierId) { setDossier(null); setStatus('deleted'); }
     if (e.type === 'confirmation.created' && e.confirmation.target.id === dossierId) setConfirm(e.confirmation);
+    if (e.type === 'confirmation.created' || e.type === 'confirmation.decided') window.dispatchEvent(new Event(INBOX_REFRESH));
   }), [bench, dossierId]);
   const onPosition = useCallback((p: ResumePoint) => { if (dossierId) void dossiers().savePosition(dossierId, p).catch(() => {}); }, [dossierId]);
   const openArtifact = (a: Artifact) => {

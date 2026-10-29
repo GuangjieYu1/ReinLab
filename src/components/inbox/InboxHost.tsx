@@ -12,6 +12,8 @@ import type { InboxAdapter } from './inboxTypes';
 // adapter 默认用示例数据；接后端时由宿主传入 live 版，界面不变。
 
 const AWAY_MS = 30 * 60_000;
+/** 广播「收件箱可能有变化」：任何地方产生或处理了待办都可以发这个事件。 */
+export const INBOX_REFRESH = 'reinlab:inbox-refresh';
 let shared: InboxAdapter | null = null;
 // 自动弹出一次就够：切换工作台会重新挂载入口按钮，不能每切一次弹一次
 let autoOpened = false;
@@ -20,7 +22,14 @@ const defaultAdapter = () => (shared ??= mockAdapter());
 export function useInboxCount(adapter: InboxAdapter) {
   const [n, setN] = useState<number | null>(null);
   const refresh = useMemo(() => () => adapter.load().then(({ promotions, approvals }) => setN(promotions.length + approvals.filter(a => a.state === 'pending').length)).catch(() => {}), [adapter]);
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    // 别处产生了新的待办（比如档案删除确认卡）时刷新数字；另外每 30 秒兜底一次
+    const on = () => void refresh();
+    window.addEventListener(INBOX_REFRESH, on);
+    const t = window.setInterval(on, 30000);
+    return () => { window.removeEventListener(INBOX_REFRESH, on); window.clearInterval(t); };
+  }, [refresh]);
   return { n, setN, refresh };
 }
 
