@@ -30,3 +30,6 @@ infra/supabase/.branches/
 
 .artifacts/
 
+
+# 统一用 pnpm：npm 的锁文件不再进版本库（2026-10-29 集成）。
+package-lock.json

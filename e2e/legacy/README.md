@@ -10,7 +10,7 @@
 ## 运行
 
 ```bash
-npm run dev                       # 另开终端，先起前端（默认 http://127.0.0.1:5173）
+pnpm dev                          # 另开终端，先起前端（默认 http://127.0.0.1:5173）
 node e2e/legacy/run.mjs           # 跑全部 20 个场景
 node e2e/legacy/run.mjs au cu     # 只跑指定场景
 node e2e/legacy/run.mjs --list    # 列出场景

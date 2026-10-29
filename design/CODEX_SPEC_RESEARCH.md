@@ -570,7 +570,7 @@ interface AnimProvider {
 | T-SEC | 安全 | ① 账户 A 的 JWT 访问账户 B 的每一张表、每一个 API → 全部 403 / 0 行；② 插件用别的会话 ID 回调 → 拒绝；③ danger 动作在任何入口都无法执行；④ iframe 里的脚本读 `parent.document`、`document.cookie`、`localStorage`、发起顶层跳转 → 全部失败 | 全绿，结果存证据 |
 | T-CHAOS | 可靠 | 群研进行中重启账户机器；Hatchet worker 中途被杀；SSE 断线重连 → 运行可续，无重复副作用，无事件丢失或重复 | 全绿，附事件序列比对 |
 | T-E2E | 端到端 | Playwright（`e2e/`），`live` 模式，对 staging：精读一篇论文、群研一次、自研玩具任务、上线收件箱批准、审批卡批准 | 全绿，附录屏 |
-| T-REG | 回归 | 现有前端无头回归脚本（`e2e/legacy/`，`node e2e/legacy/run.mjs`，20 个场景）在 `mock` 模式全部通过；`npm run build` 与 `vitest` 通过 | 全绿 |
+| T-REG | 回归 | 现有前端无头回归脚本（`e2e/legacy/`，`node e2e/legacy/run.mjs`，20 个场景）在 `mock` 模式全部通过；`pnpm build` 与 `pnpm test` 通过 | 全绿 |
 
 ---
 

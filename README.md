@@ -105,16 +105,16 @@ CSS/SVG 的玻璃材质不等同于实时光学折射，字形也尚未做逐字
 ## 本地启动
 
 ```sh
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 在 `http://127.0.0.1:5173/` 查看。开发服务器只监听本机。
 
 ```sh
-npm run build
-npm run preview
-npm test
+pnpm build
+pnpm preview
+pnpm test
 ```
 
 ## 第一轮设计目标
