@@ -85,5 +85,12 @@ export function mockAdapter(): InboxAdapter {
     },
     async evidence(ref: string) { await wait(120); const e = EVIDENCE[ref]; if (!e) throw new Error('EVIDENCE_NOT_FOUND'); return { ref, ...e }; },
     async superseded(id: string) { await wait(80); return OLD[id] ?? null; },
+    async reports() {
+      await wait(100);
+      return [
+        { id: 'rep-1', runId: 'run-r1', title: '精读完成：Attention Is All You Need', state: 'completed' as const, artifacts: 7, at: '今天 09:12', source: { bench: 'research', dossierId: 'd1', dossierTitle: '文献与实验', runId: 'run-r1', roleId: 'research-read' } },
+        { id: 'rep-2', runId: 'run-r2', title: '精读中断：s1: Simple test-time scaling', state: 'interrupted' as const, reason: '服务重启后这一段执行已不在，可以重试。', artifacts: 2, at: '昨天 21:40', source: { bench: 'research', dossierId: 'd2', dossierTitle: '方法与证据', runId: 'run-r2', roleId: 'research-read' } },
+      ];
+    },
   };
 }

@@ -13,6 +13,8 @@ import type { InboxAdapter } from './inboxTypes';
 
 const AWAY_MS = 30 * 60_000;
 let shared: InboxAdapter | null = null;
+// 自动弹出一次就够：切换工作台会重新挂载入口按钮，不能每切一次弹一次
+let autoOpened = false;
 const defaultAdapter = () => (shared ??= mockAdapter());
 
 export function useInboxCount(adapter: InboxAdapter) {
@@ -29,7 +31,7 @@ export default function InboxHost({ autoOpen, adapter = defaultAdapter(), button
   const { n, setN, refresh } = useInboxCount(adapter);
   const opened = useRef(false), hiddenAt = useRef<number | null>(null);
 
-  useEffect(() => { if (autoOpen && !opened.current && n !== null && n > 0) { opened.current = true; setOpen(true); } }, [autoOpen, n]);
+  useEffect(() => { if (autoOpen && !opened.current && !autoOpened && n !== null && n > 0) { opened.current = true; autoOpened = true; setOpen(true); } }, [autoOpen, n]);
   useEffect(() => {
     const onVis = () => {
       if (document.hidden) { hiddenAt.current = Date.now(); return; }
