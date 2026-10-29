@@ -52,3 +52,22 @@ Claude 亲手使用，录像 `video.mp4`，截图在 `shots/`。
 **结论：合仓 U1～U4 通过，可以进入 U5：三方确认后合入 main，再从主目录打开一次。**
 
 **待决定（不阻塞）：** DOI 来源的开放获取 PDF 被出站白名单拒绝（`PAPERS_EGRESS_DENIED`）。按纲领第 9 条，不应该要求用户说「用 arXiv」。两种做法：① 模型被拒后自己换 arXiv 等来源（只需要把错误原样返回给它，现在已经这样了，再观察一下）；② 放开 Unpaywall 给出的开放获取 PDF 主机（属于安全边界，需要 Codex 设计、用户拍板）。
+
+---
+
+## U5 交接（2026-10-29）— 已合入 main，请从主目录验收
+
+**主线提交：** `main` @ `7992266`（merge：合入已验收的代码合一结果）。`slim/frontend`、`slim/backend`、`codex/foundation-unify` 都已是 `main` 的祖先，历史与文件完整保留（1825 个跟踪文件）。
+
+**启动命令（主目录）：**
+
+```
+cd /Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab
+pnpm local:up --real-models
+```
+
+页面：<http://127.0.0.1:5183>（已在本机运行，可直接打开）。
+
+**请验 U5：** 从主目录用同一条命令起栈、原账号登录、进研究台并使用已验收的精读。不再依赖 `slim/frontend` 或 `slim/backend` checkout。合并未引入新变化，不要求再跑整套付费精读。
+
+**合入时核对：** 工作树与提交一致；`pnpm build` 通过；`pnpm test` 73 文件 / 671 用例全绿；整栈 `LOCAL_STACK_READY`，前端与控制面均从本 checkout 起，沿用原实例 `803a04fcd69a`（账号 19、档案/运行等业务数据未清空）。
