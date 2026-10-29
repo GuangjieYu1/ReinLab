@@ -106,7 +106,8 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
   }
 
   function onKey(e: KeyboardEvent) {
-    if ((e.target as HTMLElement | null)?.closest?.('textarea, input')) { if (e.key === 'Escape') setEditing(null); return; }
+    // 只有收件箱自己的输入框算「正在编辑」；焦点停在后面页面的输入框里（比如助手对话框）时，Esc 照样关收件箱
+    if ((e.target as HTMLElement | null)?.closest?.('.ibx textarea, .ibx input')) { if (e.key === 'Escape') setEditing(null); return; }
     if (!entries) { if (e.key === 'Escape') onClose(); return; }
     const i = entries.findIndex(x => idOf(x) === sel);
     const k = e.key.toLowerCase();
