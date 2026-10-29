@@ -7,6 +7,7 @@ import { reconcileAccount } from "../kernel/lifecycle";
 import { appendEvent, scrub } from "../ledger";
 import { mutate, canonical, type ApiEnv, type ApiContext } from "./context";
 import { ApiFailure, denied } from "./errors";
+import { applyConfirmation } from "../dossier/service";
 
 const Decision = z
   .object({
@@ -216,13 +217,30 @@ export async function decideInboxCard(
   return mutate(c, db, Decision, async (client, input) => {
     const row = (
       await client.query(
-        `select a.*,r.dossier_id,r.role_id,r.state run_state,r.ended_at
-           from approval a join run r on r.account_id=a.account_id and r.id=a.run_id
-          where a.id=$1 and a.effect_key is not null for update of a`,
+        // 档案的删除/归档确认卡没有 run，所以这里必须 left join。
+        `select a.*,coalesce(a.dossier_id,r.dossier_id) dossier_id,r.role_id,
+                r.state run_state,r.ended_at
+           from approval a left join run r on r.account_id=a.account_id and r.id=a.run_id
+          where a.id=$1 and (a.effect_key is not null or a.dossier_id is not null)
+          for update of a`,
         [id.data],
       )
     ).rows[0];
     if (!row) throw denied();
+    // 档案确认卡（删除 / 归档活跃档案）走这里：一次决定即生效，和页面同一张卡。
+    const effectKind = (row.effects as any)?.kind;
+    if (typeof effectKind === "string" && effectKind.startsWith("dossier.")) {
+      const approved = input.decision === "approve";
+      await client.query(
+        "update approval set state=$3, decided_at=now() where account_id=$1 and id=$2",
+        [account, id.data, approved ? "approved" : "rejected"],
+      );
+      await applyConfirmation(client, account, id.data, approved);
+      return {
+        status: 200,
+        body: { state: approved ? "approved" : "rejected" },
+      } as any;
+    }
     // 一次决定落在同一个请求上：同参数重复提交返回同一回执，不同参数报冲突。
     const hash = createHash("sha256").update(canonical(input)).digest("hex"),
       old = (

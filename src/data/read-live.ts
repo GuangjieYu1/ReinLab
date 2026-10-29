@@ -120,6 +120,8 @@ export function createLiveReadAdapter(
   let paperView: PaperView | undefined;
   /** 这次「确认开始」选定的书名：开始指令要按动作行显示，带书名。 */
   let startTitle: string | undefined;
+  /** 操作提示游标（第 8 节的 user_op 记录）；只读来显示，不冒充用户。 */
+  let noteCursor = "0";
   const emitPaper = () => {
     if (!paperView) return;
     const merged: PaperView = {
@@ -666,12 +668,33 @@ export function createLiveReadAdapter(
       void (async () => {
         try {
           for (const event of await fetchEvents(cursor)) apply(event);
+          await pullNotes();
           await refresh();
         } catch {
           /* a transient poll failure keeps the last known state */
         }
       })();
     }, 1500);
+  }
+
+
+  /** 这份档案的操作记录：显示成一行灰字，不是用户气泡。 */
+  async function pullNotes(): Promise<void> {
+    if (!dossier) return;
+    try {
+      const res = (await ports.api(
+        `/v1/dossiers/${dossier}/activity?after=${encodeURIComponent(noteCursor)}`,
+        0,
+      )) as { items?: { id: string; text: string }[]; cursor?: string };
+      for (const item of res?.items ?? []) {
+        if (!item?.id || !item?.text) continue;
+        announced.add("note:" + item.id);
+        emit({ type: "note", id: item.id, text: item.text });
+      }
+      if (res?.cursor) noteCursor = res.cursor;
+    } catch {
+      /* 操作记录拿不到不影响正文 */
+    }
   }
 
   async function latestRun(): Promise<string | undefined> {
@@ -684,11 +707,14 @@ export function createLiveReadAdapter(
 
   async function ensureDossier(): Promise<string> {
     if (dossier) return dossier;
-    const created = (await ports.api("/v1/dossiers", { title: "新的精读" }, crypto.randomUUID())) as {
-      id: string;
-    };
+    // 标题由服务端给（临时名，之后按论文补名），页面不写死。
+    const created = (await ports.api(
+      "/v1/dossiers",
+      { bench: "research", kind: "reading" },
+      crypto.randomUUID(),
+    )) as { id: string; title?: string };
     dossier = created.id;
-    snapshot.dossier = { id: dossier, title: "新的精读" };
+    snapshot.dossier = { id: dossier, title: created.title ?? "新的精读" };
     return dossier;
   }
 
@@ -850,6 +876,15 @@ export function createLiveReadAdapter(
       freshReading = true;
       localPhase = undefined;
       patchRun({ state: "idle", message: undefined });
+      // 建一份新档案并切过去：下一轮就在这份里跑。
+      const created = (await ports.api(
+        "/v1/dossiers",
+        { bench: "research", kind: "reading" },
+        crypto.randomUUID(),
+      )) as { id: string; title?: string };
+      dossier = created.id;
+      snapshot = { ...empty(), dossier: { id: dossier, title: created.title ?? "新的精读" } };
+      refresh();
     },
     async cancelClarify() {
       if (runId) await ports.api(`/v1/kernel/runs/${runId}/cancel`, {}, crypto.randomUUID());

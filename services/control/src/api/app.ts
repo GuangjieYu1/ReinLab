@@ -16,6 +16,7 @@ import { mutate, type ApiEnv } from "./context";
 import { ApiFailure, denied } from "./errors";
 import { registerKernelRuns } from "./kernel-runs";
 import { registerApprovalInbox, registerReports, decideInboxCard } from "./inbox-approvals";
+import { registerDossierApi } from "./dossier-api";
 import { registerKernelTools, type KernelToolCall } from "./kernel-tools";
 import { pricingFromEnvironment, type PricingService } from "../budget/pricing";
 import { monthlyBudgetSnapshot, currentPeriod } from "../budget";
@@ -67,7 +68,11 @@ export async function createApp(options: {
     );
     if (!exists.rowCount)
       throw new ApiFailure("ACCOUNT_NOT_READY", 404, "账户尚未完成初始化。");
-    if (c.req.method === "DELETE")
+    // 只放开「解除成果关联」这一种 DELETE：它不删文件、不删课程原件。
+    if (
+      c.req.method === "DELETE" &&
+      !/^\/v1\/dossiers\/[^/]+\/artifacts\/[^/]+$/.test(new URL(c.req.url).pathname)
+    )
       throw new ApiFailure("SCOPE_DENIED", 403, "危险删除操作不开放。");
     await next();
   });
@@ -183,6 +188,7 @@ export async function createApp(options: {
   );
   registerApprovalInbox(app, database, options.kernel ? (id) => options.kernel!.isLive(id) : undefined);
   registerReports(app, database);
+  registerDossierApi(app, database);
   app.post("/v1/approvals/:id/decide", async (c) => {
     const card = await decideInboxCard(c, database, (account, runId, prompt) => {
       // 回答之后接着跑同一段任务；失败不影响这次决定本身。
@@ -204,7 +210,7 @@ export async function createApp(options: {
   );
   app.onError((error, c) => {
     if (error instanceof ApiFailure)
-      return c.json({ code: error.code, message: error.message }, error.status);
+      return c.json({ code: error.code, message: error.message, ...(error.extra ?? {}) }, error.status);
     console.error(
       JSON.stringify({
         code: "API_UNEXPECTED",
