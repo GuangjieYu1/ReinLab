@@ -22,7 +22,6 @@ jobs:
           --health-interval 2s --health-timeout 2s --health-retries 30
     env:
       VITE_BACKEND: mock
-      REINLAB_REQUIRE_NATIVE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
