@@ -63,6 +63,18 @@ describe("local instance identity", () => {
     expect(paths.state).toBe(existing);
   });
 
+  it("does not adopt an empty look-alike directory", async () => {
+    // 空目录没有运行时配置也没有内核目录，不算「本机已有的实例」。
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "reinlab-repo-")));
+    execFileSync("git", ["init", "-q", repo]);
+    const stateRoot = await realpath(await mkdtemp(join(tmpdir(), "reinlab-state-")));
+    await mkdir(join(stateRoot, "0123456789ab"));
+
+    const paths = localPaths({ root: join(repo, "main"), stateRoot, env: {} });
+    expect(paths.state.split("/").at(-1)).not.toBe("0123456789ab");
+    expect(paths.state).toBe(localPaths({ root: join(repo, "main"), stateRoot, env: {} }).state);
+  });
+
   it("starts a fresh instance when several instances exist and none belongs to this checkout", async () => {
     const repo = await realpath(await mkdtemp(join(tmpdir(), "reinlab-repo-")));
     execFileSync("git", ["init", "-q", repo]);

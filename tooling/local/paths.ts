@@ -49,6 +49,15 @@ function instanceDirectories(stateRoot: string): string[] {
           return false;
         }
       })
+      // 只认已经起过栈的实例：有运行时配置或内核目录才算，空目录不当作可沿用。
+      .filter((name) => ["runtime.env", "setup.env", "kernel"].some((marker) => {
+        try {
+          statSync(join(stateRoot, name, marker));
+          return true;
+        } catch {
+          return false;
+        }
+      }))
       .sort();
   } catch {
     return [];
