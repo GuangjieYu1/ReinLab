@@ -88,6 +88,19 @@
 - 启动核对：`reconcileOnStartup` 在 `pnpm local:up` 起控制面之前用管理员连接跨账户跑
   （账户表对应用角色强制 RLS，应用进程列不出账户），把上一轮残留补成中断并留原因。
 
+## 5c. 待修（2026-10-30 实测发现，阻塞 L2/L3 验收）
+
+1. **`clarify_question` 交出去后这一轮没有结束**：插件按新契约返回
+   `waiting_for_user`，run 却一直停在 `running`（实测 4 分钟以上、13 个事件、
+   dsh 进程仍在），因此进不到 `waiting`，执行段没释放。`papers_fetch` 那条路径
+   此前能正常进入 `waiting`，差别在提问分支（控制面对 ASKS_THE_USER 返回 409
+   并把租约置空）。要查清该分支是否让 SDK 一直等这个工具调用结束。
+2. **启动核对没有收掉这个 run**：`9ee76d8f` 重启后仍 `running` 且无终态事件，
+   说明 `reconcileOnStartup` 漏了它或没跑到。复查条件
+   `state in ('queued','running') and ended_at is null` 与该行实际值。
+
+修好之前第 2 项不能交验收——L2/L3 正是判「等待时执行段真的让出」。
+
 ## 6. 交付
 
 每片：改动 + 针对性测试 + 真实模式跑一次。整项完成后交 Claude：能跑的命令、测试结果、页面入口，按 L1–L6 验收。
