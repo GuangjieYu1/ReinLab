@@ -110,6 +110,9 @@ export function accountContainerSpec(
     // 容器内跑 dsh 需要的解释器与路径。
     // dsh 会在 HOME 下建 profile，而容器根是只读的：HOME 指到账户卷里。
     HOME: containerRoot + "/home",
+    // 原生加载器默认把 .node 复制到 /tmp 再 require；容器里 /tmp 是 noexec，
+    // 映射会失败（failed to map segment）。直接从包内预编译产物加载。
+    NARB_DISABLE_NATIVE_CACHE: "1",
     SHIM_MODE: "host",
     REINLAB_ACCOUNT_ROOT: containerRoot,
     REINLAB_CONTROL_URL: input.controlUrl,

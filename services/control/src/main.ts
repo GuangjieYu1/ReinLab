@@ -83,7 +83,8 @@ const kernel = new KernelService({
             image: config.REINLAB_ACCOUNT_IMAGE ?? "reinlab-account:local",
             home: "/opt/reinlab-account",
             dshHome: "/opt/reinlab-account/dsh-home",
-            workspace: "/opt/reinlab-account/dossiers-root",
+            // 与宿主 <home>/accounts/<account>/dossiers 对应（账户卷挂到 /opt/reinlab-account）。
+            workspace: "/opt/reinlab-account/dossiers",
             dshModule: "/opt/reinlab/node_modules/@deepseek-ai/dsh/lib/bin.js",
             pluginEntry: "file:///opt/reinlab/plugins/reinlab-read-plugin/index.js",
             restrictPatch: "/opt/reinlab/plugins/reinlab-read-plugin/restrict.patch.yml",
