@@ -193,9 +193,16 @@ export async function materializeLaunch(
   if (typeof token !== "string" || token.trim() === "")
     throw new ApiFailure("KERNEL_TOKEN_REQUIRED", 400, "运行令牌为空。");
   await io.mkdir(plan.paths.runDir);
-  await io.mkdir(plan.hostDirs.dshHome);
-  await io.mkdir(plan.hostDirs.cwd);
-  await io.mkdir(plan.hostDirs.sessionDir);
+  // 容器模式下 options 里是容器路径，宿主上要建的是映射回来的目录；
+  // 宿主模式仍按 options 建（调用方可能覆盖过 cwd）。
+  const dirs = plan.containerPaths ? plan.hostDirs : {
+    dshHome: plan.options.dshHome,
+    cwd: plan.options.cwd,
+    sessionDir: plan.paths.sessionDir,
+  };
+  await io.mkdir(dirs.dshHome);
+  await io.mkdir(dirs.cwd);
+  await io.mkdir(dirs.sessionDir);
   await io.write(plan.paths.tokenFile, token + "\n", 0o600);
   await io.write(
     plan.paths.credentialsFile,
