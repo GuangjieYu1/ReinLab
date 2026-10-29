@@ -331,26 +331,25 @@ export async function savePosition(
   );
 }
 
-/** 一次性补名：有已选论文且标题还没被用户占用，就补成论文名。 */
+/** 补名：这份档案已经有下载过的论文标题，就把占位名换成论文名（用户改过的不动）。 */
 export async function nameFromPaper(client: Client, account: string, dossier: string) {
   const row = await one(
     client,
     `select d.name_source,
-            (select r.input->>'chosenPaperId' from run r
-              where r.account_id=d.account_id and r.dossier_id=d.id
-                and coalesce(r.input->>'chosenPaperId','')<>''
-              order by r.created_at desc limit 1) as chosen,
-            (select e.payload->'paper'->>'title' from event e
-              where e.account_id=d.account_id and e.dossier_id=d.id
-                and e.action='paper_asset_opened' limit 1) as paper_title
+            (select coalesce(a.view_metadata->>'title','')
+               from paper_asset a
+              where a.account_id=d.account_id and a.dossier_id=d.id
+                and coalesce(a.view_metadata->>'title','')<>''
+              order by a.created_at desc limit 1) as paper_title
        from dossier d where d.account_id=$1 and d.id=$2`,
     [account, dossier],
   );
-  if (!row || row.name_source === "user") return null;
+  if (!row || !["placeholder", "intent", "paper"].includes(row.name_source)) return null;
   const name = title(row.paper_title);
   if (!name) return null;
   await client.query(
-    `update dossier set title=$3, name_source='paper', version=version+1
+    `update dossier set title=$3, name_source='paper', version=version+1,
+            last_activity_at=now()
       where account_id=$1 and id=$2 and name_source<>'user'`,
     [account, dossier, name],
   );

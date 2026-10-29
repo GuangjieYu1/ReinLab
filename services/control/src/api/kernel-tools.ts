@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
 import { paperHandle } from "../mcp/papers";
+import { nameFromPaper } from "../dossier/service";
 import type { Database } from "../db/database";
 import type { KernelAuth } from "../kernel/auth";
 import {
@@ -325,6 +326,9 @@ export function registerKernelTools(
           }
         }
         const result = (await dependencies.dispatch(call)) as Record<string, unknown>;
+        // 选定并下载成功后按第 6 节补名：占位名换成论文名（用户改过的绝不动）。
+        if (capability === "papers.fetch")
+          await nameFromPaper(client, call.account, call.dossier).catch(() => null);
         // 论文视图要标题/作者/来源：从资产元数据补上，界面才能切到「读这篇」。
         const assetId =
           typeof result?.assetId === "string" &&

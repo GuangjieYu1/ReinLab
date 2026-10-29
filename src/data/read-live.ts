@@ -140,7 +140,8 @@ export function createLiveReadAdapter(
     if (!paperView || paperView.id !== assetId) {
       paperView = {
         id: assetId,
-        title: String(result.title ?? "选定的论文"),
+        // 标题按真实元数据：资产标题 → 选定候选的标题 → 档案名，不写「选定的论文」。
+        title: String(result.title ?? lastPicked?.title ?? snapshot.dossier.title ?? "这篇论文"),
         authors: Array.isArray(result.authors)
           ? result.authors.join("，").slice(0, 200)
           : String(result.authors ?? ""),
