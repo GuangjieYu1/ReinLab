@@ -197,7 +197,9 @@ export function registerKernelTools(
               run: call.run,
               capability,
               argsHash: argsHash(call),
-              title: "下载论文全文",
+              title: "把这篇论文正式入档",
+              // 一次批准覆盖「这篇论文进入正式档案」这一次提交；
+              // 下载到工作区、草稿与讲解卡都不再单独打扰。
               effects: [{ capability, argsHash: argsHash(call) }],
               risk: "write",
             });

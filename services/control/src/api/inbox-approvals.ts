@@ -16,7 +16,7 @@ const Decision = z
 const json = (v: unknown): JsonValue => JSON.parse(JSON.stringify(v));
 const capabilityLabel: Record<string, string> = {
   "papers.search": "检索论文",
-  "papers.fetch": "下载论文全文",
+  "papers.fetch": "把这篇论文正式入档",
   "papers.pages": "按页读取原文",
   "cards.card.layer": "写入分层讲解",
   "cards.card.quiz": "写入检查题",
