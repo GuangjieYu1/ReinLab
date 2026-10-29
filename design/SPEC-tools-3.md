@@ -112,8 +112,18 @@ dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**�
 **已验证的隔离**：宿主源码树、`~/.ssh`、`~/.config/reinlab`、`docker.sock`、其他账户
 目录在容器里全部不可达；基础工具 bash/grep/python3 在加固容器内可用。
 
-**尚未验**：容器模式下的完整精读（下载→审批→讲解），以及默认 transport 是否切到
-container。默认仍是 host，Claude 的 T1–T5 验收不受影响。整栈默认仍为宿主模式，可正常验收。
+**片三核心已验（2026-10-30）**：容器模式下模型拿到的工具集为
+`bash / grep / glob / read / write / edit / web_search / web_fetch / papers_* / card_* / …`
+（只禁了 subagent/workflow 这类自派生 agent 的工具），run `completed`，模型**实际调用了 bash**。
+这就是 PRD 3.4「隔离环境内基础工具全开」的落地证据。
+
+到达这一步修的最后一环：仓库 COPY 进镜像的补丁文件权限是 0600，而容器以宿主 uid
+运行 → `failed to read overlay ... Permission denied`。镜像里统一 `chmod -R a+rX`。
+
+默认 transport 仍是 host（Claude 的 T1–T5 不受影响）；容器模式用
+`REINLAB_KERNEL_TRANSPORT=container pnpm local:up --real-models` 打开。
+
+**尚未做**：两条写入底线（草稿自主写 / 正式入档一次批准）与课程台最小插件。整栈默认仍为宿主模式，可正常验收。
 
 **下一步（历史记录）**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
 需要改的地方已定位：`launch.ts` 目前只设了 `SHIM_CONTAINER/SHIM_RUN_ID/SHIM_PID_FILE/SHIM_DSH_MODULE`，

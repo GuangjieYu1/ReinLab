@@ -3,4 +3,5 @@
 !services/control/src/kernel/dsh/shim.mjs
 !plugins/reinlab-read-plugin/index.js
 !plugins/reinlab-read-plugin/restrict.patch.yml
+!plugins/reinlab-read-plugin/container.patch.yml
 !infra/account/Dockerfile

@@ -87,7 +87,8 @@ const kernel = new KernelService({
             workspace: "/opt/reinlab-account/dossiers",
             dshModule: "/opt/reinlab/node_modules/@deepseek-ai/dsh/lib/bin.js",
             pluginEntry: "file:///opt/reinlab/plugins/reinlab-read-plugin/index.js",
-            restrictPatch: "/opt/reinlab/plugins/reinlab-read-plugin/restrict.patch.yml",
+            // 容器模式基础工具全开：只禁自派生 agent 的工具。
+            restrictPatch: "/opt/reinlab/plugins/reinlab-read-plugin/container.patch.yml",
           },
         }
       : {}),

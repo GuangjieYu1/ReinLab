@@ -22,6 +22,7 @@ import { ensureNode22 } from "./runtime";
 // 固定跑在项目工具链的 Node 22 上：Electron 直接报错，PATH 上的 node 不作为依据。
 const scriptPath = resolve("tooling/local/up.ts");
 const nodeBin = await ensureNode22(scriptPath);
+process.env.REINLAB_CONTROL_LOG_DIR ??= localPaths().state;
 const paths = localPaths(),
   credentialRoot = join(homedir(), ".local/state/reinlab/account-credentials");
 const cliEnvironment = {

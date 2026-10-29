@@ -22,6 +22,11 @@ RUN npm install --no-audit --no-fund --loglevel=error @deepseek-ai/dsh@0.2.1-rc.
 COPY services/control/src/kernel/dsh/shim.mjs /opt/reinlab/shim.mjs
 COPY plugins/reinlab-read-plugin/index.js /opt/reinlab/plugins/reinlab-read-plugin/index.js
 COPY plugins/reinlab-read-plugin/restrict.patch.yml /opt/reinlab/plugins/reinlab-read-plugin/restrict.patch.yml
+COPY plugins/reinlab-read-plugin/container.patch.yml /opt/reinlab/plugins/reinlab-read-plugin/container.patch.yml
+
+# 这些文件由仓库 COPY 进来，权限跟着宿主走（可能是 0600）；容器以宿主 uid 运行，
+# 必须保证可读，否则 dsh 读 overlay 会 Permission denied。
+RUN chmod -R a+rX /opt/reinlab/plugins /opt/reinlab/shim.mjs
 
 ENV NODE_ENV=production \
     REINLAB_ACCOUNT_ROOT=/opt/reinlab-account
