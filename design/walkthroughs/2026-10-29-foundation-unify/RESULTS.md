@@ -71,3 +71,13 @@ pnpm local:up --real-models
 **请验 U5：** 从主目录用同一条命令起栈、原账号登录、进研究台并使用已验收的精读。不再依赖 `slim/frontend` 或 `slim/backend` checkout。合并未引入新变化，不要求再跑整套付费精读。
 
 **合入时核对：** 工作树与提交一致；`pnpm build` 通过；`pnpm test` 73 文件 / 671 用例全绿；整栈 `LOCAL_STACK_READY`，前端与控制面均从本 checkout 起，沿用原实例 `803a04fcd69a`（账号 19、档案/运行等业务数据未清空）。
+
+---
+
+## 验收环境要求（用户 2026-10-30 决定 A）
+
+本机开着 TUN 代理时，公网域名被解析成 fake-IP `198.18.0.0/15`，宿主侧 SSRF 防护会正确拒绝，
+所有论文下载都会 `PAPERS_EGRESS_DENIED`（含 arXiv）。
+
+**验收前请先关掉 TUN 代理，用真实 DNS。** 安全边界不放宽，也不为代理段开例外。
+关代理后可用 `dig +short arxiv.org @1.1.1.1` 确认返回的是真实公网地址（不是 `198.18.x.x`）。
