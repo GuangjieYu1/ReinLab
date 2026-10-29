@@ -5,6 +5,8 @@
  * 序列化回去。写请求都要求 Idempotency-Key（由 mutate/中间件保证）。
  */
 import { Hono } from "hono";
+import { z } from "zod";
+import { mutate } from "./context";
 import { randomUUID } from "node:crypto";
 import type { Database } from "../db/database";
 import type { ApiEnv } from "./context";
@@ -25,6 +27,17 @@ import {
   subscribe,
   updateDossier,
 } from "../dossier/service";
+
+/** 新建：字段严格，多余字段直接 400（防止客户端塞 accountId/workspacePath）。 */
+const CreateDossier = z
+  .object({
+    bench: z.string().max(40).default("research"),
+    kind: z.string().max(40).optional(),
+    title: z.string().max(200).optional(),
+    intent: z.string().max(2000).optional(),
+    via: z.string().max(10).optional(),
+  })
+  .strict();
 
 const body = async (c: any): Promise<Record<string, unknown>> => {
   const raw = await c.req.json().catch(() => ({}));
@@ -53,11 +66,10 @@ export function registerDossierApi(app: Hono<ApiEnv>, database: Database) {
   );
 
   app.post("/v1/dossiers", (c) =>
-    database.withAccount(c.get("accountId"), async (client) => {
-      const input = await body(c);
-      const dossier = await createDossier(client, c.get("accountId"), input as any, viaOf(input.via));
-      return c.json(dossier, 201);
-    }),
+    mutate(c, database, CreateDossier, async (client, input) => ({
+      status: 201,
+      body: (await createDossier(client, c.get("accountId"), input, viaOf(input.via))) as any,
+    })),
   );
 
   app.get("/v1/dossiers/:id", (c) =>

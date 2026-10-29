@@ -83,7 +83,21 @@ export async function bootstrapLocalDatabase(
 export async function reconcileAfterBootstrap(databaseUrl: string) {
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 1 });
   try {
-    return await reconcileOnStartup(pool);
+    const reconciled = await reconcileOnStartup(pool);
+    // 一次性补名：历史上「新的精读」在能确定论文时补成论文名（第 6 节）。
+    await pool.query(
+      `update dossier d set title=p.title, name_source='paper', version=d.version+1
+         from (select distinct on (r.dossier_id) r.dossier_id,
+                      e.payload->'paper'->>'title' title
+                 from run r join event e
+                   on e.account_id=r.account_id and e.dossier_id=r.dossier_id
+                where e.action='paper_asset_opened'
+                  and coalesce(e.payload->'paper'->>'title','')<>''
+                order by r.dossier_id, r.created_at desc) p
+        where d.id=p.dossier_id and d.name_source<>'user'
+          and (d.title like '新的精读%' or d.title like '未命名研究%')`,
+    );
+    return reconciled;
   } finally {
     await pool.end().catch(() => {});
   }

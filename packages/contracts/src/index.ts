@@ -538,15 +538,26 @@ export const Bench = z.enum([
   "exploration",
   "data",
 ]);
+/**
+ * 档案（地基第 4 项）。运行期形状见 `./dossier` 的 TS 类型；这里保留 zod 以便
+ * 校验响应，字段只做宽松约束，避免把新加的字段判成非法。
+ */
 export const Dossier = z
   .object({
     id,
     bench: Bench,
     title: text,
+    kind: z.string().max(40).optional(),
+    nameSource: z.string().max(40).optional(),
+    intent: text.nullable().optional(),
+    lifecycle: z.string().max(40).optional(),
+    deletion: z.string().max(40).optional(),
     createdAt: timestamp,
+    updatedAt: timestamp.optional(),
+    lastActivityAt: timestamp.optional(),
     archivedAt: timestamp.nullable().optional(),
   })
-  .strict();
+  .passthrough();
 export type Dossier = z.infer<typeof Dossier>;
 export const AccountProfile = z
   .object({

@@ -206,9 +206,10 @@ export async function listDossiers(
   const page = rows.slice(0, 50);
   const items = [];
   for (const row of page) items.push(await summaryOf(client, account, row));
-  if (input.via === "user")
+  // 搜索不属于某一份档案：event.dossier_id 是必填的，所以只记在有档案在手时。
+  if (input.via === "user" && page.length)
     await note(client, account, {
-      dossier: null,
+      dossier: page[0].id,
       actor: "user",
       via: "page",
       action: "search",
@@ -362,17 +363,19 @@ export async function createDossier(
   input: { bench?: unknown; kind?: unknown; title?: unknown; intent?: unknown },
   via: Via,
 ) {
-  if (!isBench(input.bench)) throw new ApiFailure("INVALID_INPUT", 400, "需要选一个工作台。");
+  // bench 省略时按研究台处理：老调用方只传 title，契约里的页面总会带 bench。
+  const bench = isBench(input.bench) ? input.bench : input.bench === undefined ? "research" : null;
+  if (!bench) throw new ApiFailure("INVALID_INPUT", 400, "需要选一个工作台。");
   const id = randomUUID();
   const now = new Date();
   const explicit = title(input.title);
   const intent = intentOf(input.intent);
   const kind = ["reading", "topic", "workspace", "learning"].includes(String(input.kind))
     ? String(input.kind)
-    : input.bench === "research"
+    : bench === "research"
       ? "reading"
       : "workspace";
-  const name = explicit || placeholderTitle(input.bench, now);
+  const name = explicit || placeholderTitle(bench, now);
   await client.query(
     `insert into dossier(id,account_id,bench,title,workspace_path,bench_version,
         kind,intent,name_source,lifecycle,deletion,version,last_activity_at)
@@ -380,7 +383,7 @@ export async function createDossier(
     [
       id,
       account,
-      input.bench,
+      bench,
       name,
       "/data/dossiers/" + id,
       kind,
@@ -395,7 +398,7 @@ export async function createDossier(
     action: "create",
     text: `${via === "agent" ? "Agent 建了" : "你建了"}《${name}》`,
   });
-  emit(account, input.bench, { type: "dossier.changed", id, version: 1, change: "create" });
+  emit(account, bench, { type: "dossier.changed", id, version: 1, change: "create" });
   return getDossier(client, account, id);
 }
 

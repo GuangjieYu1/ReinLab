@@ -52,7 +52,8 @@ describe('控制面 API',()=>{
   it('重建进程对象仍返回原收据',async()=>{const key=randomUUID(),first=await(await create('恢复幂等',ta,key)).json();const second=await createApp({pool,auth:{issuer,secret}});const r=await second.request('/v1/dossiers',{method:'POST',headers:headers(ta,key),body:'{"title":"恢复幂等"}'});expect(await r.json()).toEqual(first);});
   it('同键不同账户互不冲突',async()=>{const key=randomUUID();const a=await(await create('A键',ta,key)).json(),b=await(await create('B键',tb,key)).json();expect(a.id).not.toBe(b.id);});
   it('同键JSON字段顺序和默认值归一化',async()=>{const key=randomUUID();const first=await(await create('归一化',ta,key)).json();const second=await app.request('/v1/dossiers',{method:'POST',headers:headers(ta,key),body:'{"bench":"research","title":"归一化"}'});expect(await second.json()).toEqual(first);});
-  it('有效档案与详情符合共享契约',async()=>{const d=await(await create('契约档案')).json();expect(Dossier.safeParse(d).success).toBe(true);const detail=await(await app.request('/v1/dossiers/'+d.id,{headers:headers()})).json();expect(DossierDetail.safeParse(detail).success).toBe(true);});
+  it('有效档案与详情符合共享契约',async()=>{const d=await(await create('契约档案')).json();expect(Dossier.safeParse(d).success).toBe(true);const detail=await(await app.request('/v1/dossiers/'+d.id,{headers:headers()})).json();// 第 4 项契约（§2）起，详情返回的就是 Dossier 本身。
+ expect(Dossier.safeParse(detail).success).toBe(true);});
   it.each(['invalid','------------------------------------'])('畸形档案ID返回404 %s',async id=>expect((await app.request('/v1/dossiers/'+id,{headers:headers()})).status).toBe(404));
   it('正文超限拒绝',async()=>expect((await app.request('/v1/dossiers',{method:'POST',headers:headers(ta,randomUUID()),body:JSON.stringify({title:'x'.repeat(1024*1024)})})).status).toBe(413));
   it.each([' ','a'.repeat(201),'é'])('拒绝畸形幂等键 %#',async key=>expect((await create('键校验',ta,key)).status).toBe(400));
