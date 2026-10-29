@@ -181,9 +181,12 @@ export async function createApp(options: {
       );
     }),
   );
-  registerApprovalInbox(app, database);
+  registerApprovalInbox(app, database, options.kernel ? (id) => options.kernel!.isLive(id) : undefined);
   app.post("/v1/approvals/:id/decide", async (c) => {
-    const card = await decideInboxCard(c, database);
+    const card = await decideInboxCard(c, database, (account, runId, prompt) => {
+      // 回答之后接着跑同一段任务；失败不影响这次决定本身。
+      void options.kernel?.resumeAfterAnswer(account, runId, prompt).catch(() => {});
+    });
     if (card) return card;
     throw denied();
   });

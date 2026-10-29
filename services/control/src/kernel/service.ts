@@ -58,7 +58,7 @@ export class KernelService {
   async submit(
     account: string,
     runId: string,
-    options: { newSession?: boolean } = {},
+    options: { newSession?: boolean; prompt?: string } = {},
   ): Promise<{ runId: string; sessionId: string; resume: boolean }> {
     const { db, layout } = this.dependencies;
     const prepared = await db.withAccount(account, async (client) => {
@@ -74,9 +74,10 @@ export class KernelService {
       const dossierId = run.dossier_id as string;
       const input = (run.input ?? {}) as Record<string, unknown>;
       const message =
-        typeof input.query === "string" && input.query.trim() !== ""
+        options.prompt ??
+        (typeof input.query === "string" && input.query.trim() !== ""
           ? input.query
-          : "请开始这段精读。";
+          : "请开始这段精读。");
       const existing = options.newSession
         ? undefined
         : (
@@ -184,11 +185,24 @@ export class KernelService {
               "update dsh_turn set state=$2, error_code=$3, ended_at=now() where run_id=$1 and state='running'",
               [runId, state, detail ?? null],
             );
-            await client.query(
-              "update run set state=$2, ended_at=now() where id=$1 and state not in ('completed','failed','cancelled','interrupted')",
-              [runId, state],
+            // 这一轮结束了，但还有等用户处理的请求时任务没结束：记成 waiting，
+            // 把执行段让出去，等人回答后再按同一会话续上。
+            const pending = Number(
+              (
+                await client.query(
+                  "select count(*)::int n from approval where account_id=$1 and run_id=$2 and state='pending'",
+                  [account, runId],
+                )
+              ).rows[0]?.n ?? 0,
             );
-            await this.release(client, account, prepared.dossierId, prepared.sessionId, runId, state);
+            const next = state === "completed" && pending > 0 ? "waiting" : state;
+            await client.query(
+              `update run set state=$2,
+                 ended_at = case when $2 in ('completed','failed','cancelled','interrupted') then now() else null end
+               where id=$1 and state not in ('completed','failed','cancelled','interrupted')`,
+              [runId, next],
+            );
+            await this.release(client, account, prepared.dossierId, prepared.sessionId, runId, next);
           });
         },
         // 这一轮的产品承诺没兑现时，后端再提醒一次；补不回来就照实结束。
@@ -238,6 +252,31 @@ export class KernelService {
     this.handles.set(runId, handle);
     void handle.done.catch(() => {}).finally(() => this.handles.delete(runId));
     return { runId, sessionId: prepared.sessionId, resume: prepared.resume };
+  }
+
+  /**
+   * 用户回答/批准之后接着跑同一段任务：把回答作为这一轮的输入送进原会话，
+   * 不新建空会话，也不伪造上一个工具调用的结果。
+   */
+  async resumeAfterAnswer(
+    account: string,
+    runId: string,
+    prompt: string,
+  ): Promise<{ started: boolean }> {
+    try {
+      await this.submit(account, runId, { prompt });
+      return { started: true };
+    } catch (error) {
+      // 会话还被占着或这一段已经收尾：如实留给用户，不静默假装续上。
+      const code = (error as { code?: string })?.code ?? "RESUME_FAILED";
+      console.error(JSON.stringify({ code: "KERNEL_RESUME_FAILED", run: runId, detail: code }));
+      return { started: false };
+    }
+  }
+
+  /** 这一段执行此刻是否还挂在本进程里（残留判定用）。 */
+  isLive(runId: string): boolean {
+    return this.handles.has(runId);
   }
 
   /** Cancel one run; the session is released only when the stop is confirmed. */

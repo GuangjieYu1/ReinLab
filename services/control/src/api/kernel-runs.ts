@@ -116,7 +116,9 @@ export function registerKernelRuns(
     return dependencies.db.withAccount(account, async (client) => {
       const row = (
         await client.query(
-          "select id,kind,state,effects from approval where id=$1 and account_id=$2",
+          `select a.id,a.kind,a.state,a.effects,a.run_id,r.state run_state
+             from approval a join run r on r.account_id=a.account_id and r.id=a.run_id
+            where a.id=$1 and a.account_id=$2`,
           [id, account],
         )
       ).rows[0];
@@ -131,6 +133,17 @@ export function registerKernelRuns(
         "update approval set state='approved', decided_at=now(), decided_scope='once' where id=$1",
         [id],
       );
+      // 用户答完就按同一会话续上，把回答作为这一轮的输入送回原任务。
+      if (row.run_state === "waiting") {
+        const chosen = candidateId ? `用户选择了 ${candidateId}。` : "";
+        void dependencies.kernel
+          ?.resumeAfterAnswer(
+            account,
+            row.run_id,
+            `用户已回答这次提问（审批 ${id}）。${chosen}${text ? "补充：" + text : ""} 继续原来的任务。`,
+          )
+          .catch(() => {});
+      }
       return c.json({ id, state: "approved", answer: { candidateId, text } });
     });
   });

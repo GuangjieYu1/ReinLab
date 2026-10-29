@@ -22,16 +22,31 @@ export type ApprovalCard = {
 };
 
 /**
- * One live card per concrete action. Requesting the same action again returns
- * the card that is still live; an expired or already-decided card no longer
- * holds that slot, so the request opens a fresh card the user can still answer
- * instead of handing back a dead one.
+ * One live card per concrete action.
+ *
+ * "Live" covers two states, because waiting no longer holds the execution
+ * segment: a `pending` card is the one the user still has to answer, and an
+ * `approved` card that has not been consumed yet is the one the resumed turn
+ * must execute. Expired, rejected and already-consumed cards hold no slot, so
+ * the same action can be asked again and gets a fresh card.
  */
 export async function requestApproval(
   client: pg.PoolClient,
   request: ApprovalRequest,
 ): Promise<ApprovalCard> {
   const key = request.capability + ":" + request.argsHash;
+  const live = async () =>
+    (
+      await client.query(
+        `select id,state,consumed_at from approval
+          where account_id=$1 and run_id=$2 and effect_key=$3
+            and (state='pending' or (state='approved' and consumed_at is null))
+          order by (state='pending') desc, id desc limit 1`,
+        [request.account, request.run, key],
+      )
+    ).rows[0];
+  const found = await live();
+  if (found) return card(found);
   const inserted = await client.query(
     `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key)
      values(gen_random_uuid(),$1,$2,$7,$3,$4,$5,'pending',$6)
@@ -47,18 +62,8 @@ export async function requestApproval(
       request.kind ?? "permission",
     ],
   );
-  const row =
-    inserted.rows[0] ??
-    (
-      await client.query(
-        `select id,state,consumed_at from approval
-          where account_id=$1 and run_id=$2 and effect_key=$3 and state='pending'
-          order by id desc limit 1`,
-        [request.account, request.run, key],
-      )
-    ).rows[0] ??
-    // 没有任何有效卡了：这不是「需要审批」的错，而是这一轮该停下来说清楚。
-    null;
+  // 并发下另一个请求可能刚好插入，重新读一次有效卡即可。
+  const row = inserted.rows[0] ?? (await live());
   if (!row) throw new ApiFailure("APPROVAL_REQUIRED", 409, "需要一次审批。");
   return card(row);
 }
