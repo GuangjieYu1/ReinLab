@@ -15,8 +15,8 @@ import { startLocalSupabase } from "./supabase-start";
 import { setTimeout as delay } from "node:timers/promises";
 import { acquireStartupLock } from "./startup-lock";
 import { startControlProcess, stopOwnedControl } from "./control-process";
-import { bootstrapLocalDatabase } from "../../services/control/src/db/bootstrap";
-import { reconcileOnStartup } from "../../services/control/src/kernel/lifecycle";
+import { bootstrapLocalDatabase, reconcileAfterBootstrap } from "../../services/control/src/db/bootstrap";
+
 import { realModelMode } from "./real-models";
 import { ensureNode22 } from "./runtime";
 
@@ -124,15 +124,9 @@ try {
   // 上一次运行留下的执行体已经不在了：起控制面之前先把残留补成真实终态，
   // 免得有人还看到「运行中」却怎么都推不动。
   {
-    const pg = (await import("pg")).default;
-    const admin = new pg.Pool({ connectionString: status.databaseUrl, max: 1 });
-    try {
-      const swept = await reconcileOnStartup(admin);
-      if (swept.interruptedRuns || swept.expiredRequests)
-        console.log(JSON.stringify({ code: "LOCAL_RECONCILED", ...swept }));
-    } finally {
-      await admin.end().catch(() => {});
-    }
+    const swept = await reconcileAfterBootstrap(status.databaseUrl);
+    if (swept.interruptedRuns || swept.expiredRequests)
+      console.log(JSON.stringify({ code: "LOCAL_RECONCILED", ...swept }));
   }
   const signingKey =
     saved.INTERNAL_SIGNING_KEY ?? randomBytes(32).toString("base64url");
