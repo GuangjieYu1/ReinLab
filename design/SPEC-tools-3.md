@@ -83,7 +83,20 @@ dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**�
   再把 `container` 配置传给 `launchPlan`。
 - `tooling/local/up.ts` / `runtime.env` 默认切到 container，并在起栈前确保镜像存在。
 
-**下一步**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
+**本轮实测把容器链路跑到了最后一跳**，修掉这几处真实缺陷：
+- shim 必须显式知道自己在 docker 模式（否则在宿主 node 上加载容器内路径）；
+- `materializeLaunch` 建目录要用宿主路径，不能用容器路径；
+- dsh 需要可写 HOME 建 profile → HOME 指到账户卷并预建；
+- 账户卷由宿主进程创建 → 容器以宿主 uid 运行；
+- colima 之前只共享仓库与 account-credentials，账户卷在 VM 里不可见 →
+  已把实例的 `kernel/accounts` 与 `kernel/dsh-home` 加成可写挂载并重启 VM。
+
+**当前唯一阻塞（打包问题，非接线）**：镜像内 dsh 启动时报
+`No usable native binding found for node-addon-require-builtin-linux-arm64-gnu`。
+镜像里 dsh 的版本是 0.2.1-rc.4，宿主用的是同一个；差异在安装方式（npm 直装 vs 仓库 pnpm 锁），
+下轮改为按仓库锁文件解析或显式装对应平台的 optional 依赖。整栈默认已恢复宿主模式，可正常验收。
+
+**下一步（历史记录）**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
 需要改的地方已定位：`launch.ts` 目前只设了 `SHIM_CONTAINER/SHIM_RUN_ID/SHIM_PID_FILE/SHIM_DSH_MODULE`，
 容器模式还缺 `SHIM_HOST_ROOT`、`SHIM_CONTAINER_ROOT` 与容器内的 dsh 模块路径；
 `dshHome`/`cwd` 等写进 plan 配置的路径也要换成容器内路径（`materializeLaunch` 要按模式生成）。
