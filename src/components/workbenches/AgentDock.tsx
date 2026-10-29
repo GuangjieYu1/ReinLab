@@ -95,7 +95,7 @@ function Event({ e }: { e: DockEvent }) {
       <code className="rh-micro">{e.action}</code>
       {e.state === 'pending'
         ? <div className="ad-approval-act"><button className="rh-btn is-solid" onClick={e.onApprove}>批准</button><button className="rh-btn" onClick={e.onReject}>驳回</button></div>
-        : <span className="ad-approval-done">{e.state === 'approved' ? '■ 已批准' : '已驳回'}</span>}
+        : <span className="ad-approval-done">{e.state === 'approved' ? '■ 已批准' : e.state === 'expired' ? '已过期' : '已驳回'}</span>}
     </div>
   );
   return <div className="ad-card rh-enter">{e.body}</div>;
