@@ -137,7 +137,13 @@ dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**�
 - `GET /v1/courses/plans` 列出已入档的计划，供课程档案展示。
 
 **仍需 Claude**：课程样本的页面入口与展示（PRD 3.6 明确由 Claude 提供真实页面入口，
-不另造通用档案模型）。整栈默认仍为宿主模式，可正常验收。
+不另造通用档案模型）。
+
+**容器模式完整流程实测（2026-10-30）**：容器模式下发起一次精读，run `completed`，
+模型实际调用的是 `bash` 而不是 `papers_fetch`，因此这一轮没有产出资产与讲解卡。
+这符合 PRD「怎么搜、下载、解析由 Agent 自己决定」，但也说明开放基础工具后，
+精读的质量取决于模型自己的选择——需要 Claude 在真实页面上按 T1/T2 判断这是否可接受，
+不能由我在提示词里规定路线。默认 transport 暂不切换，等 Claude 验收后再定。整栈默认仍为宿主模式，可正常验收。
 
 **下一步（历史记录）**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
 需要改的地方已定位：`launch.ts` 目前只设了 `SHIM_CONTAINER/SHIM_RUN_ID/SHIM_PID_FILE/SHIM_DSH_MODULE`，
