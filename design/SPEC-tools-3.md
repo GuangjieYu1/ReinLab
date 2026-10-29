@@ -46,6 +46,16 @@
 - 容器内有公网访问（registry.npmjs.org 返回 200）。
 - 现有 `shim.mjs`/`launch.ts` 的容器传输路径仍完整（`docker exec`），不需要重写。
 
+**下一轮先解决的前置结构问题**：账户数据现在分散在两棵树——
+`<kernelHome>/accounts/<account>/…`（档案、下载、运行目录）和
+`<kernelHome>/dsh-home/accounts/<account>/…`（DSH 会话）。只把前者挂进容器，
+dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**其他账户**的数据。
+
+所以切容器之前要先把每账户数据收敛到一个可整体挂载的根（例如
+`<kernelHome>/accounts/<account>/{workspace,dsh-home}`），再做 host↔container 路径映射。
+这一步会在 `service.ts` 的 `layout.home` 与 `launch.ts` 的 `home` 派生处定下来，
+不重建包结构。
+
 **下一步**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
 需要改的地方已定位：`launch.ts` 目前只设了 `SHIM_CONTAINER/SHIM_RUN_ID/SHIM_PID_FILE/SHIM_DSH_MODULE`，
 容器模式还缺 `SHIM_HOST_ROOT`、`SHIM_CONTAINER_ROOT` 与容器内的 dsh 模块路径；
