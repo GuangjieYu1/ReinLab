@@ -24,11 +24,23 @@
 测试：`services/control/test/mcp-papers.test.ts` T-MCP-7 改为验证「不在名单的公网来源可取、
 私网/明文/带凭据/字面 IP 仍拒、跳转有上限」。
 
-### 片二：每账户独立容器
+### 片二：每账户独立容器（进行中）
 
 - DSH 在每账户容器里跑，账户间不共享可写卷；正式执行不回退宿主模式。
 - 当前档案工作区在容器内可读写；已批准材料快照只读；正式数据库与权威产物目录不挂载为可写。
 - Provider key 继续只存在控制面宿主机进程，不进容器文件/环境/argv/日志；容器用限定身份凭据调模型代理。
+
+**已做（本轮）**：
+- `services/control/src/kernel/container.ts`：容器启动规格（纯函数，可测）——只挂当前账户根
+  （可写）与运行令牌（只读）；`--read-only` 根、`--cap-drop ALL`、`no-new-privileges`；
+  误传的 Provider/基础设施凭据按名单剔除；宿主专用路径（`.ssh`、`.config/reinlab`、
+  `docker.sock`、`.codex`）由 `assertSpecSafe` 兜底拒绝。6 条测试覆盖这些边界。
+- `infra/account/Dockerfile`：账户镜像定义（node22 + 解析工具 + 内核 shim/插件依赖）。
+  **尚未构建验证**，下轮构建并接上容器生命周期。
+- 现有 `shim.mjs`/`launch.ts` 的容器传输路径仍完整（`docker exec`），不需要重写。
+
+**下一步**：建容器生命周期（确保/复用/回收）、把 `REINLAB_KERNEL_TRANSPORT` 切到 container、
+在真实栈上验证基础工具跑在容器内、宿主目录不可达。
 
 ### 片三：基础工具开放与两条写入底线
 
