@@ -117,6 +117,13 @@ export function accountContainerSpec(
   if (new Set(accountRoots).size !== accountRoots.length)
     throw new Error("CONTAINER_SPEC_DUPLICATE_MOUNT");
 
+  const containerSpec: AccountContainerSpec = {
+    name: containerNameFor(input.account),
+    image: input.image,
+    createArgs: [],
+    env,
+    mounts,
+  };
   const createArgs = [
     "run",
     "-d",
@@ -124,15 +131,25 @@ export function accountContainerSpec(
     containerNameFor(input.account),
     // 账户之间不共享可写卷：只挂自己的账户根。
     ...mounts.flatMap((m) => ["-v", `${m.host}:${m.container}:${m.mode}`]),
+    // 容器需要的变量显式传进去（已剔掉凭据，不用宿主环境继承）。
+    ...Object.entries(env).flatMap(([name, value]) => ["-e", `${name}=${value}`]),
+    // dsh 与工具会写临时文件：给一块可写的 /tmp，根仍只读。
+    "--tmpfs",
+    "/tmp:rw,noexec,nosuid,size=512m",
     "--read-only",
     "--cap-drop",
     "ALL",
     "--security-opt",
     "no-new-privileges",
     ...(input.network ? ["--network", input.network] : []),
+    // 镜像与常驻命令：容器起来后由 shim 通过 docker exec 驱动 dsh。
+    containerSpec.image,
+    "sleep",
+    "infinity",
   ];
 
-  return { name: containerNameFor(input.account), image: input.image, createArgs, env, mounts };
+  containerSpec.createArgs = createArgs;
+  return containerSpec;
 }
 
 /** 规格自检：任何宿主专用路径或凭据出现都算不合格。 */

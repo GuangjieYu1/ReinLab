@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ApiFailure } from "../api/errors";
+import { ensureAccountContainer } from "./container-lifecycle";
 import type { Database } from "../db/database";
 import type { KernelAuth } from "./auth";
 import { launchPlan, materializeLaunch, type LaunchIo } from "./dsh/launch";
@@ -22,6 +23,22 @@ export type KernelLayout = {
   pluginEntry: string;
   /** Container transport ("docker") or local ("host"). */
   shimMode: "docker" | "host";
+  /** 容器模式下的账户执行环境；宿主模式为空。 */
+  container?: {
+    image: string;
+    /** 容器内账户根。 */
+    home: string;
+    /** 容器内 DSH 会话目录。 */
+    dshHome: string;
+    /** 容器内档案工作区根。 */
+    workspace: string;
+    /** 容器内 dsh 可执行模块。 */
+    dshModule: string;
+    /** 容器内插件入口。 */
+    pluginEntry: string;
+    /** 容器内 restrict 补丁。 */
+    restrictPatch: string;
+  };
   nodeModule?: string;
   io: LaunchIo;
 };
@@ -122,6 +139,18 @@ export class KernelService {
         restrictPatch: layout.restrictPatch,
         pluginEntry: layout.pluginEntry,
       },
+      ...(layout.shimMode === "docker" && layout.container
+        ? {
+            container: {
+              home: layout.container.home,
+              dshHome: layout.container.dshHome,
+              workspace: layout.container.workspace,
+              dshModule: layout.container.dshModule,
+              pluginEntry: layout.container.pluginEntry,
+              restrictPatch: layout.container.restrictPatch,
+            },
+          }
+        : {}),
     });
     if (layout.shimMode === "host") plan.options.env.SHIM_MODE = "host";
     const token = this.dependencies.auth.issue(
@@ -130,6 +159,20 @@ export class KernelService {
     );
     try {
       await materializeLaunch(plan, token, layout.io);
+      // 容器模式：令牌与运行目录已落盘，再把这一账户的容器确保到运行状态，
+      // 之后 shim 才能 docker exec 进去。容器只挂这个账户自己的两块目录。
+      if (layout.shimMode === "docker" && layout.container)
+        await ensureAccountContainer({
+          account,
+          image: layout.container.image,
+          accountRoot: layout.home + "/accounts/" + account,
+          containerRoot: layout.container.home,
+          dshHome: layout.home + "/dsh-home/accounts/" + account,
+          containerDshHome: layout.container.dshHome,
+          controlUrl: this.controlUrl(),
+          tokenFile: plan.paths.tokenFile,
+          containerTokenFile: (plan.containerPaths ?? plan.paths).tokenFile,
+        });
     } catch (error) {
       await this.failBeforeRun(account, prepared.dossierId, prepared.sessionId, runId);
       throw error;

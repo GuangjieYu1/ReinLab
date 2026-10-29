@@ -130,7 +130,27 @@ try {
     INTERNAL_SIGNING_KEY: signingKey,
   });
   // 只有新内核：本机不再构建、也不再升级账户镜像。
-  const kernelTransport = "host";
+  // 容器模式：dsh 跑在每账户容器里。默认保持宿主，验证通过后再改默认。
+  const kernelTransport =
+    process.env.REINLAB_KERNEL_TRANSPORT === "container" ? "container" : "host";
+  const accountImage = "reinlab-account:local";
+  if (kernelTransport === "container") {
+    step("LOCAL_ACCOUNT_IMAGE_CHECKING");
+    const exists = await quietCommand("docker", ["image", "inspect", accountImage], {
+      env: cliEnvironment,
+      timeoutMs: 20000,
+    })
+      .then(() => true)
+      .catch(() => false);
+    if (!exists) {
+      step("LOCAL_ACCOUNT_IMAGE_BUILDING");
+      await quietCommand(
+        "docker",
+        ["build", "-f", "infra/account/Dockerfile", "-t", accountImage, "."],
+        { env: cliEnvironment, timeoutMs: 900000 },
+      );
+    }
+  }
   const image = "host";
   if (realModels) {
     const keyFile = join(homedir(), ".config/reinlab/local.env"),
@@ -162,15 +182,17 @@ try {
       paths.state.split("/").at(-1)!,
     ),
     DOCKER_HOST: cliEnvironment.DOCKER_HOST,
-    ACCOUNT_IMAGE: image,
+    ACCOUNT_IMAGE: accountImage,
+    REINLAB_ACCOUNT_IMAGE: accountImage,
     REINLAB_CONTROL_URL: "http://host.docker.internal:3001/",
     PORT: "3001",
     INTERNAL_SIGNING_KEY: signingKey,
     REINLAB_REAL_MODELS_ENABLED: realModels ? "1" : "0",
     REINLAB_KERNEL_HOME: join(paths.state, "kernel"),
     // Local runs use the host transport; the account-image path stays the
-    // production transport and is selected with REINLAB_KERNEL_TRANSPORT=container.
-    REINLAB_KERNEL_TRANSPORT: "host",
+    // 默认仍是宿主；容器模式用 REINLAB_KERNEL_TRANSPORT=container 打开，
+    // 打开时要求账户镜像已就绪（见下方 ensureAccountImage）。
+    REINLAB_KERNEL_TRANSPORT: kernelTransport,
     // 内核拉起的 dsh 子进程也用同一个 Node 22。
     SHIM_NODE: nodeBin,
     REINLAB_KERNEL_MODEL: "deepseek-v4-flash",

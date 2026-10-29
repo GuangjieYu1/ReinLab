@@ -30,6 +30,14 @@
 - 当前档案工作区在容器内可读写；已批准材料快照只读；正式数据库与权威产物目录不挂载为可写。
 - Provider key 继续只存在控制面宿主机进程，不进容器文件/环境/argv/日志；容器用限定身份凭据调模型代理。
 
+**已实测（2026-10-30，本机）**：
+- 账户镜像 `reinlab-account:local` 构建成功，内含 dsh 0.2.1-rc.4、插件、容器内 shim。
+- 加固容器（`--read-only` + `--tmpfs /tmp` + `--cap-drop ALL` + `no-new-privileges`）里：
+  dsh 能跑（`--version` 输出 0.2.1-rc.4），bash/grep/python3 可用。
+- 隔离实测：`/Users`（宿主源码树）、`/root/.ssh`、`/root/.config/reinlab`（Provider 配置）、
+  `/var/run/docker.sock`、其他账户目录 —— **全部不可达**。
+- `REINLAB_KERNEL_TRANSPORT=container` 可切；默认仍保留 host，等整条精读在容器里验过再改。
+
 **已做（本轮）**：
 - `services/control/src/kernel/container.ts`：容器启动规格（纯函数，可测）——只挂当前账户根
   （可写）与运行令牌（只读）；`--read-only` 根、`--cap-drop ALL`、`no-new-privileges`；
@@ -55,6 +63,14 @@ dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**�
 （`accounts/<account>`）与 DSH 会话目录（`dsh-home/accounts/<account>`）。容器内分别落在
 `/opt/reinlab-account` 与 `/opt/reinlab-account/dsh-home`。`assertSpecSafe` 会拒绝重复挂载，
 凭据与宿主路径检查照旧。这样既看得见会话，也不会把别的账户带进来。
+
+**已实测（2026-10-30，本机）**：
+- 账户镜像 `reinlab-account:local` 构建成功，内含 dsh 0.2.1-rc.4、插件、容器内 shim。
+- 加固容器（`--read-only` + `--tmpfs /tmp` + `--cap-drop ALL` + `no-new-privileges`）里：
+  dsh 能跑（`--version` 输出 0.2.1-rc.4），bash/grep/python3 可用。
+- 隔离实测：`/Users`（宿主源码树）、`/root/.ssh`、`/root/.config/reinlab`（Provider 配置）、
+  `/var/run/docker.sock`、其他账户目录 —— **全部不可达**。
+- `REINLAB_KERNEL_TRANSPORT=container` 可切；默认仍保留 host，等整条精读在容器里验过再改。
 
 **已做（本轮）**：
 - `launch.ts` 支持容器模式：给 `container` 配置时，`dshHome`、`cwd`、`patches[0]`、

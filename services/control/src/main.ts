@@ -76,6 +76,20 @@ const kernel = new KernelService({
     pluginEntry:
       "file://" + path.resolve("plugins/reinlab-read-plugin/index.js"),
     shimMode: config.REINLAB_KERNEL_TRANSPORT === "container" ? "docker" : "host",
+    // 容器模式：dsh 跑在每账户容器里，挂载与凭据边界由 container.ts 的规格约束。
+    ...(config.REINLAB_KERNEL_TRANSPORT === "container"
+      ? {
+          container: {
+            image: config.REINLAB_ACCOUNT_IMAGE ?? "reinlab-account:local",
+            home: "/opt/reinlab-account",
+            dshHome: "/opt/reinlab-account/dsh-home",
+            workspace: "/opt/reinlab-account/dossiers-root",
+            dshModule: "/opt/reinlab/node_modules/@deepseek-ai/dsh/lib/bin.js",
+            pluginEntry: "file:///opt/reinlab/plugins/reinlab-read-plugin/index.js",
+            restrictPatch: "/opt/reinlab/plugins/reinlab-read-plugin/restrict.patch.yml",
+          },
+        }
+      : {}),
     io: {
       mkdir: async (dir: string) => void (await mkdir(dir, { recursive: true, mode: 0o700 })),
       write: async (file: string, body: string, mode = 0o600) =>
