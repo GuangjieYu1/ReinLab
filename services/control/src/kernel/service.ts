@@ -179,7 +179,6 @@ export class KernelService {
           containerDshHome: layout.container.dshHome,
           controlUrl: this.controlUrl(),
           tokenFile: plan.paths.tokenFile,
-          containerTokenFile: (plan.containerPaths ?? plan.paths).tokenFile,
           // 账户卷是宿主进程建的：用宿主 uid 跑容器，容器里才写得进去。
           ...(process.getuid && process.getgid
             ? { user: process.getuid() + ":" + process.getgid() }
@@ -248,45 +247,8 @@ export class KernelService {
           });
         },
         // 这一轮的产品承诺没兑现时，后端再提醒一次；补不回来就照实结束。
-        followUp:
-          prepared.mode === "read"
-            ? {
-                code: "KERNEL_LAYERS_SHORT",
-                detail: async () =>
-                  "layers=" +
-                  (await KernelService.countEvents(this.dependencies.db, account, runId, "card_created", "payload->>'cardType'='layer'")),
-                reminder: async () => {
-                  const have = await KernelService.countEvents(this.dependencies.db, account, runId, "card_created", "payload->>'cardType'='layer'");
-                  if (have >= 5) return null;
-                  return `讲解卡现在只有 ${have} 层，还没到 5 层。请只补写讲解：用 card_layer 继续写第 ${have + 1} 到第 5 层（参数是 card 对象，含 no/title/en/body[{text,refs}]），写完就停，不要重复已写的层，不要再检索，也不要总结。`;
-                },
-              }
-            : {
-                code: "KERNEL_PICK_MISSING",
-                detail: async () =>
-                  "searches=" +
-                  (await KernelService.countEvents(this.dependencies.db, account, runId, "tool/call", "payload->>'name'='papers_search'")),
-                reminder: async () => {
-                  // 候选必须由用户点选：检索过却还没把候选交给用户时，补一次。
-                  const cards = await KernelService.countEvents(
-                    this.dependencies.db,
-                    account,
-                    runId,
-                    "tool/call",
-                    "payload->>'name'='clarify_question' and payload->>'arguments' like '%candidates%'",
-                  );
-                  if (cards > 0) return null;
-                  const searches = await KernelService.countEvents(
-                    this.dependencies.db,
-                    account,
-                    runId,
-                    "tool/call",
-                    "payload->>'name'='papers_search'",
-                  );
-                  if (searches === 0) return null;
-                  return "这一轮检索到了候选，但用户还没看到可选列表。请调用 clarify_question，带 kind=paper_pick 和 candidates（用检索到的真实候选），让用户自己选。";
-                },
-              },
+        // 不再往对话里注入「提醒」：那是系统替模型定步骤，还会以用户身份出现在
+        // 页面上（纲领第 9 条）。结果照实记录在事件里，不伪装成人说的话。
         release: plan.release,
       },
       { plan, prompt: prepared.message, resume: prepared.resume, token },

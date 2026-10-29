@@ -8,6 +8,14 @@
  * - Provider key 绝不进入容器环境；容器只用限定身份的运行令牌调模型代理。
  */
 
+/**
+ * 容器内的运行目录（只读）：令牌按 run 放在这里，Agent 的 bash 改不到，
+ * 而且路径跨 run 稳定，容器复用也有效。
+ */
+export const CONTAINER_RUNS_PATH = "/run/reinlab/runs";
+/** 某个 run 在容器里的令牌路径。 */
+export const containerTokenPath = (run: string) => `${CONTAINER_RUNS_PATH}/${run}/token`;
+
 export type AccountContainerSpec = {
   name: string;
   image: string;
@@ -87,16 +95,17 @@ export function leaksHostPath(value: string): boolean {
  * 生成一次启动所需的规格。纯函数：不执行 docker，便于把边界测死。
  */
 export function accountContainerSpec(
-  input: AccountContainerInput,
+  input: AccountContainerInput & { run?: string },
   extraEnv: Record<string, string> = {},
 ): AccountContainerSpec {
+  const containerRun = input.run ?? "";
   const containerRoot = input.containerRoot ?? "/opt/reinlab-account";
-  const containerToken = input.containerTokenFile ?? containerRoot + "/token";
+
   const mounts = [
     // 每账户一卷：账户根以内可写（工作区、草稿、下载都落在这里）。
     { host: input.accountRoot, container: containerRoot, mode: "rw" as const },
-    // 运行令牌只读挂入，容器不能改写自己的身份。
-    { host: input.tokenFile, container: containerToken, mode: "ro" as const },
+    // 运行目录整体只读挂入：令牌按 run 在里面，容器不能改写自己的身份。
+    { host: input.accountRoot + "/runs", container: CONTAINER_RUNS_PATH, mode: "ro" as const },
     // DSH 会话目录单独一块，仍是这个账户自己的。
     ...(input.dshHome
       ? [{
@@ -119,7 +128,7 @@ export function accountContainerSpec(
     REINLAB_CONTROL_URL: input.controlUrl,
     // 模型必须走控制面代理，不能在容器里直连上游：Provider key 只在宿主控制面。
     DEEPSEEK_BASE_URL: input.controlUrl.replace(/\/+$/, "") + "/llm/anthropic",
-    REINLAB_RUN_TOKEN_FILE: containerToken,
+    REINLAB_RUN_TOKEN_FILE: containerTokenPath(containerRun),
     ...extraEnv,
   };
   // 误传的宿主凭据一律丢掉，不靠调用方自觉。

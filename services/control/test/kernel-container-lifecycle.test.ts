@@ -68,7 +68,8 @@ describe("账户容器生命周期", () => {
     const docker = fakeDocker();
     // 让规格带上一个不该出现的宿主路径，assertSpecSafe 必须拦住。
     await expect(
-      ensureAccountContainer({ ...input, accountRoot: "/tmp/ok", tokenFile: "/home/u/.ssh/id_rsa" }, { docker }),
+      // 令牌不再按文件挂载，改成让账户根落在宿主凭据目录来触发自检。
+      ensureAccountContainer({ ...input, accountRoot: "/home/u/.ssh" }, { docker }),
     ).rejects.toThrow(/LEAKS_HOST_PATH/);
     expect(docker.starts).toHaveLength(0);
   });

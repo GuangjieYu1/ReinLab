@@ -21,7 +21,10 @@ describe("每账户执行容器规格", () => {
     const ro = spec.mounts.filter((m) => m.mode === "ro");
     expect(rw).toHaveLength(1);
     expect(rw[0].host).toBe(base.accountRoot);
-    expect(ro.some((m) => m.host === base.tokenFile)).toBe(true);
+    // 令牌随运行目录整体只读挂入，路径在账户工作区之外。
+    expect(ro).toHaveLength(1);
+    expect(ro[0].host).toBe(base.accountRoot + "/runs");
+    expect(ro[0].container).toBe("/run/reinlab/runs");
     // 容器名按账户固定，同一账户复用。
     expect(spec.name).toBe(containerNameFor(base.account));
     expect(containerNameFor("AAAA-bbbb")).toBe(containerNameFor("aaaabbbb"));

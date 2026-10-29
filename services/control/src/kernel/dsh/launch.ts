@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ApiFailure } from "../../api/errors";
+import { containerTokenPath } from "../container";
 
 const uuid = z.string().uuid();
 const containerName = (account: string) => "rl-" + account.replace(/-/g, "");
@@ -239,7 +240,9 @@ export async function materializeLaunch(
       "      config:",
       "        runId: " + JSON.stringify(plan.run),
       "        pidFile: " + JSON.stringify(plan.paths.pidFile),
-      "        tokenFile: " + JSON.stringify(plan.paths.tokenFile),
+      // 插件跑在容器里：令牌路径必须是容器内的那个只读挂载点。
+      "        tokenFile: " +
+        JSON.stringify(plan.container ? containerTokenPath(plan.run) : plan.paths.tokenFile),
       "        controlUrl: " + JSON.stringify(plan.options.env.REINLAB_CONTROL_URL),
       "        mode: " + JSON.stringify(plan.mode),
       "        approvalTimeoutMs: 600000",
