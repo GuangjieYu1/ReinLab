@@ -68,6 +68,8 @@ export type LaunchPlan = {
   paths: LaunchPaths;
   /** 容器模式下交给 dsh 的路径；宿主模式下为空。 */
   containerPaths?: LaunchPaths;
+  /** materialize 在宿主上要建的目录（容器模式下与 options 里的容器路径不同）。 */
+  hostDirs: { dshHome: string; cwd: string; sessionDir: string };
   container?: LaunchInput["container"];
   options: {
     profile: string;
@@ -167,6 +169,11 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
     sessionId: input.sessionId,
     paths,
     containerPaths,
+    hostDirs: {
+      dshHome: `${home}/dsh-home/accounts/${account}`,
+      cwd: `${home}/accounts/${account}/dossiers/${dossier}`,
+      sessionDir: `${home}/dsh-home/accounts/${account}/sessions`,
+    },
     container: input.container,
     options,
     release: async () => {},
@@ -186,9 +193,9 @@ export async function materializeLaunch(
   if (typeof token !== "string" || token.trim() === "")
     throw new ApiFailure("KERNEL_TOKEN_REQUIRED", 400, "运行令牌为空。");
   await io.mkdir(plan.paths.runDir);
-  await io.mkdir(plan.options.dshHome);
-  await io.mkdir(plan.options.cwd);
-  await io.mkdir(plan.paths.sessionDir);
+  await io.mkdir(plan.hostDirs.dshHome);
+  await io.mkdir(plan.hostDirs.cwd);
+  await io.mkdir(plan.hostDirs.sessionDir);
   await io.write(plan.paths.tokenFile, token + "\n", 0o600);
   await io.write(
     plan.paths.credentialsFile,

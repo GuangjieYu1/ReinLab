@@ -152,7 +152,13 @@ export class KernelService {
           }
         : {}),
     });
-    if (layout.shimMode === "host") plan.options.env.SHIM_MODE = "host";
+    // shim 默认按宿主模式跑；容器模式必须显式告诉它，否则会在宿主上
+    // 加载只有容器里才存在的内核路径。
+    plan.options.env.SHIM_MODE = layout.shimMode;
+    // 容器模式下 shim 要在宿主上执行 docker exec：把 daemon 地址一起给它，
+    // 否则会去找默认 socket（本机 colima 不是那个路径）。
+    if (layout.shimMode === "docker" && process.env.DOCKER_HOST)
+      plan.options.env.DOCKER_HOST = process.env.DOCKER_HOST;
     const token = this.dependencies.auth.issue(
       { account, dossier: prepared.dossierId, run: runId },
       this.now(),
@@ -161,7 +167,9 @@ export class KernelService {
       await materializeLaunch(plan, token, layout.io);
       // 容器模式：令牌与运行目录已落盘，再把这一账户的容器确保到运行状态，
       // 之后 shim 才能 docker exec 进去。容器只挂这个账户自己的两块目录。
-      if (layout.shimMode === "docker" && layout.container)
+      if (layout.shimMode === "docker" && layout.container) {
+        // dsh 要在 HOME 下建 profile：先在账户卷里把它建好。
+        await layout.io.mkdir(layout.home + "/accounts/" + account + "/home");
         await ensureAccountContainer({
           account,
           image: layout.container.image,
@@ -172,7 +180,12 @@ export class KernelService {
           controlUrl: this.controlUrl(),
           tokenFile: plan.paths.tokenFile,
           containerTokenFile: (plan.containerPaths ?? plan.paths).tokenFile,
+          // 账户卷是宿主进程建的：用宿主 uid 跑容器，容器里才写得进去。
+          ...(process.getuid && process.getgid
+            ? { user: process.getuid() + ":" + process.getgid() }
+            : {}),
         });
+      }
     } catch (error) {
       await this.failBeforeRun(account, prepared.dossierId, prepared.sessionId, runId);
       throw error;

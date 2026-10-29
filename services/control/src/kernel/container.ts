@@ -41,6 +41,11 @@ export type AccountContainerInput = {
   dshHome?: string;
   /** 容器内 DSH 会话目录。 */
   containerDshHome?: string;
+  /**
+   * 以哪个 uid:gid 运行容器。账户卷由宿主进程创建，用宿主 uid 跑才不会
+   * 出现「目录存在但容器里写不进去」。
+   */
+  user?: string;
 };
 
 /** 容器名按账户固定，同一账户复用同一个容器。 */
@@ -103,6 +108,8 @@ export function accountContainerSpec(
 
   const env: Record<string, string> = {
     // 容器内跑 dsh 需要的解释器与路径。
+    // dsh 会在 HOME 下建 profile，而容器根是只读的：HOME 指到账户卷里。
+    HOME: containerRoot + "/home",
     SHIM_MODE: "host",
     REINLAB_ACCOUNT_ROOT: containerRoot,
     REINLAB_CONTROL_URL: input.controlUrl,
@@ -136,6 +143,7 @@ export function accountContainerSpec(
     // dsh 与工具会写临时文件：给一块可写的 /tmp，根仍只读。
     "--tmpfs",
     "/tmp:rw,noexec,nosuid,size=512m",
+    ...(input.user ? ["--user", input.user] : []),
     "--read-only",
     "--cap-drop",
     "ALL",
