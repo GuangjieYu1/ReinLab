@@ -93,3 +93,4 @@
 .ad-input .rh-btn.is-solid:disabled { background:var(--rh-paper-3); border-color:var(--rh-paper-3); color:var(--rh-ink-4); opacity:1; }
 .ad-stream { overflow-x:clip; }
 .ad-msg a, .rd-pick > b a { color:var(--rh-accent); text-decoration:underline; text-underline-offset:2px; }
+.ad-note { display:flex; gap:6px; align-items:baseline; padding:2px 4px; font-size:11.5px; color:var(--rh-ink-4, #9a9792); } .ad-note time { margin-left:auto; }

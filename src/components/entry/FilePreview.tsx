@@ -2,10 +2,14 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import type { EntryWorkbench } from '../cinematic/entryWorkbenches';
 import { fileBriefs } from './fileBriefs';
+import type { DossierSummary } from '../dossier/adapter';
+import { when } from '../dossier/store';
 import './file-preview.css';
 
 type Props = {
   workbench: EntryWorkbench; index: number; fileNo: string; code: string;
+  /** 真实档案的摘要；null = 空槽（进去后新建）；undefined = 没有档案数据（旧的演示入口）。 */
+  summary?: DossierSummary | null;
   closing: boolean; note: string | null; instant?: boolean;
   origin?: SlipAnchor | null; // 档案盒里那张小票的位置与盒口高度：从盒口取出，关闭时放回
   onContinue: () => void; onBack: () => void;
@@ -15,7 +19,11 @@ type Props = {
 export type SlipAnchor = { slip: DOMRect; lip: number };
 
 type Brief = { name: string; last: { step: number; total: number; label: string; when: string; where: string } };
-function briefOf(workbench: EntryWorkbench, index: number): Brief {
+const WORK_AT: Record<DossierSummary['work']['state'], string> = { idle: '—', running: '运行中', waiting: '等你处理', failed: '上次失败' };
+function briefOf(workbench: EntryWorkbench, index: number, summary?: DossierSummary | null): Brief {
+  // 示例档案（mock-）沿用原来的示例简报；真实档案用真实的最近活动和进展；空槽说明进去后新建。
+  if (summary === null) return { name: '＋ 新建档案', last: { step: 0, total: 0, label: '空档案槽 · 继续工作就新建一份', when: '—', where: '—' } };
+  if (summary && !summary.id.startsWith('mock-')) return { name: summary.title, last: { step: 0, total: 0, label: summary.progress ?? (summary.intent ?? '尚未开始'), when: when(summary.lastActivityAt), where: summary.pending ? `${summary.pending} 件待处理` : WORK_AT[summary.work.state] } };
   const brief = fileBriefs[workbench.id]?.[index];
   return { name: workbench.files[index], last: brief?.last ?? { step: 0, total: 0, label: '尚未开始', when: '—', where: '—' } };
 }
@@ -45,7 +53,7 @@ function Ticket({ workbench, fileNo, code, b }: { workbench: EntryWorkbench; fil
 // 档案小票：竖着放在档案盒里（隔着玻璃隐约可见）。抽取档案、档案盒到位后，小票被捏住上缘、从盒口竖直提出，
 // 越过盒口后沿弧线落到档案盒右边，略带倾斜、轻轻摆正；放回时原路提起、越过盒口、竖直落回盒里。
 // 只动 transform 与 opacity；盒口上沿有一道橙色的光，小票经过时亮起。
-export default function FilePreview({ workbench, index, fileNo, code, closing, note, instant = false, origin = null, onContinue, onBack }: Props) {
+export default function FilePreview({ workbench, index, summary, fileNo, code, closing, note, instant = false, origin = null, onContinue, onBack }: Props) {
   const card = useRef<HTMLElement>(null), lipLight = useRef<HTMLElement>(null);
   const grown = !!origin && !instant;
   // 以落点为基准的几何：盒里的位置 G、刚越过盒口的位置 U、落点 F。transform-origin 为中心。
@@ -95,7 +103,7 @@ export default function FilePreview({ workbench, index, fileNo, code, closing, n
     return () => { a.cancel(); b?.cancel(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closing]);
-  const b = briefOf(workbench, index);
+  const b = briefOf(workbench, index, summary);
   return (
     <div className="fp-pin">
       <i ref={lipLight} className="fp-lip" aria-hidden="true" />

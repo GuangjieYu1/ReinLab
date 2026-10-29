@@ -111,6 +111,25 @@ export async function api(path: string, body?: unknown, key?: string) {
   return result;
 }
 
+/** 带方法与错误码的请求：服务端错误统一是 { code, message }（design/prd/03-dossier-contract.md 第 5 节），原样带回给界面。 */
+export async function request(method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE", path: string, body?: unknown) {
+  const expected = generation, token = await access();
+  if (expected !== generation) throw Error("会话已变化，请重试。");
+  const r = await fetch("/backend" + path, {
+    method, cache: "no-store", credentials: "omit", redirect: "error",
+    headers: { authorization: "Bearer " + token, ...(body === undefined ? {} : { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (expected !== generation) throw Error("会话已变化，请重试。");
+  if (r.status === 204) return null;
+  const value = await r.json().catch(() => null);
+  if (!r.ok) {
+    if (r.status === 401) logout();
+    throw Object.assign(Error(value?.message ?? (r.status === 401 ? "登录已过期，请重新登录。" : "请求未完成，请稍后重试。")), { status: r.status, code: value?.code ?? "HTTP_" + r.status, detail: value });
+  }
+  return value;
+}
+
 export async function inbox() {
   // promotion 表随旧内核退役一起删掉了（202610280001_retire_openscience）；
   // 服务端不再有这个入口时，收件箱照常只列当前内核的审批，不因为一个 404 整块失败。

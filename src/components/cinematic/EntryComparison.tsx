@@ -1,5 +1,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { navigate } from '../../nav';
+import { dossiers } from '../dossier/store';
+import type { DossierSummary, BenchId } from '../dossier/adapter';
 import { LayoutGroup, useReducedMotion } from 'motion/react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, ChevronLeft, ChevronRight, Play, RotateCcw, SkipForward, X } from 'lucide-react';
 import ArchiveField, { type ArchiveFieldHandle, type FieldStatus } from './ArchiveField';
@@ -75,6 +77,17 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
   const [workbenchIndex, setWorkbenchIndex] = useState(back?.index ?? 0);
   const [orbitIndex, setOrbitIndex] = useState(back?.index ?? 0);
   const [picked, setPicked] = useState<EntryWorkbench | null>(back?.workbench ?? null);
+  // 入口的 4 个档案槽：这个台最近的真实档案；不足 4 份时，剩下的槽是「＋ 新建档案」。
+  const [slots, setSlots] = useState<(DossierSummary | null)[] | null>(null);
+  useEffect(() => {
+    if (!entry || !picked) { setSlots(null); return; }
+    let off = false;
+    dossiers().list(picked.id as BenchId, { via: 'user' }).then(items => { if (!off) setSlots([0, 1, 2, 3].map(i => items[i] ?? null)); }, () => { if (!off) setSlots([null, null, null, null]); });
+    return () => { off = true; };
+  }, [entry, picked?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const view: EntryWorkbench | null = picked && slots ? { ...picked, files: slots.map(d => d?.title ?? '＋ 新建档案') as EntryWorkbench['files'] } : picked;
+  /** 进入工作台的地址：真实档案带 dossier；空槽带 new=1（进去后新建）。 */
+  const dossierQuery = (q: URLSearchParams, index: number) => { const d = slots?.[index]; if (d) q.set('dossier', d.id); else if (slots) q.set('new', '1'); return q; };
   const [fileIndex, setFileIndex] = useState(back?.file ?? 0);
   const [leaving, setLeaving] = useState<string | null>(null);
   const [sceneSession, setSceneSession] = useState(0);
@@ -413,11 +426,11 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
   }
   function goWorkbench(index = fileIndex) {
     if (!picked) return;
-    const query = new URLSearchParams({ preview: 'workbench', studio: picked.id, file: String(index), from: entry ? 'entry' : variant });
+    const query = dossierQuery(new URLSearchParams({ preview: 'workbench', studio: picked.id, file: String(index), from: entry ? 'entry' : variant }), index);
     if (variant === 'workbenches') query.set('design', design);
     const target = `${window.location.pathname}?${query}`;
     if (reduced) { navigate(target); return; }
-    setLeaving(`${picked.files[index]}`);
+    setLeaving(`${view!.files[index]}`);
     window.setTimeout(() => navigate(target), 560);
   }
   function continueFile() {
@@ -426,7 +439,7 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
       // 进入工作台：小票插回档案盒 → 打开档案盒取出文档（见 EmblemTransit）。
       if (detailClosing || transitActive()) return;
       const workbench = picked, file = fileIndex;
-      const query = new URLSearchParams({ preview: 'workbench', studio: workbench.id, file: String(file), from: 'entry', design });
+      const query = dossierQuery(new URLSearchParams({ preview: 'workbench', studio: workbench.id, file: String(file), from: 'entry', design }), file);
       const front = root.current?.querySelector('.cine-cassette.selected .cassette-front')?.getBoundingClientRect();
       // 小票先从盒口放回档案盒，再打开档案盒取出文档。
       setPreviewOrigin(boxRect()); setDetailClosing(true);
@@ -435,7 +448,7 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
         const seal = root.current?.querySelector('.cine-cassette.selected .entry-seal')?.getBoundingClientRect();
         const from = seal && seal.width > 4 ? seal : (front ?? new DOMRect(window.innerWidth / 2 - 40, window.innerHeight / 2 - 40, 80, 80));
         startTransit({ direction: 'enter', workbench, from, land: '.wb-crumb-logo', target: `${window.location.pathname}?${query}`,
-          caption: { code: SECTION_CODES[entryWorkbenches.indexOf(workbench)], title: workbench.title, name: workbench.files[file], fileNo: `X—${String(file + 13).padStart(3, '0')}` } });
+          caption: { code: SECTION_CODES[entryWorkbenches.indexOf(workbench)], title: workbench.title, name: view!.files[file], fileNo: `X—${String(file + 13).padStart(3, '0')}` } });
       }, 600);
       return;
     }
@@ -515,7 +528,7 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
   const content = useMemo(() => ({
     title: picked?.title ?? '莱茵生命总档案', english: picked?.english ?? 'RHINE LAB / CENTRAL FILES',
     nameFor: (cell: Cell) => picked
-      ? (entry ? workbenchOfLane(cell.lane) : picked).files[modulo(cell.row - 12, 4)]
+      ? (entry ? (view && workbenchOfLane(cell.lane).id === view.id ? view : workbenchOfLane(cell.lane)) : picked).files[modulo(cell.row - 12, 4)]
       : entryWorkbenches[modulo(cell.row - 12, WORKBENCH_COUNT)].title,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [picked, entry]);
@@ -621,7 +634,7 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
       <section className="entry-file-callout fx-callout" inert={!!transfer || runningDemo}>
         <span className="fx-eyebrow"><b>{global ? 'WORKBENCH' : picked!.fileKind}</b>ARCHIVE · {global ? `${String(workbenchIndex + 1).padStart(2,'0')} / ${countLabel}` : `${String(fileIndex + 1).padStart(2,'0')} / 04`}</span>
         <h1 key={fileNo}><small>FILE</small>{fileNo}</h1>
-        <h2 key={`${fileNo}-name`}>{global ? currentWorkbench.title : picked!.files[fileIndex]}</h2>
+        <h2 key={`${fileNo}-name`}>{global ? currentWorkbench.title : view!.files[fileIndex]}</h2>
         <p>{global ? currentWorkbench.description : '一份档案，一段可以继续的探索。'}</p>
         <div className="fx-meta"><span>SECTION<b>{code}</b></span><span>KIND<b>{global ? 'WORKBENCH' : picked!.fileKind}</b></span><span>ACCESS<b>LOCAL PREVIEW</b></span></div>
         {stage !== 'detail' && <button className="entry-access fx-access" onClick={() => global ? void openWorkbench(currentWorkbench) : accessFile()}><span>{global ? 'ACCESS WORKBENCH' : 'ACCESS FILE'}</span><small>{global ? '调阅工作台' : picked!.id === 'curriculum' ? '抽取档案' : '抽取档案 · 进入工作现场'}</small><ArrowRight size={17} /></button>}
@@ -633,14 +646,14 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
       {global && <div className="entry-selection-nav fx-step" inert={!!transfer || runningDemo}><button onClick={() => selectGlobal(workbenchIndex - 1)} aria-label="上一份工作台档案"><ChevronLeft size={19} /></button><div><span>ARCHIVE / {String(workbenchIndex + 1).padStart(2,'0')} OF {countLabel}</span><strong>{currentWorkbench.title}</strong></div><button onClick={() => selectGlobal(workbenchIndex + 1)} aria-label="下一份工作台档案"><ChevronRight size={19} /></button></div>}
       {stage === 'module' && <nav className="entry-module-files fx-list" aria-label={`${picked!.title}的 Files`} inert={!!transfer || runningDemo}>
         <span className="fx-list-head"><b>{picked!.fileKind} FILES</b>04</span>
-        {picked!.files.map((name,index) => <button key={name} className={fileIndex === index ? 'active' : ''} onClick={() => selectFile(index, fileIndex === index)} title={fileIndex === index ? '再次点击抽取档案' : undefined}><i /><em>{String(index + 1).padStart(2,'0')}</em><b>{name}</b><small>X—{String(index + 13).padStart(3,'0')}</small><ArrowUpRight size={14} /></button>)}
+        {view!.files.map((name,index) => <button key={name} className={fileIndex === index ? 'active' : ''} onClick={() => selectFile(index, fileIndex === index)} title={fileIndex === index ? '再次点击抽取档案' : undefined}><i /><em>{String(index + 1).padStart(2,'0')}</em><b>{name}</b><small>X—{String(index + 13).padStart(3,'0')}</small><ArrowUpRight size={14} /></button>)}
         <button className="fx-back" onClick={leaveModule}><ArrowLeft size={14} /><b>{variant === 'workbenches' ? '返回工作台选择' : '返回总 Files'}</b><small>ESC</small></button>
       </nav>}
       {entry && stage === 'module' && <div className="fx-nav" inert={!!transfer || runningDemo || openingFile}>
         <div className="fx-nav-count" aria-live="polite"><span>ARCHIVE / SELECT</span><b key={fileIndex}>{String(fileIndex + 1).padStart(2, '0')}</b><i>/</i><em>04</em></div>
         <div className="fx-nav-rows">
           <button onClick={() => stepFile(-1)} aria-label="上一份档案"><ArrowUp size={18} /></button>
-          <span className="fx-ticks" aria-hidden="true">{picked!.files.map((_, k) => <i key={k} data-on={k === fileIndex || undefined} />)}</span>
+          <span className="fx-ticks" aria-hidden="true">{view!.files.map((_, k) => <i key={k} data-on={k === fileIndex || undefined} />)}</span>
           <button onClick={() => stepFile(1)} aria-label="下一份档案"><ArrowDown size={18} /></button>
         </div>
         <div className="fx-nav-cols">
@@ -650,12 +663,12 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
         </div>
         <p className="fx-nav-keys">← → 切换列 <i>/</i> ↑ ↓ 前后档案 <i>/</i> ENTER 调阅</p>
       </div>}
-      {stage === 'detail' && entry && cardReady && <FilePreview workbench={picked!} index={fileIndex} fileNo={fileNo} code={code} closing={detailClosing} note={previewNote} origin={previewOrigin} onContinue={continueFile} onBack={closeDetail} />}
+      {stage === 'detail' && entry && cardReady && <FilePreview workbench={view!} summary={slots ? slots[fileIndex] : undefined} index={fileIndex} fileNo={fileNo} code={code} closing={detailClosing} note={previewNote} origin={previewOrigin} onContinue={continueFile} onBack={closeDetail} />}
       {stage === 'detail' && !entry && <article className="entry-file-detail fx-detail" aria-label="档案调阅预览">
         <header><b>{code}</b><span>{picked!.fileKind} / FILE {fileNo}</span><i>×</i></header>
         <div className="fx-detail-body">
           <span className="fx-eyebrow"><b>OPENED</b>{variant === 'files' ? '经由总 Files' : '经由工作台选择'}</span>
-          <h2>{picked!.files[fileIndex]}</h2>
+          <h2>{view!.files[fileIndex]}</h2>
           <p>你已从{variant === 'files' ? '总 Files' : '工作台选择'}进入{picked!.title}，<br />并调阅了这份专属档案。</p>
           <dl><div><dt>WORKBENCH</dt><dd>{picked!.title}</dd></div><div><dt>FILE</dt><dd>{fileNo}</dd></div><div><dt>INDEX</dt><dd>{String(fileIndex + 1).padStart(2,'0')} / 04</dd></div></dl>
           <span className="entry-detail-note">{picked!.id === 'curriculum' ? '这里将交接给 OpenMAIC。演示停在进入课堂之前。' : '这里将进入具体的工作现场。当前仅演示入口与档案转场。'}</span>
@@ -664,7 +677,7 @@ export default function EntryComparison({ shell = 'study', initialDesign, hold =
       </article>}
       <FilesLeader root={root} active={!transfer && stage !== 'detail'} label={global ? code : fileNo} />
       <div className="fx-line" aria-hidden="true" data-status={extracting ? 'extracting' : undefined}>{extracting
-        ? <><b key="x">正在抽取 {fileNo} · {picked!.files[fileIndex]}</b><span>EXTRACTING · UNSEALING ARCHIVE</span></>
+        ? <><b key="x">正在抽取 {fileNo} · {view!.files[fileIndex]}</b><span>EXTRACTING · UNSEALING ARCHIVE</span></>
         : <><b>{global ? '每一份档案，都通向一个工作台。' : picked!.description}</b><span>{global ? 'EVERY FILE OPENS A WORKBENCH' : `${picked!.english} · ${picked!.fileKind} ARCHIVE`}</span></>}</div>
       </>;
     })()}

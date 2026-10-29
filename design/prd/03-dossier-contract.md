@@ -220,3 +220,17 @@ type StreamEvent =
 | D5 已有课程加入学习档案 → 打开 → 关掉再开 | `GET /v1/courses`、`POST artifacts {kind:'course'}`、`OpenTarget{to:'course'}`、`courseProgress` |
 | D6 打开有运行 / 待处理 / 成果的档案 | `work`、`pending`、`artifacts`；档案的 `lifecycle` 不被 run 终态改写 |
 | D7 Agent 先了解档案，用户在页面改名 / 删除 / 移除，然后继续对话 | 第 8 节操作记录 + 下次调用前投递；`Tombstone`；Agent 坞只显示 `note`，没有伪造的用户气泡 |
+
+---
+
+## 12. 前端已实现（Claude，分支 `claude/dossier-fe`）· DSH 接线须知
+
+- **类型**：`packages/contracts/src/dossier.ts` 已经按第 1 节建好（纯 TS 类型）。DSH 可以在旁边补 zod 校验，字段名不要改。
+- **live 适配器**：`src/data/dossier-live.ts` 已经按第 2～4 节写好路由和请求形状（统一用 `research-live.ts` 新增的 `request(method, path, body)`，错误按 `{ code, message }` 解析）。DSH 实现服务端时，以这个文件里的路径和请求体为准；有出入请提出来。
+- **精读按档案打开**：`ResearchStudioData` 现在调用 `createLiveReadAdapter(dossier.id)`，只读打开的这份档案，不再自己挑「最近一份」。请顺带修改 `read-live.ts`：
+  - `newReading()` 改为调用 `POST /v1/dossiers { bench:'research', kind:'reading' }`（**不要写死标题「新的精读」**，由服务端给临时标题），然后切换到这份新档案。现在界面上的「＋ 新建精读」走的就是它。
+  - 把这份档案的操作记录（第 8 节，`kind='user_op'`）映射成 `ReadEvent { type:'note', id, text }`。界面会把它显示成一行灰字，**不是用户气泡**。
+- **续上次**：`ReadMode` 切换工作面 2 秒后调用 `PUT /v1/dossiers/:id/resume { face, mode:'read' }`；重新打开时，从 `Dossier.resume.face` 恢复。
+- **入口 Files**：每个台显示最近 4 份真实档案；不足 4 份的槽位显示「＋ 新建档案」，点「继续工作」进入工作台，再由 `?new=1` 新建。
+- **工作台**：地址里带 `?dossier=<id>`；没有就走续上次；live 下仍然没有，就显示空状态，不自动建档。没接专业能力的台（`backendMode.ts` 里的 `LIVE_BENCHES` 以外）显示档案本身，不显示示例内容。
+- **课程**：`OpenTarget{to:'course'}` 在原生课程播放器里打开，OpenMAIC 地址取本机设置（`reinlab-openmaic-origin-v1`）、`VITE_OPENMAIC_ORIGIN`，或默认的 `http://127.0.0.1:3000`；`GET /v1/courses` 由服务端从本地 OpenMAIC 读取。

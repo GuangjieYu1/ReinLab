@@ -10,6 +10,7 @@ import { CLAIMS, REPRO_CODE } from './paper';
 import { MultiHead, PositionalEncoding, ScaledAttention } from './Anims';
 import { mockReadAdapter } from './mockRead';
 import { useRead } from './useRead';
+import type { ResumePoint } from '../../../dossier/adapter';
 import type { FindingCard, Grade, LayerCard, PaperView, QuizCard, ReadAdapter, ReadEvent, RunView } from './readTypes';
 import './read.css';
 
@@ -33,12 +34,15 @@ const RUN_TEXT: Record<RunView['state'], string> = { idle: '未开始', estimati
 const active = (r: RunView) => r.state === 'queued' || r.state === 'running' || r.state === 'waiting';
 const money = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `¥${v < 0.1 ? v.toFixed(3) : v.toFixed(2)}`);
 
-export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch, adapter: given }: {
+export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch, adapter: given, resume, onPosition }: {
   file: number; reduced: boolean; chrome: BenchChrome; modeSwitch: ReactNode; onDispatch: (to: 'swarm' | 'auto', text: string) => void; adapter?: ReadAdapter;
+  resume?: ResumePoint | null; onPosition?: (p: ResumePoint) => void;
 }) {
   const adapter = useMemo(() => given ?? mockReadAdapter({ reduced }), [given, reduced]);
   const { state, reload, error: loadError, retry } = useRead(adapter);
-  const [face, setFace] = useState<Face>('explain');
+  const [face, setFace] = useState<Face>(() => (['explain', 'lab', 'repro', 'check'] as Face[]).includes(resume?.face as Face) ? resume!.face as Face : 'explain');
+  // 续上次：记下工作面（防抖），重新打开时回到这里。只记位置，不触发任何任务。
+  useEffect(() => { if (!onPosition) return; const t = window.setTimeout(() => onPosition({ face, mode: 'read' }), 2000); return () => window.clearTimeout(t); }, [face, onPosition]);
   const [depth, setDepth] = useState(3);                 // 展开到第几层
   const [focus, setFocus] = useState<string[]>([]);      // 当前高亮的原文段
   const [ping, setPing] = useState(0);
@@ -94,6 +98,7 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
   const logEvents: (DockEvent | null)[] = state.log.map((e: ReadEvent): DockEvent | null => {
     if (e.type === 'user') return { id: e.id, kind: 'user', text: e.text, at: at(e.id) };
     if (e.type === 'agent') return { id: e.id, kind: 'agent', at: at(e.id), text: <><p><RichText text={e.text} /></p>{(e.refs?.length || (e.anim && state.anims.includes(e.anim))) && <p>{e.refs?.map(r => <b key={r} className="ad-ref" onClick={() => { setFace('explain'); cite([r]); }}>{paper?.sections.find(s => s.id === r)?.no ?? r}</b>)}{e.anim && state.anims.includes(e.anim) && <> · <b className="ad-ref" onClick={() => openAnim(e.anim as Anim)}>打开动画</b></>}</p>}</> };
+    if (e.type === 'note') return { id: e.id, kind: 'note', text: e.text, at: at(e.id) };
     if (e.type === 'tool') return { id: e.id, kind: 'tool', action: e.action, label: e.label, state: e.state, detail: e.detail, ms: e.ms };
     if (e.type === 'pick') return { id: e.id, kind: 'card', body: <PickCard e={e} repick={!run.chosen && !paper && (run.state === 'idle' || run.state === 'confirm')} onPick={c => void adapter.pick(e.id, c)} /> };
     if (e.type === 'approval') return { id: e.id, kind: 'approval', action: e.action, title: e.title, effects: e.effects, risk: e.risk, state: e.state, onApprove: () => void adapter.decide(e.id, true), onReject: () => void adapter.decide(e.id, false) };

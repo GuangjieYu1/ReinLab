@@ -13,7 +13,9 @@ export type DockEvent =
   | { id: string; kind: 'agent'; text: ReactNode; at: string }
   | { id: string; kind: 'tool'; action: string; label: string; detail?: string; state: 'running' | 'done' | 'failed'; ms?: number }
   | { id: string; kind: 'approval'; action: string; title: string; effects: string[]; risk: Risk; state: 'pending' | 'approved' | 'rejected' | 'expired'; onApprove: () => void; onReject: () => void }
-  | { id: string; kind: 'card'; body: ReactNode };
+  | { id: string; kind: 'card'; body: ReactNode }
+  /** 操作提示：用户在页面上做了什么（改名、删除、移除材料……）。一行灰字，不是聊天，不算「你说」。 */
+  | { id: string; kind: 'note'; text: string; at: string };
 
 /** 新事件（id 可省略，由宿主生成）。对联合类型逐个去掉 id。 */
 export type DockDraft = DockEvent extends infer E ? E extends DockEvent ? Omit<E, 'id'> & { id?: string } : never : never;
@@ -98,5 +100,6 @@ function Event({ e }: { e: DockEvent }) {
         : <span className="ad-approval-done">{e.state === 'approved' ? '■ 已批准' : e.state === 'expired' ? '已过期' : '已驳回'}</span>}
     </div>
   );
+  if (e.kind === 'note') return <div className="ad-note rh-enter" role="note"><span>·</span>{e.text}<time className="rh-micro">{e.at}</time></div>;
   return <div className="ad-card rh-enter">{e.body}</div>;
 }

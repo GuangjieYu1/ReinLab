@@ -174,3 +174,11 @@
 .wb-strip .wb-crumb-file span { max-width:240px; overflow:hidden; text-overflow:ellipsis; }
 .wb-strip .wb-menu { top:40px; left:0; }
 .wb-strip .wb-status { margin-left:auto; display:flex; align-items:center; gap:7px; padding:0 16px; border-left:1px solid #c9c6c0; }
+
+/* 没有档案 / 已删除 / 能力未接入时的外壳 */
+.wb-shellframe { height:100%; display:grid; grid-template-rows:auto 1fr; }
+.wb-shellframe .wb-strip { position:relative; }
+.wb-shellframe .wb-file { position:relative; }
+.wb-shellbody { min-height:0; overflow:auto; }
+.wb-file { position:relative; }
+.wb-course { position:fixed; inset:0; z-index:80; background:var(--rh-paper, #f3f1ec); overflow:auto; }
