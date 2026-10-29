@@ -32,8 +32,10 @@ const conflict = () =>
 /** 卡片里只有给人看的短句；参数哈希留在账本里，不回给界面。 */
 /** 审批卡上「会发生什么」：说人话，不把能力名甩给用户。 */
 function describe(effects: any) {
+  // 审批行里的 effects 是数组（[{capability, argsHash}]），不是对象。
+  const first = Array.isArray(effects) ? effects[0] : effects;
   const capability =
-    typeof effects?.capability === "string" ? effects.capability : "";
+    typeof first?.capability === "string" ? first.capability : "";
   if (!capability) return [];
   const what = capabilityLabel[capability];
   if (capability === "papers.fetch")

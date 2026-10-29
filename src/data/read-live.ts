@@ -550,7 +550,11 @@ export function createLiveReadAdapter(
       // run panel with the card instead of the local estimate step.
       localPhase = undefined;
       patchRun({ state: "running" });
-      const capability = (card as any).effects?.capability;
+      const effectsOf = (card as any).effects;
+      // 后端给的是数组；按能力名认卡，不再依赖某一版标题文案。
+      const capability = Array.isArray(effectsOf)
+        ? effectsOf[0]?.capability
+        : effectsOf?.capability;
       const effects =
         capability === "papers.fetch" || !capability
           ? [
