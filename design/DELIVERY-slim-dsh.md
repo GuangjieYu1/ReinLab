@@ -138,13 +138,30 @@ pnpm --dir <后端工作树> local:up22 --real-models
   `research/read/ReadMode.tsx`、`agent-dock.css`；另外把结束标题改成「有 message 就用 message」，
   过期提示才能显示出来。
 
-## 9. 未做 / 待你确认
+## 9. 当前状态与交接（换人/换会话先读这里）
 
-- 前端接线（Claude 负责）。前端目录本轮只动了两处，都是为了上面第 3 条在页面上如实显示：
-  `src/data/read-live.ts`（适配器本体）与 `src/components/workbenches/research/read/ReadMode.tsx`
-  的一行（结束标题优先用 `run.message`，其余 `endReason` 文案不变）。UI 组件的结构没有动。
-- OpenScience 全量退役（`bridge/openscience/`、旧插件、`@synsci/*`、旧表）：按 PRD 在 B1 验收通过后做，本轮未删，以免验收期间无对照。
-- 账户镜像路径（`REINLAB_KERNEL_TRANSPORT=container`）代码保留但本机未验证（Docker Hub 受限）。
-- 发现卡（`card_finding`）：路由已由 `kernel-dispatch` 用例锁定（`cards.card.finding` → 现有卡片层 → 回执），
-  卡片本身仍由现有 `dataHandlers` 校验冻结 schema 与页码依据（旧套件覆盖）。真机走查里模型未主动产出卡片，
-  角色指令已加「至少一条」，仍属模型行为，建议 Claude 验收时在页面侧确认。
+**分支**：`slim/backend`（工作树 `/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab`）。
+最近提交：`01015bd`（审批卡生命周期）← `111e20b`（Node 22 固定）← `4dd8210`（B2 退役）
+← `5fde2c2`（检索稳定）← 更早的内核/卡片/前端接线一批。`AGENTS.md` 的本地规则改动**故意不提交**。
+
+**启动**：`pnpm --dir <后端工作树> local:up22 --real-models`（固定工具链 Node 22；
+在 Electron 里跑 `pnpm local:up` 会报 `LOCAL_ELECTRON_RUNTIME_FORBIDDEN`）。
+控制面 3001、前端 5183、supabase 54321；`image:"host"`，不起 Hatchet/worker/账户镜像。
+
+**已验证可用**（真页面，本轮最后一次）：说一句 → 候选（16–26 秒，3–6 篇真论文）→ 选定
+→ 预估/确认 → **一张下载审批卡（约 7 秒出现）**→ 批准 → 讲解逐层出现。检索 5/5 成功。
+
+**已知**：
+- 单测 `tooling/local/control-process.test.ts > stops the real recorded Node process…` 在本机
+  沙箱里失败，`5fde2c2` 基线同样失败（`ps`/进程组问题），不是回归。
+- `pnpm lint` 剩 2 条改造前的告警：验收脚本的动态 import、`kernel/dsh/harness.ts` 用 `node:module`。
+- 等人审批时（最长 10 分钟）会话租约已放开：这 10 分钟窗口里同一会话可能被两边先后使用，
+  决定/过期到达即还回去。若以后要更严，可在挂起期间禁止同会话新开一轮。
+
+**待办（都不阻塞）**：
+- 前端样式/交互由 Claude 负责；本次只同步了他给的 `richText.tsx`、`ReadMode.tsx`、`agent-dock.css`，
+  外加 `readTypes`/`AgentDock` 的 `expired` 状态与「有 message 就用 message」的结束标题。
+- 账户镜像路径（`REINLAB_KERNEL_TRANSPORT=container`）保留但本机未验证（Docker Hub 受限）。
+- 发现卡：内核写入器已落库（`kernel/cards.ts`），真机走查里模型是否主动写取决于它自己。
+- 旧数据清理：本地库里 B2 之前的业务数据（旧 run/dossier）未删，需要时按 `202610280001` 迁移后的
+  表结构自行清理。
