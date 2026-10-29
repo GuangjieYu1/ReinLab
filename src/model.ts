@@ -1,6 +1,6 @@
 export type Platform = 'research' | 'learning' | 'engineering' | 'travel';
 export type Mode = 'document' | 'slides';
-export type Page = 'home' | 'projects' | 'workspace' | 'conversation' | 'research-lab' | 'studio';
+export type Page = 'home' | 'projects' | 'workspace' | 'conversation' | 'research-lab' | 'studio' | 'learning' | 'learning-course';
 
 export const platforms: { id: Platform; title: string; english: string; code: string; desc: string; project: string; workspace: string; unit: string }[] = [
   { id: 'research', title: 'AI 研究实验室', english: 'RESEARCH', code: '01', desc: '让假设、实验与证据持续对话', project: '人机协作 · 探索研究', workspace: '文献与实验', unit: '可解释性研究' },

@@ -1,0 +1,95 @@
+/* Agent 坞 · 所有工作台共用。样式全部取自 --rh-* token。 */
+.ad { height:100%; overflow:hidden; background:var(--rh-paper); }
+.ad-head { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--rh-line); }
+.ad-block { position:relative; padding:7px 14px 7px 8px; background:var(--rh-ink); color:var(--rh-paper); font:700 11px/1 var(--rh-f-display); font-stretch:125%; letter-spacing:.08em; }
+.ad-block i { position:absolute; right:4px; top:4px; width:4px; height:4px; border-radius:50%; background:var(--rh-paper); }
+.ad-head strong { display:block; font-size:14px; font-weight:600; }
+.ad-head .rh-micro { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-transform:none; letter-spacing:.06em; }
+
+.ad-plan { padding:10px 12px; border-bottom:1px solid var(--rh-line); display:grid; gap:8px; }
+.ad-plan-head { display:flex; align-items:center; gap:8px; padding:0; border:0; background:none; text-align:left; }
+.ad-plan-head b { font:500 11px/1 var(--rh-f-mono); }
+.ad-plan-head em { margin-left:auto; font:normal 400 11px/1 var(--rh-f-ui); color:var(--rh-ink-4); }
+/* 计划横排：阶段一行排开，省出纵向空间给对话 */
+.ad-plan-list { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:4px 16px; }
+.ad-plan-list li { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--rh-ink-4); }
+.ad-plan-list li em { font:normal 400 10.5px/1 var(--rh-f-mono); }
+.ad-plan-list li[data-state='done'] { color:var(--rh-ink-3); text-decoration:line-through; text-decoration-color:var(--rh-line); }
+.ad-plan-list li[data-state='now'] { color:var(--rh-ink); font-weight:600; }
+.ad-plan-list li[data-state='now']::before { content:''; width:6px; height:6px; background:var(--rh-accent); margin-left:-14px; margin-right:2px; }
+.ad-plan-list li { padding-left:14px; }
+
+.ad-loop { display:grid; place-items:center; padding:10px 12px 6px; border-bottom:1px solid var(--rh-line); background:var(--rh-white); }
+
+.ad-suggest { display:flex; flex-wrap:wrap; gap:6px; padding:10px 12px; border-bottom:1px solid var(--rh-line); }
+.ad-suggest .rh-btn { padding:6px 10px; font-size:12px; background:var(--rh-white); }
+.ad-suggest .rh-btn:hover:not(:disabled) { border-color:var(--rh-ink); }
+.ad-suggest .rh-btn:disabled { opacity:.45; cursor:default; }
+
+.ad-stream { flex:1; min-height:0; overflow:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
+.ad-msg { display:grid; grid-template-columns:26px 1fr; column-gap:10px; }
+.ad-who { grid-row:span 2; width:26px; height:26px; display:grid; place-items:center; font:600 10.5px/1 var(--rh-f-mono); border:1px solid var(--rh-ink); }
+.ad-msg.is-agent .ad-who { background:var(--rh-ink); color:var(--rh-paper); }
+.ad-msg.is-user .ad-who { background:var(--rh-paper-3); border-color:var(--rh-paper-3); }
+.ad-msg p, .ad-msg > div { margin:0; font-size:13px; line-height:1.6; color:var(--rh-ink); }
+.ad-msg > div p { margin:0 0 6px; } .ad-msg > div p:last-child { margin:0; }
+.ad-msg time { font-size:10px; letter-spacing:.06em; }
+.ad-msg b.ad-ref { font-weight:600; padding:0 3px; box-shadow:inset 0 -1px 0 var(--rh-ink); cursor:pointer; }
+
+.ad-tool { display:grid; grid-template-columns:auto auto 1fr auto; align-items:center; gap:8px; padding:6px 8px; background:var(--rh-white); border:1px solid var(--rh-line-2); font-size:12px; color:var(--rh-ink-3); }
+.ad-tool-k { color:var(--rh-ink); }
+.ad-tool code { font:500 10.5px/1 var(--rh-f-mono); color:var(--rh-ink); }
+.ad-tool span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ad-tool em { font:normal 400 10.5px/1 var(--rh-f-mono); color:var(--rh-ink-4); }
+.ad-tool small { grid-column:2 / -1; font:400 11px/1.4 var(--rh-f-mono); color:var(--rh-ink-4); }
+.ad-tool[data-state='running'] { outline:1px dashed var(--rh-accent); outline-offset:-1px; animation:rh-march 1.2s linear infinite; }
+.ad-tool[data-state='running'] em::before { content:''; display:inline-block; width:5px; height:5px; margin-right:5px; background:var(--rh-accent); vertical-align:1px; }
+
+.ad-approval { display:grid; gap:6px; }
+.ad-approval strong { font-size:13px; }
+.ad-approval ul { margin:0; padding-left:16px; font-size:12px; color:var(--rh-ink-2); }
+.ad-approval code { text-transform:none; }
+.ad-approval-act { display:flex; gap:6px; margin-top:4px; }
+.ad-approval-act .rh-btn { padding:6px 14px; }
+.ad-approval[data-state='approved'], .ad-approval[data-state='rejected'] { background:var(--rh-white); border-left-color:var(--rh-line); }
+.ad-approval-done { font:500 11px/1 var(--rh-f-mono); color:var(--rh-ink-3); }
+
+.ad-card { border:1px solid var(--rh-line); background:var(--rh-white); padding:10px 12px; font-size:12px; }
+
+.ad-typing { display:flex; gap:4px; padding:4px 0 4px 36px; }
+.ad-typing i { width:5px; height:5px; background:var(--rh-ink-4); animation:ad-blink 1s infinite; }
+.ad-typing i:nth-child(2) { animation-delay:.15s; } .ad-typing i:nth-child(3) { animation-delay:.3s; }
+@keyframes ad-blink { 50% { background:var(--rh-accent); } }
+
+.ad-input { border-top:1px solid var(--rh-line); padding:10px 12px; display:grid; gap:8px; background:var(--rh-paper); }
+.ad-input textarea { width:100%; resize:none; border:1px solid var(--rh-line); background:var(--rh-white); padding:8px 10px; font:400 13px/1.5 var(--rh-f-ui); color:var(--rh-ink); }
+.ad-input textarea:focus { outline:none; border-color:var(--rh-ink); }
+.ad-input > div { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.ad-input .rh-micro { text-transform:none; letter-spacing:.04em; font-size:10.5px; }
+.ad-input .rh-btn { padding:6px 14px; }
+.ad-input .rh-btn:disabled { opacity:.4; cursor:default; }
+
+/* ———— 莱茵生命：身份黑块、宽体名称、编号计划、方框建议动作 ———— */
+.ad-head { position:relative; grid-template-columns:auto 1fr auto; gap:12px; padding:12px; border-bottom:1.5px solid var(--rh-ink); overflow:hidden; }
+.ad-head::after { content:'AI'; position:absolute; right:-6px; bottom:-16px; font:800 72px/.8 var(--rh-f-display); font-stretch:125%; color:transparent; -webkit-text-stroke:1px var(--rh-ghost); pointer-events:none; }
+.ad-head > * { position:relative; z-index:1; }
+.ad-block { align-self:stretch; display:grid; place-items:center; padding:0 14px; font-size:12px; }
+.ad-head strong { font:800 18px/1.1 var(--rh-f-display); font-stretch:112%; letter-spacing:-.01em; }
+.ad-head .rh-micro { margin-top:4px; font-size:10px; }
+.ad-plan { gap:10px; padding:12px; background:var(--rh-paper); }
+.ad-plan-head b { font:800 15px/1 var(--rh-f-display); font-stretch:112%; }
+.ad-plan-list li em { font:normal 800 11px/1 var(--rh-f-display); font-stretch:112%; color:var(--rh-ink-4); }
+.ad-plan-list li[data-state='now'] em { color:var(--rh-ink); }
+.ad-suggest { gap:4px; padding:10px 12px; background:var(--rh-paper); }
+.ad-suggest .rh-btn { gap:8px; padding:7px 10px; border-color:var(--rh-ink); font-size:12px; }
+.ad-suggest .rh-btn::before { content:'▸'; color:var(--rh-ink-4); font-size:10px; }
+.ad-suggest .rh-btn:hover:not(:disabled) { background:var(--rh-ink); color:var(--rh-paper); }
+.ad-suggest .rh-btn:hover:not(:disabled)::before { color:var(--rh-accent); }
+.ad-stream { background:linear-gradient(#14121307 1px, transparent 1px) 0 0/100% 24px, var(--rh-white); }
+.ad-msg.is-agent .ad-who { font-family:var(--rh-f-display); font-stretch:125%; font-weight:800; }
+.ad-tool { border-color:var(--rh-line); border-left:3px solid var(--rh-ink); background:var(--rh-paper); }
+.ad-input { border-top:1.5px solid var(--rh-ink); }
+.ad-input textarea { border-color:var(--rh-ink); }
+.ad-input .rh-btn.is-solid:disabled { background:var(--rh-paper-3); border-color:var(--rh-paper-3); color:var(--rh-ink-4); opacity:1; }
+.ad-stream { overflow-x:clip; }
+.ad-msg a, .rd-pick > b a { color:var(--rh-accent); text-decoration:underline; text-underline-offset:2px; }

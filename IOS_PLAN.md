@@ -1,5 +1,6 @@
 # ReinLab → iOS 应用：可行性结论与实施计划
 
+> 目标设备：**M1 iPad Pro**（原为 iPhone，见第十节修订）
 > 目标形态：自签真机安装（免费 Apple ID）+ 云端 macOS CI 出包
 > 结论日期：基于当前工作目录实测
 
@@ -60,12 +61,15 @@
 - `.skip-boot { bottom: 35px; right: 40px }` → 撞 Home 指示条
 - 开场右上角跳过 / 调试按钮同理
 
-### 4. 调试面板在 iPhone 上打不开
+### 4. ~~调试面板在 iPhone 上打不开~~（**此条为误判，已更正**）
 
-性能面板靠 `Ctrl/Cmd+Shift+D`（`CinematicExperience.tsx:498`）。iPhone 无键盘，
-**无法在真机测量那 25 秒开场的真实 FPS**——而 128 份 CSS 3D 档案阵列恰是最大性能风险点。
-
-→ 必须补触屏入口（长按标题 / 五连点）。
+> **更正**：曾认为性能面板只能靠 `Ctrl/Cmd+Shift+D` 打开。实际核查后发现
+> `CinematicExperience.tsx:537` **早就有一个可见的触屏按钮**
+> （`aria-label="性能与分镜调试"`，`.cine-system-nav` 内的滑块图标），
+> 且它在该导航出现时始终渲染，不依赖键盘。README 第 24 行的原文也是
+> 「右上角调试按钮**或** Ctrl/Cmd+Shift+D」。
+>
+> → **无需补任何触屏入口**，真机 FPS 可直接用手指点开测量。原判断有误。
 
 ### 5. 缺图标与启动图 + 不是 git 仓库
 
@@ -168,10 +172,10 @@ npm run dev -- --host 0.0.0.0    # 默认只绑 127.0.0.1，必须放开
 
 ### Phase 4 — 移动端适配修复（按实测结果排期）
 
-1. **修 `openMaicPortal.ts` 硬编码 origin**（`VITE_OPENMAIC_ORIGIN` + 优雅降级）
+1. **修 `openMaicPortal.ts` 硬编码 origin**（已完成：改为运行时设置）
 2. `index.html` 加 `viewport-fit=cover`；给 `.boot-corner` / `.skip-boot` /
-   开场右上角控件补 `env(safe-area-inset-*)`
-3. 调试面板补触屏入口，让真机 FPS 可测
+   开场右上角控件补 `env(safe-area-inset-*)`（已完成，用法 5 → 24 处）
+3. ~~调试面板补触屏入口~~ —— **误判**：`CinematicExperience.tsx:537` 本就有可见触屏按钮
 4. `@capacitor/assets` 从 `favicon.svg` 生成 1024×1024 图标 + 启动图
 5. 字体：`src/styles.css:1` 的 Google Fonts `@import` 在原生壳需联网
    （Noto Sans SC 是 CJK 大字体，自托管要按 unicode-range 切子集）。
@@ -224,9 +228,343 @@ npm run dev -- --host 0.0.0.0    # 默认只绑 127.0.0.1，必须放开
 
 ---
 
+## 十、目标设备修订：M1 iPad Pro（2026-09-27）
+
+目标从 iPhone 改为 M1 iPad Pro 后，**风险等级整体下降一档**。以下是逐条修订。
+
+### 10.1 屏幕宽度改变了整个适配故事（最大利好）
+
+| 设备 | 原生分辨率 | CSS 逻辑尺寸 |
+|---|---|---|
+| iPad Pro 12.9" (M1) | 2732×2048 @2x | **1366×1024 pt** |
+| iPad Pro 11" (M1) | 2388×1668 @2x | **1194×834 pt** |
+
+对照本项目断点（窄屏调整在 `max-width` 1180 / 960 / 760 触发）：
+
+- **两台 iPad 横屏都在 1180px 之上 → 直接获得桌面级布局**
+- 12.9" 竖屏 1024pt → 落在 960–1180 区间，接近桌面
+- 11" 竖屏 834pt → 落在 760–960 区间，中间档
+
+→ 第三节未提及、但为 iPhone 预留的「三栏课堂被压扁 / 需要移动端重排」基本不成立。
+**这是本次目标变更最大的收益。**
+
+### 10.2 新发现的具体问题：`min-width: 1400px` 那一档够不到
+
+`src/components/classroom/learning.css:210`：
+
+```css
+@media(min-width:1400px){#rhine-wide .rl-split{grid-template-columns:minmax(240px,.82fr) minmax(390px,1.4fr);gap:38px}...}
+```
+
+该档位把课堂升级为最宽布局并放大讲义字号。而：
+
+- 12.9" 横屏 1366pt → **差 34pt，够不到**
+- 11" 横屏 1194pt → 更够不到
+
+**建议**：把该断点下调至 **1190px**，两台 iPad 都能吃到原本为宽屏设计的课堂布局。
+注意这会改变窄桌面窗口下的观感——**正是应该只在 `ios/capacitor` 分支上做的改动**。
+
+### 10.3 性能风险基本消失
+
+M1（8 核 GPU）+ ProMotion 120Hz。第三节曾把「128 份 CSS 3D 档案阵列掉帧」
+列为头号体验风险，在 M1 iPad 上基本不成立。仍需实测，但不再是主要担忧。
+
+### 10.4 安全区问题减轻但未消失
+
+- M1 iPad Pro **无刘海、无灵动岛** → 第三节中的「撞灵动岛」不适用
+- 但仍有：状态栏、Home 指示条、圆角屏幕
+- `.boot-corner { top: 33px }` 仍贴近状态栏；`.skip-boot { bottom: 35px }` 仍贴近 Home 条
+
+### 10.5 调试面板（原判断有误）
+
+`CinematicExperience.tsx:537` 本就有一个可见的触屏按钮（`.cine-system-nav` 内的滑块图标），
+**不依赖键盘，也不需要配妙控键盘**。详见第三节卡点 4 的更正。
+
+### 10.6 方向与装机
+
+- iPad 应用默认支持四方向；建议横屏为主，**不必锁死**（竖屏 1024 / 834pt 依然够宽）
+- 免费 Apple ID + Sideloadly / SideStore 流程与限制完全一致
+  （3 个 App、10 App ID/周、7 天重签）
+- **设备侧提醒**：sideloading 会在 iPad 上安装「信任的开发者证书」，
+  SideStore 还会装一个本地 VPN 描述文件。属设备级改动，低风险且可撤销
+  （设置中删除描述文件即可），介意的话可先做一次 iPad 备份
+
+### 10.7 Phase 1.5 验证方式更新
+
+原建议「iPhone Safari 局域网验证」在 iPad 上更好：iPad Safari 是桌面级渲染，
+`npm run dev -- --host 0.0.0.0` 后直接访问即可，还可「添加到主屏」预检全屏与安全区。
+注意 Safari 有工具栏高度，与 WKWebView 的真实视口**接近但不完全等同**。
+
+---
+
+## 十一、备份与回退（已于 2026-09-27 完成）
+
+采用**双层备份**：
+
+| 层 | 位置 | 内容 | 用途 |
+|---|---|---|---|
+| 1. Git 基线 | 仓库内 `main` + 标签 `baseline-pre-ios` | 95 文件 / 18598 行 / 1.6MB | 日常回退，秒级 |
+| 2. 物理副本 | `../ReinLab-backup-20260927`（4.6MB） | 含 `.git`、`dist/`、`reference-clips/` | 防误删整个目录 |
+
+开发在 `ios/capacitor` 分支进行，`main` 保持冻结基线。
+
+**回退命令**：
+
+```sh
+git switch main                     # 切回基线（工作区跟随回退）
+git restore .                       # 或只丢弃未提交改动
+git switch ios/capacitor            # 回到开发分支
+```
+
+**注意事项**：
+
+1. 物理副本**不含 `node_modules`**（有意排除，`package-lock.json` 已包含）。
+   恢复后需 `npm ci` 重新安装。
+2. `reference-clips/BV1eFVS6YEat_01-25_01-35.mp4`（668KB）被 `.gitignore` 排除，
+   **只存在于物理副本中**，不进入 git 历史。
+3. ⚠️ 本机 `commit.gpgsign=true` 但**未安装 gpg**，任何 `git commit` 会以
+   `gpg failed to sign the data` 失败。本次提交用 `-c commit.gpgsign=false` 绕过，
+   未改动全局配置。需自行二选一：安装 `gnupg`，或 `git config --global commit.gpgsign false`。
+
+---
+
+## 十二、OpenMAIC 集成真相（2026-09-27 核查）
+
+原以为 `127.0.0.1:3000` 只是个本地开发服务器，实际核查后结论完全不同。
+
+### 12.1 两个项目的关系
+
+```
+ReinLab（本仓库，Vite SPA，5173）        OpenMAIC（独立仓库，Next.js，3000）
+  沉浸式外壳 / 档案终端          ←→         真实课程库 / AI 生成课堂
+  ├─ 开场演出、登录                        ├─ Next.js App Router 服务端路由
+  ├─ 档案阵列、抽取                        ├─ /reinlab      课程档案
+  ├─ 研究实验室                            ├─ /classroom/stage-xxx  原生课堂
+  └─ 对话工作台 / 模板工坊                 ├─ /workspace    Pro 工作台
+                                           ├─ PostgreSQL（127.0.0.1:55433）
+                                           └─ DeepSeek Agent 运行时
+```
+
+OpenMAIC 才是主体产品；ReinLab 是它的沉浸式前端。集成是**双向 localhost 跳转**：
+
+- 5173 → `http://127.0.0.1:3000/reinlab?entry=rhine`
+- 3000 → `http://127.0.0.1:5173/?return=archive`（**硬编码**于 `components/rhine/RhineArchive.tsx:245`）
+- ReinLab 侧由 `CinematicExperience.tsx:31` 读取 `?return=archive`
+
+### 12.2 「能原生融入吗」——能，已实测验证
+
+> **更正（2026-09-27）**：本节原结论为「不能」，**那是错的**——当时只查了服务端生成层，
+> 没有查 OpenMAIC 的 `packages/`。实际上渲染层早已拆成独立 npm 包并发布：
+
+| 包 | 版本 | 作用 |
+|---|---|---|
+| `@openmaic/dsl` | 0.11.2 | `Slide` 类型定义，**零依赖** |
+| `@openmaic/renderer` | 0.1.11 | **`<SlideCanvas slide={slide} />`**，可独立复用 |
+| `@openmaic/storage` | 0.31.1 | 存储层，含 HTTP 后端 |
+| `@openmaic/generation` | 0.3.13 | 生成管线契约 |
+
+**渲染器与内容分离，内容是纯数据（`Slide` JSON）**，所以能在 ReinLab 里原生渲染，
+既不需要 iframe，也不需要跳浏览器。已由 `openmaicRenderer.test.tsx` 实测通过。
+
+服务端能力（课程生成、PostgreSQL、DeepSeek Agent）确实无法塞进纯前端 SPA，
+**课程内容仍需从 OpenMAIC 服务端获取**。因此原生渲染的收益是**体验**，不是离线。
+
+必须付出的四项代价：
+
+1. **引入 Tailwind 4** —— renderer 官方要求「consumers must use Tailwind 4」。
+   可只引 utilities 层、跳过 preflight，避免与现有 CSS 冲突。
+2. **场景编排要自己写** —— `ClassroomSurface.tsx`（531 行）不在包里，深度耦合
+   OpenMAIC 的 zustand store 与 document-store，不可移植。
+3. **数据获取要处理跨域身份** —— `/api/stages/[id]` 是 owner-scoped，owner 默认来自 cookie。
+   解法：把 `PERSISTENCE_SHARED_OWNER_ID` 设为固定 UUID，所有请求解析到同一 owner，
+   无需 cookie，跨域即变得简单。
+4. 可选 `echarts`（图表元素）、`shiki`（代码元素）；不装则这两类元素不渲染。
+
+### 12.3 好消息：原生外壳让集成反而变简单
+
+Web 版之所以需要 `?return=archive` 双向跳转，是因为浏览器整页跳转后无法自行返回。
+而在 iPad 原生外壳里：
+
+> **用应用内浏览器 sheet 打开 OpenMAIC，用户点「完成」关闭 sheet，
+> 自动回到 ReinLab 原位置——不需要任何回跳 URL。**
+
+sheet 的关闭动作天然完成了 Web 版要靠 URL 伪造的「返回」。
+`?return=archive` 在 iPad 场景下可以完全不使用。
+
+### 12.4 必须处理的四件事
+
+| # | 事项 | 现状 | 需要做什么 |
+|---|---|---|---|
+| 1 | OpenMAIC 监听范围 | `HOSTNAME=0.0.0.0` | 已改为监听所有网卡；局域网/iPad 可通过本机 IP 访问 |
+| 2 | PostgreSQL | 手动启动，不随开机 | 每次重启 Mac 后手动起（见 RHINE_INTEGRATION.md 第 34 行） |
+| 3 | ReinLab 目标地址 | 无 | `VITE_OPENMAIC_ORIGIN=http://<Mac 的局域网 IP>:3000` |
+| 4 | iOS ATS | 默认禁止明文 HTTP | `Info.plist` 加 `NSAppTransportSecurity` 例外 |
+
+Mac 的局域网 IP 由 DHCP 分配，可能变化 → 建议在路由器上固定，或改用 `.local` 主机名。
+
+### 12.5 OpenMAIC 侧建议改动（在另一个仓库）
+
+`RhineArchive.tsx:245` 的返回地址硬编码：
+
+```ts
+window.location.assign('http://127.0.0.1:5173/?return=archive')
+```
+
+在 iPad 场景下这是一个**死地址**（设备上没有 5173 服务）。建议二选一：
+
+- 抽成环境变量（如 `NEXT_PUBLIC_RHINE_RETURN_URL`），未设置时隐藏该入口；
+- 或按 `?entry=native` 之类的查询参数判断，在原生外壳中隐藏「返回」入口
+  （因为 sheet 关闭已经完成返回）。
+
+### 12.6 边界与风险
+
+- **Mac 必须开机**且 Postgres + OpenMAIC 在跑，否则 iPad 上学习通道不可用。
+- 明文 HTTP 仅限局域网；同一 Wi-Fi 下的其他设备也能访问该服务。
+- 本部署**无服务端 TTS**，Agent 生成的语音稿可读但无法合成音频
+  （RHINE_INTEGRATION.md 第 32 行），此限制与文本/Agent 连接无关。
+- ReinLab 自带的六种原生课堂仍是**可离线**的备选：若希望 iPad 在无网/无 Mac 时也能学，
+  可以把它们接回为默认入口（改动点已在会话中定位）。
+
+---
+
+## 十三、实施进度
+
+分支 `ios/capacitor`，`main` 保持冻结基线。
+
+### 已完成
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 备份 | git 基线 + 标签 `baseline-pre-ios`；目录外物理副本 | ✅ |
+| Phase 0 | `.nvmrc`、`.env.example`、`.gitignore` 补充 | ✅ |
+| Phase 4-1 | 移除硬编码 `127.0.0.1:3000`，改 `VITE_OPENMAIC_ORIGIN` | ✅ |
+| Phase 4-2 | 安全区 `env(safe-area-inset-*)`，用法 5 → 24 处 | ✅ |
+| Phase 4-3 | 课堂宽屏断点 1400px → 1190px | ✅ |
+| Phase 4-4 | `index.html` 加 `viewport-fit=cover` | ✅ |
+| 验证 | `@openmaic/renderer` 原生渲染可行性（`openmaicRenderer.test.tsx`） | ✅ |
+| CI | 首次运行全绿（macos-26，14/14 步骤），产物已拆包验证 | ✅ |
+| Phase 4-5 | OpenMAIC 地址改为**运行时设置**（设置面板填写，存本机） | ✅ |
+| Phase 4-6 | 应用图标与启动图（矢量重建，非位图裁切） | ✅ |
+
+构建与 **85** 个测试在 Node 24 下全绿；生产产物中已确认不含 `127.0.0.1:3000`。
+
+**图标与启动图的做法**（2026-09-27）：参考图都是位图（640×440 / 2715×1544），
+而 iOS 要求图标 1024×1024、启动图 2732×2732 的正方形。直接裁切放大有两个问题：
+参考截图中央有径向渐变（登录层 `radial-gradient`），裁出的矩形在补齐画布上会留下
+**可见边界**（已实测确认）；且位图放大后文字发虚。因此改为**用矢量重建**：
+
+- **图标**：复用 `BootStage.tsx` 的 `RhineMark` 组件路径（同一份矢量源），
+  背景 `#e6e5de` / 标志 `#080b07` 由参考图采样得到
+- **启动图**：用登录层的真实渐变（`radial-gradient(at 42% 42%, #efeee8, #e7e5df 70%, #dedbd3)`）
+  铺满画布，再按 `cine-welcome` / `cine-company` / `cine-welcome-logo` 的实际样式还原构图
+
+两个源文件保留在 `resources/`（`icon.source.svg`、`splash.source.html`），可重新生成。
+同时裁掉了参考截图里的 `ENTER SYSTEM` / `SOUND OFF` / `WORKBENCH` 等可点按钮——
+放进启动图会变成看得见但点不动的假 UI。
+
+**CI 产物验证**（2026-09-27）：下载 `ReinLab-unsigned-ipa` 拆包核对 ——
+`Payload/App.app` 结构正确、二进制 **arm64**、**未签名**（正是设计意图）、
+Bundle ID `chat.reinlab.terminal`、最低 iOS 15.0、ATS 例外已进包、
+Web 资源完整、**产物内不含 `127.0.0.1:3000`**。
+
+**地址配置的修正**：最初把 `VITE_OPENMAIC_ORIGIN` 当作构建期变量，但 CI 不会注入它，
+且局域网 IP 是 DHCP 分配、会变化——写进产物意味着每次变了都要重新出包 + 重签 + 重装。
+现改为**运行时设置**：设置面板填写、存 `localStorage`、调用时求值，改完立即生效。
+优先级：构建期环境变量 → 设置面板 → 仅开发服务器回退 `127.0.0.1:3000`。
+
+**原生渲染验证结论**（2026-09-27）：装 `@openmaic/renderer@0.1.11` + `@openmaic/dsl@0.11.2`
+后，用项目既有的 `renderToStaticMarkup`（node 环境）成功渲染含两个文本元素的 `Slide`。
+`tailwindcss@4.3.3` 作为必需 peer 由 npm 自动装入；`motion@12.43` 与 `react@19.3` 正确去重。
+**主包体积无变化**（308.68 kB，哈希未变）——renderer 只在测试中被引用，未进入应用打包图。
+注意：必须显式传 `scale`，省略时 renderer 会测量容器自适应，node 下无容器可测。
+
+### 待办（按依赖顺序）
+
+**需要你操作：**
+
+1. ~~创建 GitHub 仓库并推送~~ —— ✅ 已完成：https://github.com/GuangjieYu1/ReinLab
+   （注意：本机 `github.com:443` 被阻断，已改用 SSH over 443 + 仓库级 deploy key。）
+2. ~~OpenMAIC 改为局域网可访问~~ —— ✅ 已验证：`node` 监听 `*:3000`（所有网卡），
+   经局域网 IP 访问 `/reinlab` 返回 HTTP 200。
+3. ~~启动 PostgreSQL~~ —— ✅ 已验证：运行于 `127.0.0.1:55433`。
+   （注意重启 Mac 后仍需手动启动，命令见 RHINE_INTEGRATION.md。）
+4. ~~配置构建期地址~~ —— ✅ 已改为运行时设置，无需配置环境变量。
+5. **安装 Sideloadly**（约 50MB，不需要 Xcode），用免费 Apple ID 签名装机。
+
+**待开发：**
+
+**代码侧已无待办。** 下列为外部依赖项：
+
+6. ~~应用图标与启动图~~ —— ✅ 已完成（见 Phase 4-6，矢量重建）。
+7. ~~调试面板补触屏入口~~ —— **误判，无需改动**（现成按钮已可用）。
+8. **真机验收清单**（见第七节，11 项）—— 安装已完成，这是当前唯一的主要事项。
+9. OpenMAIC 侧：`RhineArchive.tsx:245` 的返回地址抽成配置或按原生场景隐藏
+   （另一个仓库；仅在 iPad 上点「返回」时才会暴露）。
+10. **可选**：原生渲染 OpenMAIC 课程（`@openmaic/renderer`，已验证可行，
+    约 2–4 天）—— 建议等真机验收结果出来再决定是否需要。
+
+---
+
+## 十四、安装实录（2026-09-27，已成功）
+
+**结果**：M1 iPad Pro（iPadOS 26.5.2）上已成功运行，能连上 OpenMAIC 课程库。
+整条链路（iOS 适配 → 云 CI 出包 → 自签装机 → 运行时配置 → 连服务）全部打通。
+
+### 14.1 实际可行的路径
+
+1. 从 GitHub Actions 下载构件 `ReinLab-unsigned-ipa`（3.0 MB）
+2. 装 **AltServer 1.8.1**（`cdn.altstore.io/file/altstore/altserver/1_8_1.zip`）
+   → 移入 `/Applications` → 运行（只在菜单栏，无窗口）
+3. 菜单栏 `Install AltStore` → 选 iPad → 输入 Apple ID
+4. **把 ipa 放进 Mac 的 iCloud Drive**（`~/Library/Mobile Documents/com~apple~CloudDocs/`）
+5. iPad 打开 **AltStore → My Apps → `+`** → 选 iCloud Drive 里的 ipa → 输入 Apple ID
+6. iPad：设置 → 通用 → VPN 与设备管理 → **信任**；设置 → 隐私与安全性 → **开发者模式**
+7. App 内：工作台 → 终端设置 → 填 `http://Guangjies-MacBook-Air.local:3000`
+
+### 14.2 四条死路（记录以免重走）
+
+| 死路 | 实际情况 |
+|---|---|
+| **Sideloadly** | `sideloadly.io` 在**权威 DNS（Cloudflare NS）上返回 `127.0.0.2`**，域名级注销。与本地网络无关，换任何解析器都一样 |
+| **AltServer 的 `Sideload .ipa`** | nib 里确实存在（位于 `Install AltStore` 与 `Enable JIT` 之间），但实际菜单中不显示。不要在这上面耗时间 |
+| **AirDrop 未签名 ipa** | iOS 按「安装应用」处理，`无法验证其完整性` 直接拒绝——**iOS 不会自己签名** |
+| **`Enable JIT`** | 会弹 `Missing AltJIT Dependencies`（需 `pymobiledevice3`），与安装无关，误点请直接 Cancel |
+
+### 14.3 四个被验证的判断
+
+1. **运行时地址设置是对的**（Phase 4-5）。部署期间局域网 IP 从 `10.82.81.123`
+   变成了 `192.168.5.122`（换了网络）。若按最初设计写进构建产物，就得重新出包 + 重签 + 重装。
+   **实测收益，不是理论推演。**
+
+2. **`.local` 主机名是正解**。`http://Guangjies-MacBook-Air.local:3000` 实测返回 200，
+   且之前加的 `NSAllowsLocalNetworking` 正好覆盖 `.local` 域——两个独立决定互相咬合。
+
+3. **AltServer 是纯通知应用**：没有窗口，进度与报错**只**通过 macOS 通知传达。
+   通知权限没给时完全看不到反馈（本次安装就是如此）。
+   替代验证方式：`log show --predicate 'process == "AltServer"'` 能直接看到
+   `Installation Progress: 100` / `Finished installing app!`。
+
+4. **`ioreg` 比 `system_profiler` 可靠**：后者在这台机器上查不到 iPad，
+   `ioreg -p IOUSB -w0 -l | grep '"USB Product Name"'` 才看得到。
+
+### 14.4 免费 Apple ID 的限制（实际遇到）
+
+- 证书 **7 天**有效，到期需重签（用 AltStore 刷新即可，数据保留）
+- 同时最多 **3 个**自签 App
+- 有双重认证时必须用 **App 专用密码**，不是登录密码
+  （[appleid.apple.com](https://appleid.apple.com) → 登录与安全 → App 专用密码）
+
+---
+
 ## 一句话总结
 
-**打包不是难点，Capacitor 半天能通；难点是移动端安全区与性能适配，以及
-「CI 只能出未签名包、签名必须回本机」这条被迫的两段式链路。**
-建议严格按 Phase 1.5 的顺序走——先用局域网 iPhone Safari 把体验问题全部暴露，
-再动云端 CI，否则会在一个每次要等 CI、每 7 天要重签的慢循环里调试布局。
+**已交付并验证**：M1 iPad Pro（iPadOS 26.5.2）上运行成功，能连 OpenMAIC 课程库。
+免费的完整链路是「**云端出未签名包 → 本机用免费 Apple ID 签名 → AltStore 安装**」。
+
+回头看，最初的判断有一处重要偏差：以为难点在移动端适配，实际**真正花时间的是
+分发链路**——Sideloadly 域名被注销、AltServer 的 `Sideload .ipa` 不显示、
+AirDrop 未签名 ipa 被 iOS 拒绝，每一个都不在计划里。
+
+而两个当时看起来「多此一举」的决定，后来都成了关键：**把地址做成运行时设置**
+（部署期间 IP 真的变了两次）和 **`NSAllowsLocalNetworking` 覆盖 `.local`**
+（最终用的就是这个地址）。

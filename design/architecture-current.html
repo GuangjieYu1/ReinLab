@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ReinLab 架构图 · 2026-10-23</title>
+<style>
+  :root{
+    --white:#fbfbf9; --paper:#f0eeea; --paper-2:#e6e4df;
+    --ink:#141213; --ink-2:#3a3837; --ink-3:#6b6865; --ink-4:#9a9792;
+    --line:#c9c6c0; --accent:#ff7a1a; --wash:#ffeadb;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+    --ui:'DM Sans','Noto Sans SC','PingFang SC',-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font:13px/1.45 var(--ui);padding:28px 32px 40px}
+  header{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:18px}
+  h1{margin:0;font-size:22px;letter-spacing:.02em}
+  h1 .tag{display:inline-block;background:var(--ink);color:var(--white);font:600 11px var(--mono);padding:3px 7px;margin-right:10px;vertical-align:4px}
+  .meta{font:11px var(--mono);color:var(--ink-3);text-align:right}
+  .legend{display:flex;gap:18px;font-size:12px;color:var(--ink-2);margin-bottom:16px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:14px;height:10px;border:1.5px solid var(--ink);background:var(--white)}
+  .sw.new{border-color:var(--accent);background:var(--wash)}
+  .sw.later{border-style:dashed;border-color:var(--ink-4);background:transparent}
+
+  .wrap{display:grid;grid-template-columns:1fr 210px;gap:16px}
+  .layer{display:grid;grid-template-columns:118px 1fr;border:1.5px solid var(--ink);background:var(--white)}
+  .label{background:var(--ink);color:var(--white);padding:10px 10px}
+  .label b{display:block;font:600 11px var(--mono);color:var(--accent);margin-bottom:3px}
+  .label span{font-size:13px;font-weight:600}
+  .label small{display:block;color:var(--ink-4);font-size:11px;margin-top:4px}
+  .cells{display:flex;flex-wrap:wrap;gap:8px;padding:10px}
+  .box{border:1.5px solid var(--ink);background:var(--white);padding:6px 9px;min-width:110px;flex:1 1 auto}
+  .box strong{display:block;font-size:13px}
+  .box em{display:block;font-style:normal;font-size:11px;color:var(--ink-3)}
+  .box.new{border-color:var(--accent);background:var(--wash)}
+  .box.later{border:1.5px dashed var(--ink-4);color:var(--ink-3)}
+  .box.later strong{color:var(--ink-2)}
+  .box.new.later{border-color:var(--accent);background:transparent}
+  .box.wide{flex-basis:100%}
+  .group{border:1px solid var(--line);padding:8px;flex:1 1 300px;display:flex;flex-wrap:wrap;gap:6px;position:relative;padding-top:22px}
+  .group>i{position:absolute;top:4px;left:8px;font:600 10px var(--mono);font-style:normal;color:var(--ink-3);letter-spacing:.06em}
+  .link{display:flex;align-items:center;gap:10px;padding:5px 0 5px 140px;font:11px var(--mono);color:var(--ink-3)}
+  .link::before{content:"";width:2px;height:16px;background:var(--ink)}
+  .link b{color:var(--ink);font-weight:600}
+
+  aside{display:flex;flex-direction:column;gap:12px}
+  .side{border:1.5px solid var(--ink);background:var(--white)}
+  .side h3{margin:0;background:var(--ink);color:var(--white);font-size:12px;padding:6px 9px}
+  .side h3 b{color:var(--accent);font:600 10px var(--mono);margin-right:6px}
+  .side ul{margin:0;padding:8px 9px 9px 24px;font-size:12px}
+  .side li{margin:3px 0}
+  .side li.new::marker{color:var(--accent)}
+  .side p{margin:0;padding:8px 9px;font-size:12px;color:var(--ink-2)}
+  .acc{color:var(--accent);font-weight:700}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="tag">01 · ARCH</span>ReinLab 整体架构</h1>
+  <div class="meta">2026-10-23 · 依据 ARCHITECTURE_BENCHES.md 第 1–12 节、DEFERRED.md<br>第一阶段：全部本地部署（Supabase CLI + Docker），模型只有 DeepSeek V4 Flash</div>
+</header>
+
+<div class="legend">
+  <span><i class="sw"></i>已定</span>
+  <span><i class="sw new"></i>2026-10-23 新定</span>
+  <span><i class="sw later"></i>暂缓（DEFERRED，跑通后再做）</span>
+</div>
+
+<div class="wrap">
+<main>
+  <!-- 01 前端 -->
+  <section class="layer">
+    <div class="label"><b>L1</b><span>前端</span><small>每台 mock / live 两种适配器</small></div>
+    <div class="cells">
+      <div class="group"><i>七个工作台</i>
+        <div class="box"><strong>研究 RSCH</strong></div>
+        <div class="box"><strong>课程 CURR</strong></div>
+        <div class="box"><strong>工程 ENGR</strong></div>
+        <div class="box"><strong>创作 CRTV</strong></div>
+        <div class="box"><strong>自动化 AUTO</strong></div>
+        <div class="box"><strong>探索 EXPL</strong></div>
+        <div class="box"><strong>数据 DATA</strong></div>
+      </div>
+      <div class="group" style="flex-basis:240px"><i>所有台共用</i>
+        <div class="box"><strong>AgentDock</strong><em>五种事件</em></div>
+        <div class="box"><strong>审批卡 · 收件箱</strong></div>
+        <div class="box"><strong>审计画布</strong></div>
+        <div class="box"><strong>DiffBlock</strong><em>显示 git diff</em></div>
+        <div class="box new"><strong>Blender 实况监视窗</strong><em>noVNC · 可接管 · 唯一嵌入例外</em></div>
+      </div>
+    </div>
+  </section>
+  <div class="link"><b>HTTPS + 事件流</b> 前端只调控制面 API</div>
+
+  <!-- 02 控制面 -->
+  <section class="layer">
+    <div class="label"><b>L2</b><span>控制面</span><small>自己写</small></div>
+    <div class="cells">
+      <div class="box"><strong>档案 · 角色 · 门禁</strong><em>工作台清单（harness）</em></div>
+      <div class="box"><strong>事件账本</strong><em>运行 · 工具 · 费用</em></div>
+      <div class="box"><strong>记忆服务</strong><em>自研，Mem0 等仅参考</em></div>
+      <div class="box"><strong>委托</strong></div>
+      <div class="box"><strong>审批 · 收件箱</strong></div>
+      <div class="box new"><strong>MR · git merge</strong><em>保护分支门禁，不上 Gitea</em></div>
+      <div class="box new"><strong>搜索工具</strong><em>DeepSeek Search / Fetch，计入预算</em></div>
+      <div class="box"><strong>翻译层</strong><em>bridge/openscience</em></div>
+      <div class="box"><strong>MCP 能力层</strong><em>engines/&lt;名字&gt;/ 适配器</em></div>
+    </div>
+  </section>
+  <div class="link"><b>运行令牌 · 适配器 · MCP</b> 组件之间不直接互调</div>
+
+  <!-- 03 编排与网关 -->
+  <section class="layer">
+    <div class="label"><b>L3</b><span>编排与网关</span><small>共享</small></div>
+    <div class="cells">
+      <div class="box"><strong>Hatchet</strong><em>长流程 · 定时 · 等批准 · 断点续跑</em></div>
+      <div class="box"><strong>LiteLLM 模型网关</strong><em>每次运行发临时 key，带预算上限；真实 key 只在这里</em></div>
+    </div>
+  </section>
+  <div class="link"><b>按账户隔离 ↓ / 共享 ↓</b> 长期持有用户文件的进账户容器，做完就忘的共享</div>
+
+  <!-- 04 账户容器 + 共享引擎 -->
+  <section class="layer">
+    <div class="label"><b>L4</b><span>执行</span><small>本地 Docker</small></div>
+    <div class="cells">
+      <div class="group"><i>每个账户一个容器 + 一个卷</i>
+        <div class="box"><strong>OpenScience 内核</strong><em>所有台的 AI 角色</em></div>
+        <div class="box"><strong>工作区卷</strong><em>git 档案 · 代码 · 数据集 · 快照备份</em></div>
+        <div class="box"><strong>Data Formulator</strong><em>数据台，自带 AI</em></div>
+        <div class="box new"><strong>Blender（带界面）</strong><em>Xvfb + 软件渲染 · 插件收 bpy 指令 · 出深度/姿态/遮罩</em></div>
+      </div>
+      <div class="group"><i>共享引擎 · 不存用户状态</i>
+        <div class="box"><strong>OpenMAIC 课堂引擎</strong><em>SDK：生成 + 渲染</em></div>
+        <div class="box later"><strong>ComfyUI</strong><em>节点图出图，需 GPU</em></div>
+        <div class="box new"><strong>Docling</strong><em>电子版 PDF · 表格（CPU）</em></div>
+        <div class="box new later"><strong>Unlimited-OCR</strong><em>扫描件 · 长书，需 GPU</em></div>
+        <div class="box new"><strong>MiMo 语音适配器</strong><em>engines/mimo-audio</em></div>
+      </div>
+    </div>
+  </section>
+  <div class="link"><b>RLS 隔离</b></div>
+
+  <!-- 05 数据 -->
+  <section class="layer">
+    <div class="label"><b>L5</b><span>数据</span><small>Supabase CLI 本地全套</small></div>
+    <div class="cells">
+      <div class="box"><strong>Postgres + RLS</strong></div>
+      <div class="box"><strong>pgvector</strong><em>L4 事实记忆</em></div>
+      <div class="box"><strong>Auth</strong></div>
+      <div class="box"><strong>Storage</strong><em>课堂产物 · 照片 · 画廊</em></div>
+      <div class="box"><strong>Vault</strong><em>真实 key</em></div>
+    </div>
+  </section>
+  <div class="link"><b>只经网关 / 控制面工具出网</b></div>
+
+  <!-- 06 外部 -->
+  <section class="layer">
+    <div class="label"><b>L6</b><span>外部服务</span></div>
+    <div class="cells">
+      <div class="box"><strong>DeepSeek V4 Flash</strong><em>三档都用它</em></div>
+      <div class="box new"><strong>DeepSeek Search / Fetch</strong><em>$0.75 / 千次</em></div>
+      <div class="box new"><strong>MiMo TTS / ASR</strong><em>v2.5，编号待核实</em></div>
+      <div class="box"><strong>Open-Meteo · OSM</strong><em>探索台工具</em></div>
+      <div class="box later"><strong>会员 / 外部执行器</strong><em>Codex · Copilot · Claude Code · Gemini CLI</em></div>
+      <div class="box later"><strong>Modal GPU · 多模态模型</strong></div>
+    </div>
+  </section>
+</main>
+
+<aside>
+  <div class="side">
+    <h3><b>OBS</b>可观测性</h3>
+    <ul>
+      <li class="new">控制面统一 OpenTelemetry 埋点</li>
+      <li class="new">本地接一个轻量一体化后端</li>
+      <li>Langfuse 以后加（直接收 OTel）</li>
+      <li>第一阶段主要靠账本 + 审计画布</li>
+    </ul>
+  </div>
+  <div class="side">
+    <h3><b>RULE</b>防散件五条</h3>
+    <ul>
+      <li>一种前端（监视窗是唯一例外）</li>
+      <li>三条通道互不越界</li>
+      <li>每个上游一个适配器包 + 契约测试</li>
+      <li>状态只在 Supabase 与账户卷</li>
+      <li>清单决定接线</li>
+    </ul>
+  </div>
+  <div class="side">
+    <h3><b>NEXT</b>之后再做</h3>
+    <ul>
+      <li>Fly 东京 + Supabase 东京</li>
+      <li>模型分档 · 会员接入</li>
+      <li>多模态 · Modal GPU</li>
+      <li>noVNC 不够流畅时换 Selkies</li>
+    </ul>
+  </div>
+  <div class="side">
+    <h3><b>NOTE</b>许可证边界</h3>
+    <p>Blender（GPL）、ComfyUI（GPL）只作独立进程 / 网络调用。Petty-Set、CozyClay 是 AGPL，<span class="acc">只借鉴，不搬代码</span>。</p>
+  </div>
+</aside>
+</div>
+</body>
+</html>

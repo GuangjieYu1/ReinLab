@@ -1,0 +1,132 @@
+/*
+ * 原生课程层（学习档案 → 课程列表 → 场景编排器）。
+ *
+ * 沿用 classroom.css 的视觉语汇：鼠尾草绿、细边线、等宽小标签、纸面质感。
+ * 不引入 Tailwind——@openmaic/renderer 自带 <style> 注入，产物里没有任何
+ * Tailwind 工具类（见 NATIVE_COURSE_PLAN.md 的修订记录），所以这里手写 CSS，
+ * 现有页面的样式不受任何影响。
+ */
+
+.nc-view {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding-bottom: 40px;
+  --nc-green: #677458;
+  --nc-muted: #8a8e7d;
+  --nc-line: #b8beaa55;
+}
+
+/* ── 页头 ─────────────────────────────────────────────── */
+.nc-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.nc-head h1 { font-size: 30px; font-weight: 400; letter-spacing: .04em; color: #4c5540; margin-top: 10px; }
+.nc-head h1 > span { font-size: 11px; color: #9a9d8c; margin-left: 16px; letter-spacing: .015em; }
+.nc-head p { font-size: 12px; line-height: 1.9; color: #868b78; margin-top: 12px; max-width: 520px; }
+.nc-head-actions { display: flex; align-items: center; gap: 12px; }
+
+/* ── 连接与配额条 ─────────────────────────────────────── */
+.nc-status {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 13px 16px; border: 1px solid var(--nc-line); background: #f7f7f0a6;
+  font-size: 10px; color: var(--nc-muted); letter-spacing: .04em;
+}
+.nc-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #a9b295; flex-shrink: 0; }
+.nc-status-dot.online { background: #7d9a5e; box-shadow: 0 0 6px #8fae6a55; }
+.nc-status-dot.offline { background: #b08a5e; box-shadow: 0 0 6px #c09a6a55; }
+.nc-status-spacer { flex: 1; }
+.nc-status-note { color: #9ba08d; }
+.nc-status-note.warn { color: #a8814e; }
+
+/* ── 课程列表 ─────────────────────────────────────────── */
+.nc-list { display: flex; flex-direction: column; border-top: 1px solid var(--nc-line); }
+.nc-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center;
+  width: 100%; text-align: left; padding: 20px 4px; border-bottom: 1px solid var(--nc-line);
+}
+.nc-row:hover:not(:disabled) { background: #eef0e452; }
+.nc-row:disabled { cursor: default; opacity: .62; }
+.nc-row-main { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.nc-row-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.nc-row-title h3 { font-size: 15px; font-weight: 500; color: #4f5842; letter-spacing: .02em; }
+.nc-row-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 10px; color: #979b88; }
+.nc-row-meta > span { display: inline-flex; align-items: center; gap: 6px; }
+.nc-row-desc { font-size: 11.5px; line-height: 1.8; color: #868b78; }
+.nc-row-actions { display: flex; align-items: center; gap: 8px; }
+
+.nc-badge {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: .1em;
+  padding: 3px 7px; border: 1px solid #cfd4c3; color: #778368; border-radius: 2px; white-space: nowrap;
+}
+.nc-badge.downloaded { border-color: #a8bc8650; color: #5d7841; background: #b2c59821; }
+.nc-badge.stale { border-color: #d3bd8a66; color: #96773f; background: #d9c69a1f; }
+.nc-badge.unavailable { border-color: #cbbfae; color: #9c8d78; }
+.nc-badge.online { border-color: #cfd4c3; color: #778368; }
+
+.nc-icon-button {
+  width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 3px;
+  border: 1px solid #cfd3c5; background: #f7f7f0a6; color: #6f7a61;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.nc-icon-button:hover:not(:disabled) { background: #e9ecdf; border-color: #afb79d; }
+.nc-icon-button.danger:hover:not(:disabled) { border-color: #c8a08e; color: #9c6a52; background: #f3e9e2; }
+
+.nc-empty { padding: 46px 4px; text-align: center; color: #9a9f89; font-size: 12px; line-height: 2; }
+.nc-empty b { display: block; font-size: 14px; font-weight: 500; color: #6f7860; margin-bottom: 10px; }
+
+/* 下载进度 */
+.nc-progress { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+.nc-progress-bar { height: 2px; background: #c8cdb8; position: relative; overflow: hidden; }
+.nc-progress-bar > i { position: absolute; inset: 0 auto 0 0; background: #7d8f66; transition: width .2s ease; }
+.nc-progress-text { font-size: 10px; color: #8f9480; letter-spacing: .03em; }
+
+/* ── 场景编排器 ───────────────────────────────────────── */
+.nc-reader { display: flex; flex-direction: column; gap: 18px; --nc-green: #677458; }
+/* 尊重「减少动态效果」：进度条与悬停过渡一起关掉。 */
+.nc-reader.nc-reduced .nc-progress-bar > i { transition: none; }
+.nc-reader-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.nc-reader-bar h1 { font-size: 19px; font-weight: 400; letter-spacing: .04em; color: #4f5842; }
+.nc-reader-bar .nc-reader-code { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: .14em; color: #919480; }
+.nc-reader-spacer { flex: 1; }
+
+.nc-stage {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; min-height: 300px; max-height: 64vh;
+  background: #fbfbf5; border: 1px solid var(--nc-line); overflow: hidden;
+}
+.nc-stage > .nc-slide-host { position: absolute; inset: 0; }
+
+.nc-scene-note {
+  border: 1px solid var(--nc-line); background: #f7f7f0a6; padding: 30px 32px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.nc-scene-note > span { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: .12em; color: #99a786; }
+.nc-scene-note h3 { font-size: 17px; font-weight: 400; color: #5b6650; line-height: 1.7; }
+.nc-scene-note p { font-size: 12px; line-height: 2; color: #868b78; }
+.nc-scene-note ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
+.nc-scene-note li { font-size: 12.5px; line-height: 1.9; color: #6f7a61; }
+
+.nc-pager { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.nc-pager-index { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .1em; color: #8f9480; min-width: 74px; }
+.nc-pager-title { flex: 1; font-size: 12px; color: #6f7a61; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-pager-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 38px; padding: 0 14px; border: 1px solid #cfd3c5; background: #f7f7f0a6;
+  font-size: 11px; color: #6f7a61; border-radius: 3px;
+}
+.nc-pager-button:hover:not(:disabled) { background: #e9ecdf; border-color: #afb79d; }
+
+.nc-strip { display: flex; gap: 7px; flex-wrap: wrap; }
+.nc-strip > button {
+  width: 30px; min-height: 30px; padding: 0; font-size: 10px; font-family: 'IBM Plex Mono', monospace;
+  border: 1px solid #d3d7c8; color: #8f9480; background: #f7f7f0a6; border-radius: 2px;
+}
+.nc-strip > button.seen { border-color: #b3bf9c; color: #6d7c58; }
+.nc-strip > button[aria-current="true"] { background: #6f7a61; border-color: #6f7a61; color: #f7f8f0; }
+
+.nc-media-warning { font-size: 10.5px; color: #a8814e; line-height: 1.8; }
+.nc-reader-footer { display: flex; justify-content: space-between; align-items: center; gap: 18px; font-size: 9px; letter-spacing: .1em; color: #9a9f89; }
+
+@media (max-width: 760px) {
+  .nc-row { grid-template-columns: 1fr; }
+  .nc-row-actions { justify-content: flex-start; }
+  .nc-head h1 { font-size: 24px; }
+}

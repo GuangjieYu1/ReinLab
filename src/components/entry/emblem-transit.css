@@ -1,0 +1,78 @@
+/* 文档转场层：常驻在页面之外，跨页面不中断。所有元素以左上角为原点，只用 transform 摆位。 */
+.et { position:fixed; inset:0; z-index:300; pointer-events:none; }
+.et > *, .et-doc > * { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform, opacity; }
+/* 文档组：底框、页眉、封面、标识与拆开的部件。取出 / 放回时整组前倾（transform 由 EmblemTransit 写入） */
+.et > .et-doc { inset:0; width:100%; height:100%; will-change:transform; }
+.et-shadow { width:100px; height:100px; background:radial-gradient(closest-side,#14121366,#14121322 55%,transparent); }
+.et-veil { inset:0; width:100%; height:100%; transform:none !important; background:radial-gradient(110% 90% at 50% 45%, #fbfbf9 0%, #f0eeea 60%, #e6e4df 100%); opacity:0; }
+
+/* 无文字元素：基础 100×100，可非等比缩放到任意矩形 */
+.et-frame, .et-head, .et-sheet { width:100px; height:100px; }
+.et-frame { background:linear-gradient(170deg,#fdfcf9,#efece4); box-shadow:0 0 0 .4px #141213; }
+.et-head { background:#141213; }
+.et-sheet { background:linear-gradient(175deg,#fbfaf6,#f0eee8); box-shadow:inset 0 0 0 1px #c9c6c0, 0 10px 30px rgba(20,18,19,.06); }
+
+/* 有文字元素：按文档宽度等比缩放（.et-cover 基础 680 × 503，与档案盒同比例；.et-emblem 基础 250） */
+/* 封面：莱茵生命的档案页——墨黑页眉与机密标记、带定位线的「图 01」标识、大号档案号、元数据格、橙色印戳、警示条纹与条码 */
+.et-cover { width:680px; height:503px; color:#141213; overflow:hidden;
+  background:linear-gradient(#14121308 1px,transparent 1px) 0 64px/100% 24px, linear-gradient(90deg,#14121306 1px,transparent 1px) 0 0/24px 100%; }
+.et-crop { position:absolute; width:14px; height:14px; border:0 solid #141213; }
+.et-crop[data-c='tl'] { left:10px; top:74px; border-width:1.2px 0 0 1.2px; } .et-crop[data-c='tr'] { right:10px; top:74px; border-width:1.2px 1.2px 0 0; }
+.et-crop[data-c='bl'] { left:10px; bottom:10px; border-width:0 0 1.2px 1.2px; } .et-crop[data-c='br'] { right:10px; bottom:10px; border-width:0 1.2px 1.2px 0; }
+.et-cover-head { position:relative; height:64px; display:flex; align-items:center; gap:16px; padding:0 28px; color:#f0eeea; }
+.et-cover-head b { font:800 30px/1 'Archivo','Noto Sans SC',sans-serif; font-stretch:125%; }
+.et-cover-head span { font:400 12px/1 'IBM Plex Mono',monospace; letter-spacing:.16em; color:#9a9792; }
+.et-cover-head em { margin-left:auto; display:flex; align-items:center; gap:8px; font:normal 400 10.5px/1 'IBM Plex Mono',monospace; letter-spacing:.16em; color:#9a9792; }
+.et-cover-head em i { width:8px; height:8px; background:#ff7a1a; }
+
+.et-fig { position:absolute; left:28px; top:96px; width:306px; height:340px; }
+.et-fig-label { position:absolute; left:0; top:0; display:grid; gap:4px; font:400 10.5px/1 'IBM Plex Mono',monospace; letter-spacing:.14em; color:#141213; }
+.et-fig-label small { font-size:9.5px; color:#9a9792; letter-spacing:.14em; }
+.et-fig-h { position:absolute; left:0; right:0; top:189px; height:1px; background:repeating-linear-gradient(90deg,#14121366 0 6px,transparent 6px 10px); }
+.et-fig-v { position:absolute; top:40px; bottom:20px; left:153px; width:1px; background:repeating-linear-gradient(#14121366 0 6px,transparent 6px 10px); }
+.et-fig-foot { position:absolute; left:0; bottom:0; font:400 10.5px/1 'IBM Plex Mono',monospace; letter-spacing:.14em; color:#9a9792; }
+
+.et-cover-body { position:absolute; left:360px; right:32px; top:92px; display:grid; justify-items:start; }
+.et-cover-eyebrow { display:flex; align-items:center; gap:8px; font:400 10.5px/1 'IBM Plex Mono',monospace; letter-spacing:.14em; color:#6b6865; }
+.et-cover-eyebrow i { width:7px; height:7px; background:#ff7a1a; }
+.et-cover-title { margin-top:14px; font:650 30px/1.2 'DM Sans','Noto Sans SC',sans-serif; letter-spacing:.03em; }
+.et-cover-file { margin-top:18px; display:grid; gap:6px; font:800 50px/.9 'Archivo',sans-serif; font-stretch:125%; letter-spacing:-.01em; }
+.et-cover-file small { font:700 11px/1 'Archivo',sans-serif; font-stretch:125%; letter-spacing:.3em; color:#ff7a1a; }
+.et-cover-meta { margin:20px 0 0; width:100%; display:grid; grid-template-columns:repeat(3,1fr); border-top:1.5px solid #141213; border-bottom:1px solid #c9c6c0; }
+.et-cover-meta div { padding:9px 0 9px 10px; display:grid; gap:6px; } .et-cover-meta div + div { border-left:1px solid #c9c6c0; } .et-cover-meta div:first-child { padding-left:0; }
+.et-cover-meta dt { font:400 9.5px/1 'IBM Plex Mono',monospace; letter-spacing:.14em; color:#9a9792; }
+.et-cover-meta dd { margin:0; font:700 12px/1 'Archivo','Noto Sans SC',sans-serif; font-stretch:112%; letter-spacing:.04em; white-space:nowrap; }
+.et-cover-last { margin-top:14px; width:100%; display:grid; gap:7px; }
+.et-cover-last > span:first-child { font:400 9.5px/1 'IBM Plex Mono',monospace; letter-spacing:.14em; color:#9a9792; }
+.et-cover-last b { font:650 15px/1.3 'DM Sans','Noto Sans SC',sans-serif; }
+.et-cover-rail { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:3px; }
+.et-cover-rail i { height:4px; background:#d9d6cf; } .et-cover-rail i[data-s='done'] { background:#141213; } .et-cover-rail i[data-s='now'] { background:#ff7a1a; }
+
+.et-stamp { position:absolute; right:34px; bottom:58px; display:grid; justify-items:center; gap:3px; padding:6px 10px 5px; border:2px solid #ff7a1a; color:#ff7a1a; transform:rotate(-7deg);
+  font:800 15px/1 'Archivo',sans-serif; font-stretch:125%; letter-spacing:.14em; opacity:.92; }
+.et-stamp small { font:400 9px/1 'IBM Plex Mono',monospace; letter-spacing:.2em; }
+
+.et-cover-foot { position:absolute; left:28px; right:28px; bottom:22px; display:flex; align-items:center; gap:14px; padding-top:10px; border-top:1px solid #c9c6c0;
+  font:400 9.5px/1 'IBM Plex Mono',monospace; letter-spacing:.14em; color:#9a9792; white-space:nowrap; }
+.et-hazard { width:64px; height:12px; background:repeating-linear-gradient(-45deg,#ff7a1a 0 6px,#141213 6px 12px); flex:none; }
+.et-barcode { margin-left:auto; width:110px; height:16px; flex:none; background:repeating-linear-gradient(90deg,#141213 0 1px,#0000 1px 3px,#141213 3px 5px,#0000 5px 6px,#141213 6px 7px,#0000 7px 10px); }
+.et-emblem { width:250px; height:250px; }
+.et-logo { position:absolute; inset:0; padding:12%; }
+.et-logo::before { content:''; position:absolute; inset:0; border-radius:50%; background:#fbfbf9; box-shadow:0 0 0 1.5px #141213; opacity:var(--disc,1); }
+.et-logo .entry-logo, .et-logo img { position:relative; width:100%; height:100%; display:block; }
+/* 拆开的标识部件：外圈与中央图形的各组部件，各自飞向顶栏与面板 */
+.et-parts { width:0; height:0; }
+.et-parts > img { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform, opacity; max-width:none; }
+
+/* 起落点上的原元素：转场期间由飞行的元素代替 */
+html[data-transit] .wb-crumb-logo { visibility:hidden; }
+html[data-transit='hold'] .wb .wb-body, html[data-transit='arriving'] .wb .wb-body,
+html[data-transit='hold'] .wb [data-wb-bar], html[data-transit='arriving'] .wb [data-wb-bar] { opacity:0; }
+html[data-transit='settle'] .wb .wb-body, html[data-transit='settle'] .wb [data-wb-bar] { opacity:1; transition:opacity .28s ease; }
+/* 返回时：工作台内容先隐去，由同位置的纸层接替后再折回 */
+html[data-transit='leaving'] .wb .wb-body, html[data-transit='leaving'] .wb [data-wb-bar] { opacity:0; transition:opacity .16s ease; }
+
+/* 档案盒开门：选中档案盒的玻璃正面以左边为轴转开，露出盒内；文档放回后再关上 */
+.cine-cassette.selected .cassette-front { transform-origin:0 50%; transition:transform .5s var(--rh-ease-move, cubic-bezier(.65,0,.35,1)); }
+html[data-cassette='open'] .cine-cassette.selected .cassette-front { transform:translateZ(16px) rotateY(-108deg); }
+html[data-cassette='open'] .cine-cassette.selected .entry-seal { opacity:0; }

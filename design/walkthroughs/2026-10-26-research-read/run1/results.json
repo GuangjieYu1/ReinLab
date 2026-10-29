@@ -1,0 +1,138 @@
+{
+  "base": "http://127.0.0.1:5183",
+  "live": true,
+  "cap": 3,
+  "startedAt": "2026-10-26T06:14:48.412Z",
+  "seconds": 102.892,
+  "results": [
+    {
+      "id": "E1",
+      "kind": "错",
+      "action": "邮箱对、密码错，提交",
+      "expected": "红色封锁画面 + 提示核对邮箱和密码，不进入选台",
+      "actual": "封锁后恢复，提示「核验未通过：请核对邮箱和密码」",
+      "verdict": "✓",
+      "note": "",
+      "at": 7
+    },
+    {
+      "id": "E2",
+      "kind": "错",
+      "action": "邮箱留空直接提交",
+      "expected": "提示「请输入邮箱」，不发请求",
+      "actual": "提示是「请输入用户名或邮箱」",
+      "verdict": "✗",
+      "note": "",
+      "at": 15
+    },
+    {
+      "id": "E3",
+      "kind": "正",
+      "action": "输入正确账户登录",
+      "expected": "核验动画 → 选台出现",
+      "actual": "登录成功，选台出现",
+      "verdict": "✓",
+      "note": "",
+      "at": 20
+    },
+    {
+      "id": "E4",
+      "kind": "正",
+      "action": "选 RSCH → 进入工作台 → 抽取档案 → 继续工作",
+      "expected": "进入研究台，页面不整页刷新、登录不掉",
+      "actual": "进入研究台，登录状态保留",
+      "verdict": "✓",
+      "note": "",
+      "at": 27
+    },
+    {
+      "id": "W2",
+      "kind": "正",
+      "action": "看收件箱",
+      "expected": "没有测试残留；有待办时是人话，不是原始 JSON",
+      "actual": "收件箱里出现原始 JSON",
+      "verdict": "✗",
+      "note": "",
+      "at": 46
+    },
+    {
+      "id": "W1",
+      "kind": "错",
+      "action": "点「群研」「自研」入口",
+      "expected": "置灰并标出接入期次，点了不切换",
+      "actual": "置灰入口 2 个：SWARM群研第三期 / AUTO自研第一期末；点击后仍在精读",
+      "verdict": "✓",
+      "note": "",
+      "at": 52
+    },
+    {
+      "id": "W3",
+      "kind": "正",
+      "action": "＋ 新建精读",
+      "expected": "出现「想读哪篇？」，没有「预估费用」按钮，澄清 ¥0.000 / ¥0.05",
+      "actual": "「想读哪篇？」；澄清对话用便宜档模型，上限 ¥0.05，不单独确认；已用 ¥0.000。",
+      "verdict": "✓",
+      "note": "",
+      "at": 57
+    },
+    {
+      "id": "C1",
+      "kind": "正",
+      "action": "发：我想读那篇让大模型自己学会什么时候调用计算器、搜索这些工具的论文",
+      "expected": "立刻显示「工作中」；数秒内回话并列出候选；AI 不替你选",
+      "actual": "7 秒内没有出现候选（agent）",
+      "verdict": "✗",
+      "note": "",
+      "at": 62
+    },
+    {
+      "id": "C2",
+      "kind": "正",
+      "action": "看候选是否包含 Toolformer",
+      "expected": "候选含 Toolformer，信息齐全",
+      "actual": "候选里没有 Toolformer",
+      "verdict": "✗",
+      "note": "",
+      "at": 74
+    },
+    {
+      "id": "C3",
+      "kind": "错",
+      "action": "点「都不是」，补一句：是 Meta 2023 年的 Toolformer",
+      "expected": "第二轮检索出现 Toolformer，两轮合计 ≤ ¥0.05",
+      "actual": "第二轮没有出现候选（agent）",
+      "verdict": "✗",
+      "note": "设。To Call or Not to Call: A Framework to Assess and Optimize LLM Tool CallingQinyuan Wu、Soumi Das、Mahsa Amani、Arijit Nag、Seungeon Lee、Krishna P. Gummadi、Abhilasha Ravichander、Muhammad Bilal Zafar · arXiv (Cornell University) · 有开放全文公开元数据未提供可靠页数；估价将明确使用保守假设。都不是AI澄清未受理或结果尚未核对，请只读刷新账本；没有自动重试或提高预算。14:16AI三篇候选都不是。请补充线索（第一作者、年份/会议、确切标题或关键词，例如是否做自我训练/自标签 RL 决定是否调用工具），以便重新检索。14:16@ 引用对象 · / 调用动作 · 写入需审批发送",
+      "at": 78
+    },
+    {
+      "id": "C4",
+      "kind": "正",
+      "action": "看底栏澄清花费",
+      "expected": "真实花了钱，金额大于 0",
+      "actual": "显示 ¥0.000 / ¥0.05，花了钱却显示 0",
+      "verdict": "✗",
+      "note": "",
+      "at": 88
+    },
+    {
+      "id": "STOP",
+      "kind": "—",
+      "action": "停止",
+      "expected": "—",
+      "actual": "两轮澄清都没找到 Toolformer，后续步骤需要选定论文，走查到此为止",
+      "verdict": "✗",
+      "at": 91
+    },
+    {
+      "id": "X1",
+      "kind": "错",
+      "action": "刷新页面",
+      "expected": "已知问题：会话只在内存里，刷新后回到登录页",
+      "actual": "刷新后回到登录页（已知问题，会话不持久）",
+      "verdict": "△",
+      "note": "",
+      "at": 93
+    }
+  ]
+}
