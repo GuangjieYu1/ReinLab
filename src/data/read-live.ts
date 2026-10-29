@@ -231,7 +231,15 @@ export function createLiveReadAdapter(
         // 不是用户说的话（还带本机路径），不显示。
         if (data.source?.kind === "runtime-context") return;
         const text = textOf(data);
-        if (text) emit({ type: "user", id: String(data.id ?? "user:" + event.seq), text });
+        const asAction = text ? startInstruction(text) : null;
+        if (text)
+          emit({
+            type: "user",
+            id: String(data.id ?? "user:" + event.seq),
+            // 替用户发出的开始指令按动作提示显示。
+            text: asAction ?? text,
+            ...(asAction ? { action: true } : {}),
+          });
         return;
       }
       case "assistant/message": {
@@ -416,7 +424,11 @@ export function createLiveReadAdapter(
                 snapshot.layers.push(written.card);
                 emit({ type: "layer", layer: written.card });
               }
-            } else {
+            } else if (
+              !snapshot.findings.some(
+                (entry) => entry.id === written.card.id || entry.text === written.card.text,
+              )
+            ) {
               snapshot.findings.push(written.card);
               emit({ type: "finding", finding: written.card });
             }
@@ -467,7 +479,14 @@ export function createLiveReadAdapter(
               : "hypothesis",
             at: String(card.at ?? new Date().toISOString()),
           };
-          if (finding.text && !snapshot.findings.some((entry) => entry.id === finding.id)) {
+          // 同一条发现卡会先后从「工具调用」和「落库事件」两条路到达，id 不同：
+          // 按内容认同一张，避免页面上多出一张。
+          if (
+            finding.text &&
+            !snapshot.findings.some(
+              (entry) => entry.id === finding.id || entry.text === finding.text,
+            )
+          ) {
             snapshot.findings.push(finding);
             emit({ type: "finding", finding });
           }
@@ -994,6 +1013,13 @@ function messageText(message: any): string {
 
 /** 不是给人的工具：运行时内部事件（步/轮边界、投递执据、注入的上下文）不该
  *  显示成工具调用。 */
+/** 「确认开始」是页面替用户发的指令：显示成动作提示，不冒充用户，也不露 paperId。 */
+const startInstruction = (text: string): string | null => {
+  if (!/^就按我选的这篇开始精读/.test(text.trim())) return null;
+  const title = /《([^》]+)》/.exec(text)?.[1];
+  return title ? `▸ 开始精读《${title}》` : "▸ 开始精读";
+};
+
 const INTERNAL_EVENTS = new Set([
   "step/start",
   "step/end",
@@ -1015,8 +1041,16 @@ function toHistory(event: KernelEvent): ReadEvent | null {
   // 内部事件不显示，刷新回填时也一样。
   if (INTERNAL_EVENTS.has(event.action)) return null;
   switch (event.action) {
-    case "user/message":
-      return { type: "user", id: String(data.id ?? "u:" + event.seq), text: messageText(data) };
+    case "user/message": {
+      const raw = messageText(data);
+      const asAction = startInstruction(raw);
+      return {
+        type: "user",
+        id: String(data.id ?? "u:" + event.seq),
+        text: asAction ?? raw,
+        ...(asAction ? { action: true } : {}),
+      };
+    }
 
     case "assistant/message":
       return {
