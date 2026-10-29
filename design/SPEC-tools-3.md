@@ -46,15 +46,22 @@
 - 容器内有公网访问（registry.npmjs.org 返回 200）。
 - 现有 `shim.mjs`/`launch.ts` 的容器传输路径仍完整（`docker exec`），不需要重写。
 
-**下一轮先解决的前置结构问题**：账户数据现在分散在两棵树——
+**前置结构问题（已用单挂解决，不必搬数据）**：账户数据本来分散在两棵树——
 `<kernelHome>/accounts/<account>/…`（档案、下载、运行目录）和
 `<kernelHome>/dsh-home/accounts/<account>/…`（DSH 会话）。只把前者挂进容器，
 dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**其他账户**的数据。
 
-所以切容器之前要先把每账户数据收敛到一个可整体挂载的根（例如
-`<kernelHome>/accounts/<account>/{workspace,dsh-home}`），再做 host↔container 路径映射。
-这一步会在 `service.ts` 的 `layout.home` 与 `launch.ts` 的 `home` 派生处定下来，
-不重建包结构。
+处理办法：不搬现有业务数据，改成**两块挂载都只挂这个账户自己**——账户根
+（`accounts/<account>`）与 DSH 会话目录（`dsh-home/accounts/<account>`）。容器内分别落在
+`/opt/reinlab-account` 与 `/opt/reinlab-account/dsh-home`。`assertSpecSafe` 会拒绝重复挂载，
+凭据与宿主路径检查照旧。这样既看得见会话，也不会把别的账户带进来。
+
+**切换 transport 还要改的几处**（下轮）：
+- `launch.ts` 需要 `containerHome`/`containerDshHome`，并按模式生成 `dshHome`、`cwd`、
+  `patches[1]`(run.patch.yml)、凭据文件的容器内路径；`paths` 仍是宿主路径供控制面读写。
+- 补 `SHIM_HOST_ROOT`/`SHIM_CONTAINER_ROOT` 让 shim 把参数里的宿主路径映射成容器路径。
+- 容器内内核与插件用镜像里的路径（`/opt/reinlab/node_modules/@deepseek-ai/dsh/lib/bin.js`、
+  `file:///opt/reinlab/plugins/reinlab-read-plugin/index.js`）。
 
 **下一步**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
 需要改的地方已定位：`launch.ts` 目前只设了 `SHIM_CONTAINER/SHIM_RUN_ID/SHIM_PID_FILE/SHIM_DSH_MODULE`，

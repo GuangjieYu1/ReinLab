@@ -34,6 +34,13 @@ export type AccountContainerInput = {
   containerTokenFile?: string;
   /** 网络名，容器只加入这一个。 */
   network?: string;
+  /**
+   * 该账户的 DSH 会话目录（宿主）。当前布局把它放在 kernelHome/dsh-home 下，
+   * 与账户档案目录分开；单独挂这一块，既能看见会话，又不会把别的账户带进来。
+   */
+  dshHome?: string;
+  /** 容器内 DSH 会话目录。 */
+  containerDshHome?: string;
 };
 
 /** 容器名按账户固定，同一账户复用同一个容器。 */
@@ -84,6 +91,14 @@ export function accountContainerSpec(
     { host: input.accountRoot, container: containerRoot, mode: "rw" as const },
     // 运行令牌只读挂入，容器不能改写自己的身份。
     { host: input.tokenFile, container: containerToken, mode: "ro" as const },
+    // DSH 会话目录单独一块，仍是这个账户自己的。
+    ...(input.dshHome
+      ? [{
+          host: input.dshHome,
+          container: input.containerDshHome ?? containerRoot + "/dsh-home",
+          mode: "rw" as const,
+        }]
+      : []),
   ];
 
   const env: Record<string, string> = {
@@ -96,6 +111,11 @@ export function accountContainerSpec(
   };
   // 误传的宿主凭据一律丢掉，不靠调用方自觉。
   for (const name of Object.keys(env)) if (isForbiddenEnv(name)) delete env[name];
+
+  // 每块挂载都必须是这个账户自己的路径：别的账户的目录不能借 dshHome 混进来。
+  const accountRoots = [input.accountRoot, ...(input.dshHome ? [input.dshHome] : [])];
+  if (new Set(accountRoots).size !== accountRoots.length)
+    throw new Error("CONTAINER_SPEC_DUPLICATE_MOUNT");
 
   const createArgs = [
     "run",
@@ -123,4 +143,7 @@ export function assertSpecSafe(spec: AccountContainerSpec): void {
     if (isForbiddenEnv(name)) throw new Error("CONTAINER_SPEC_LEAKS_SECRET:" + name);
   if (!spec.mounts.some((m) => m.mode === "rw")) throw new Error("CONTAINER_SPEC_NO_WORKSPACE");
   if (spec.mounts.some((m) => m.host.includes("docker.sock"))) throw new Error("CONTAINER_SPEC_DOCKER_SOCKET");
+  // 每块可写挂载必须落在账户自己的根里，不能顺手把公共目录挂进来。
+  const roots = spec.mounts.filter((m) => m.mode === "rw").map((m) => m.host);
+  if (new Set(roots).size !== roots.length) throw new Error("CONTAINER_SPEC_DUPLICATE_MOUNT");
 }

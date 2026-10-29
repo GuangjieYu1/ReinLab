@@ -95,4 +95,25 @@ describe("每账户执行容器规格", () => {
     for (const name of ["SHIM_NODE", "REINLAB_CONTROL_URL", "REINLAB_ACCOUNT_ROOT"])
       expect(isForbiddenEnv(name)).toBe(false);
   });
+
+  it("DSH 会话目录单独挂一块，仍是这个账户自己的", () => {
+    const spec = accountContainerSpec({
+      ...base,
+      dshHome: "/Users/someone/.local/state/reinlab/803a04fcd69a/kernel/dsh-home/accounts/acc",
+    });
+    const rw = spec.mounts.filter((m) => m.mode === "rw");
+    expect(rw).toHaveLength(2);
+    expect(rw.map((m) => m.host)).toContain(base.accountRoot);
+    expect(rw.some((m) => m.host.includes("/dsh-home/accounts/acc"))).toBe(true);
+    // 容器内两块分开，不互相覆盖。
+    const containers = rw.map((m) => m.container);
+    expect(new Set(containers).size).toBe(2);
+    expect(() => assertSpecSafe(spec)).not.toThrow();
+  });
+
+  it("同一路径不许挂两次", () => {
+    expect(() =>
+      accountContainerSpec({ ...base, dshHome: base.accountRoot }),
+    ).toThrow(/DUPLICATE_MOUNT/);
+  });
 });
