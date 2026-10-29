@@ -112,3 +112,66 @@ export async function reconcileAccount(
     return { expiredRequests: stale.length, interruptedRuns: stranded.length + orphaned.length };
   });
 }
+
+/**
+ * 服务启动时的核对（PRD 2.6）。
+ *
+ * 重启后上一轮的执行体都不在了：还停在执行中的任务补成中断，等回答但已超时的
+ * 请求关掉。这里用管理员连接跨账户做，因为账户表对应用角色是强制 RLS 的。
+ */
+export async function reconcileOnStartup(
+  pool: import("pg").Pool,
+  options: { ttlMs?: number; now?: () => Date } = {},
+): Promise<{ interruptedRuns: number; expiredRequests: number }> {
+  const ttlMs = options.ttlMs ?? DEFAULT_ANSWER_TTL_MS;
+  const now = options.now ?? (() => new Date());
+  const cutoff = new Date(now().getTime() - ttlMs).toISOString();
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const stale = await client.query(
+      `update approval set state='expired'
+        where state='pending' and created_at < $1 returning id, account_id, run_id`,
+      [cutoff],
+    );
+    const orphaned = await client.query(
+      `update run set state='interrupted', ended_at=now()
+        where state in ('queued','running') and ended_at is null
+        returning id, account_id, dossier_id`,
+    );
+    const stranded = await client.query(
+      `update run set state='interrupted', ended_at=now()
+        where state='waiting' and ended_at is null
+          and not exists (select 1 from approval a where a.run_id=run.id and a.state='pending')
+        returning id, account_id, dossier_id`,
+    );
+    for (const row of [...orphaned.rows, ...stranded.rows]) {
+      await client.query(
+        `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+         values($1::uuid,$2::uuid,$3::uuid,'run','run.interrupted',
+                jsonb_build_object('reason','execution_lost','message','服务重启后这一段执行已不在，按中断收尾；可以重试。'),
+                'lifecycle-startup:'||$3::text)
+         on conflict do nothing`,
+        [row.account_id, row.dossier_id, row.id],
+      );
+      await client.query(
+        "update dsh_session set lease_run_id=null, lease_state='active', leased_until=null where account_id=$1 and lease_run_id=$2",
+        [row.account_id, row.id],
+      );
+      await client.query(
+        "update approval set state='expired' where account_id=$1 and run_id=$2 and state='pending'",
+        [row.account_id, row.id],
+      );
+    }
+    await client.query("commit");
+    return {
+      interruptedRuns: (orphaned.rowCount ?? 0) + (stranded.rowCount ?? 0),
+      expiredRequests: stale.rowCount ?? 0,
+    };
+  } catch (error) {
+    await client.query("rollback").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}

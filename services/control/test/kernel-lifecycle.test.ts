@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { Database } from "../src/db/database";
 import { applyMigrations } from "../src/db/migrate";
-import { reconcileAccount, DEFAULT_ANSWER_TTL_MS } from "../src/kernel/lifecycle";
+import { reconcileAccount, reconcileOnStartup, DEFAULT_ANSWER_TTL_MS } from "../src/kernel/lifecycle";
 
 const admin = new pg.Pool({
   connectionString: process.env.TEST_DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/reinlab_test",
@@ -110,6 +110,31 @@ describe("运行生命周期收尾", () => {
     const keep = await pendingCard(own.run, 5 * 60_000, "papers.fetch:keep");
 
     await reconcileAccount(db, account, { isLive: () => false });
+
+    expect(await state(own.run)).toBe("waiting");
+    expect(await card(keep)).toBe("pending");
+  });
+
+  it("服务启动时把上一轮残留的执行补成中断", async () => {
+    const own = await runWith("running");
+    const leftover = await pendingCard(own.run, 1_000, "papers.fetch:startup");
+
+    const swept = await reconcileOnStartup(admin);
+
+    expect(swept.interruptedRuns).toBeGreaterThanOrEqual(1);
+    expect(await state(own.run)).toBe("interrupted");
+    expect(await card(leftover)).toBe("expired");
+    const released = await admin.query("select lease_run_id from dsh_session where session_id=$1", [own.session]);
+    expect(released.rows[0]?.lease_run_id).toBe(null);
+    const interrupted = await events(own.run, "run.interrupted");
+    expect(interrupted[0]?.payload).toMatchObject({ reason: "execution_lost" });
+  });
+
+  it("服务启动时保留还在等人回答的有效请求", async () => {
+    const own = await runWith("waiting");
+    const keep = await pendingCard(own.run, 5 * 60_000, "papers.fetch:startup-keep");
+
+    await reconcileOnStartup(admin);
 
     expect(await state(own.run)).toBe("waiting");
     expect(await card(keep)).toBe("pending");
