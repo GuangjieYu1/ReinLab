@@ -35,41 +35,69 @@ function pdf() {
     "\n%%EOF\n";
   return Buffer.from(text);
 }
-it("T-MCP-7 whitelist and pinned DNS reject redirects/private addresses before making a connection", async () => {
-  let calls = 0;
+it("T-MCP-7 公网来源不再按域名拦；私网地址、明文与带凭据的地址仍然拒绝", async () => {
+  // 1) 不在任何名单里的公网来源照样可取（PRD 3.3：不维护来源域名白名单）。
+  let reached = 0;
+  const open = new PaperHttp({
+    dns: async () => ["93.184.216.34"],
+    wire: async () => {
+      reached++;
+      return { status: 200, headers: {}, bytes: Buffer.from("%PDF-1.7") };
+    },
+  });
+  const ok = await open.get(
+    "https://publisher-elsewhere.example/paper.pdf",
+    [],
+    1024,
+  );
+  expect(ok.status).toBe(200);
+  expect(reached).toBe(1);
+
+  // 2) 边界仍在环境层：明文、带凭据、字面 IP 一律拒绝。
   const h = new PaperHttp({
     dns: async () => ["93.184.216.34"],
     wire: async () => {
-      calls++;
-      return {
-        status: 302,
-        headers: { location: "https://evil.example/private" },
-        bytes: Buffer.alloc(0),
-      };
+      throw Error("must not connect");
     },
   });
-  await expect(
-    h.get("https://arxiv.org/pdf/test", ["arxiv.org"], 1024),
-  ).rejects.toMatchObject({ code: "PAPERS_EGRESS_DENIED" });
-  expect(calls).toBe(1);
   for (const url of [
-    "http://arxiv.org/pdf",
-    "https://arxiv.org.evil.example/pdf",
-    "https://user:pass@arxiv.org/pdf",
+    "http://publisher-elsewhere.example/pdf",
+    "https://user:pass@publisher-elsewhere.example/pdf",
     "https://127.0.0.1/",
   ])
-    await expect(h.get(url, ["arxiv.org"], 1024)).rejects.toMatchObject({
+    await expect(h.get(url, [], 1024)).rejects.toMatchObject({
       code: "PAPERS_EGRESS_DENIED",
     });
+
+  // 3) 解析出私网地址的域名仍然拒绝，跳转后的目标也照查。
   const privateDns = new PaperHttp({
-    dns: async () => ["127.0.0.1"],
+    dns: async () => ["10.1.2.3"],
     wire: async () => {
       throw Error("must not connect");
     },
   });
   await expect(
-    privateDns.get("https://arxiv.org/", ["arxiv.org"], 1024),
+    privateDns.get("https://publisher-elsewhere.example/", [], 1024),
   ).rejects.toMatchObject({ code: "PAPERS_EGRESS_DENIED" });
+
+  let hops = 0;
+  const redirector = new PaperHttp({
+    dns: async () => ["93.184.216.34"],
+    wire: async () => {
+      hops++;
+      return {
+        status: 302,
+        headers: { location: "https://elsewhere.example/next" },
+        bytes: Buffer.alloc(0),
+      };
+    },
+  });
+  // 跳转次数有上限，不会无限跟下去。
+  await expect(
+    redirector.get("https://elsewhere.example/start", [], 1024),
+  ).rejects.toMatchObject({ code: "PAPERS_EGRESS_DENIED" });
+  expect(hops).toBeLessThanOrEqual(4);
+
   for (const ip of [
     "10.0.0.1",
     "127.0.0.1",
