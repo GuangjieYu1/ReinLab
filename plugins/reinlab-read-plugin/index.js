@@ -33,11 +33,20 @@ export function createClient(config, fetchImpl = fetch) {
   const controlUrl = required(config, "controlUrl").replace(/\/+$/, "");
   return async function call(server, tool, args, extra = {}) {
     const token = await readToken(config);
+    // 工具调用必须有有限时限：控制面万一卡住，不能把这一轮无限挂在这里。
     const response = await fetchImpl(`${controlUrl}/kernel/tool`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": token },
       body: JSON.stringify({ server, tool, args, ...extra }),
-    });
+      signal: AbortSignal.timeout(Number(config.toolTimeoutMs ?? 120_000)),
+    }).catch((error) => ({
+      ok: false,
+      status: 0,
+      json: async () => ({
+        code: error?.name === "TimeoutError" ? "KERNEL_TOOL_TIMEOUT" : "KERNEL_TOOL_UNREACHABLE",
+        message: "这次工具调用没有拿到控制面的响应，请重试或换一种做法。",
+      }),
+    }));
     const body = await response.json().catch(() => ({}));
     if (response.status === 409 && body.state === "pending")
       return { pending: true, approvalId: body.approvalId };

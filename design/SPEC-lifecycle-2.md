@@ -88,19 +88,26 @@
 - 启动核对：`reconcileOnStartup` 在 `pnpm local:up` 起控制面之前用管理员连接跨账户跑
   （账户表对应用角色强制 RLS，应用进程列不出账户），把上一轮残留补成中断并留原因。
 
-## 5c. 待修（2026-10-30 实测发现，阻塞 L2/L3 验收）
+## 5c. 真实栈实测结论（2026-10-30，推翻先前两条误判）
 
-1. **`clarify_question` 交出去后这一轮没有结束**：插件按新契约返回
-   `waiting_for_user`，run 却一直停在 `running`（实测 4 分钟以上、13 个事件、
-   dsh 进程仍在），因此进不到 `waiting`，执行段没释放。`papers_fetch` 那条路径
-   此前能正常进入 `waiting`，差别在提问分支（控制面对 ASKS_THE_USER 返回 409
-   并把租约置空）。要查清该分支是否让 SDK 一直等这个工具调用结束。
-2. ~~启动核对没有收掉这个 run~~ **已证伪**：重启后启动核对输出
-   `LOCAL_RECONCILED interruptedRuns:1`，该 run 已被补成 `interrupted`。
-   先前那次检查发生在核对完成之前。
+先前记的两条「缺陷」经复测都不成立，已作废：
 
-所以只剩第 1 条要修。修好之前第 2 项不能交验收——L2/L3 正是判
-「等待时执行段真的让出」。
+1. ~~clarify_question 交出去后这一轮不结束~~ **误判**。实测工具结果与调用同一秒出现
+   （`tool/call` 与 `tool/result` 同在 25s），随后模型继续做不依赖答案的工作，
+   结束该轮后 run 正常进入 `waiting`。先前那次只是观察发生在模型仍在工作时。
+2. ~~启动核对没有收掉 run~~ **误判**。启动核对照常工作
+   （`LOCAL_RECONCILED interruptedRuns:1`）。
+
+**已实测通过的关键行为**：
+
+| 检查 | 结果 |
+|---|---|
+| 等待时释放执行段 | `state=waiting`、`lease=released`、有 1 张待批卡 |
+| 等待期间重启栈 | 请求与上下文存活：run 仍 `waiting`、卡仍 `pending`，启动核对没有误杀 |
+| 回答后续接 | 同一 run 从 `waiting` → `running`，事件从 47 增长到 94，最终 `completed` |
+
+另外给插件的一次工具调用加了有限时限（`AbortSignal.timeout`，默认 120s），
+控制面万一卡住也不会把这一轮无限挂住——PRD 2.6 要求执行期限有限。
 
 ## 6. 交付
 
