@@ -101,8 +101,9 @@ dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**�
 **当前进展**：dsh 已在加固容器里跑完整一轮——产生 assistant 消息、会话标题、
 `request/context`，并发出真实模型请求。**当前卡在模型代理鉴权**：
 `turn/end AUTH 401 Authentication Failed`。即容器内 dsh 调控制面 `/llm/anthropic`
-时鉴权没通过，需要核对容器到控制面的地址（host.docker.internal 在 Linux 容器里
-需要 `--add-host`）与运行令牌的传递。整栈默认仍为宿主模式，可正常验收。
+时鉴权没通过。已补 `--add-host host.docker.internal:host-gateway`（Linux 容器里该名字
+默认不存在），401 依旧，说明不是解析问题，下一步要拿控制面日志区分是「控制面拒绝令牌」
+还是「上游拒绝」；核对点：容器内 `.credentials.yaml` 是否可读、令牌是否随 patch 生效。整栈默认仍为宿主模式，可正常验收。
 
 **下一步（历史记录）**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
 需要改的地方已定位：`launch.ts` 目前只设了 `SHIM_CONTAINER/SHIM_RUN_ID/SHIM_PID_FILE/SHIM_DSH_MODULE`，

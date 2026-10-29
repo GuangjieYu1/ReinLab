@@ -147,6 +147,10 @@ export function accountContainerSpec(
     "--tmpfs",
     "/tmp:rw,noexec,nosuid,size=512m",
     ...(input.user ? ["--user", input.user] : []),
+    // Linux 容器里没有 host.docker.internal：显式映射到宿主机网关，
+    // 模型代理与工具回调用它访问控制面。
+    "--add-host",
+    "host.docker.internal:host-gateway",
     "--read-only",
     "--cap-drop",
     "ALL",
