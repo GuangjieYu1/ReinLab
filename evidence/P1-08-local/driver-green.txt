@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab
+
+
+ Test Files  6 passed (6)
+      Tests  74 passed (74)
+   Start at  01:41:01
+   Duration  1.70s (transform 393ms, setup 0ms, import 650ms, tests 5.32s, environment 0ms)
+

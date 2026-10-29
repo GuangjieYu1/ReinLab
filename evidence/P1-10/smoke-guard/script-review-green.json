@@ -1,0 +1,467 @@
+{
+  "reviewer": "role_independent_test",
+  "node": "v22.23.3",
+  "realModelRequests": 0,
+  "realKeyReads": 0,
+  "passed": 43,
+  "total": 43,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "forwards one real-shaped request to the fixed URL, preserves response and persists private marker",
+          "status": "passed",
+          "title": "forwards one real-shaped request to the fixed URL, preserves response and persists private marker",
+          "duration": 41.765083000000004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "concurrent requests and a restarted guard share the same irreversible marker",
+          "status": "passed",
+          "title": "concurrent requests and a restarted guard share the same irreversible marker",
+          "duration": 16.71954200000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"max_tokens\":0} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"max_tokens\":0} before any upstream call",
+          "duration": 7.800749999999994,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"max_tokens\":1025} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"max_tokens\":1025} before any upstream call",
+          "duration": 3.8386660000000177,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"max_tokens\":1.5} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"max_tokens\":1.5} before any upstream call",
+          "duration": 3.5569580000000087,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"max_completion_tokens\":100} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"max_completion_tokens\":100} before any upstream call",
+          "duration": 3.4039999999999964,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"n\":2} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"n\":2} before any upstream call",
+          "duration": 1.8895419999999774,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"model\":\"other\"} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"model\":\"other\"} before any upstream call",
+          "duration": 2.525207999999992,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"web_search\":true} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"web_search\":true} before any upstream call",
+          "duration": 2.105249999999984,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"tools\":[{\"type\":\"web_search\"}]} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"tools\":[{\"type\":\"web_search\"}]} before any upstream call",
+          "duration": 1.6417500000000018,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://example.invalid\"}}]}]} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://example.invalid\"}}]}]} before any upstream call",
+          "duration": 1.6529999999999916,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects budget/feature override {\"messages\":[{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"}]} before any upstream call",
+          "status": "passed",
+          "title": "rejects budget/feature override {\"messages\":[{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"x\"}]} before any upstream call",
+          "duration": 1.2082079999999848,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects auth/path/body limits and still permits the first valid request afterwards",
+          "status": "passed",
+          "title": "rejects auth/path/body limits and still permits the first valid request afterwards",
+          "duration": 19.251792000000023,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "permits only text content and standard function schema with stream usage metadata",
+          "status": "passed",
+          "title": "permits only text content and standard function schema with stream usage metadata",
+          "duration": 14.804791999999992,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "streams upstream SSE transparently and cancels upstream on client disconnect",
+          "status": "passed",
+          "title": "streams upstream SSE transparently and cancels upstream on client disconnect",
+          "duration": 65.04512499999998,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown upstream outcome and timeout never permit a retry or expose raw errors",
+          "status": "passed",
+          "title": "unknown upstream outcome and timeout never permit a retry or expose raw errors",
+          "duration": 115.07499999999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "production refuses injected upstream transport before listening",
+          "status": "passed",
+          "title": "production refuses injected upstream transport before listening",
+          "duration": 0.704667000000029,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "valid chunked Node input is adapted without early upstream forwarding, and over-limit chunks consume no slot",
+          "status": "passed",
+          "title": "valid chunked Node input is adapted without early upstream forwarding, and over-limit chunks consume no slot",
+          "duration": 8.458666999999991,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "guard close aborts an active upstream stream and never removes its consumed marker",
+          "status": "passed",
+          "title": "guard close aborts an active upstream stream and never removes its consumed marker",
+          "duration": 10.97358300000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792577545548,
+      "endTime": 1792577545870.9736,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/tooling/one-shot-smoke-guard.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "accepts an explicitly verified current CNY window with fixed route, FX and tighter execution limits",
+          "status": "passed",
+          "title": "accepts an explicitly verified current CNY window with fixed route, FX and tighter execution limits",
+          "duration": 2.4863339999999994,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"currency\":\"USD\"}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"currency\":\"USD\"}",
+          "duration": 0.3875419999999963,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"currency\":\"\"}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"currency\":\"\"}",
+          "duration": 0.1122919999999965,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"window\":\"guess\"}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"window\":\"guess\"}",
+          "duration": 0.10820799999999053,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"validFrom\":\"2026-10-21T11:00:00.000Z\"}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"validFrom\":\"2026-10-21T11:00:00.000Z\"}",
+          "duration": 0.071124999999995,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"validUntil\":\"2026-10-21T10:10:30.000Z\"}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"validUntil\":\"2026-10-21T10:10:30.000Z\"}",
+          "duration": 0.050208999999995285,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"validUntil\":\"2026-10-23T00:00:00.000Z\"}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"validUntil\":\"2026-10-23T00:00:00.000Z\"}",
+          "duration": 0.08333300000001032,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"validUntil\":\"2026-10-21 12:00\"}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"validUntil\":\"2026-10-21 12:00\"}",
+          "duration": 0.07887499999998226,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"budgetCny\":2}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"budgetCny\":2}",
+          "duration": 0.27029200000001197,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"maxSteps\":48}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"maxSteps\":48}",
+          "duration": 0.14383300000000077,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"model\":\"other/model\"}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"model\":\"other/model\"}",
+          "duration": 0.08166699999998173,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects invalid or expanded smoke plan {\"usdCnyRate\":\"8\"}",
+          "status": "passed",
+          "title": "rejects invalid or expanded smoke plan {\"usdCnyRate\":\"8\"}",
+          "duration": 0.03779199999999605,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792577545579,
+      "endTime": 1792577545583.2703,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/tooling/smoke-plan.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "real SDK configures only temporary deepseek auth, real context/output limits, then restores raw config and removes auth",
+          "status": "passed",
+          "title": "real SDK configures only temporary deepseek auth, real context/output limits, then restores raw config and removes auth",
+          "duration": 55.01441600000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects non-private/root smoke origin https://host.docker.internal:43210 before SDK writes",
+          "status": "passed",
+          "title": "rejects non-private/root smoke origin https://host.docker.internal:43210 before SDK writes",
+          "duration": 28.53241699999998,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects non-private/root smoke origin http://example.com:43210 before SDK writes",
+          "status": "passed",
+          "title": "rejects non-private/root smoke origin http://example.com:43210 before SDK writes",
+          "duration": 18.304791999999964,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects non-private/root smoke origin http://host.docker.internal:43210/path before SDK writes",
+          "status": "passed",
+          "title": "rejects non-private/root smoke origin http://host.docker.internal:43210/path before SDK writes",
+          "duration": 17.65504199999998,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects non-private/root smoke origin http://u@host.docker.internal:43210 before SDK writes",
+          "status": "passed",
+          "title": "rejects non-private/root smoke origin http://u@host.docker.internal:43210 before SDK writes",
+          "duration": 17.528500000000008,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects non-private/root smoke origin http://host.docker.internal:43210/?x=1 before SDK writes",
+          "status": "passed",
+          "title": "rejects non-private/root smoke origin http://host.docker.internal:43210/?x=1 before SDK writes",
+          "duration": 24.88516599999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects non-private/root smoke origin http://host.docker.internal:43210/#x before SDK writes",
+          "status": "passed",
+          "title": "rejects non-private/root smoke origin http://host.docker.internal:43210/#x before SDK writes",
+          "duration": 18.25841700000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects provider credentials and existing connections rather than replacing them",
+          "status": "passed",
+          "title": "rejects provider credentials and existing connections rather than replacing them",
+          "duration": 38.406499999999994,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown config update cleans partial temporary auth/config without retrying the update",
+          "status": "passed",
+          "title": "unknown config update cleans partial temporary auth/config without retrying the update",
+          "duration": 22.868042000000003,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "cleanup failure in raw can retry only the incomplete cleanup without redispatching configuration",
+          "status": "passed",
+          "title": "cleanup failure in raw can retry only the incomplete cleanup without redispatching configuration",
+          "duration": 28.67933400000004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "cleanup failure in auth can retry only the incomplete cleanup without redispatching configuration",
+          "status": "passed",
+          "title": "cleanup failure in auth can retry only the incomplete cleanup without redispatching configuration",
+          "duration": 23.528209000000004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "configuration cannot be overwritten concurrently and loopback admin origin is test-only",
+          "status": "passed",
+          "title": "configuration cannot be overwritten concurrently and loopback admin origin is test-only",
+          "duration": 20.18025,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792577545599,
+      "endTime": 1792577545913.1802,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/runtime-smoke-gateway.test.ts"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "research@1.1.0": {
+    "sha256": "695457a4e2c50d9453f100ed1d76bbb0e943a36bddc5b17a339ddc7ce6677f7d",
+    "identicalToPreviousHead": true
+  },
+  "newDefaultVersion": "1.2.0",
+  "oldDossiersNeverUpgraded": true
+}

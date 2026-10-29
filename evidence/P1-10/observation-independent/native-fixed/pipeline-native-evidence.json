@@ -1,0 +1,376 @@
+{
+  "fixtureOnly": true,
+  "realModelRequests": 0,
+  "realModelCost": 0,
+  "nativeVersion": "2.0.150",
+  "auth": "ES256 signature verified by local JWKS fixture; not a live Supabase session",
+  "api": "Hono estimate/confirmed-run real routes",
+  "model": "role-fixture/fixture",
+  "bench": "research",
+  "version": "1.0.0",
+  "effectiveDigest": "b28fc714f7f7fd5a97e394a4f60f87959ca9adbf39f964f1574f5678e2c17ee3",
+  "providerCalls": 1,
+  "usage": [
+    {
+      "part_id": "prt_15df0841c001ZzqwXQvGbNvs41",
+      "cost_cny": null,
+      "metadata": {
+        "counts": {
+          "input": 1,
+          "output": 1,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "cacheWrite": 0
+        },
+        "source": "direct_provider_usage",
+        "status": "unknown",
+        "fxSource": "fixed_product_configuration",
+        "rounding": "ceil_once_to_micro_CNY",
+        "usdCnyRate": "7.2",
+        "actualModel": "fixture",
+        "actualRoute": "local",
+        "priceWindow": "peak",
+        "usageSource": "openscience_normalized_step_finish",
+        "providerTime": 1792577405980,
+        "sourcePartId": "prt_15df0841c001ZzqwXQvGbNvs41",
+        "unknownReason": "REQUESTED_MODEL_MISMATCH",
+        "actualProvider": "role-fixture",
+        "pricingVersion": "deepseek-official-2026-10-20",
+        "requestedModel": "role-fixture/fixture",
+        "billingCurrency": "CNY",
+        "sourceMessageId": "msg_15df083e2001yY69kyAiiYl8AE",
+        "sourceSessionId": "ses_rl09a97c69ad3c49d49c876b35743ac7e5",
+        "cacheWritePricing": "input_cache_miss",
+        "conversionApplied": false,
+        "priceWindowSource": "caller_explicit_no_clock_inference",
+        "totalBilledTokens": "2",
+        "maximumLedgerCostCny": "999999.999999",
+        "normalizationVersion": "2.0.150",
+        "includesSearchFetchFees": false,
+        "inputAlreadyExcludesCache": true,
+        "providerInvoiceReconciled": false,
+        "reasoningIncludedInOutput": true
+      }
+    }
+  ],
+  "hold": {
+    "state": "unpriced",
+    "actual_cny": null
+  },
+  "events": [
+    {
+      "kind": "gate",
+      "action": "budget_allocated",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "run_queued",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "runtime_admitted",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "runtime_accepted",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "message_updated",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "part_text",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "part_text",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_filesystem_changed",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_status",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "message_updated",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_context",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_request_progress",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "message_updated",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_status",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_diff",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_request_progress",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "part_step_start",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_request_progress",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "part_text",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "part_text",
+      "cost_cny": null
+    },
+    {
+      "kind": "cost",
+      "action": "usage_observed",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "message_updated",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "message_updated",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_diff",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "message_updated",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_request_progress",
+      "cost_cny": null
+    },
+    {
+      "kind": "message",
+      "action": "message_updated",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_status",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_status",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "session_idle",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "runtime_completed",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "os_usage_settled",
+      "cost_cny": null
+    },
+    {
+      "kind": "gate",
+      "action": "budget_paused",
+      "cost_cny": null
+    }
+  ],
+  "system": "# 精读助手\n\n使用中文，明确证据与不确定性，保持简洁。只读运行令牌允许的档案、记忆与引用；不查看其他会话上下文。所有工具受控制面授权；危险动作一律拒绝。不得输出或保存明文凭据。\n\n作者声称逐条给出原文页码；不能核对的内容标为解读。通过 read_layer_write 与 read_quiz_write 留存，不能自行标 verified。\n\n需要回答、审批、计划、结论或判定卡时，必须使用允许的结构化工具。讨论不等于批准；预算用完即停，不自动增加费用。记忆仅写本档案，L3/L4升级必须由用户批准。\n\nYou are powered by the model named fixture. The exact model ID is role-fixture/fixture\nHere is some useful information about the environment you are running in:\n<env>\n  Project: Untitled project\n  Project ID: prj_f0bdd62e1af544b0ba7fcd71dd6f7744\n  Session ID: ses_rl09a97c69ad3c49d49c876b35743ac7e5\n  Project files: <FIXTURE_ROOT>/roles/ea167a48-09e2-4618-9fab-b2efbf6bc492/research-read--93f778b310ceed34103905bd7126990d (durable and shared across this project)\n  Tool working directory: <FIXTURE_ROOT>/roles/ea167a48-09e2-4618-9fab-b2efbf6bc492/research-read--93f778b310ceed34103905bd7126990d (project directory; durable and shared across this project)\n  Results: immutable project-wide deliverables saved with the artifact tool\n  Access mode: Approve for me. Routine work in the project is automatically approved inside the sandbox; boundary actions still require approval.\n  Connected project folders:\n    - <FIXTURE_ROOT>/dossiers/ea167a48-09e2-4618-9fab-b2efbf6bc492 (read only, session scope)\n  Is directory a git repo: no\n  Platform: darwin\n  Today's date: Wed Oct 21 2026\n  Knowledge cutoff: not listed for this model; assume it is months before today. Models, libraries, methods and results released since are not in your training: look up the current generation before pinning a model, version, baseline or protocol, and read \"latest\" in a dated source as of its date.\n  Image generation: unavailable (needs Ace or the user's own Gemini or OpenAI key in Customize → Models). When a schematic, diagram or illustration is asked for, say so and ask which route to connect; do not draw it with TikZ, SVG or matplotlib in its place, and do not call generate_image. Plots of data are unaffected and still come from matplotlib.\n  Compute: 10 CPUs, 16 GiB\n</env>\nAn OpenScience project is a durable research context that may aggregate multiple connected folders and files. This session uses the project directory as its default tool working directory; its files are shared and remain when the session is deleted. Results are immutable deliverables shared project-wide; a normal workspace file is not a Result until artifact save_file returns its Result ID and version.\nUse the project directory by default for local work. Preserve existing files and treat changes as durable project changes. Reuse the selected folder's existing layout. Do not create an extra \"OpenScience Research\" root or mirror an attached project into Project files. Inspect a referenced plan subfolder without treating it as a new working location; keep outputs in the selected Working folder and existing project layout unless the user requests another location. Do not create a new project subfolder for an ordinary answer. Promote a file to Results only when the user requests a durable deliverable or a Result-only contract requires it.\nThe physical paths above are routing information. Use the human project name in conversation, not UUID directory components. Do not expose scratch, managed-project, or connected-folder paths in a generic greeting. Mention a path only when the user asks about location or when it is needed to complete their request.\nInstructions from: <FIXTURE_ROOT>/roles/ea167a48-09e2-4618-9fab-b2efbf6bc492/research-read--93f778b310ceed34103905bd7126990d/AGENTS.md\n# ReinLab / research-read--93f778b310ceed34103905bd7126990d\n\n\n\nResearch effort: NORMAL. Stay focused and use additional branches only when they materially help.\nAutomatic delegation is off. Work in the lead conversation unless the user explicitly attached an agent. A worker needs a clean boundary, a self-contained brief with a definition of done, and its findings integrated in the lead response. Verifying the lead's own output (compiling, reading a rendered file, checking a number or a reference) is never a worker's job.\nIndependence: balanced. Choose safe, reversible options yourself. Use the question tool with reason consequential only when ambiguity materially changes scope or outcome, and put one recommended option first with its impact. Apply this posture to the lead and workers. It never overrides the permission mode.",
+  "requestBodies": [
+    {
+      "model": "fixture",
+      "max_tokens": 1024,
+      "messages": [
+        {
+          "role": "system",
+          "content": "# 精读助手\n\n使用中文，明确证据与不确定性，保持简洁。只读运行令牌允许的档案、记忆与引用；不查看其他会话上下文。所有工具受控制面授权；危险动作一律拒绝。不得输出或保存明文凭据。\n\n作者声称逐条给出原文页码；不能核对的内容标为解读。通过 read_layer_write 与 read_quiz_write 留存，不能自行标 verified。\n\n需要回答、审批、计划、结论或判定卡时，必须使用允许的结构化工具。讨论不等于批准；预算用完即停，不自动增加费用。记忆仅写本档案，L3/L4升级必须由用户批准。\n\nYou are powered by the model named fixture. The exact model ID is role-fixture/fixture\nHere is some useful information about the environment you are running in:\n<env>\n  Project: Untitled project\n  Project ID: prj_f0bdd62e1af544b0ba7fcd71dd6f7744\n  Session ID: ses_rl09a97c69ad3c49d49c876b35743ac7e5\n  Project files: <FIXTURE_ROOT>/roles/ea167a48-09e2-4618-9fab-b2efbf6bc492/research-read--93f778b310ceed34103905bd7126990d (durable and shared across this project)\n  Tool working directory: <FIXTURE_ROOT>/roles/ea167a48-09e2-4618-9fab-b2efbf6bc492/research-read--93f778b310ceed34103905bd7126990d (project directory; durable and shared across this project)\n  Results: immutable project-wide deliverables saved with the artifact tool\n  Access mode: Approve for me. Routine work in the project is automatically approved inside the sandbox; boundary actions still require approval.\n  Connected project folders:\n    - <FIXTURE_ROOT>/dossiers/ea167a48-09e2-4618-9fab-b2efbf6bc492 (read only, session scope)\n  Is directory a git repo: no\n  Platform: darwin\n  Today's date: Wed Oct 21 2026\n  Knowledge cutoff: not listed for this model; assume it is months before today. Models, libraries, methods and results released since are not in your training: look up the current generation before pinning a model, version, baseline or protocol, and read \"latest\" in a dated source as of its date.\n  Image generation: unavailable (needs Ace or the user's own Gemini or OpenAI key in Customize → Models). When a schematic, diagram or illustration is asked for, say so and ask which route to connect; do not draw it with TikZ, SVG or matplotlib in its place, and do not call generate_image. Plots of data are unaffected and still come from matplotlib.\n  Compute: 10 CPUs, 16 GiB\n</env>\nAn OpenScience project is a durable research context that may aggregate multiple connected folders and files. This session uses the project directory as its default tool working directory; its files are shared and remain when the session is deleted. Results are immutable deliverables shared project-wide; a normal workspace file is not a Result until artifact save_file returns its Result ID and version.\nUse the project directory by default for local work. Preserve existing files and treat changes as durable project changes. Reuse the selected folder's existing layout. Do not create an extra \"OpenScience Research\" root or mirror an attached project into Project files. Inspect a referenced plan subfolder without treating it as a new working location; keep outputs in the selected Working folder and existing project layout unless the user requests another location. Do not create a new project subfolder for an ordinary answer. Promote a file to Results only when the user requests a durable deliverable or a Result-only contract requires it.\nThe physical paths above are routing information. Use the human project name in conversation, not UUID directory components. Do not expose scratch, managed-project, or connected-folder paths in a generic greeting. Mention a path only when the user asks about location or when it is needed to complete their request.\nInstructions from: <FIXTURE_ROOT>/roles/ea167a48-09e2-4618-9fab-b2efbf6bc492/research-read--93f778b310ceed34103905bd7126990d/AGENTS.md\n# ReinLab / research-read--93f778b310ceed34103905bd7126990d\n\n\n\nResearch effort: NORMAL. Stay focused and use additional branches only when they materially help.\nAutomatic delegation is off. Work in the lead conversation unless the user explicitly attached an agent. A worker needs a clean boundary, a self-contained brief with a definition of done, and its findings integrated in the lead response. Verifying the lead's own output (compiling, reading a rendered file, checking a number or a reference) is never a worker's job.\nIndependence: balanced. Choose safe, reversible options yourself. Use the question tool with reason consequential only when ambiguity materially changes scope or outcome, and put one recommended option first with its impact. Apply this posture to the lead and workers. It never overrides the permission mode."
+        },
+        {
+          "role": "user",
+          "content": "PIPELINE_NATIVE_CONFIRMED_2214"
+        },
+        {
+          "role": "assistant",
+          "content": "CRITICAL - MAXIMUM STEPS REACHED\n\nThe maximum number of steps allowed for this task has been reached. Tools are disabled until next user input. Respond with text only.\n\nSTRICT REQUIREMENTS:\n1. Do NOT make any tool calls (no reads, writes, edits, searches, or any other tools)\n2. MUST provide a text response summarizing work done so far\n3. This constraint overrides ALL other instructions, including any user requests for edits or tool use\n\nResponse must include:\n- Statement that maximum steps for this agent have been reached\n- Summary of what has been accomplished so far\n- List of any remaining tasks that were not completed\n- Recommendations for what should be done next\n\nAny attempt to use tools is a critical violation. Respond with text ONLY."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "edit",
+            "description": "Performs exact string replacements in files. \n\nUsage:\n- You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. \n- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: spaces + line number + tab. Everything after that tab is the actual file content to match. Never include any part of the line number prefix in the oldString or newString.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- The edit will FAIL if `oldString` is not found in the file with an error \"oldString not found in content\".\n- The edit will FAIL if `oldString` is found multiple times in the file with an error \"oldString found multiple times and requires more code context to uniquely identify the intended match\". Either provide a larger string with more surrounding context to make it unique or use `replaceAll` to change every instance of `oldString`. \n- Use `replaceAll` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n",
+            "parameters": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "filePath": {
+                  "description": "The absolute path to the file to modify",
+                  "type": "string"
+                },
+                "oldString": {
+                  "description": "The text to replace",
+                  "type": "string"
+                },
+                "newString": {
+                  "description": "The text to replace it with (must be different from oldString)",
+                  "type": "string"
+                },
+                "replaceAll": {
+                  "description": "Replace all occurrences of oldString (default false)",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "filePath",
+                "oldString",
+                "newString"
+              ]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "write",
+            "description": "Writes a file to the local filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.\n- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.\n",
+            "parameters": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "content": {
+                  "description": "The content to write to the file",
+                  "type": "string"
+                },
+                "filePath": {
+                  "description": "The absolute path to the file to write (must be absolute, not relative)",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "content",
+                "filePath"
+              ]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "literature",
+            "description": "Find and read scholarly papers.\n\nsearch: one query across OpenAlex and arXiv (override with `sources`). Returns deduplicated candidates with title, authors, year, venue, DOI / arXiv id, citations, abstract, landing URL and whether open full text is reachable, plus which source answered, fell back, or failed. Prefer two or three targeted queries to one broad one.\n\nread: `ref` is a DOI, arXiv id, URL, local PDF path, or exact title. Resolves the open full text, downloads it once into the session's paper cache, extracts page-addressed text and returns the opening pages, a `pages` range, or passages matching `query`. Says plainly when only the abstract is available or the text is partial. Read the closest papers before citing them; a snippet is not a reading.\n\nWeb pages go through webfetch; database records by accession go through the scientific database tools when a skill offers them.\n",
+            "parameters": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "search",
+                    "read"
+                  ]
+                },
+                "query": {
+                  "description": "search: topic or question. read: phrase to locate; returns matching passages with page numbers.",
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "ref": {
+                  "description": "read: DOI, arXiv id, URL, local PDF path, or exact title.",
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "limit": {
+                  "description": "search: candidates to return (default 10).",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 25
+                },
+                "since": {
+                  "description": "search: earliest year.",
+                  "type": "integer",
+                  "minimum": 1900,
+                  "maximum": 2100
+                },
+                "until": {
+                  "description": "search: latest year.",
+                  "type": "integer",
+                  "minimum": 1900,
+                  "maximum": 2100
+                },
+                "sources": {
+                  "description": "search: connector ids instead of openalex + arxiv (e.g. pubmed, europepmc, biorxiv).",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pages": {
+                  "description": "read: page range, e.g. \"3-5\".",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    }
+  ]
+}

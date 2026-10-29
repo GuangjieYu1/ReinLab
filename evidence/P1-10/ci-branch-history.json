@@ -1,0 +1,31 @@
+{
+  "source": "GitHub REST workflow-run collection for current branch; no pull_request-only filter",
+  "branch": "codex/p1-10-translation-complete",
+  "allRunsBeforeInterimPush": [
+    {
+      "id": 39584656056,
+      "event": "pull_request",
+      "headSha": "ed91225450874773f86f4b7f52f0eaa3d38a1209",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39584656056"
+    },
+    {
+      "id": 39584604498,
+      "event": "push",
+      "headSha": "ed91225450874773f86f4b7f52f0eaa3d38a1209",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39584604498"
+    }
+  ],
+  "tregReviewedHead": [
+    {
+      "id": 39297307680,
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39297307680"
+    }
+  ],
+  "latestHead": "See PR16 description after interim push; no self-referential evidence commit."
+}

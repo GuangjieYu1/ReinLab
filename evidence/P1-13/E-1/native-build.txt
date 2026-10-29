@@ -1,0 +1,14 @@
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0100  250k    0  250k    0     0   132k      0 --:--:--  0:00:01 --:--:--  132k100 2532k    0 2532k    0     0   861k      0 --:--:--  0:00:02 --:--:--  861k100 4276k    0 4276k    0     0  1092k      0 --:--:--  0:00:03 --:--:-- 1091k100 6768k    0 6768k    0     0  1360k      0 --:--:--  0:00:04 --:--:-- 1360k100 9069k    0 9069k    0     0  1535k      0 --:--:--  0:00:05 --:--:-- 1851k100 11.0M    0 11.0M    0     0  1597k      0 --:--:--  0:00:07 --:--:-- 2132k100 13.1M    0 13.1M    0     0  1684k      0 --:--:--  0:00:07 --:--:-- 2165k100 15.4M    0 15.4M    0     0  1784k      0 --:--:--  0:00:08 --:--:-- 2330k100 17.7M    0 17.7M    0     0  1822k      0 --:--:--  0:00:09 --:--:-- 2282k100 20.0M    0 20.0M    0     0  1879k      0 --:--:--  0:00:10 --:--:-- 2286k100 21.1M    0 21.1M    0     0  1913k      0 --:--:--  0:00:11 --:--:-- 2434k
+bun install v1.3.14 (0d9b296a)
+Resolving dependencies
+Resolved, downloaded and extracted [21]
+
++ @tsconfig/bun@1.0.9
++ @synsci/script@workspace:tooling/script
++ typescript@5.8.2 (v7.0.2 available)
+
+681 packages installed [1317.00ms]
+generate-skill-bundle: packed 372 skills (2263 files) as cf41602c237b
+{"code":"ACCOUNT_BUILD_OK","version":"2.0.150"}

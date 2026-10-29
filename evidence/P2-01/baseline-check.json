@@ -1,0 +1,11 @@
+{
+  "frontendFilesCompared": 250,
+  "frontendChanged": [],
+  "originalFilesCompared": 318,
+  "originalChanged": [],
+  "temporaryPorts": {
+    "3000": "closed",
+    "63241": "closed"
+  },
+  "scope": "按已保存清单核对原目录文件内容，不宣称工作区之外的运行时状态不变"
+}

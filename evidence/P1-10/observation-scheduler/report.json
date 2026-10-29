@@ -1,0 +1,27 @@
+{
+  "node": "v22.23.3",
+  "effectiveRed": {
+    "failed": 8,
+    "passed": 0
+  },
+  "green": {
+    "passed": 8,
+    "failed": 0
+  },
+  "regression": {
+    "passed": 182,
+    "failed": 0
+  },
+  "static": {
+    "controlTypecheck": "passed",
+    "lint": "passed",
+    "diffCheck": "passed"
+  },
+  "recoveryScope": "authenticated account only; global unattended recovery deferred to P1-13",
+  "productionWiring": "root owns sinkFactory/main/app integration; not claimed here",
+  "independentReview": "requested via root to sourceaudit",
+  "sha256": {
+    "services/control/src/bridge/openscience/observation-scheduler.ts": "593bb76f120e553b5604544a46b41b00cd83d74bbd79c75ec476113257400b62",
+    "services/control/test/observation-scheduler.test.ts": "158e5e7b339c0ff78502e69a561257f9e45b5895e0ec36908c1b9fb7cb6e5a93"
+  }
+}

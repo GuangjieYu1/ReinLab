@@ -1,0 +1,454 @@
+{
+  "task": "P1-04",
+  "role": "independent-test",
+  "date": "2026-10-18T18:31:26.416Z",
+  "summary": {
+    "checks": 85,
+    "passed": 85,
+    "failed": 0,
+    "independentCases": 78,
+    "independentPassed": 78,
+    "independentFailed": 0
+  },
+  "status": "passed",
+  "cases": [
+    {
+      "id": "jwt-service-role",
+      "pass": true,
+      "status": 401
+    },
+    {
+      "id": "jwt-role-array",
+      "pass": true,
+      "status": 401
+    },
+    {
+      "id": "jwt-role-object",
+      "pass": true,
+      "status": 401
+    },
+    {
+      "id": "jwt-anon",
+      "pass": true,
+      "status": 401
+    },
+    {
+      "id": "jwt-null-role",
+      "pass": true,
+      "status": 401
+    },
+    {
+      "id": "jwt-sub-not-a-uuid",
+      "pass": true,
+      "status": 401
+    },
+    {
+      "id": "jwt-sub-empty",
+      "pass": true,
+      "status": 401
+    },
+    {
+      "id": "jwt-sub-unregistered",
+      "pass": true,
+      "status": 404
+    },
+    {
+      "id": "jwt-metadata-cannot-reassign-account",
+      "pass": true,
+      "status": 200,
+      "idMatchesA": true
+    },
+    {
+      "id": "jwt-tampered-sub-signature",
+      "pass": true
+    },
+    {
+      "id": "jwt-wrong-secret",
+      "pass": true
+    },
+    {
+      "id": "jwt-HS384-confusion",
+      "pass": true
+    },
+    {
+      "id": "jwt-none-algorithm",
+      "pass": true
+    },
+    {
+      "id": "jwt-wrong-issuer",
+      "pass": true
+    },
+    {
+      "id": "jwt-wrong-audience",
+      "pass": true
+    },
+    {
+      "id": "jwt-missing-exp",
+      "pass": true
+    },
+    {
+      "id": "jwt-missing-iat",
+      "pass": true
+    },
+    {
+      "id": "jwt-future-nbf",
+      "pass": true
+    },
+    {
+      "id": "jwt-expired",
+      "pass": true
+    },
+    {
+      "id": "jwt-missing",
+      "pass": true
+    },
+    {
+      "id": "api-create-A",
+      "pass": true
+    },
+    {
+      "id": "api-create-B",
+      "pass": true
+    },
+    {
+      "id": "api-me-A",
+      "pass": true
+    },
+    {
+      "id": "api-list-A",
+      "pass": true
+    },
+    {
+      "id": "api-own-detail-A",
+      "pass": true
+    },
+    {
+      "id": "api-cross-detail-A",
+      "pass": true
+    },
+    {
+      "id": "api-cross-account-create-A",
+      "pass": true
+    },
+    {
+      "id": "api-me-B",
+      "pass": true
+    },
+    {
+      "id": "api-list-B",
+      "pass": true
+    },
+    {
+      "id": "api-own-detail-B",
+      "pass": true
+    },
+    {
+      "id": "api-cross-detail-B",
+      "pass": true
+    },
+    {
+      "id": "api-cross-account-create-B",
+      "pass": true
+    },
+    {
+      "id": "danger-delete-/v1/dossiers",
+      "pass": true
+    },
+    {
+      "id": "danger-delete-/v1/dossiers/c65c422e-b86d-4144-a3c5-740b6485e4ff",
+      "pass": true
+    },
+    {
+      "id": "danger-delete-/v1/me",
+      "pass": true
+    },
+    {
+      "id": "danger-delete-/v1/runs/1e0e3b5e-1b17-4776-a820-5fb3171a1645",
+      "pass": true
+    },
+    {
+      "id": "danger-delete-/v1/promotions/2e07b8da-f7db-419e-b17d-93a438e925be",
+      "pass": true
+    },
+    {
+      "id": "internal-locked-/internal/os/token",
+      "pass": true
+    },
+    {
+      "id": "internal-locked-/internal/os/tool-call",
+      "pass": true
+    },
+    {
+      "id": "internal-locked-/internal/os/permission-ask",
+      "pass": true
+    },
+    {
+      "id": "unimplemented-404-/v1/runs",
+      "pass": true
+    },
+    {
+      "id": "unimplemented-404-/v1/approvals",
+      "pass": true
+    },
+    {
+      "id": "unimplemented-404-/v1/promotions",
+      "pass": true
+    },
+    {
+      "id": "unimplemented-404-/v1/dispatch",
+      "pass": true
+    },
+    {
+      "id": "idempotency-eight-identical",
+      "pass": true,
+      "statuses": [
+        201,
+        201,
+        201,
+        201,
+        201,
+        201,
+        201,
+        201
+      ]
+    },
+    {
+      "id": "idempotency-concurrent-mixed",
+      "pass": true,
+      "statuses": [
+        201,
+        409,
+        201,
+        409,
+        201,
+        409,
+        201,
+        409
+      ]
+    },
+    {
+      "id": "idempotency-new-pool-app-receipt",
+      "pass": true
+    },
+    {
+      "id": "idempotency-cross-account-key",
+      "pass": true
+    },
+    {
+      "id": "unsafe-admin-startup-rejected",
+      "pass": true
+    },
+    {
+      "id": "real-sql-failure-rolls-back-business",
+      "pass": true,
+      "sqlState": "22012",
+      "remaining": 0
+    },
+    {
+      "id": "post-failure-connection-valid",
+      "pass": true
+    },
+    {
+      "id": "receipt-no-context-read",
+      "pass": true
+    },
+    {
+      "id": "receipt-cross-account-read",
+      "pass": true
+    },
+    {
+      "id": "receipt-only-sha256-key-storage",
+      "pass": true
+    },
+    {
+      "id": "receipt-forced-RLS",
+      "pass": true
+    },
+    {
+      "id": "receipt-cross-account-insert",
+      "pass": true,
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "receipt-denied-update",
+      "pass": true,
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "receipt-denied-delete",
+      "pass": true,
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "receipt-denied-truncate",
+      "pass": true,
+      "expected": "42501",
+      "actual": "42501"
+    },
+    {
+      "id": "db-failure-no-sensitive-error",
+      "pass": true,
+      "status": 500,
+      "body": "{\"code\":\"INTERNAL_ERROR\",\"message\":\"服务暂时无法处理请求，请稍后重试。\"}"
+    },
+    {
+      "id": "JWKS-real-ES256",
+      "pass": true
+    },
+    {
+      "id": "JWKS-real-RS256",
+      "pass": true
+    },
+    {
+      "id": "JWKS-reject-algorithm-HS256",
+      "pass": true
+    },
+    {
+      "id": "JWKS-reject-unknown-kid",
+      "pass": true
+    },
+    {
+      "id": "receipt-stage-real-SQL-error",
+      "pass": true,
+      "status": 500
+    },
+    {
+      "id": "receipt-stage-rollback-dossier",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "receipt-stage-rollback-http_request",
+      "pass": true,
+      "rows": 0
+    },
+    {
+      "id": "receipt-stage-same-key-retry-success",
+      "pass": true
+    },
+    {
+      "id": "receipt-stage-retry-idempotent",
+      "pass": true
+    },
+    {
+      "id": "real-http-idle-db-disconnect-survives",
+      "pass": true,
+      "healthBefore": 200,
+      "killedConnections": 1,
+      "recoveredStatus": 200,
+      "accountMatches": true,
+      "processAlive": true
+    },
+    {
+      "id": "idle-pool-error-only-stable-code",
+      "pass": true,
+      "stderr": "{\"code\":\"DATABASE_POOL_ERROR\"}"
+    },
+    {
+      "id": "pool-error-listener-registered-once",
+      "pass": true,
+      "listeners": 1
+    },
+    {
+      "id": "borrowed-idle-disconnect-survives",
+      "pass": true,
+      "terminated": true,
+      "errorCaptured": true
+    },
+    {
+      "id": "broken-client-destroyed-new-context-restored",
+      "pass": true,
+      "newPidDiffers": true,
+      "accountMatches": true
+    },
+    {
+      "id": "borrowed-error-listener-removed",
+      "pass": true
+    },
+    {
+      "id": "recovered-connection-context-cleared",
+      "pass": true
+    },
+    {
+      "id": "reject-role-membership-INHERIT",
+      "pass": true
+    },
+    {
+      "id": "reject-role-membership-NOINHERIT",
+      "pass": true
+    }
+  ],
+  "snapshot": {
+    "date": "2026-10-18T18:36:36.857Z",
+    "node": "v22.23.3",
+    "sha256": {
+      "services/control/src/api/app.ts": "06487059656fe51d125e6fe478ae1f94b288078a7dfe79319f32df19576cf215",
+      "services/control/src/api/auth.ts": "a36e4b2f8ed6881f8765602beb38411f09b9be11561666330ac8f4f7c6af0335",
+      "services/control/src/api/context.ts": "c0cf642829df7b605f53769bca00c232a97e5543cc685d06c1bcd4c7cb626085",
+      "services/control/src/db/database.ts": "30e989a3064c410634516b6cea56ed56c45f8d9c7c6353e9d98d7ffc74ad727f",
+      "services/control/src/main.ts": "92781e15c5fa4b085fa482b127b26469c425441daea7c5db902fbac588172091"
+    }
+  },
+  "cleanup": "Only independent A/B accounts and their own HTTP dossier/receipt fixtures created, then deleted with ID-scoped cleanup; SQL fault/permission attacks used transactions/savepoint rollback; no other tenant data changed.",
+  "limits": [
+    "Local actual signing/JWKS and Postgres tests; no Supabase cloud login, Vault, Storage, Fly or staging verification",
+    "Unimplemented business APIs were checked for 404, not returned mock data"
+  ],
+  "checks": [
+    {
+      "id": "lint",
+      "pass": true
+    },
+    {
+      "id": "control-strict-tsc",
+      "pass": true
+    },
+    {
+      "id": "contracts-strict-tsc",
+      "pass": true
+    },
+    {
+      "id": "api-auth-context-suite",
+      "pass": true,
+      "passedFiles": 3,
+      "passedTests": 45
+    },
+    {
+      "id": "original-frontend-tests",
+      "pass": true,
+      "passedFiles": 20,
+      "passedTests": 162
+    },
+    {
+      "id": "mock-build",
+      "pass": true
+    },
+    {
+      "id": "frontend-baseline",
+      "pass": true,
+      "files": 250,
+      "mismatches": []
+    }
+  ],
+  "history": [
+    {
+      "round": 1,
+      "checks": 77,
+      "passed": 76,
+      "failed": 1,
+      "note": "Real main process exited 1 after its own idle PG connection terminated",
+      "failureDetails": {
+        "id": "real-http-idle-db-disconnect-survives",
+        "stderr": "node:events:497\n      throw er; // Unhandled 'error' event\n      ^\n\nerror: terminating connection due to administrator command\n    at parseErrorMessage (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg-protocol@1.16.1/node_modules/pg-protocol/src/parser.ts:395:9)\n    at Parser.handlePacket (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg-protocol@1.16.1/node_modules/pg-protocol/src/parser.ts:212:19)\n    at Parser.parse (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg-protocol@1.16.1/node_modules/pg-protocol/src/parser.ts:105:30)\n    at Socket.<anonymous> (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg-protocol@1.16.1/node_modules/pg-protocol/src/index.ts:7:48)\n    at Socket.emit (node:events:519:28)\n    at addChunk (node:internal/streams/readable:561:12)\n    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)\n    at Readable.push (node:internal/streams/readable:392:5)\n    at TCP.onStreamRead (node:internal/stream_base_commons:189:23)\nEmitted 'error' event on BoundPool instance at:\n    at Client.idleListener (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg-pool@3.14.0_pg@8.16.3/node_modules/pg-pool/index.js:62:10)\n    at Client.emit (node:events:519:28)\n    at Client._handleErrorEvent (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg@8.16.3/node_modules/pg/lib/client.js:350:10)\n    at Client._handleErrorMessage (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg@8.16.3/node_modules/pg/lib/client.js:361:12)\n    at Connection.emit (node:events:519:28)\n    at /Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg@8.16.3/node_modules/pg/lib/connection.js:116:12\n    at Parser.parse (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg-protocol@1.16.1/node_modules/pg-protocol/src/parser.ts:106:9)\n    at Socket.<anonymous> (/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/node_modules/.pnpm/pg-protocol@1.16.1/node_modules/pg-protocol/src/index.ts:7:48)\n    at Socket.emit (node:events:519:28)\n    at addChunk (node:internal/streams/readable:561:12) {\n  length: 116,\n  severity: 'FATAL',\n  code: '57P01',\n  detail: undefined,\n  hint: undefined,\n  position: undefined,\n  internalPosition: undefined,\n  internalQuery: undefined,\n  where: undefined,\n  schema: undefined,\n  table: undefined,\n  column: undefined,\n  dataType: undefined,\n  constraint: undefined,\n  file: 'postgres.c',\n  line: '3286',\n  routine: 'ProcessInterrupts',\n  client: Client {\n    _events: [Object: null prototype] { error: [Function (anonymous)] },\n    _eventsCount: 1,\n    _maxListeners: undefined,\n    connectionParameters: ConnectionParameters {\n      user: 'reinlab_app',\n      database: 'reinlab_test',\n      port: 55432,\n      host: '127.0.0.1',\n      binary: false,\n      options: undefined,\n      ssl: false,\n      client_encoding: '',\n      replication: undefined,\n      isDomainSocket: false,\n      application_name: 'independent_disconnect_118cbafea697499c8fcc670cf5074114',\n      fallback_application_name: undefined,\n      statement_timeout: false,\n      lock_timeout: false,\n      idle_in_transaction_session_timeout: false,\n      query_timeout: false,\n      connect_timeout: 0\n    },\n    user: 'reinlab_app',\n    database: 'reinlab_test',\n    port: 55432,\n    host: '127.0.0.1',\n    replication: undefined,\n    _Promise: [Function: Promise],\n    _types: TypeOverrides {\n      _types: {\n        getTypeParser: [Function: getTypeParser],\n        setTypeParser: [Function: setTypeParser],\n        arrayParser: { create: [Function: create] },\n        builtins: {\n          BOOL: 16,\n          BYTEA: 17,\n          CHAR: 18,\n          INT8: 20,\n          INT2: 21,\n          INT4: 23,\n          REGPROC: 24,\n          TEXT: 25,\n          OID: 26,\n          TID: 27,\n          XID: 28,\n          CID: 29,\n          JSON: 114,\n          XML: 142,\n          PG_NODE_TREE: 194,\n          SMGR: 210,\n          PATH: 602,\n          POLYGON: 604,\n          CIDR: 650,\n          FLOAT4: 700,\n          FLOAT8: 701,\n          ABSTIME: 702,\n          RELTIME: 703,\n          TINTERVAL: 704,\n          CIRCLE: 718,\n          MACADDR8: 774,\n          MONEY: 790,\n          MACADDR: 829,\n          INET: 869,\n          ACLITEM: 1033,\n          BPCHAR: 1042,\n          VARCHAR: 1043,\n          DATE: 1082,\n          TIME: 1083,\n          TIMESTAMP: 1114,\n          TIMESTAMPTZ: 1184,\n          INTERVAL: 1186,\n          TIMETZ: 1266,\n          BIT: 1560,\n          VARBIT: 1562,\n          NUMERIC: 1700,\n          REFCURSOR: 1790,\n          REGPROCEDURE: 2202,\n          REGOPER: 2203,\n          REGOPERATOR: 2204,\n          REGCLASS: 2205,\n          REGTYPE: 2206,\n          UUID: 2950,\n          TXID_SNAPSHOT: 2970,\n          PG_LSN: 3220,\n          PG_NDISTINCT: 3361,\n          PG_DEPENDENCIES: 3402,\n          TSVECTOR: 3614,\n          TSQUERY: 3615,\n          GTSVECTOR: 3642,\n          REGCONFIG: 3734,\n          REGDICTIONARY: 3769,\n          JSONB: 3802,\n          REGNAMESPACE: 4089,\n          REGROLE: 4096\n        }\n      },\n      text: {},\n      binary: {}\n    },\n    _ending: true,\n    _ended: false,\n    _connecting: false,\n    _connected: true,\n    _connectionError: false,\n    _queryable: false,\n    enableChannelBinding: false,\n    connection: Connection {\n      _events: [Object: null prototype] {\n        newListener: [Function (anonymous)],\n        connect: [Function (anonymous)],\n        sslconnect: [Function (anonymous)],\n        authenticationCleartextPassword: [Function: bound _handleAuthCleartextPassword],\n        authenticationMD5Password: [Function: bound _handleAuthMD5Password],\n        authenticationSASL: [Function: bound _handleAuthSASL],\n        authenticationSASLContinue: [Function: bound _handleAuthSASLContinue] AsyncFunction,\n        authenticationSASLFinal: [Function: bound _handleAuthSASLFinal],\n        backendKeyData: [Function: bound _handleBackendKeyData],\n        error: [Function: bound _handleErrorEvent],\n        errorMessage: [Function: bound _handleErrorMessage],\n        readyForQuery: [Function: bound _handleReadyForQuery],\n        notice: [Function: bound _handleNotice],\n        rowDescription: [Function: bound _handleRowDescription],\n        dataRow: [Function: bound _handleDataRow],\n        portalSuspended: [Function: bound _handlePortalSuspended],\n        emptyQuery: [Function: bound _handleEmptyQuery],\n        commandComplete: [Function: bound _handleCommandComplete],\n        parseComplete: [Function: bound _handleParseComplete],\n        copyInResponse: [Function: bound _handleCopyInResponse],\n        copyData: [Function: bound _handleCopyData],\n        notification: [Function: bound _handleNotification],\n        end: [\n          [Function: bound onceWrapper] {\n            listener: [Function (anonymous)]\n          },\n          [Function: bound onceWrapper] {\n            listener: [Function (anonymous)]\n          }\n        ]\n      },\n      _eventsCount: 23,\n      _maxListeners: undefined,\n      stream: Socket {\n        connecting: false,\n        _hadError: false,\n        _parent: null,\n        _host: null,\n        _closeAfterHandlingError: false,\n        _events: {\n          close: [Function (anonymous)],\n          error: [Function: reportStreamError],\n          prefinish: undefined,\n          finish: undefined,\n          drain: undefined,\n          data: [Function (anonymous)],\n          end: [ [Function: onReadableStreamEnd], [Function (anonymous)] ],\n          readable: undefined,\n          connect: undefined\n        },\n        _readableState: ReadableState {\n          highWaterMark: 65536,\n          buffer: [],\n          bufferIndex: 0,\n          length: 0,\n          pipes: [],\n          awaitDrainWriters: null,\n          [Symbol(kState)]: 194519348\n        },\n        _writableState: WritableState {\n          highWaterMark: 65536,\n          length: 0,\n          corked: 0,\n          onwrite: [Function: bound onwrite],\n          writelen: 0,\n          bufferedIndex: 0,\n          pendingcb: 0,\n          [Symbol(kState)]: 17563956,\n          [Symbol(kBufferedValue)]: null,\n          [Symbol(kWriteCbValue)]: null\n        },\n        allowHalfOpen: false,\n        _maxListeners: undefined,\n        _eventsCount: 4,\n        _sockname: null,\n        _pendingData: null,\n        _pendingEncoding: '',\n        server: null,\n        _server: null,\n        [Symbol(async_id_symbol)]: 760,\n        [Symbol(kHandle)]: null,\n        [Symbol(lastWriteQueueSize)]: 0,\n        [Symbol(timeout)]: null,\n        [Symbol(kBuffer)]: null,\n        [Symbol(kBufferCb)]: null,\n        [Symbol(kBufferGen)]: null,\n        [Symbol(shapeMode)]: true,\n        [Symbol(kCapture)]: false,\n        [Symbol(kSetNoDelay)]: true,\n        [Symbol(kSetKeepAlive)]: false,\n        [Symbol(kSetKeepAliveInitialDelay)]: 0,\n        [Symbol(kBytesRead)]: 896,\n        [Symbol(kBytesWritten)]: 521\n      },\n      _keepAlive: false,\n      _keepAliveInitialDelayMillis: 0,\n      lastBuffer: false,\n      parsedStatements: {},\n      ssl: false,\n      _ending: false,\n      _emitMessage: false,\n      _connecting: true,\n      [Symbol(shapeMode)]: false,\n      [Symbol(kCapture)]: false\n    },\n    queryQueue: [],\n    binary: false,\n    processID: 5161,\n    secretKey: 1849901295,\n    ssl: false,\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    release: [Function (anonymous)],\n    activeQuery: null,\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 1,\n    [Symbol(shapeMode)]: false,\n    [Symbol(kCapture)]: false\n  }\n}\n\nNode.js v22.23.3\n"
+      }
+    },
+    {
+      "round": 2,
+      "note": "Real main survives targeted idle PG disconnection and GET /me recovers; borrowed idle client error caught, bad backend destroyed and fresh account context isolated; INHERIT/NOINHERIT memberships rejected; lint/tsc and 45 suite tests passed",
+      "retestScope": "Changed database pool/client recovery and role guard retested; unchanged JWT/API/idempotency samples and frontend regression retained from first round."
+    }
+  ]
+}

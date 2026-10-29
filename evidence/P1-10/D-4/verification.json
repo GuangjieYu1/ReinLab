@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "archivedFilesChecked": 303,
+  "changedArchivedFiles": [],
+  "reports": {
+    "helper-green": {
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    "default-regression": {
+      "passed": 76,
+      "failed": 0,
+      "skipped": 0
+    },
+    "explicit-regression": {
+      "passed": 72,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "explicitOutputFiles": {
+    "native-test.json": true,
+    "model-requests.json": true,
+    "independent-test.json": true,
+    "review-toctou.json": true,
+    "docker-independent-observations.json": true,
+    "local-independent-observations.json": true,
+    "ledger-export.jsonl": true
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "baseRevision": "24b44c11cc335938598adc44983ed4c04635d57f",
+  "formattedRevision": "179243692ed47097f0bed022e560f74acfd09274",
+  "typescriptVersion": "5.7.3",
+  "formatter": "prettier@3.6.2",
+  "files": [
+    {
+      "file": "services/control/src/bridge/openscience/role-project.ts",
+      "beforeSha256": "ce1f6b3b971cde76eb71f609d3bafa73ce90ab8f793893e6bc73473754294ae2",
+      "afterSha256": "aa41bb56c3a48e8754639ae6e5e470da91c2498c4aae37c8c2b80ea8d8d30c43",
+      "beforeAstSha256": "d514b193d455ca8d98ee5be9f23d7b1cde31afe4f87035a4c5be279991510d7b",
+      "afterAstSha256": "d514b193d455ca8d98ee5be9f23d7b1cde31afe4f87035a4c5be279991510d7b",
+      "astEqual": true,
+      "commentsEqual": true,
+      "parseErrors": 0
+    },
+    {
+      "file": "plugins/reinlab-os-plugin/index.js",
+      "beforeSha256": "e6da7c2be26b6c4db8b73d78d57849e255fc5f51479f345c21353a0c21d8492a",
+      "afterSha256": "b6d513b9da1385e64518789fbcc082200349c32b1af405dedec34a20b84a547b",
+      "beforeAstSha256": "5521fad93e08743365dff746c961b3ff6e0fa96f2b3087d33577d4824d6680b5",
+      "afterAstSha256": "5521fad93e08743365dff746c961b3ff6e0fa96f2b3087d33577d4824d6680b5",
+      "astEqual": true,
+      "commentsEqual": true,
+      "parseErrors": 0
+    }
+  ],
+  "sensitivity": {
+    "literalChangeDetected": true,
+    "operatorChangeDetected": true,
+    "declarationKindChangeDetected": true,
+    "typeOnlyImportChangeDetected": true
+  },
+  "passed": true
+}

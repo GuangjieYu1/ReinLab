@@ -1,0 +1,82 @@
+{
+  "scope": "全量默认文件并行；不设maxWorkers/串行、不跳过用例；两个版本基线后Node22连续五轮",
+  "runs": [
+    {
+      "name": "node22-baseline",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "initial-node22-baseline.json"
+    },
+    {
+      "name": "node24-baseline",
+      "node": "v24.14.1",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "initial-node24-baseline.json"
+    },
+    {
+      "name": "node22-streak-1",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "initial-node22-streak-1.json"
+    },
+    {
+      "name": "node22-streak-2",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "initial-node22-streak-2.json"
+    },
+    {
+      "name": "node22-streak-3",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "initial-node22-streak-3.json"
+    },
+    {
+      "name": "node22-streak-4",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "initial-node22-streak-4.json"
+    },
+    {
+      "name": "node22-streak-5",
+      "node": "v22.23.3",
+      "exitCode": 0,
+      "passed": 680,
+      "failed": 0,
+      "pending": 0,
+      "success": true,
+      "report": "initial-node22-streak-5.json"
+    }
+  ],
+  "sourceHashes": {
+    "services/control/src/db/database.ts": "96ab031aa848703ba3a5c3739647de1ef74c43a17e41c97106693cc73f38241b",
+    "services/control/test/api.test.ts": "76d1f803d0889bfee6839c41f6bdaa9f220ba09e623d08c5ac0028fdf3e95c1a",
+    "services/control/test/idle-recovery.test.ts": "e0a0b511ef11bba110672b2b41924ce08fc5626c456772a7656dc66ea92cae2d",
+    "services/control/test/fixtures/idle-recovery.ts": "588ce0a3f99a86d03c19b1a18c46dfd9282e0be6ad62ccee2b755dc59d65e62a",
+    "services/control/test/independent-d1.test.ts": "bd24ddf19da8a3b67b2db1ffcf02d7946b954fae0ac66d8ef121d5ec4438225b"
+  }
+}

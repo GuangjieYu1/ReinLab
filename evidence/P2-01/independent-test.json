@@ -1,0 +1,117 @@
+{
+  "verdict": "PASS_WITH_SCOPE_LIMITS",
+  "reviewedAt": "2026-10-19T09:07:46.327403+00:00",
+  "sampleSha256": "9e0055ea44a640c0eec6bb16cab58e16e9725c66fac8707a55692d609303cc43",
+  "htmlBytes": 32426,
+  "generationRequestsMadeByIndependentTester": 0,
+  "credentialsRead": false,
+  "serviceRestarted": false,
+  "existingReport": {
+    "status": 200,
+    "durationMs": 109252,
+    "callCount": 1,
+    "callCountScope": "生成HTTP请求次数；服务内部模型重试/用量未知",
+    "providerCallCount": null,
+    "costCny": null
+  },
+  "vitest": {
+    "success": true,
+    "passed": 21,
+    "failed": 0,
+    "independentCases": 15,
+    "originalCases": 2,
+    "report": "independent-vitest.json",
+    "claimAndSaveCases": 4
+  },
+  "browser": {
+    "url": "http://127.0.0.1:63241/",
+    "sandboxObserved": "allow-scripts",
+    "referrerpolicyObserved": "no-referrer",
+    "htmlOrSandboxMutated": false,
+    "observedWith": "Independent Codex Cua AX tree and direct iframe attribute reads",
+    "checks": [
+      {
+        "name": "initial",
+        "x": 0,
+        "objective": 9,
+        "gradient": -6,
+        "iteration": 0
+      },
+      {
+        "name": "step_eta_0.1",
+        "x": 0.6,
+        "objective": 5.76,
+        "gradient": -4.8,
+        "iteration": 1
+      },
+      {
+        "name": "reset",
+        "x": 0,
+        "objective": 9,
+        "gradient": -6,
+        "iteration": 0
+      },
+      {
+        "name": "fast_preset_first_step",
+        "eta": 0.45,
+        "x": 2.7,
+        "objective": 0.09,
+        "gradient": -0.6,
+        "iteration": 1,
+        "phase": "running"
+      }
+    ],
+    "screenshot": "independent-step.png"
+  },
+  "responseContract": {
+    "basis": "read-only source inspection plus saved report; original complete HTTP response not retained",
+    "route": "apiSuccess({ content, effectiveOutline }) at route.ts:355",
+    "generatedInteractiveContent": "html, optional scientificModel/widgetType/widgetConfig; no top-level type at scene-types.ts:36-41",
+    "widgetReturn": "html/widgetType/widgetConfig without type at scene-generator.ts:1351-1355",
+    "effectiveOutlineType": "interactive",
+    "contentTypeExpectedAbsent": true,
+    "rawResponseIndependentlyReplayed": false,
+    "sourceHashes": {
+      "app/api/generate/scene-content/route.ts": "0021a2be912e06611296795a0f3aeb5320035011586e00011124e0cb8beaa8be",
+      "packages/@openmaic/generation/src/scene-types.ts": "becd6fb5b2bec21a186381b0ab4adc4165e385bef3e98c415fbfbc9c94af6348",
+      "packages/@openmaic/generation/src/scene-generator.ts": "c6c10cf1b989b3d85311a514da4b1ef7507a6939c51f593e65ae3420c412e7e0"
+    }
+  },
+  "limits": [
+    "One real simulation sample only; no new generation or provider API request.",
+    "Vitest executes unchanged inline numerical script through standard-input Node child process with minimal DOM; does not test Canvas, animation timing, KaTeX, network isolation or browser security.",
+    "Browser math checks are actual AX observations; screenshot and regex are not complete T-SEC.",
+    "No production AnimProvider/P1-10 or ReinLab live end-to-end acceptance.",
+    "Source hashes agree with manifest; deployed bundle commit not inferred.",
+    "Original full HTTP response unavailable; actual missing content.type cannot be reconstructed from HTML alone."
+  ],
+  "probeRevalidation": {
+    "realRequestsMade": 0,
+    "mockFetchOnly": true,
+    "tempArtifactsDeleted": true,
+    "concurrency": 40,
+    "claimWinners": 1,
+    "checks": [
+      "Existing report and winning request cannot be overwritten.",
+      "Request write/serialization failure retains zero-submission prevention claim.",
+      "CLI --output writes isolated artifacts and retains original report on another attempt.",
+      "Durable submission-intent has callCount null at mocked outbound fetch.",
+      "Mock success, unknown network outcome, invalid response JSON and HTML save conflict each prevent another generation attempt.",
+      "HTML save conflict preserves existing HTML and records failed-to-save; malformed response records response-processing-failed."
+    ],
+    "sourceHashes": {
+      "tooling/spikes/probe-evidence.mjs": "e9bff4aa51efb10eb52f4056afe6f74724c96ac0f0ec495667d44dc737efd64e",
+      "tooling/spikes/probe-evidence.test.ts": "92714bc81b2c603f9c5cddc2ed813e25e6d8a62c18da8b6d6c9d2fe64ba6dabb",
+      "tooling/spikes/openmaic-probe.mjs": "f63937a9d9e954d9f82734806723a23909ffe3751d1dbd5049a6dff69a59d65a",
+      "tooling/spikes/probe-independent.test.ts": "08bb48ad2c40ab77cbea44727085eff6f9b6a41c99787251141e2e3017fda125"
+    },
+    "boundary": "Synthetic responses exclusively test CLI failure handling; never count as real generation or source of the unchanged live HTML."
+  },
+  "lint": {
+    "latest": "passed",
+    "command": "pnpm lint",
+    "output": "依赖边界检查通过",
+    "previousFailure": "Earlier whole-workspace lint rejected tooling/spikes/openmaic-independent.test.ts node:vm import under P1-01. Removed that import and execution API; did not change boundary rules.",
+    "numericalHarness": "execFileSync(process.execPath, --input-type=commonjs), stdin static DOM scaffold + unchanged original main script + snapshot instructions; returned JSON state/HUD snapshots; no eval/Function/vm or hidden module imports."
+  }
+}

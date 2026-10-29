@@ -2,6 +2,14 @@
 
 可互动设计原型，已加入演示登录、连续开场、档案空间与原创环境音乐。非官方同人概念设计，与《明日方舟》、莱茵生命原作或 DeepSeek 官方无隶属关系。
 
+## 本地真实精读
+
+运行 `pnpm local:up22 --real-models`（固定用项目工具链的 Node 22；`pnpm local:up` 在 Electron 运行时里会直接报错退出），自动启动 supabase、控制面和 live 前端；打开 <http://127.0.0.1:5183> 登录本地账户，进入研究台精读。宿主网关直接读取受保护的 `~/.config/reinlab/local.env`，无需 `source` 或导出 key。
+澄清上限 ¥0.05，正式精读按确认预算，以峰值费率保守预留；用量未知保留未知。普通 `pnpm local:up22` 默认不开真实模型，测试与 CI 使用 fixture。
+若提示有未结束运行而延后账户升级，先结束旧运行，再执行启动命令。
+测试脚本仅使用本机私有的 `fixture-users.env` 合成账户，不复用走查账户的 `verification-users.env`。
+本地普通用户名登录映射到原账户，邮箱登录仍可用。修改私有 `verification-users.env` 的 `A_EMAIL`（用户名）和 `A_PASSWORD` 后，运行 `pnpm exec tsx services/control/scripts/sync-local-account.ts` 再重启；首次绑定需用 `--account <原账户ID>`，后续沿用已保存的账户 ID。
+
 ## 完整开场与档案空间
 
 打开后先播放约 3.8 秒的登录前过渡：莱茵标志居中描绘、符号与名称出现、标志移向左侧，再展开 **LOG IN** 表单。可跳过入场；减少动态效果时直接显示登录。手机端标志向上退场再显示表单。

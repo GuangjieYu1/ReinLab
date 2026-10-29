@@ -23,3 +23,10 @@ promo/
 mv-platinum-ink/
 Claude outputs/
 README-1.md
+# Supabase CLI local state can include development credentials.
+infra/supabase/.temp/
+infra/supabase/.branches/
+.local/
+
+.artifacts/
+

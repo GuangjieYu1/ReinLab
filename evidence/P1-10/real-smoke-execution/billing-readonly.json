@@ -1,0 +1,17 @@
+{
+  "source": "https://platform.deepseek.com/usage",
+  "exportTimeCst": "2026-10-22T02:36:56+08:00",
+  "providerDelayWaitedSeconds": 353,
+  "granularity": "hour,model,api_key,type",
+  "rawFilesOutsideRepository": true,
+  "rawMode": "0600",
+  "beforeZipSha256": "83cd10a4c6b3c026d1ed6e8afb6bbf43b5c8a59ab9a340c124dc12807a952590",
+  "afterZipSha256": "e6d93a96626d25f90b84aabedd268923a6ff90fba107b562df21228ce2d906b2",
+  "requestLevelProviderIdAvailable": false,
+  "concurrentUsagePresent": true,
+  "reconciled": false,
+  "providerInvoiceCostCny": null,
+  "errorPercent": null,
+  "reason": "真实请求400无usage；后台同小时有其他调用，导出缺request_id，无法将聚合差额归因本次，也不能凭缺行记0。",
+  "scope": "仅记录本任务能否归因；不将其他调用的金额、tokens或key标识入库"
+}

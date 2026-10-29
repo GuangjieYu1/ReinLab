@@ -1,0 +1,876 @@
+{
+  "reviewer": "role_independent_test",
+  "node": "v22.23.3",
+  "realModelRequests": 0,
+  "realKeyReads": 0,
+  "passed": 83,
+  "total": 83,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "reserves exactly the current direct and future gateway fee sources",
+          "status": "passed",
+          "title": "reserves exactly the current direct and future gateway fee sources",
+          "duration": 1.4937499999999773,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "preserves a strict callback data envelope and exact native decimal without pricing it",
+          "status": "passed",
+          "title": "preserves a strict callback data envelope and exact native decimal without pricing it",
+          "duration": 1.1744999999999948,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps missing usage explicitly unknown rather than defaulting counts or money to zero",
+          "status": "passed",
+          "title": "keeps missing usage explicitly unknown rather than defaulting counts or money to zero",
+          "duration": 0.35054200000001856,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects credential and authorization assertions instead of treating schema parse as verification",
+          "status": "passed",
+          "title": "rejects credential and authorization assertions instead of treating schema parse as verification",
+          "duration": 0.5952500000000214,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects malformed ids, clocks and non-exact or invalid monetary values",
+          "status": "passed",
+          "title": "rejects malformed ids, clocks and non-exact or invalid monetary values",
+          "duration": 0.3938750000000084,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "requires safe nonnegative integer counters and does not silently add optional fields",
+          "status": "passed",
+          "title": "requires safe nonnegative integer counters and does not silently add optional fields",
+          "duration": 0.20624999999998295,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792577545556,
+      "endTime": 1792577545560.2063,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/tooling/usage-contract.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "prices the documented canonical actual model while keeping the requested legacy route",
+          "status": "passed",
+          "title": "prices the documented canonical actual model while keeping the requested legacy route",
+          "duration": 2.6164579999999944,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not replace the requested legacy route with the canonical response model",
+          "status": "passed",
+          "title": "does not replace the requested legacy route with the canonical response model",
+          "duration": 0.31679099999999494,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps undocumented near matches unknown: deepseek-v4.1-flash-1017",
+          "status": "passed",
+          "title": "keeps undocumented near matches unknown: deepseek-v4.1-flash-1017",
+          "duration": 0.21274999999999977,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps undocumented near matches unknown: DeepSeek-V4.1-Flash-1018",
+          "status": "passed",
+          "title": "keeps undocumented near matches unknown: DeepSeek-V4.1-Flash-1018",
+          "duration": 0.2087500000000091,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps undocumented near matches unknown: DeepSeek-V4.1-Pro-1017",
+          "status": "passed",
+          "title": "keeps undocumented near matches unknown: DeepSeek-V4.1-Pro-1017",
+          "duration": 0.2014170000000206,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792577545578,
+      "endTime": 1792577545581.317,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/deepseek-canonical.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CNY native rates: offpeak do not multiply by fixed FX",
+          "status": "passed",
+          "title": "CNY native rates: offpeak do not multiply by fixed FX",
+          "duration": 2.6878340000000094,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CNY native rates: peak do not multiply by fixed FX",
+          "status": "passed",
+          "title": "CNY native rates: peak do not multiply by fixed FX",
+          "duration": 0.34745800000001736,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "USD official rates convert once to CNY after summing the original currency",
+          "status": "passed",
+          "title": "USD official rates convert once to CNY after summing the original currency",
+          "duration": 0.2722080000000062,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "cache and reasoning respect native normalized semantics without double counting",
+          "status": "passed",
+          "title": "cache and reasoning respect native normalized semantics without double counting",
+          "duration": 0.19400000000001683,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "USD peak is the independent USD table doubled, not a relabelled CNY table",
+          "status": "passed",
+          "title": "USD peak is the independent USD table doubled, not a relabelled CNY table",
+          "duration": 0.18550000000001887,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "ceil only once after exact native summation and USD conversion",
+          "status": "passed",
+          "title": "ceil only once after exact native summation and USD conversion",
+          "duration": 0.23116699999999923,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "preserves exact large counts but refuses a cost above the ledger range",
+          "status": "passed",
+          "title": "preserves exact large counts but refuses a cost above the ledger range",
+          "duration": 0.18016599999998562,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "accepts only documented Flash API aliases: deepseek-v4-flash",
+          "status": "passed",
+          "title": "accepts only documented Flash API aliases: deepseek-v4-flash",
+          "duration": 0.28325000000000955,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "accepts only documented Flash API aliases: deepseek-flash",
+          "status": "passed",
+          "title": "accepts only documented Flash API aliases: deepseek-flash",
+          "duration": 0.33541600000000926,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not infer an actual DeepSeek provider from the requested route: openai",
+          "status": "passed",
+          "title": "does not infer an actual DeepSeek provider from the requested route: openai",
+          "duration": 0.13920900000002234,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not infer an actual DeepSeek provider from the requested route: deepseek-proxy",
+          "status": "passed",
+          "title": "does not infer an actual DeepSeek provider from the requested route: deepseek-proxy",
+          "duration": 0.13204100000001517,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not infer an actual DeepSeek provider from the requested route: DeepSeek",
+          "status": "passed",
+          "title": "does not infer an actual DeepSeek provider from the requested route: DeepSeek",
+          "duration": 0.13274999999998727,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown actual model is not priced as Flash: deepseek-v4-pro",
+          "status": "passed",
+          "title": "unknown actual model is not priced as Flash: deepseek-v4-pro",
+          "duration": 0.08795800000001464,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown actual model is not priced as Flash: deepseek-chat",
+          "status": "passed",
+          "title": "unknown actual model is not priced as Flash: deepseek-chat",
+          "duration": 0.07620800000000827,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown actual model is not priced as Flash: deepseek-v4-flash-vision-exp",
+          "status": "passed",
+          "title": "unknown actual model is not priced as Flash: deepseek-v4-flash-vision-exp",
+          "duration": 0.078125,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown actual model is not priced as Flash: deepseek-v4-flash,other",
+          "status": "passed",
+          "title": "unknown actual model is not priced as Flash: deepseek-v4-flash,other",
+          "duration": 0.07499999999998863,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "missing actual provenance cannot be reconstructed from response or assistant model fields",
+          "status": "passed",
+          "title": "missing actual provenance cannot be reconstructed from response or assistant model fields",
+          "duration": 0.2174590000000194,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "missing or aggregated input is unknown: undefined",
+          "status": "passed",
+          "title": "missing or aggregated input is unknown: undefined",
+          "duration": 0.1349999999999909,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "missing or aggregated input is unknown: null",
+          "status": "passed",
+          "title": "missing or aggregated input is unknown: null",
+          "duration": 0.1541249999999934,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "missing or aggregated input is unknown: undefined",
+          "status": "passed",
+          "title": "missing or aggregated input is unknown: undefined",
+          "duration": 0.06529199999999946,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "missing or aggregated input is unknown: {}",
+          "status": "passed",
+          "title": "missing or aggregated input is unknown: {}",
+          "duration": 0.059333000000009406,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "missing or aggregated input is unknown: {\"type\":\"assistant\"}",
+          "status": "passed",
+          "title": "missing or aggregated input is unknown: {\"type\":\"assistant\"}",
+          "duration": 0.06687500000001023,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not aggregate a mixed model array or accept assistant totals as a second usage source",
+          "status": "passed",
+          "title": "does not aggregate a mixed model array or accept assistant totals as a second usage source",
+          "duration": 0.14312499999999773,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid token counters remain unknown instead of being normalized to zero: -1",
+          "status": "passed",
+          "title": "invalid token counters remain unknown instead of being normalized to zero: -1",
+          "duration": 0.39383300000000077,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid token counters remain unknown instead of being normalized to zero: 0.5",
+          "status": "passed",
+          "title": "invalid token counters remain unknown instead of being normalized to zero: 0.5",
+          "duration": 0.3429999999999893,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid token counters remain unknown instead of being normalized to zero: NaN",
+          "status": "passed",
+          "title": "invalid token counters remain unknown instead of being normalized to zero: NaN",
+          "duration": 0.7040410000000179,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid token counters remain unknown instead of being normalized to zero: Infinity",
+          "status": "passed",
+          "title": "invalid token counters remain unknown instead of being normalized to zero: Infinity",
+          "duration": 0.6397919999999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid token counters remain unknown instead of being normalized to zero: 9007199254740992",
+          "status": "passed",
+          "title": "invalid token counters remain unknown instead of being normalized to zero: 9007199254740992",
+          "duration": 0.5978749999999877,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid token counters remain unknown instead of being normalized to zero: 1",
+          "status": "passed",
+          "title": "invalid token counters remain unknown instead of being normalized to zero: 1",
+          "duration": 0.47091599999998834,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid token counters remain unknown instead of being normalized to zero: null",
+          "status": "passed",
+          "title": "invalid token counters remain unknown instead of being normalized to zero: null",
+          "duration": 0.3216250000000116,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid token counters remain unknown instead of being normalized to zero: undefined",
+          "status": "passed",
+          "title": "invalid token counters remain unknown instead of being normalized to zero: undefined",
+          "duration": 0.3110419999999863,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "all-zero normalized usage cannot turn an absent provider bill into known free usage",
+          "status": "passed",
+          "title": "all-zero normalized usage cannot turn an absent provider bill into known free usage",
+          "duration": 0.10583300000001827,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "reasoning is a subset of output and cannot exceed it",
+          "status": "passed",
+          "title": "reasoning is a subset of output and cannot exceed it",
+          "duration": 0.085125000000005,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uncertain context never silently falls back to a window or table: {}",
+          "status": "passed",
+          "title": "uncertain context never silently falls back to a window or table: {}",
+          "duration": 0.07791699999998514,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uncertain context never silently falls back to a window or table: {\"window\":null}",
+          "status": "passed",
+          "title": "uncertain context never silently falls back to a window or table: {\"window\":null}",
+          "duration": 0.06399999999999295,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uncertain context never silently falls back to a window or table: {\"window\":\"weekday\"}",
+          "status": "passed",
+          "title": "uncertain context never silently falls back to a window or table: {\"window\":\"weekday\"}",
+          "duration": 0.06329199999998991,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uncertain context never silently falls back to a window or table: {\"currency\":\"EUR\"}",
+          "status": "passed",
+          "title": "uncertain context never silently falls back to a window or table: {\"currency\":\"EUR\"}",
+          "duration": 0.059790999999989936,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uncertain context never silently falls back to a window or table: {\"usdCnyRate\":\"7.3\"}",
+          "status": "passed",
+          "title": "uncertain context never silently falls back to a window or table: {\"usdCnyRate\":\"7.3\"}",
+          "duration": 0.07020799999997962,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uncertain context never silently falls back to a window or table: {\"requestedModel\":\"openai/other\"}",
+          "status": "passed",
+          "title": "uncertain context never silently falls back to a window or table: {\"requestedModel\":\"openai/other\"}",
+          "duration": 0.058625000000006366,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "uncertain context never silently falls back to a window or table: {\"pricingVersion\":\"unverified-version\"}",
+          "status": "passed",
+          "title": "uncertain context never silently falls back to a window or table: {\"pricingVersion\":\"unverified-version\"}",
+          "duration": 0.060041000000012446,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "metadata is deterministic JSON and contains pricing provenance rather than raw payload or upstream cost",
+          "status": "passed",
+          "title": "metadata is deterministic JSON and contains pricing provenance rather than raw payload or upstream cost",
+          "duration": 0.43845799999999713,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "a step without its valid id cannot become attributable usage",
+          "status": "passed",
+          "title": "a step without its valid id cannot become attributable usage",
+          "duration": 0.7486250000000041,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "a step without its valid sessionID cannot become attributable usage",
+          "status": "passed",
+          "title": "a step without its valid sessionID cannot become attributable usage",
+          "duration": 0.09491700000000947,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "a step without its valid messageID cannot become attributable usage",
+          "status": "passed",
+          "title": "a step without its valid messageID cannot become attributable usage",
+          "duration": 0.07579200000000696,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid provider time does not become trusted window evidence: 0",
+          "status": "passed",
+          "title": "invalid provider time does not become trusted window evidence: 0",
+          "duration": 0.08554199999997536,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid provider time does not become trusted window evidence: NaN",
+          "status": "passed",
+          "title": "invalid provider time does not become trusted window evidence: NaN",
+          "duration": 0.06895800000000918,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid provider time does not become trusted window evidence: 9007199254740992",
+          "status": "passed",
+          "title": "invalid provider time does not become trusted window evidence: 9007199254740992",
+          "duration": 0.06887499999999136,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "invalid provider time does not become trusted window evidence: undefined",
+          "status": "passed",
+          "title": "invalid provider time does not become trusted window evidence: undefined",
+          "duration": 0.15879199999997695,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "non-BYOK billing route does not become DeepSeek API cash cost: subscription",
+          "status": "passed",
+          "title": "non-BYOK billing route does not become DeepSeek API cash cost: subscription",
+          "duration": 0.0907500000000141,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "non-BYOK billing route does not become DeepSeek API cash cost: local",
+          "status": "passed",
+          "title": "non-BYOK billing route does not become DeepSeek API cash cost: local",
+          "duration": 0.07629199999999514,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "non-BYOK billing route does not become DeepSeek API cash cost: chatgpt",
+          "status": "passed",
+          "title": "non-BYOK billing route does not become DeepSeek API cash cost: chatgpt",
+          "duration": 0.07141599999999926,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "non-BYOK billing route does not become DeepSeek API cash cost: managed",
+          "status": "passed",
+          "title": "non-BYOK billing route does not become DeepSeek API cash cost: managed",
+          "duration": 0.07141699999999673,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "non-BYOK billing route does not become DeepSeek API cash cost: custom",
+          "status": "passed",
+          "title": "non-BYOK billing route does not become DeepSeek API cash cost: custom",
+          "duration": 0.07383300000000759,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "ceil is checked against the ledger microCNY limit for input=999999999998",
+          "status": "passed",
+          "title": "ceil is checked against the ledger microCNY limit for input=999999999998",
+          "duration": 0.08437499999999432,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "ceil is checked against the ledger microCNY limit for input=999999999999",
+          "status": "passed",
+          "title": "ceil is checked against the ledger microCNY limit for input=999999999999",
+          "duration": 0.07808300000002077,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "credential-shaped source id cannot authorize priced usage",
+          "status": "passed",
+          "title": "credential-shaped source id cannot authorize priced usage",
+          "duration": 0.12245799999999463,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "credential-shaped source sessionID cannot authorize priced usage",
+          "status": "passed",
+          "title": "credential-shaped source sessionID cannot authorize priced usage",
+          "duration": 0.08695899999997891,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "credential-shaped source messageID cannot authorize priced usage",
+          "status": "passed",
+          "title": "credential-shaped source messageID cannot authorize priced usage",
+          "duration": 0.08487500000001091,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "label rejection also covers short or embedded credential prefixes: sk_short",
+          "status": "passed",
+          "title": "label rejection also covers short or embedded credential prefixes: sk_short",
+          "duration": 0.0820410000000038,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "label rejection also covers short or embedded credential prefixes: prt_sk_embedded",
+          "status": "passed",
+          "title": "label rejection also covers short or embedded credential prefixes: prt_sk_embedded",
+          "duration": 0.12729200000001129,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "label rejection also covers short or embedded credential prefixes: ghp_fixturefixturefixturefixturefixture",
+          "status": "passed",
+          "title": "label rejection also covers short or embedded credential prefixes: ghp_fixturefixturefixturefixturefixture",
+          "duration": 0.07391699999999446,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "all returned metadata labels are bounded even when context or provenance is invalid",
+          "status": "passed",
+          "title": "all returned metadata labels are bounded even when context or provenance is invalid",
+          "duration": 0.5035000000000025,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792577545581,
+      "endTime": 1792577545595.5034,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/deepseek-pricing.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown usage provider never preserves credential-shaped labels in metadata",
+          "status": "passed",
+          "title": "unknown usage provider never preserves credential-shaped labels in metadata",
+          "duration": 2.294792000000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown usage model never preserves credential-shaped labels in metadata",
+          "status": "passed",
+          "title": "unknown usage model never preserves credential-shaped labels in metadata",
+          "duration": 0.27087499999998954,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown usage route never preserves credential-shaped labels in metadata",
+          "status": "passed",
+          "title": "unknown usage route never preserves credential-shaped labels in metadata",
+          "duration": 0.3139160000000061,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown context requestedModel never preserves credential-shaped labels in metadata",
+          "status": "passed",
+          "title": "unknown context requestedModel never preserves credential-shaped labels in metadata",
+          "duration": 0.1851660000000095,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "unknown context pricingVersion never preserves credential-shaped labels in metadata",
+          "status": "passed",
+          "title": "unknown context pricingVersion never preserves credential-shaped labels in metadata",
+          "duration": 0.1994579999999928,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "source id cannot leak a credential-shaped label",
+          "status": "passed",
+          "title": "source id cannot leak a credential-shaped label",
+          "duration": 0.14416600000001267,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "source sessionID cannot leak a credential-shaped label",
+          "status": "passed",
+          "title": "source sessionID cannot leak a credential-shaped label",
+          "duration": 0.1385829999999828,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "source messageID cannot leak a credential-shaped label",
+          "status": "passed",
+          "title": "source messageID cannot leak a credential-shaped label",
+          "duration": 0.13787499999997976,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "native CNY is not FX-converted and USD exact conversion remains independent",
+          "status": "passed",
+          "title": "native CNY is not FX-converted and USD exact conversion remains independent",
+          "duration": 0.42720900000000483,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "non-BYOK routes and over-ledger amounts remain unknown with no imputed free usage",
+          "status": "passed",
+          "title": "non-BYOK routes and over-ledger amounts remain unknown with no imputed free usage",
+          "duration": 0.6417500000000018,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792577545581,
+      "endTime": 1792577545585.6418,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/independent-deepseek-pricing.test.ts"
+    }
+  ]
+}

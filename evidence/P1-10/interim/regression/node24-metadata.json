@@ -1,0 +1,15 @@
+{
+  "node": "v24.14.1",
+  "pnpm": "11.5.2",
+  "total": 1284,
+  "passed": 1284,
+  "failed": 0,
+  "pending": 0,
+  "maxFileWorkers": 4,
+  "testTimeoutChanged": false,
+  "retriesAdded": false,
+  "allAssertionsRetained": true,
+  "realModelRequests": 0,
+  "reportSha256": "f08ec06fded23f562b420303d927b04987a1723d6caa4146897a888e877a0825",
+  "postFullDelta": "Only strengthened existing native test to pass actual SDK wire bytes through the same guard with test-only fixture transport; independently passed on both Node versions."
+}

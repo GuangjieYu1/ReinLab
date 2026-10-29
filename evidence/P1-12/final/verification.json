@@ -1,0 +1,32 @@
+{
+  "checks": [
+    {
+      "command": "tsc control",
+      "passed": true
+    },
+    {
+      "command": "tsc contracts",
+      "passed": true
+    },
+    {
+      "command": "tsc frontend",
+      "passed": true
+    },
+    {
+      "command": "tsc local tooling",
+      "passed": true
+    }
+  ],
+  "builds": {
+    "mock": true,
+    "live": true
+  },
+  "warnings": [
+    "Vite existing chunk size warnings; no threshold changed"
+  ],
+  "T_REG": {
+    "passed": 18,
+    "failed": 0,
+    "scenarioFilesChanged": 0
+  }
+}

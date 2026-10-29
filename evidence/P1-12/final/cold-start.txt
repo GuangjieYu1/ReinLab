@@ -1,0 +1,7 @@
+$ tsx tooling/local/up.ts
+{"code":"LOCAL_DOCKER_PROFILE_STARTING"}
+{"code":"LOCAL_SUPABASE_STARTING"}
+{"code":"LOCAL_BUSINESS_MIGRATIONS"}
+{"code":"LOCAL_ACCOUNT_IMAGE_BUILDING"}
+{"code":"LOCAL_CONTROL_STARTING"}
+{"code":"LOCAL_STACK_READY","control":"http://127.0.0.1:3001","supabase":"http://127.0.0.1:54321","studio":"http://127.0.0.1:54323","image":"reinlab-account:local-ec9cf4906365","appliedMigrations":0,"credentials":"本机受保护状态目录；未输出任何值","stateDirectory":"/Users/guangjieyu/.local/state/reinlab/803a04fcd69a"}

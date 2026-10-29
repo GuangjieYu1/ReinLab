@@ -1,0 +1,36 @@
+{
+  "codeCommit": "df7a3bcd745904eb427d3ba94498c51ffa20d966",
+  "runId": 39277895313,
+  "url": "https://github.com/GuangjieYu1/ReinLab/actions/runs/39277895313",
+  "workflowStatus": "completed",
+  "workflowConclusion": "success",
+  "verifiedAt": "2026-10-19T15:38:56Z",
+  "statusSource": "GitHub fetch_commit_workflow_runs; workflow run 35",
+  "queryDiscrepancy": "工作流已返回 completed/success，但单个 check job 查询仍返回 in_progress；不将该过期 job 字段冒充已更新。下载报告和日志与本次 run/head 对应。",
+  "artifacts": [
+    {
+      "id": 12197459641,
+      "name": "research-test-report",
+      "sha256": "2969c5bb1aabac6bfed66b0d5f9bc01ca628dc1acb07a78cdffbd706b73d083e",
+      "report": "ci-test-report.json",
+      "passed": 714,
+      "failed": 0
+    },
+    {
+      "id": 12199780917,
+      "name": "account-container-test-report",
+      "sha256": "dfd73d670819ab417167b2a45e9ca5a65475fcdc14a909f16e86d39870db8794",
+      "report": "ci-container-test-report.json",
+      "passed": 7,
+      "failed": 0
+    }
+  ],
+  "artifactVerification": "下载ZIP在内存中校验GitHub artifact SHA-256后提取报告；不保留临时签名URL。",
+  "dependency": {
+    "task": "D-1",
+    "finalCommit": "4400385a52d23a2c3ef1654ac2c56f70b44bb7ad",
+    "runId": 39238145035,
+    "conclusion": "success"
+  },
+  "scope": "实现代码CI已通过；本次后续提交仅补报告和索引，最终提交CI在PR中核对。"
+}

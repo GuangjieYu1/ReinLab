@@ -1,0 +1,363 @@
+import { beforeAll, afterAll, it, expect, vi } from "vitest";
+import pg from "pg";
+import { createServer, type Server } from "node:http";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, realpath, rm, writeFile, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { generateKeyPair, exportJWK, SignJWT } from "jose";
+import {scrub} from '../src/ledger';
+import { Database } from "../src/db/database";
+import { applyMigrations } from "../src/db/migrate";
+import { createApp } from "../src/api/app";
+import { PricingService } from "../src/budget/pricing";
+import { loadToolRegistry, loadBenchBundle } from "../src/harness/manifest";
+import { publishBench, HarnessStore } from "../src/harness/store";
+import { RuntimePipeline } from "../src/bridge/openscience/pipeline";
+import { DEEPSEEK_PRICING_VERSION } from "../src/bridge/openscience/deepseek-pricing";
+import { RoleRuntime } from "../src/bridge/openscience/role-runtime";
+import { prepareRoleProject } from "../src/bridge/openscience/role-project";
+import {
+  startNativeRoleServer,
+} from "./fixtures/role-provider";
+import { testEvidenceDirectory } from "./fixtures/test-evidence";
+type FixtureCall={name:string;arguments:Record<string,unknown>};
+type CapturedRequest={messages:Array<Record<string,any>>;[key:string]:any};
+async function startRoleProvider() {
+  const requests: CapturedRequest[] = [];
+  const wire:Array<Record<string,unknown>>=[];
+  const plans = new Map<string, FixtureCall[]>();
+  const delays = new Map<string, Promise<void>>();
+  let observerHits = 0;
+  const server = createServer(async (req, res) => {
+    req.on('aborted',()=>wire.push({event:'request.aborted'}));
+    res.on('finish',()=>wire.push({event:'response.finish',status:res.statusCode,writableFinished:res.writableFinished}));
+    res.on('close',()=>wire.push({event:'response.close',writableFinished:res.writableFinished}));
+    if (req.url === '/observer') { observerHits++; res.end('observer'); return; }
+    if (req.url !== '/v1/chat/completions') { res.writeHead(404).end(); return; }
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
+    const body = JSON.parse(raw) as CapturedRequest;
+    wire.push({event:"request.parsed",stream:body.stream,bytes:Buffer.byteLength(raw)});
+    requests.push(body);
+    const lastUser = body.messages.findLastIndex(message => message.role === 'user');
+    const user = JSON.stringify(body.messages[lastUser]);
+    const paused = [...delays].find(([marker]) => user.includes(marker));
+    if (paused) { await paused[1]; if (res.destroyed) return; }
+    const plan = [...plans].find(([marker]) => user.includes(marker))?.[1] ?? [];
+    const hasToolReply = body.messages.slice(lastUser + 1).some(message => message.role === 'tool');
+    const calls = hasToolReply ? [] : plan;
+    const delta = calls.length ? { role: 'assistant', tool_calls: calls.map((call, index) => ({ index, id: `call_fixture_${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) } : { role: 'assistant', content: 'Fixture finished.' };
+    const finish = calls.length ? 'tool_calls' : 'stop';
+    const base = { id: `chatcmpl_fixture_${requests.length}`, object: 'chat.completion.chunk', created: 1, model: 'fixture' };
+    if (body.stream) {
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+      res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: {}, finish_reason: finish }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}\n\n`);
+      res.end('data: [DONE]\n\n');wire.push({event:'response.end.called',doneMarker:true});
+    } else {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ...base, object: 'chat.completion', choices: [{ index: 0, message: delta, finish_reason: finish }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
+    }
+  });
+  const url = await listen(server);
+  return { requests, plans, delays, wire, url, get observerHits() { return observerHits; }, close: () => close(server) };
+}
+async function listen(server: Server) {
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  return `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+}
+async function close(server: Server) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+
+
+const admin = new pg.Pool({
+    connectionString: "postgres://postgres@127.0.0.1:55432/reinlab_test",
+    max: 2,
+  }),
+  pool = new pg.Pool({
+    connectionString: "postgres://reinlab_app@127.0.0.1:55432/reinlab_test",
+    max: 5,
+  }),
+  db = new Database(pool);
+beforeAll(() => applyMigrations(admin, resolve("infra/supabase/migrations")));
+afterAll(async () => {
+  await pool.end();
+  await admin.end();
+});
+/** Real API/auth/native protocol, test-only loopback provider; no real model credentials or claims. */
+it("ES256 authenticated confirmation binds Harness and model, native usage reaches ledger as unknown exactly once", async () => {
+  const root = await realpath(
+      await mkdtemp(join(tmpdir(), "reinlab-pipeline-native-")),
+    ),
+    account = randomUUID(),
+    registry = await loadToolRegistry(),
+    bundle = await loadBenchBundle({ benchId: "research", registry });
+  let provider: Awaited<ReturnType<typeof startRoleProvider>> | undefined,
+    native: Awaited<ReturnType<typeof startNativeRoleServer>> | undefined,
+    local: Server | undefined,
+    pipeline: RuntimePipeline | undefined;
+  let diagnosticRun:string|undefined,lastRuntime:RoleRuntime|undefined;
+  const observerCodes:string[]=[];const consoleSpy=vi.spyOn(console,"error").mockImplementation((value)=>{try{const v=JSON.parse(String(value));observerCodes.push(typeof v.code==="string"?v.code:"NON_CODE_ERROR");}catch{observerCodes.push("NON_JSON_ERROR");}});
+  try {
+    await publishBench(admin, bundle, registry);
+    await admin.query("insert into account(id) values($1)", [account]);
+    const { publicKey, privateKey } = await generateKeyPair("ES256", {
+        extractable: true,
+      }),
+      jwk = {
+        ...(await exportJWK(publicKey)),
+        kid: "pipeline-fixture",
+        alg: "ES256",
+        use: "sig",
+      };
+    local = createServer((req, res) => {
+      res.setHeader("content-type", "application/json");
+      if (req.url === "/auth/v1/.well-known/jwks.json")
+        res.end(JSON.stringify({ keys: [jwk] }));
+      else if (req.url === "/catalog")
+        res.end(
+          JSON.stringify({
+            "role-fixture": {
+              models: {
+                fixture: {
+                  cost: { input: 1.5, output: 3 },
+                  limit: { context: 200000, output: 16000 },
+                },
+              },
+            },
+          }),
+        );
+      else res.writeHead(404).end("{}");
+    });
+    await new Promise<void>((done) => local!.listen(0, "127.0.0.1", done));
+    const address = local.address();
+    if (!address || typeof address === "string")
+      throw Error("FIXTURE_LISTEN_FAILED");
+    const baseUrl = "http://127.0.0.1:" + address.port,
+      issuer = baseUrl + "/auth/v1";
+    const jwt = await new SignJWT({ role: "authenticated" })
+      .setProtectedHeader({ alg: "ES256", kid: "pipeline-fixture" })
+      .setSubject(account)
+      .setIssuer(issuer)
+      .setAudience("authenticated")
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(privateKey);
+    provider = await startRoleProvider();
+    native = await startNativeRoleServer(root, provider.url);
+    expect(native.version).toBe("2.0.150");
+    pipeline = new RuntimePipeline(db, {
+      factory: async (_account, role) =>
+        lastRuntime = new RoleRuntime({
+          baseUrl: native!.baseUrl,
+          token: native!.token,
+          project: await prepareRoleProject({
+            ...role,
+            root,
+            pluginUrl: pathToFileURL(
+              resolve("plugins/reinlab-os-plugin/index.js"),
+            ).href,
+          }),
+        }),
+      pricingContext: {
+        currency: "CNY",
+        window: "peak",
+        usdCnyRate: "7.2",
+        pricingVersion: DEEPSEEK_PRICING_VERSION,
+        validFrom: 1,
+        validUntil: Date.now() + 3600000,
+      },
+    });
+    const pricing = new PricingService({
+      catalogUrl: baseUrl + "/catalog",
+      usdCny: "7.2",
+      routes: { strong: "role-fixture/fixture" },
+    });
+    const app = await createApp({
+      pool,
+      auth: { issuer },
+      pricing,
+      harness: new HarnessStore(db, bundle, registry),
+      pipeline,
+    });
+    const post = async (path: string, body: unknown, key = randomUUID()) =>
+      app.request(path, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer " + jwt,
+          "content-type": "application/json",
+          "idempotency-key": key,
+        },
+        body: JSON.stringify(body),
+      });
+    expect((await app.request("/v1/me")).status).toBe(401);
+    const dossierResponse = await post("/v1/dossiers", {
+      bench: "research",
+      title: "Pipeline native API fixture",
+    });
+    expect(dossierResponse.status).toBe(201);
+    const dossier = (await dossierResponse.json()) as { id: string };
+    const estimateResponse = await post("/v1/runs/estimate", {
+      dossierId: dossier.id,
+      mode: "read",
+    });
+    expect(estimateResponse.status).toBe(201);
+    const quote = (await estimateResponse.json()) as {
+      id: string;
+      model: string;
+    };
+    expect(quote.model).toBe("role-fixture/fixture");
+    const input = {
+        dossierId: dossier.id,
+        mode: "read",
+        roleId: bundle.manifest.entrypoints.read,
+        budget: { cny: 1 },
+        estimateId: quote.id,
+        confirmed: true,
+        input: {
+          question: "PIPELINE_NATIVE_CONFIRMED_2214",
+          limits: { maxSteps: 1 },
+        },
+      },
+      key = randomUUID();
+    const confirmed = await post("/v1/runs", input, key);
+    expect(confirmed.status).toBe(201);
+    const run = (await confirmed.json()) as { id: string };diagnosticRun=run.id;
+    await expect
+      .poll(
+        async () =>
+          (
+            await admin.query(
+              "select ended_at is not null ended from run where id=$1",
+              [run.id],
+            )
+          ).rows[0]?.ended,
+        { timeout: 30000 },
+      )
+      .toBe(true);
+    const binding = (
+      await admin.query(
+        "select b.*,h.bench,h.version,h.effective_digest,h.model_route from os_binding b join run_harness h on h.run_id=b.run_id where b.run_id=$1",
+        [run.id],
+      )
+    ).rows[0];
+    const usage = (
+      await admin.query(
+        "select part_id,cost_cny,metadata from os_usage where run_id=$1",
+        [run.id],
+      )
+    ).rows;
+    const events = (
+      await admin.query(
+        "select kind,action,cost_cny,payload from event where run_id=$1 order by seq",
+        [run.id],
+      )
+    ).rows;
+    const hold = (
+      await admin.query(
+        "select state,actual_cny from budget_hold where id=$1",
+        [binding.hold_id],
+      )
+    ).rows[0];
+    expect(binding.phase).toBe("accepted");
+    expect(binding.model_route).toBe(quote.model);
+    expect(binding.role_options.model).toBe(quote.model);
+    expect(binding.pricing_context.requestedModel).toBe(quote.model);
+    expect(binding.effective_digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(usage).toHaveLength(1);
+    expect(usage[0].cost_cny).toBeNull();
+    expect(usage[0].metadata.status).toBe("unknown");
+    expect(hold).toEqual({ state: "unpriced", actual_cny: null });
+    expect(events.some((event) => event.action === "run_queued")).toBe(true);
+    expect(events.some((event) => event.action === "runtime_admitted")).toBe(
+      true,
+    );
+    expect(
+      events.some((event) => event.kind === "cost" && event.cost_cny === null),
+    ).toBe(true);
+    expect(
+      events.some((event) => event.action === "run_admission_deferred"),
+    ).toBe(false);
+    expect(provider.requests).toHaveLength(1);
+    const system = provider.requests
+      .flatMap((request) =>
+        request.messages.filter((message) => message.role === "system"),
+      )
+      .map((message) =>
+        typeof message.content === "string"
+          ? message.content
+          : JSON.stringify(message.content),
+      )
+      .join("\n");
+    expect(system).toContain(
+      await readFile(resolve("prompts/research/research-read.md"), "utf8"),
+    );
+    expect((await post("/v1/runs", input, key)).status).toBe(201);
+    await pipeline.recoverAccount(account);
+    expect(provider.requests).toHaveLength(1);
+    expect(
+      (
+        await admin.query(
+          "select count(*)::int n from os_usage where run_id=$1",
+          [run.id],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+    const evidence = await testEvidenceDirectory("pipeline-native");
+    await writeFile(
+      join(evidence, "pipeline-native-evidence.json"),
+      JSON.stringify(
+        {
+          fixtureOnly: true,
+          realModelRequests: 0,
+          realModelCost: 0,
+          nativeVersion: native.version,
+          auth: "ES256 signature verified by local JWKS fixture; not a live Supabase session",
+          api: "Hono estimate/confirmed-run real routes",
+          model: binding.model_route,
+          bench: binding.bench,
+          version: binding.version,
+          effectiveDigest: binding.effective_digest,
+          providerCalls: provider.requests.length,
+          usage,
+          hold,
+          events: events.map(({ kind, action, cost_cny }) => ({
+            kind,
+            action,
+            cost_cny,
+          })),
+          system,
+          requestBodies: provider.requests,
+        },
+        null,
+        2,
+      ).replaceAll(root, "<FIXTURE_ROOT>") + "\n",
+    );
+  } finally {
+    const diagnostics=await testEvidenceDirectory('independent-pipeline-diagnostic');
+    const rows=diagnosticRun?(await admin.query("select r.state,r.ended_at,b.session_id,b.phase,b.cursor::text,b.usage_uncertain,(select count(*)::int from os_usage u where u.run_id=r.id) usage_count from run r left join os_binding b on b.run_id=r.id where r.id=$1",[diagnosticRun])).rows:[];
+    const sid=rows[0]?.session_id;let runtimeState:unknown;
+    if(sid&&lastRuntime)try{
+      const snapshot=await lastRuntime.snapshot(sid),messages=await lastRuntime.messages(sid),replay=await lastRuntime.replay(sid,0);
+      runtimeState={snapshot:JSON.parse(JSON.stringify(snapshot)),messages:messages.map((m:any)=>({role:m.info?.role,finish:m.info?.finish,time:m.info?.time,parts:(m.parts??[]).map((p:any)=>({type:p.type,state:p.state?.status,hasUsage:p.usage!==undefined,hasTokens:p.tokens!==undefined,textLength:typeof p.text==='string'?p.text.length:undefined}))})),replay:(replay.events??[]).map((e:any)=>({sequence:e.sequence,type:e.type}))};
+    }catch(error){runtimeState={code:(error as any)?.code??'READ_DIAGNOSTIC_FAILED'};}
+    const logs=(native?.logs()??'').split('\n').filter(Boolean).slice(-100).map(line=>{try{return scrub(JSON.parse(line));}catch{return {nonJsonLine:true};}});
+    const requests=provider?.requests.map(r=>({model:r.model,stream:r.stream,messages:r.messages.map(m=>({role:m.role,contentLength:JSON.stringify(m.content??'').length,containsMarker:JSON.stringify(m.content??'').includes('PIPELINE_NATIVE_CONFIRMED_2214'),containsMaxSteps:JSON.stringify(m.content??'').includes('MAXIMUM STEPS REACHED')})),tools:(r.tools??[]).map((t:any)=>t.function?.name)}));
+    await writeFile(join(diagnostics,'independent-pipeline-diagnostic.json'),JSON.stringify({fixtureOnly:true,providerCalls:provider?.requests.length,requests,wire:provider?.wire,rows:rows.map(({session_id,...r}:any)=>r),runtimeState,observerCodes,logs},null,2).replaceAll(root,'<FIXTURE_ROOT>')+'\n');
+    consoleSpy.mockRestore();
+    await pipeline?.shutdown();
+    await native?.close();
+    await provider?.close();
+    if (local) {
+      local.closeAllConnections();
+      await new Promise<void>((done) => local!.close(() => done()));
+    }
+    await rm(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  }
+}, 90000);

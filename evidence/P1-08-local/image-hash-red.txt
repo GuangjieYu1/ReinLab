@@ -1,0 +1,26 @@
+
+ RUN  v4.1.11 /Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab
+
+ ❯ tooling/local/image.test.ts (10 tests | 1 failed) 27ms
+   × 内容tag覆盖Dockerfile所有COPY输入，每个manifest变化都改变tag 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tooling/local/image.test.ts > 内容tag覆盖Dockerfile所有COPY输入，每个manifest变化都改变tag
+AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+ ❯ tooling/local/image.test.ts:236:56
+    234|  const dockerfile=await readFile('infra/fly/account.Dockerfile','utf8'…
+    235|  const copied=dockerfile.split('\n').filter(line=>line.startsWith('COP…
+    236|  for(const file of copied)expect(ACCOUNT_IMAGE_INPUTS).toContain(file);
+       |                                                        ^
+    237|  expect(ACCOUNT_IMAGE_INPUTS).toContain('infra/fly/account.Dockerfile'…
+    238|  const original=await accountImageTag(async file=>Buffer.from('base:'+…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   Start at  09:58:55
+   Duration  129ms (transform 25ms, setup 0ms, import 32ms, tests 27ms, environment 0ms)
+

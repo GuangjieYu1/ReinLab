@@ -1,0 +1,9 @@
+{
+  "status": "blocked_environment",
+  "linuxImageVerified": false,
+  "flyVerified": false,
+  "errorCode": "DOCKER_BACKEND_SETTINGS_TIMEOUT",
+  "error": "Get http://ipc/settings: read unix @->/run/host-services/backend.sock: i/o timeout (Client.Timeout exceeded while awaiting headers)",
+  "attempts": ["Docker CLI build", "legacy builder", "direct Engine API with isolated public build context", "cached FROM-only Engine build probe"],
+  "action": "未重启共享Docker服务，避免中断其他运行容器；保留本地Postgres结果，原生二进制测试另列，不能代替镜像或云验收"
+}

@@ -1,0 +1,31 @@
+{
+  "fixtureOnly": true,
+  "summary": [
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Receipt contract fixture. Do not call tools.\nYou are powered by the model named fixture. The exact model ID is role-fixture/fixture\nHere is some useful information about the enviro"
+        },
+        {
+          "role": "user",
+          "content": "FIXTURE_RECEIPT_INSPECT"
+        }
+      ]
+    },
+    {
+      "model": "fixture",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a title generator. You output ONLY a thread title. Nothing else.\n\n<task>\nGenerate a brief title that would help the user find this conversation later.\n\nFollow all rules in "
+        },
+        {
+          "role": "user",
+          "content": "\n              The following is the text to summarize:\n              <text>\n              FIXTURE_RECEIPT_INSPECT\n              </text>\n            "
+        }
+      ]
+    }
+  ]
+}

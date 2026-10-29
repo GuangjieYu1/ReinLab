@@ -1,0 +1,21 @@
+{
+  "nativeVersion": "2.0.150",
+  "changed": true,
+  "requests": 2,
+  "leaked": false,
+  "hookLog": "experimental.chat.system.transform\nexperimental.chat.system.transform\ntool.execute.before\nrejected:tool.execute.before\nexperimental.chat.system.transform\nrejected:experimental.chat.system.transform\n",
+  "systemSummaries": [
+    {
+      "requestIndex": 1,
+      "titleGeneration": false,
+      "ownMemory": true,
+      "crossRoleSentinel": false
+    },
+    {
+      "requestIndex": 2,
+      "titleGeneration": true,
+      "ownMemory": false,
+      "crossRoleSentinel": false
+    }
+  ]
+}

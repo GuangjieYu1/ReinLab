@@ -1,0 +1,21 @@
+{
+  "baseUrl": "http://127.0.0.1:3000",
+  "results": [
+    {
+      "missing": "outline",
+      "status": 400,
+      "errorCode": "MISSING_REQUIRED_FIELD"
+    },
+    {
+      "missing": "allOutlines",
+      "status": 400,
+      "errorCode": "MISSING_REQUIRED_FIELD"
+    },
+    {
+      "missing": "stageId",
+      "status": 400,
+      "errorCode": "MISSING_REQUIRED_FIELD"
+    }
+  ],
+  "modelCalls": 0
+}

@@ -1,0 +1,20 @@
+{
+  "frontendFilesChecked": 250,
+  "frontendChanged": [],
+  "checks": {
+    "taskTests": 46,
+    "taskFailed": 0,
+    "workspaceTests": 501,
+    "workspaceFailed": 0,
+    "finalProcessExitCode": 0,
+    "coveredLines": 50,
+    "totalLines": 50,
+    "controlTypecheck": true,
+    "contractsTypecheck": true,
+    "boundaries": true,
+    "mockBuild": true
+  },
+  "history": [
+    "First root pnpm test process exited 1 despite JSON success=true and all 501 assertions passing; cause unknown. Two complete reruns (direct vitest and root pnpm test) both exited 0; validation unchanged."
+  ]
+}
