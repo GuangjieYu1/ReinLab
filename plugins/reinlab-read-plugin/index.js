@@ -206,6 +206,32 @@ export function apply(ctx, config) {
     }),
   );
 
+  // 课程台最小能力：把一份简短学习计划交给用户确认并同时入档。
+  // 计划确认就是入档批准，不额外再要一次。
+  register(
+    defineTool({
+      name: "course_plan",
+      description:
+        "提交一份简短学习计划（目标 + 少量阶段）给用户确认；用户同意后这份计划即写入课程档案，并回报已入档。计划确认与入档是同一次批准。",
+      parameters: {
+        goal: { type: "string", required: true, description: "这次要达成的学习目标，一两句话。" },
+        steps: {
+          type: "array",
+          items: { type: "object", additionalProperties: true },
+          description: "计划阶段，每项含 title 与可选 detail；保持简短。",
+        },
+        note: { type: "string", description: "可选的补充说明。" },
+      },
+      output,
+      async execute(args) {
+        const first = await call("courses", "plan", args);
+        if (first.error) return first.error;
+        if (!first.pending) return first.result;
+        return waiting("这份学习计划并入档", first.approvalId);
+      },
+    }),
+  );
+
   register(
     defineTool({
       name: "clarify_question",

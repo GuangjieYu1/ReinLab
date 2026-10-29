@@ -109,6 +109,37 @@ export function registerApprovalInbox(app: Hono<ApiEnv>, db: Database) {
   );
 }
 
+/**
+ * 课程档案：列出该档案已入档的学习计划（PRD 3.6 的「显示在课程档案中」）。
+ * 入档是批准后的那一次写入，这里只读。
+ */
+export function registerCourses(app: Hono<ApiEnv>, db: Database) {
+  app.get("/v1/courses/plans", (c) =>
+    db.withAccount(c.get("accountId"), async (client) => {
+      const rows = (
+        await client.query(
+          `select e.run_id "runId", e.dossier_id "dossierId", d.title "dossierTitle",
+                  e.payload->>'planId' "planId", e.payload->'plan' "plan", e.at
+             from event e join dossier d on d.account_id=e.account_id and d.id=e.dossier_id
+            where e.account_id=$1 and e.action='course_plan_created'
+            order by e.at desc limit 50`,
+          [c.get("accountId")],
+        )
+      ).rows;
+      return c.json({
+        items: rows.map((row) => ({
+          planId: row.planId,
+          runId: row.runId,
+          dossierId: row.dossierId,
+          dossierTitle: row.dossierTitle,
+          plan: row.plan,
+          at: row.at,
+        })),
+      });
+    }),
+  );
+}
+
 /** Called by the runtime route for `/v1/approvals/:id/decide`. */
 export async function decideInboxCard(
   c: ApiContext,
