@@ -95,11 +95,12 @@
    dsh 进程仍在），因此进不到 `waiting`，执行段没释放。`papers_fetch` 那条路径
    此前能正常进入 `waiting`，差别在提问分支（控制面对 ASKS_THE_USER 返回 409
    并把租约置空）。要查清该分支是否让 SDK 一直等这个工具调用结束。
-2. **启动核对没有收掉这个 run**：`9ee76d8f` 重启后仍 `running` 且无终态事件，
-   说明 `reconcileOnStartup` 漏了它或没跑到。复查条件
-   `state in ('queued','running') and ended_at is null` 与该行实际值。
+2. ~~启动核对没有收掉这个 run~~ **已证伪**：重启后启动核对输出
+   `LOCAL_RECONCILED interruptedRuns:1`，该 run 已被补成 `interrupted`。
+   先前那次检查发生在核对完成之前。
 
-修好之前第 2 项不能交验收——L2/L3 正是判「等待时执行段真的让出」。
+所以只剩第 1 条要修。修好之前第 2 项不能交验收——L2/L3 正是判
+「等待时执行段真的让出」。
 
 ## 6. 交付
 
