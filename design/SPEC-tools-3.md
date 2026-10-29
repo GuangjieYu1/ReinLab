@@ -56,12 +56,16 @@ dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**�
 `/opt/reinlab-account` 与 `/opt/reinlab-account/dsh-home`。`assertSpecSafe` 会拒绝重复挂载，
 凭据与宿主路径检查照旧。这样既看得见会话，也不会把别的账户带进来。
 
+**已做（本轮）**：
+- `launch.ts` 支持容器模式：给 `container` 配置时，`dshHome`、`cwd`、`patches[0]`、
+  凭据文件与内核模块都用容器内路径；`paths` 仍是宿主路径供控制面读写；
+  `SHIM_HOST_ROOT`/`SHIM_CONTAINER_ROOT` 也一并给 shim，参数里的宿主路径会被映射。
+  7 条 launch 测试（含新加两条：容器模式映射、宿主模式不产生容器路径）。
+
 **切换 transport 还要改的几处**（下轮）：
-- `launch.ts` 需要 `containerHome`/`containerDshHome`，并按模式生成 `dshHome`、`cwd`、
-  `patches[1]`(run.patch.yml)、凭据文件的容器内路径；`paths` 仍是宿主路径供控制面读写。
-- 补 `SHIM_HOST_ROOT`/`SHIM_CONTAINER_ROOT` 让 shim 把参数里的宿主路径映射成容器路径。
-- 容器内内核与插件用镜像里的路径（`/opt/reinlab/node_modules/@deepseek-ai/dsh/lib/bin.js`、
-  `file:///opt/reinlab/plugins/reinlab-read-plugin/index.js`）。
+- `service.ts` 在 `REINLAB_KERNEL_TRANSPORT=container` 时：先 `ensureAccountContainer`，
+  再把 `container` 配置传给 `launchPlan`。
+- `tooling/local/up.ts` / `runtime.env` 默认切到 container，并在起栈前确保镜像存在。
 
 **下一步**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
 需要改的地方已定位：`launch.ts` 目前只设了 `SHIM_CONTAINER/SHIM_RUN_ID/SHIM_PID_FILE/SHIM_DSH_MODULE`，
