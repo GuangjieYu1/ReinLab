@@ -622,3 +622,4 @@ export type BrowserSession = {
   expiresIn: number;
   accountId: string;
 };
+export type * from './dossier';
