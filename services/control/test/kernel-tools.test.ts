@@ -70,6 +70,9 @@ afterAll(async () => {
   await admin.end();
 });
 
+const events = (run: string, action: string) =>
+  admin.query("select payload from event where run_id=$1 and action=$2", [run, action]).then((r) => r.rows);
+
 const downloadRun = (await import("node:crypto")).randomUUID();
 describe("kernel tool gateway", () => {
   /** 一次下载走一个自己的 run：选定编号不同，审批与资产天然分开。 */
@@ -256,6 +259,39 @@ describe("kernel tool gateway", () => {
       headers: { "x-api-key": own.token },
     });
     expect((await poll.json()) as { state: string }).toEqual({ state: "rejected" });
+  });
+
+  it("课程计划：一次批准既确认计划又入档，不重复索要", async () => {
+    const dispatch = vi.fn(async () => ({ ok: true }));
+    const { app } = build(dispatch);
+    const own = await runFor("");
+    const plan = { goal: "两周内理解注意力机制", steps: [{ title: "读原文" }, { title: "手推公式" }] };
+
+    // 未批准：交出确认卡，不写入档案。
+    const first = await call(app, { server: "courses", tool: "plan", args: plan }, own.token);
+    expect(first.status).toBe(409);
+    expect(first.body).toMatchObject({ state: "pending" });
+    const approvalId = (first.body as { approvalId: string }).approvalId;
+    expect(await events(own.id, "course_plan_created")).toHaveLength(0);
+
+    // 同一份计划重复提交仍返回同一张卡。
+    const again = await call(app, { server: "courses", tool: "plan", args: plan }, own.token);
+    expect((again.body as { approvalId: string }).approvalId).toBe(approvalId);
+
+    // 批准后同一次动作入档，且只写一次。
+    await app.request(`/kernel/approvals/${approvalId}/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": own.token },
+      body: JSON.stringify({ decision: "approve" }),
+    });
+    const archived = await call(app, { server: "courses", tool: "plan", args: plan }, own.token);
+    expect(archived.status).toBe(200);
+    expect((archived.body as { result?: { state?: string } }).result).toMatchObject({ state: "archived" });
+    expect(await events(own.id, "course_plan_created")).toHaveLength(1);
+
+    // 重试不再写入第二份。
+    await call(app, { server: "courses", tool: "plan", args: plan }, own.token);
+    expect(await events(own.id, "course_plan_created")).toHaveLength(1);
   });
 
   it("一个 run 的等待超时不会过期另一个 run 的审批", async () => {

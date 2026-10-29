@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Hono } from "hono";
 import type { JsonValue } from "@reinlab/contracts";
 import type { Database } from "../db/database";
+import { reconcileAccount } from "../kernel/lifecycle";
 import { appendEvent, scrub } from "../ledger";
 import { mutate, canonical, type ApiEnv, type ApiContext } from "./context";
 import { ApiFailure, denied } from "./errors";
@@ -16,7 +17,7 @@ const Decision = z
 const json = (v: unknown): JsonValue => JSON.parse(JSON.stringify(v));
 const capabilityLabel: Record<string, string> = {
   "papers.search": "检索论文",
-  "papers.fetch": "下载论文全文",
+  "papers.fetch": "把这篇论文正式入档",
   "papers.pages": "按页读取原文",
   "cards.card.layer": "写入分层讲解",
   "cards.card.quiz": "写入检查题",
@@ -29,13 +30,29 @@ const conflict = () =>
     "审批已处理、过期或请求对象已变化，请刷新。",
   );
 /** 卡片里只有给人看的短句；参数哈希留在账本里，不回给界面。 */
+/** 审批卡上「会发生什么」：说人话，不把能力名甩给用户。 */
 function describe(effects: any) {
+  // 审批行里的 effects 是数组（[{capability, argsHash}]），不是对象。
+  const first = Array.isArray(effects) ? effects[0] : effects;
   const capability =
-    typeof effects?.capability === "string" ? effects.capability : "";
+    typeof first?.capability === "string" ? first.capability : "";
   if (!capability) return [];
+  const what = capabilityLabel[capability];
+  if (capability === "papers.fetch")
+    return [
+      "把这篇论文下载进当前档案，并登记成正式资料",
+      "只写这一篇，不会顺带改别的档案",
+      "不批准就不下载，也不会编造内容",
+    ];
+  if (capability === "courses.plan")
+    return [
+      "把这份学习计划写进课程档案，之后可以照着它安排学习",
+      "只写这一次提交的内容；改了计划需要重新确认",
+      "不批准就不入档，已聊过的内容不会丢",
+    ];
   return [
-    "操作：" + (capabilityLabel[capability] ?? capability) + "（" + capability + "）",
-    "只处理这一次请求；参数变化后需要重新批准。",
+    what ? "这次要做的是：" + what : "这次请求需要你确认",
+    "只处理这一次；内容变化后会重新问一次",
   ];
 }
 function publicValue(v: any): JsonValue {
@@ -66,9 +83,16 @@ function publicValue(v: any): JsonValue {
  * in-conversation questions. Deciding one records the user's one-shot consent;
  * the consuming worker call is what actually reads the approval back.
  */
-export function registerApprovalInbox(app: Hono<ApiEnv>, db: Database) {
-  app.get("/v1/approvals", (c) =>
-    db.withAccount(c.get("accountId"), async (client) => {
+export function registerApprovalInbox(
+  app: Hono<ApiEnv>,
+  db: Database,
+  isLive?: (runId: string) => boolean,
+) {
+  app.get("/v1/approvals", async (c) => {
+    // 有人来看待办时先核对一次：超时没处理的请求、没有执行者的残留都在这收尾，
+    // 不靠人工 SQL，也不让一个任务永远停在执行中。
+    await reconcileAccount(db, c.get("accountId"), { isLive }).catch(() => {});
+    return db.withAccount(c.get("accountId"), async (client) => {
       const state = z
         .enum(["pending", "indeterminate", "approved", "rejected", "expired"])
         .safeParse(c.req.query("state") ?? "pending");
@@ -78,7 +102,7 @@ export function registerApprovalInbox(app: Hono<ApiEnv>, db: Database) {
         await client.query(
           `select a.id,a.run_id "runId",a.kind,a.title,a.effects,a.risk,a.state,
                   a.decision_sent "sent",r.dossier_id "dossierId",d.title "dossierTitle",
-                  r.role_id "roleId",r.state "runState"
+                  d.bench "bench",r.role_id "roleId",r.state "runState"
              from approval a
              join run r on r.account_id=a.account_id and r.id=a.run_id
              join dossier d on d.account_id=r.account_id and d.id=r.dossier_id
@@ -100,9 +124,80 @@ export function registerApprovalInbox(app: Hono<ApiEnv>, db: Database) {
           source: {
             dossierId: row.dossierId,
             dossierTitle: scrub(row.dossierTitle),
+            // 收件箱要显示这是哪个工作台的请求。
+            bench: row.bench,
             runId: row.runId,
             roleId: row.roleId,
           },
+        })),
+      });
+    });
+  });
+}
+
+/**
+ * 报告：一项任务结束后，收件箱要能看到结果、已有成果和原因（PRD 2.5 / L6）。
+ * 只列该账户已经落终态的任务，不要求「批准」才能结束。
+ */
+export function registerReports(app: Hono<ApiEnv>, db: Database) {
+  app.get("/v1/reports", (c) =>
+    db.withAccount(c.get("accountId"), async (client) => {
+      const rows = (
+        await client.query(
+          `select r.id "runId", r.dossier_id "dossierId", r.state, r.ended_at "endedAt",
+                  d.title "dossierTitle",
+                  (select e.payload->>'message' from event e
+                    where e.run_id=r.id and e.action in ('run.interrupted') order by e.seq desc limit 1) "reason",
+                  (select count(*)::int from event e
+                    where e.run_id=r.id and e.action='card_created' and e.payload->>'cardType'='layer') "layers",
+                  (select count(*)::int from event e
+                    where e.run_id=r.id and e.action='card_created' and e.payload->>'cardType'='finding') "findings"
+             from run r join dossier d on d.account_id=r.account_id and d.id=r.dossier_id
+            where r.account_id=$1 and r.state in ('completed','failed','cancelled','interrupted')
+            order by r.ended_at desc nulls last limit 20`,
+          [c.get("accountId")],
+        )
+      ).rows;
+      return c.json({
+        items: rows.map((row) => ({
+          runId: row.runId,
+          dossierId: row.dossierId,
+          dossierTitle: row.dossierTitle,
+          state: row.state,
+          endedAt: row.endedAt,
+          reason: row.reason ? String(row.reason) : null,
+          produced: { layers: row.layers, findings: row.findings },
+        })),
+      });
+    }),
+  );
+}
+
+/**
+ * 课程档案：列出该档案已入档的学习计划（PRD 3.6 的「显示在课程档案中」）。
+ * 入档是批准后的那一次写入，这里只读。
+ */
+export function registerCourses(app: Hono<ApiEnv>, db: Database) {
+  app.get("/v1/courses/plans", (c) =>
+    db.withAccount(c.get("accountId"), async (client) => {
+      const rows = (
+        await client.query(
+          `select e.run_id "runId", e.dossier_id "dossierId", d.title "dossierTitle",
+                  e.payload->>'planId' "planId", e.payload->'plan' "plan", e.at
+             from event e join dossier d on d.account_id=e.account_id and d.id=e.dossier_id
+            where e.account_id=$1 and e.action='course_plan_created'
+            order by e.at desc limit 50`,
+          [c.get("accountId")],
+        )
+      ).rows;
+      return c.json({
+        items: rows.map((row) => ({
+          planId: row.planId,
+          runId: row.runId,
+          dossierId: row.dossierId,
+          dossierTitle: row.dossierTitle,
+          plan: row.plan,
+          at: row.at,
         })),
       });
     }),
@@ -113,6 +208,7 @@ export function registerApprovalInbox(app: Hono<ApiEnv>, db: Database) {
 export async function decideInboxCard(
   c: ApiContext,
   db: Database,
+  resume?: (account: string, runId: string, prompt: string) => void,
 ): Promise<Response | null> {
   const id = z.string().uuid().safeParse(c.req.param("id"));
   if (!id.success) throw denied();
@@ -176,11 +272,16 @@ export async function decideInboxCard(
       "insert into card_decision(account_id,approval_id,request_hash,receipt)values($1,$2,$3,$4)",
       [account, row.id, hash, json(receipt)],
     );
-    // 等待期间的租约已经放开，决定之后还回去（被别的运行占着就保持原样）。
-    await client.query(
-      "update dsh_session set lease_run_id=$1 where lease_run_id is null and dossier_id=(select dossier_id from run where id=$1)",
-      [row.run_id],
-    );
+    // 等待期间执行段已经让出：落定之后按同一会话续上，把这次决定作为输入
+    // 送回原任务。是否续得上由运行服务自己判断，接口不因此失败。
+    if (row.run_state === "waiting")
+      resume?.(
+        account,
+        row.run_id,
+        input.decision === "approve"
+          ? `用户已批准这次请求（审批 ${row.id}）。继续原来的任务；如果还要执行同一个动作，直接再来一次即可，不要重复请求批准。`
+          : `用户驳回/拒绝了这次请求（审批 ${row.id}）。不要重复请求同一个批准；照实说明并收尾，已完成的成果保留。`,
+      );
     return { status: 200, body: receipt };
   });
 }

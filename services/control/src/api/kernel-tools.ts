@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import type pg from "pg";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
 import { paperHandle } from "../mcp/papers";
@@ -18,6 +18,8 @@ import {
 export const KERNEL_TOOLS: Record<string, string[]> = {
   papers: ["search", "fetch", "pages"],
   cards: ["card.layer", "card.finding", "clarify.question"],
+  // 课程台最小能力：提交一份学习计划并入档。计划确认与入档是同一次批准。
+  courses: ["plan"],
 };
 
 /** One turn must not call tools forever: the budget page already promises a step cap. */
@@ -28,6 +30,9 @@ const APPROVAL_REQUIRED = new Set(["papers.fetch"]);
 
 /** Tools that are really a question to the user, not a business write. */
 const ASKS_THE_USER = new Set(["cards.clarify.question"]);
+
+/** 正式入档类动作：一份学习计划可以用同一次批准既确认又入档。 */
+const PLAN_CAPABILITY = "courses.plan";
 
 export type KernelToolCall = {
   account: string;
@@ -164,6 +169,64 @@ export function registerKernelTools(
           ]);
           return c.json({ state: "pending", approvalId: card.id }, 409);
         }
+        // 课程计划：还没批准就交出一张确认卡（卡上就是计划本身），
+        // 批准后同一次动作把计划写进档案。不再另外索要入档审批。
+        if (capability === PLAN_CAPABILITY) {
+          const effectKey = effectKeyOf(capability, argsHash(call));
+          const summary = String(args.goal ?? args.title ?? "").trim().slice(0, 200);
+          if (typeof body.approvalId === "string") {
+            const consumed = await consumeApproval(client, {
+              approvalId: body.approvalId,
+              effectKey,
+            });
+            if (!consumed)
+              throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这次计划没有可用的批准，请重新提交。");
+          } else {
+            // 已经批准过这份计划：直接执行，不重复要批准。
+            const approved = (
+              await client.query(
+                `select id from approval
+                  where account_id=$1 and run_id=$2 and effect_key=$3
+                    and state='approved' and consumed_at is null
+                  order by id desc limit 1`,
+                [call.account, call.run, effectKey],
+              )
+            ).rows[0];
+            if (!approved) {
+              const card = await requestApproval(client, {
+                account: call.account,
+                dossier: call.dossier,
+                run: call.run,
+                capability,
+                argsHash: argsHash(call),
+                title: summary ? "确认这份学习计划并入档：" + summary : "确认这份学习计划并入档",
+                effects: [{ capability, argsHash: argsHash(call), plan: args }],
+                risk: "write",
+              });
+              await client.query(
+                "update dsh_session set lease_run_id=null where lease_run_id=$1",
+                [call.run],
+              );
+              return c.json({ state: "pending", approvalId: card.id }, 409);
+            }
+            if (!(await consumeApproval(client, { approvalId: approved.id, effectKey })))
+              throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这次计划没有可用的批准，请重新提交。");
+          }
+          const planId = randomUUID();
+          await client.query(
+            `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+             values($1::uuid,$2::uuid,$3::uuid,'course','course_plan_created',$4,$5)
+             on conflict do nothing`,
+            [
+              call.account,
+              call.dossier,
+              call.run,
+              JSON.stringify({ planId, plan: args }),
+              "course-plan:" + planId,
+            ],
+          );
+          return c.json({ result: { planId, state: "archived" } });
+        }
         if (APPROVAL_REQUIRED.has(capability)) {
           const existing = await existingPaperAsset(client, call);
           if (existing) return c.json({ result: existing });
@@ -197,7 +260,9 @@ export function registerKernelTools(
               run: call.run,
               capability,
               argsHash: argsHash(call),
-              title: "下载论文全文",
+              title: "把这篇论文正式入档",
+              // 一次批准覆盖「这篇论文进入正式档案」这一次提交；
+              // 下载到工作区、草稿与讲解卡都不再单独打扰。
               effects: [{ capability, argsHash: argsHash(call) }],
               risk: "write",
             });

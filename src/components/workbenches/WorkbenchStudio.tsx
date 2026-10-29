@@ -13,6 +13,9 @@ import DataBench from './data/DataStudio';
 import ExplorationBench from './explore/ExploreStudio';
 import CourseStudio from './course/CourseStudio';
 import './workbench-shell.css';
+import InboxHost from '../inbox/InboxHost';
+import { liveBackend } from '../../data/research-live';
+import { liveInboxAdapter } from '../../data/inbox-live';
 
 /** 外壳交给工作台的三样东西：返回 Files、工作台标识（转场的落点）、档案切换。工作台把它们放进自己的头部。 */
 export interface BenchChrome { back: ReactNode; logo: ReactNode; file: ReactNode }
@@ -75,13 +78,14 @@ export default function WorkbenchStudio() {
   const chrome: BenchChrome = {
     back: <a className="wb-back" onClick={e => leaveTo(e, true)} href={entryHref(bench, file)} title={`返回 ${CODES[bench]} Files`} aria-label={`返回 ${CODES[bench]} Files`}>←</a>,
     logo: <span className="wb-crumb-logo" title={info.title}><Logo key={bench} workbench={info} still={reduced} /></span>,
-    file: <div className="wb-file" ref={menuRef}>
+    file: <><div className="wb-file" ref={menuRef}>
       <button className="wb-crumb-file" aria-expanded={menu} aria-haspopup="listbox" onClick={() => setMenu(v => !v)}><em>{fileNo(file)}</em><span>{info.files[file]}</span><b>▾</b></button>
       {menu && <div className="wb-menu" role="listbox" aria-label={`切换${FILE_NOUN[bench]}`}>
         <span>{info.fileKind} · {FILE_NOUN[bench]}</span>
         {info.files.map((name, index) => <button key={name} role="option" aria-selected={index === file} onClick={() => { setPlace({ bench, file: index }); setMenu(false); }}><em>{fileNo(index)}</em>{name}</button>)}
       </div>}
-    </div>,
+    </div>{/* 收件箱：每个工作台都能打开（真实模式接 live 适配器）；只在真实模式下进来时自动弹一次 */}
+    <InboxHost autoOpen={liveBackend} adapter={liveBackend ? liveInboxAdapter : undefined} /></>,
   };
   const own = OWN_HEADER.includes(bench);
   return <main className={`wb wb-${bench}`} data-reduced={reduced || undefined} data-own-header={own || undefined}>

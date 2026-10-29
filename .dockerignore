@@ -1,11 +1,7 @@
-.git
-node_modules
-**/node_modules
-.env*
-evidence
-*.log
-infra/supabase/.temp
-infra/supabase/.branches
-.local
-
-.artifacts
+# 构建账户镜像只需要三个文件，其余不进上下文（也避开读不到的本地路径）。
+*
+!services/control/src/kernel/dsh/shim.mjs
+!plugins/reinlab-read-plugin/index.js
+!plugins/reinlab-read-plugin/restrict.patch.yml
+!plugins/reinlab-read-plugin/container.patch.yml
+!infra/account/Dockerfile

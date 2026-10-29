@@ -174,13 +174,17 @@ export class PaperHttp {
       } catch {
         throw deny();
       }
+      // 不按来源域名设白名单（PRD 3.3）：公网论文来源和正常跳转都可以取。
+      // 边界仍在环境层：必须是 https、不能带凭据，且解析出的每个地址都必须是
+      // 公网地址——私网、回环、链路本地与保留段一律拒绝，跳转后的目标同样检查。
+      // `allowed` 保留参数形状供调用方继续表达意图，但不再据此拒绝公网来源。
+      void allowed;
       if (
         url.protocol !== "https:" ||
         (url.port && url.port !== "443") ||
         url.username ||
         url.password ||
         url.hash ||
-        !allowed.includes(url.hostname) ||
         isIP(url.hostname)
       )
         throw deny();

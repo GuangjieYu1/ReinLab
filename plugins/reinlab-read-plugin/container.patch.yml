@@ -1,0 +1,15 @@
+# 容器模式的 profile 补丁（PRD 3.4：隔离环境内基础工具全开）。
+#
+# 只禁「自己再派生 agent」这类会绕过账户隔离边界的工具；bash、grep、
+# 文件读写、web 搜索/抓取都保留，由 Agent 自己决定怎么搜、下载、解析。
+# 执行边界由容器与挂载范围提供，不靠隐藏工具。
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true

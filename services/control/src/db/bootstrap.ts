@@ -2,6 +2,7 @@ import pg from "pg";
 import { SignJWT } from "jose";
 import { resolve } from "node:path";
 import { applyMigrations } from "./migrate";
+import { reconcileOnStartup } from "../kernel/lifecycle";
 
 /**
  * Local database bootstrap (administrative only; never imported by the HTTP app).
@@ -72,5 +73,18 @@ export async function bootstrapLocalDatabase(
     throw new Error("LOCAL_BOOTSTRAP_FAILED");
   } finally {
     await pool.end();
+  }
+}
+
+/**
+ * 起控制面之前的残留核对。放在这里是因为 `pg` 是控制面的依赖，
+ * 启动器（tooling/local）在 pnpm 严格 node_modules 下解析不到它。
+ */
+export async function reconcileAfterBootstrap(databaseUrl: string) {
+  const pool = new pg.Pool({ connectionString: databaseUrl, max: 1 });
+  try {
+    return await reconcileOnStartup(pool);
+  } finally {
+    await pool.end().catch(() => {});
   }
 }

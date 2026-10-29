@@ -131,3 +131,13 @@ body.ibx-lock .cine-scene-viewport, body.ibx-lock .cine-fixed-stage { display:no
 .ibx-own span { font:500 10.5px/1 var(--rh-f-mono); letter-spacing:.06em; color:var(--rh-ink-4); }
 .ibx-own input { padding:8px 10px; border:1px dashed var(--rh-ink-3); background:var(--rh-white); font:400 13.5px/1.4 var(--rh-f-read); color:var(--rh-ink); }
 .ibx-own input:focus { outline:none; border-style:solid; border-color:var(--rh-ink); box-shadow:inset 3px 0 0 var(--rh-accent); }
+
+/* 任务报告：只读，不进待办计数 */
+.ibx-reports { display:grid; gap:6px; }
+.ibx-report { display:grid; grid-template-columns:auto 1fr; gap:2px 8px; padding:8px 12px; border-left:3px solid var(--rh-line); background:var(--rh-white); font-size:12px; }
+.ibx-report[data-state='completed'] { border-left-color:var(--rh-ink); }
+.ibx-report[data-state='interrupted'], .ibx-report[data-state='failed'] { border-left-color:var(--rh-accent); }
+.ibx-report-state { grid-row:span 2; font:600 10.5px/1.6 var(--rh-f-mono); color:var(--rh-ink-3); }
+.ibx-report b { font-size:12.5px; } .ibx-report small { color:var(--rh-ink-4); font-size:11px; }
+.ibx-report p { grid-column:2; margin:2px 0 0; color:var(--rh-ink-2); line-height:1.5; }
+.ibx-report a { grid-column:2; justify-self:start; color:var(--rh-accent); font-size:11.5px; }

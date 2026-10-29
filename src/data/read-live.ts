@@ -30,6 +30,13 @@ type LiveReadAdapter = ReadAdapter & {
   dispatchUnavailable(to: "swarm" | "auto", text: string): void;
 };
 
+/** 候选论文的标识：模型可能写 paperId、id、arxivId 或原链接，取第一个有值的。 */
+function candidateId(candidate: any): string {
+  const raw =
+    candidate?.paperId ?? candidate?.id ?? candidate?.arxivId ?? candidate?.url ?? "";
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
 const CANDIDATE_LABEL: Record<string, string> = {
   "papers.search": "检索论文",
   "papers.fetch": "下载论文全文",
@@ -224,7 +231,15 @@ export function createLiveReadAdapter(
         // 不是用户说的话（还带本机路径），不显示。
         if (data.source?.kind === "runtime-context") return;
         const text = textOf(data);
-        if (text) emit({ type: "user", id: String(data.id ?? "user:" + event.seq), text });
+        const asAction = text ? startInstruction(text) : null;
+        if (text)
+          emit({
+            type: "user",
+            id: String(data.id ?? "user:" + event.seq),
+            // 替用户发出的开始指令按动作提示显示。
+            text: asAction ?? text,
+            ...(asAction ? { action: true } : {}),
+          });
         return;
       }
       case "assistant/message": {
@@ -250,7 +265,7 @@ export function createLiveReadAdapter(
               query: String(args.question ?? ""),
               candidates: Array.isArray(args.candidates)
                 ? args.candidates.map((candidate: any) => ({
-                    id: String(candidate.paperId ?? candidate.id ?? ""),
+                    id: candidateId(candidate),
                     title: String(candidate.title ?? ""),
                     authors: String(candidate.authors ?? "检索结果"),
                     venue: String(candidate.venue ?? defaultVenue(candidate)),
@@ -409,11 +424,73 @@ export function createLiveReadAdapter(
                 snapshot.layers.push(written.card);
                 emit({ type: "layer", layer: written.card });
               }
-            } else {
+            } else if (
+              !snapshot.findings.some(
+                (entry) => entry.id === written.card.id || entry.text === written.card.text,
+              )
+            ) {
               snapshot.findings.push(written.card);
               emit({ type: "finding", finding: written.card });
             }
           }
+        }
+        return;
+      }
+      // 卡片是已经落库的成果：刷新页面、或者回答后续接的那一轮，都要能看见。
+      // 之前只从进行中的工具调用里生成，重新加载就全丢了。
+      case "card_created": {
+        const card = (data.card ?? {}) as any;
+        const cardType = String(data.cardType ?? "");
+        const cardId = String(data.cardId ?? "card:" + event.seq);
+        if (cardType === "layer") {
+          const body = Array.isArray(card.body) ? card.body : [];
+          const layer: LayerCard = {
+            id: "layer:" + cardId,
+            no: String(card.no ?? "1"),
+            title: String(card.title ?? "讲解"),
+            en: String(card.en ?? ""),
+            body: body
+              .map((entry: any) => ({
+                text: String(entry?.text ?? ""),
+                refs: (Array.isArray(entry?.refs) ? entry.refs : [])
+                  .map((ref: any) => (ref?.page ? "p." + String(ref.page) : ""))
+                  .filter(Boolean),
+              }))
+              .filter((entry: { text: string }) => entry.text),
+          };
+          if (layer.body.length && !snapshot.layers.some((entry) => entry.no === layer.no)) {
+            snapshot.layers.push(layer);
+            emit({ type: "layer", layer });
+          }
+          return;
+        }
+        if (cardType === "finding") {
+          const evidence = Array.isArray(card.evidence) ? card.evidence : [];
+          const finding: FindingCard = {
+            id: "finding:" + cardId,
+            n: Number(card.n ?? snapshot.findings.length + 1),
+            text: String(card.text ?? ""),
+            refs: evidence
+              .map((item: any) => (item?.page ? "p." + String(item.page) : ""))
+              .filter(Boolean),
+            confidence: ["low", "mid", "high"].includes(card.confidence) ? card.confidence : "mid",
+            status: ["hypothesis", "supported", "refuted"].includes(card.status)
+              ? card.status
+              : "hypothesis",
+            at: String(card.at ?? new Date().toISOString()),
+          };
+          // 同一条发现卡会先后从「工具调用」和「落库事件」两条路到达，id 不同：
+          // 按内容认同一张，避免页面上多出一张。
+          if (
+            finding.text &&
+            !snapshot.findings.some(
+              (entry) => entry.id === finding.id || entry.text === finding.text,
+            )
+          ) {
+            snapshot.findings.push(finding);
+            emit({ type: "finding", finding });
+          }
+          return;
         }
         return;
       }
@@ -468,7 +545,7 @@ export function createLiveReadAdapter(
             id: card.id,
             query: String(card.title ?? ""),
             candidates: candidates.map((candidate: any) => ({
-              id: String(candidate.paperId ?? candidate.id ?? ""),
+              id: candidateId(candidate),
               title: String(candidate.title ?? ""),
               authors: String(candidate.authors ?? "检索结果"),
               venue: String(candidate.venue ?? defaultVenue(candidate)),
@@ -492,7 +569,11 @@ export function createLiveReadAdapter(
       // run panel with the card instead of the local estimate step.
       localPhase = undefined;
       patchRun({ state: "running" });
-      const capability = (card as any).effects?.capability;
+      const effectsOf = (card as any).effects;
+      // 后端给的是数组；按能力名认卡，不再依赖某一版标题文案。
+      const capability = Array.isArray(effectsOf)
+        ? effectsOf[0]?.capability
+        : effectsOf?.capability;
       const effects =
         capability === "papers.fetch" || !capability
           ? [
@@ -562,6 +643,15 @@ export function createLiveReadAdapter(
     if (state === "done" || state === "failed" || state === "cancelled") {
       if (timer) clearInterval(timer);
       timer = undefined;
+      // 收尾前再取一次事件：这一轮最后写进去的卡片（讲解层、发现卡）可能
+      // 刚落库就碰上「已结束」，不补这一下就会永远看不到。
+      void (async () => {
+        try {
+          for (const event of await fetchEvents(cursor)) apply(event);
+        } catch {
+          /* 拿不到就保持现状，不制造假失败 */
+        }
+      })();
     }
   }
 
@@ -801,13 +891,15 @@ export function createLiveReadAdapter(
         await new Promise((resolve) => setTimeout(resolve, 1200));
       }
       const picked = chosen ?? lastPicked;
+      // 没拿到可用标识时不要拼出「paperId=」这种空指令：让模型按已谈定的那篇走。
+      const pickedId = picked ? candidateId(picked) : "";
       // The chosen paper travels with the instruction so this turn is
       // deterministic: fetch this exact paper, no searching, no re-asking.
       await startRun(
-        picked
-          ? `就按我选的这篇开始精读（paperId=${picked.id}）。`
+        pickedId
+          ? `就按我选的这篇开始精读（paperId=${pickedId}）。`
           : "就按我选的这篇开始精读",
-        picked?.id,
+        pickedId || undefined,
       );
     },
     async cancel() {
@@ -921,6 +1013,13 @@ function messageText(message: any): string {
 
 /** 不是给人的工具：运行时内部事件（步/轮边界、投递执据、注入的上下文）不该
  *  显示成工具调用。 */
+/** 「确认开始」是页面替用户发的指令：显示成动作提示，不冒充用户，也不露 paperId。 */
+const startInstruction = (text: string): string | null => {
+  if (!/^就按我选的这篇开始精读/.test(text.trim())) return null;
+  const title = /《([^》]+)》/.exec(text)?.[1];
+  return title ? `▸ 开始精读《${title}》` : "▸ 开始精读";
+};
+
 const INTERNAL_EVENTS = new Set([
   "step/start",
   "step/end",
@@ -942,8 +1041,16 @@ function toHistory(event: KernelEvent): ReadEvent | null {
   // 内部事件不显示，刷新回填时也一样。
   if (INTERNAL_EVENTS.has(event.action)) return null;
   switch (event.action) {
-    case "user/message":
-      return { type: "user", id: String(data.id ?? "u:" + event.seq), text: messageText(data) };
+    case "user/message": {
+      const raw = messageText(data);
+      const asAction = startInstruction(raw);
+      return {
+        type: "user",
+        id: String(data.id ?? "u:" + event.seq),
+        text: asAction ?? raw,
+        ...(asAction ? { action: true } : {}),
+      };
+    }
 
     case "assistant/message":
       return {

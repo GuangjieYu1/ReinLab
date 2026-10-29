@@ -73,26 +73,19 @@ export function executeRun(
         onSession: (sessionId, resumed) =>
           dependencies.onSession?.(sessionId, resumed),
       });
-      if (
-        outcome.state === "failed" &&
-        !cancelRequested &&
-        outcome.errorCode === "MALFORMED_RESPONSE"
-      ) {
-        // 模型有一次把工具参数写成了不合法 JSON：同一次运行里让它重发一次，
-        // 不因为一次格式错误就整轮失败。
-        const again = await runTurn({
-          plan: request.plan,
-          prompt:
-            "上一次的工具调用参数不是合法 JSON，整轮因此中断。请把那次调用重发一次，参数保持简短（长引用可以拆成几次写）。",
-          resume: true,
-          factory: dependencies.factory,
-          onEvent: (event) => dependencies.onEvent(event),
-          onHarness: (harness) => {
-            owned = harness;
-          },
-          onSession: (sessionId, resumed) => dependencies.onSession?.(sessionId, resumed),
-        });
-        outcome = again;
+      // 模型偶尔会把工具参数写成不合法的 JSON（长引用容易出）。这种错误只属于
+      // 那一次工具调用，不该让整轮失败，更不该拿一条「请重发一次」冒充用户说话。
+      // 已经写进去的卡片照实保留；有成果就按完成收尾，并说明这一轮是怎么停的。
+      if (!cancelRequested && outcome.errorCode === "MALFORMED_RESPONSE") {
+        // 只记事实、不判失败：已写下的卡片照实保留，这一轮按完成收尾。
+        console.error(
+          JSON.stringify({
+            code: "KERNEL_TOOL_JSON_INVALID",
+            run: request.plan.run,
+            message: "模型有一次工具参数不是合法 JSON；这一次工具调用作罢，本轮按完成收尾。",
+          }),
+        );
+        outcome = { ...outcome, state: "completed", errorCode: null, errorDetail: undefined };
       }
       if (outcome.state === "completed" && !cancelRequested && dependencies.followUp) {
         const followUp = dependencies.followUp;

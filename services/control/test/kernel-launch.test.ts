@@ -92,4 +92,41 @@ describe("dsh launch plan", () => {
     expect(patch).toContain("fetchProvider: deepseek-fetch-api");
     expect(patch).toContain(base.controlUrl + "/llm/deepseek/v1/tools");
   });
+
+  it("容器模式：交给 dsh 的路径换成容器内，控制面读写仍是宿主路径", () => {
+    const plan = launchPlan({
+      ...base,
+      run: "30000000-0000-4000-8000-000000000003",
+      dossier: "20000000-0000-4000-8000-000000000003",
+      sessionId: "ses_c",
+      home: "/state/kernel",
+      container: {
+        home: "/opt/reinlab-account",
+        dshHome: "/opt/reinlab-account/dsh-home",
+        workspace: "/opt/reinlab-account/dossiers-root",
+        dshModule: "/opt/reinlab/node_modules/@deepseek-ai/dsh/lib/bin.js",
+        pluginEntry: "file:///opt/reinlab/plugins/reinlab-read-plugin/index.js",
+        restrictPatch: "/opt/reinlab/plugins/reinlab-read-plugin/restrict.patch.yml",
+      },
+    });
+    // 控制面照旧在宿主上读写这些文件。
+    expect(plan.paths.runDir).toContain("/state/kernel/accounts/");
+    expect(plan.paths.credentialsFile).toContain("/state/kernel/accounts/");
+    // 交给 dsh 的是容器内路径。
+    expect(plan.containerPaths?.credentialsFile).toContain("/opt/reinlab-account/");
+    expect(plan.options.cwd).toBe("/opt/reinlab-account/dossiers-root/20000000-0000-4000-8000-000000000003");
+    expect(plan.options.dshHome).toBe("/opt/reinlab-account/dsh-home");
+    expect(plan.options.patches[0]).toBe("/opt/reinlab/plugins/reinlab-read-plugin/restrict.patch.yml");
+    expect(plan.options.env.SHIM_DSH_MODULE).toBe("/opt/reinlab/node_modules/@deepseek-ai/dsh/lib/bin.js");
+    // shim 要把参数里的宿主路径映射成容器内路径。
+    expect(plan.options.env.SHIM_HOST_ROOT).toBe("/state/kernel/accounts/" + base.account);
+    expect(plan.options.env.SHIM_CONTAINER_ROOT).toBe("/opt/reinlab-account");
+  });
+
+  it("宿主模式不产生容器路径，也不用容器内内核", () => {
+    const plan = launchPlan({ ...base, run: "30000000-0000-4000-8000-000000000004", dossier: "20000000-0000-4000-8000-000000000004", sessionId: "ses_d", home: "/state/kernel" });
+    expect(plan.containerPaths).toBeUndefined();
+    expect(plan.options.env.SHIM_HOST_ROOT).toBeUndefined();
+    expect(plan.options.cwd).toContain("/state/kernel/accounts/");
+  });
 });

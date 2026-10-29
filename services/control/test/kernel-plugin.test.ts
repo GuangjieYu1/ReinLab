@@ -37,7 +37,7 @@ describe("reading plugin", () => {
   });
 
   it("exposes only reading tools, with no general writer, shell or subagent", () => {
-    const surface = ["card_finding", "card_layer", "clarify_question", "papers_fetch", "papers_pages", "papers_search"].sort();
+    const surface = ["card_finding", "card_layer", "clarify_question", "course_plan", "papers_fetch", "papers_pages", "papers_search"].sort();
     expect(mount(vi.fn(), "read").registered.map((d) => d.name).sort()).toEqual(surface);
     for (const name of ["files.write", "bash", "web_search"]) {
       expect(mount(vi.fn(), "read").registered.map((d) => d.name)).not.toContain(name);
@@ -49,7 +49,7 @@ describe("reading plugin", () => {
     const clarify = mount(vi.fn(), "clarify").registered.map((d) => d.name);
     expect(clarify).not.toContain("papers_fetch");
     // 检索、提问、读页仍在：靠它们拿到真实候选并让用户选定。
-    for (const name of ["papers_search", "clarify_question", "papers_pages", "card_layer", "card_finding"]) {
+    for (const name of ["papers_search", "clarify_question", "papers_pages", "card_layer", "card_finding", "course_plan"]) {
       expect(clarify).toContain(name);
     }
   });
@@ -85,74 +85,79 @@ describe("reading plugin", () => {
     });
   });
 
-  it("downloads once after a single approval and never re-downloads on a repeat call", async () => {
-    let decisionPolls = 0;
+  it("需要批准时把请求交给用户就走，不在插件里轮询等人", async () => {
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
       requests.push({ url, init });
-      if (url.endsWith("/kernel/tool")) {
-        const body = JSON.parse(String(init.body));
-        if (body.approvalId) return json({ result: { assetId: "asset-1", status: "full_text" } });
+      if (url.endsWith("/kernel/tool"))
         return json({ state: "pending", approvalId: "ap-1" }, 409);
-      }
-      decisionPolls += 1;
-      return json({ state: decisionPolls >= 2 ? "approved" : "pending" });
+      throw Error("插件不该再去轮询审批：" + url);
     });
     const { tool } = mount(fetchImpl, "read");
     const first = (await tool("papers_fetch").execute({ paperId: "W1" })) as Record<string, unknown>;
-    expect(first).toMatchObject({ assetId: "asset-1", status: "full_text" });
-    const fetchCalls = requests.filter((r) => r.url.endsWith("/kernel/tool"));
-    expect(fetchCalls).toHaveLength(2);
-    expect(JSON.parse(String(fetchCalls[1].init.body)).approvalId).toBe("ap-1");
-
-    // A second identical call re-enters with the same action; the control plane
-    // answers from the existing asset, so no extra download is triggered here.
-    fetchImpl.mockImplementation(async (url: string, init: RequestInit) => {
-      if (url.endsWith("/kernel/tool")) return json({ result: { assetId: "asset-1", status: "full_text", reused: true } });
-      return json({ state: "approved" });
-    });
-    const again = (await tool("papers_fetch").execute({ paperId: "W1" })) as Record<string, unknown>;
-    expect(again).toMatchObject({ assetId: "asset-1", reused: true });
+    // 交出去就算这一轮结束：告诉模型在等用户，没有第二次工具调用，也没有轮询。
+    expect(first).toMatchObject({ status: "waiting_for_user", approvalId: "ap-1" });
+    const toolCalls = requests.filter((r) => r.url.endsWith("/kernel/tool"));
+    expect(toolCalls).toHaveLength(1);
+    expect(requests.some((r) => r.url.includes("/kernel/approvals/"))).toBe(false);
   });
 
-  it("stops without downloading when the user rejects", async () => {
+  it("续接那一轮再调同一动作时，控制面直接执行并返回结果", async () => {
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
       requests.push({ url, init });
-      if (url.endsWith("/kernel/tool")) return json({ state: "pending", approvalId: "ap-2" }, 409);
-      return json({ state: "rejected" });
+      // 已批准未执行：控制面这次不给 pending，直接给结果。
+      return json({ result: { assetId: "asset-1", status: "full_text" } });
     });
     const { tool } = mount(fetchImpl, "read");
-    const result = (await tool("papers_fetch").execute({ paperId: "W2" })) as Record<string, unknown>;
-    expect(result).toMatchObject({ status: "stopped", reason: "rejected", message: "已停止 · 没有下载" });
+    const resumed = (await tool("papers_fetch").execute({ paperId: "W1" })) as Record<string, unknown>;
+    expect(resumed).toMatchObject({ assetId: "asset-1", status: "full_text" });
     expect(requests.filter((r) => r.url.endsWith("/kernel/tool"))).toHaveLength(1);
   });
 
-  it("审批一直没人点：标成过期、回「可以重新开始」，不当作拒绝", async () => {
+  it("用户驳回后由控制面把真实原因交回来，插件不自己判过期", async () => {
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
       requests.push({ url, init });
-      if (url.endsWith("/kernel/tool")) return json({ state: "pending", approvalId: "ap-exp" }, 409);
-      if (url.endsWith("/expire")) return json({ state: "expired" });
-      return json({ state: "pending" });
+      // 控制面的失败形状是顶层 code/message（与 kernel-tools 的错误出口一致）。
+      return json({ code: "APPROVAL_REJECTED", message: "用户没有批准这次下载。" }, 409);
     });
-    // 等的窗口压到 50ms，测试不必真等十分钟。
-    const { tool } = mount(fetchImpl, "read", { approvalTimeoutMs: 50, approvalPollMs: 10 });
-    const result = (await tool("papers_fetch").execute({ paperId: "W-exp" })) as Record<string, unknown>;
-    expect(result).toMatchObject({ status: "stopped", reason: "expired", message: "审批已过期，可以重新开始" });
-    expect(requests.some((r) => r.url.endsWith("/kernel/approvals/ap-exp/expire"))).toBe(true);
+    const { tool } = mount(fetchImpl, "read");
+    const result = (await tool("papers_fetch").execute({ paperId: "W2" })) as Record<string, unknown>;
+    expect(result).toMatchObject({ code: "APPROVAL_REJECTED", message: "用户没有批准这次下载。" });
+    expect(requests.some((r) => r.url.endsWith("/expire"))).toBe(false);
   });
 
-  it("asks the user in-conversation for a paper pick and reports the answer", async () => {
+  it("一直没人点也不会在插件侧过期：请求留在控制面等回答", async () => {
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      requests.push({ url, init });
+      return json({ state: "pending", approvalId: "ap-exp" }, 409);
+    });
+    // 即使把等待窗口压到很短，插件也不再自己判过期、不再调 /expire。
+    const { tool } = mount(fetchImpl, "read", { approvalTimeoutMs: 50, approvalPollMs: 10 });
+    const result = (await tool("papers_fetch").execute({ paperId: "W-exp" })) as Record<string, unknown>;
+    expect(result).toMatchObject({ status: "waiting_for_user", approvalId: "ap-exp" });
+    expect(requests.some((r) => r.url.endsWith("/expire"))).toBe(false);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(requests.filter((r) => r.url.endsWith("/kernel/tool"))).toHaveLength(1);
+  });
+
+  it("提问同样交出去等待，回答后由续接那一轮拿到结果", async () => {
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
       requests.push({ url, init });
       if (url.endsWith("/kernel/tool"))
         return json({ state: "pending", approvalId: "ap-pick" }, 409);
-      return json({ state: "approved" });
+      throw Error("插件不该轮询：" + url);
     });
     const { tool } = mount(fetchImpl, "clarify");
-    const result = (await tool("clarify_question").execute({
+    const first = (await tool("clarify_question").execute({
       question: "这两篇哪一篇？",
       kind: "paper_pick",
       candidates: [{ paperId: "W1" }, { paperId: "W2" }],
     })) as Record<string, unknown>;
-    expect(result).toMatchObject({ state: "answered", approvalId: "ap-pick" });
+    expect(first).toMatchObject({ status: "waiting_for_user", approvalId: "ap-pick" });
+
+    const resumedImpl = vi.fn(async () => json({ result: { state: "answered", candidateId: "W2" } }));
+    const resumed = (await mount(resumedImpl, "clarify").tool("clarify_question").execute({
+      question: "这两篇哪一篇？",
+    })) as Record<string, unknown>;
+    expect(resumed).toMatchObject({ state: "answered", candidateId: "W2" });
   });
 });

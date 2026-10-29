@@ -15,13 +15,15 @@ import { startLocalSupabase } from "./supabase-start";
 import { setTimeout as delay } from "node:timers/promises";
 import { acquireStartupLock } from "./startup-lock";
 import { startControlProcess, stopOwnedControl } from "./control-process";
-import { bootstrapLocalDatabase } from "../../services/control/src/db/bootstrap";
+import { bootstrapLocalDatabase, reconcileAfterBootstrap } from "../../services/control/src/db/bootstrap";
+
 import { realModelMode } from "./real-models";
 import { ensureNode22 } from "./runtime";
 
 // 固定跑在项目工具链的 Node 22 上：Electron 直接报错，PATH 上的 node 不作为依据。
 const scriptPath = resolve("tooling/local/up.ts");
 const nodeBin = await ensureNode22(scriptPath);
+process.env.REINLAB_CONTROL_LOG_DIR ??= localPaths().state;
 const paths = localPaths(),
   credentialRoot = join(homedir(), ".local/state/reinlab/account-credentials");
 const cliEnvironment = {
@@ -120,6 +122,13 @@ try {
   };
   step("LOCAL_BUSINESS_MIGRATIONS");
   const database = await bootstrapLocalDatabase(status, passwords);
+  // 上一次运行留下的执行体已经不在了：起控制面之前先把残留补成真实终态，
+  // 免得有人还看到「运行中」却怎么都推不动。
+  {
+    const swept = await reconcileAfterBootstrap(status.databaseUrl);
+    if (swept.interruptedRuns || swept.expiredRequests)
+      console.log(JSON.stringify({ code: "LOCAL_RECONCILED", ...swept }));
+  }
   const signingKey =
     saved.INTERNAL_SIGNING_KEY ?? randomBytes(32).toString("base64url");
   await writePrivateEnv(paths.setup, {
@@ -130,7 +139,29 @@ try {
     INTERNAL_SIGNING_KEY: signingKey,
   });
   // 只有新内核：本机不再构建、也不再升级账户镜像。
-  const kernelTransport = "host";
+  // 容器模式：dsh 跑在每账户容器里。默认保持宿主，验证通过后再改默认。
+  // 第 3 项起，正式工具执行默认在每账户容器里跑（PRD 3.2：不回退宿主模式）。
+  // 仍可用 REINLAB_KERNEL_TRANSPORT=host 临时回到宿主，便于对照排查。
+  const kernelTransport =
+    process.env.REINLAB_KERNEL_TRANSPORT === "host" ? "host" : "container";
+  const accountImage = "reinlab-account:local";
+  if (kernelTransport === "container") {
+    step("LOCAL_ACCOUNT_IMAGE_CHECKING");
+    const exists = await quietCommand("docker", ["image", "inspect", accountImage], {
+      env: cliEnvironment,
+      timeoutMs: 20000,
+    })
+      .then(() => true)
+      .catch(() => false);
+    if (!exists) {
+      step("LOCAL_ACCOUNT_IMAGE_BUILDING");
+      await quietCommand(
+        "docker",
+        ["build", "-f", "infra/account/Dockerfile", "-t", accountImage, "."],
+        { env: cliEnvironment, timeoutMs: 900000 },
+      );
+    }
+  }
   const image = "host";
   if (realModels) {
     const keyFile = join(homedir(), ".config/reinlab/local.env"),
@@ -162,15 +193,17 @@ try {
       paths.state.split("/").at(-1)!,
     ),
     DOCKER_HOST: cliEnvironment.DOCKER_HOST,
-    ACCOUNT_IMAGE: image,
+    ACCOUNT_IMAGE: accountImage,
+    REINLAB_ACCOUNT_IMAGE: accountImage,
     REINLAB_CONTROL_URL: "http://host.docker.internal:3001/",
     PORT: "3001",
     INTERNAL_SIGNING_KEY: signingKey,
     REINLAB_REAL_MODELS_ENABLED: realModels ? "1" : "0",
     REINLAB_KERNEL_HOME: join(paths.state, "kernel"),
     // Local runs use the host transport; the account-image path stays the
-    // production transport and is selected with REINLAB_KERNEL_TRANSPORT=container.
-    REINLAB_KERNEL_TRANSPORT: "host",
+    // 默认仍是宿主；容器模式用 REINLAB_KERNEL_TRANSPORT=container 打开，
+    // 打开时要求账户镜像已就绪（见下方 ensureAccountImage）。
+    REINLAB_KERNEL_TRANSPORT: kernelTransport,
     // 内核拉起的 dsh 子进程也用同一个 Node 22。
     SHIM_NODE: nodeBin,
     REINLAB_KERNEL_MODEL: "deepseek-v4-flash",
@@ -181,7 +214,7 @@ try {
   await startControlProcess({
     script: resolve("tooling/local/control.ts"),
     cwd: paths.root,
-    env: { ...cliEnvironment, SHIM_NODE: nodeBin },
+    env: { ...cliEnvironment, SHIM_NODE: nodeBin, REINLAB_CONTROL_LOG_DIR: paths.state },
     recordFile: paths.process,
     node: nodeBin,
   });

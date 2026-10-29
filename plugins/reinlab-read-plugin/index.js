@@ -33,11 +33,20 @@ export function createClient(config, fetchImpl = fetch) {
   const controlUrl = required(config, "controlUrl").replace(/\/+$/, "");
   return async function call(server, tool, args, extra = {}) {
     const token = await readToken(config);
+    // 工具调用必须有有限时限：控制面万一卡住，不能把这一轮无限挂在这里。
     const response = await fetchImpl(`${controlUrl}/kernel/tool`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": token },
       body: JSON.stringify({ server, tool, args, ...extra }),
-    });
+      signal: AbortSignal.timeout(Number(config.toolTimeoutMs ?? 120_000)),
+    }).catch((error) => ({
+      ok: false,
+      status: 0,
+      json: async () => ({
+        code: error?.name === "TimeoutError" ? "KERNEL_TOOL_TIMEOUT" : "KERNEL_TOOL_UNREACHABLE",
+        message: "这次工具调用没有拿到控制面的响应，请重试或换一种做法。",
+      }),
+    }));
     const body = await response.json().catch(() => ({}));
     if (response.status === 409 && body.state === "pending")
       return { pending: true, approvalId: body.approvalId };
@@ -55,43 +64,14 @@ export function createClient(config, fetchImpl = fetch) {
   };
 }
 
-/** Tell the control plane the user never answered, so the card is marked expired. */
-async function expireCard(config, approvalId) {
-  const controlUrl = required(config, "controlUrl").replace(/\/+$/, "");
-  const token = await readToken(config);
-  await (config.fetch ?? fetch)(
-    `${controlUrl}/kernel/approvals/${encodeURIComponent(approvalId)}/expire`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": token },
-      body: "{}",
-    },
-  ).catch(() => {});
-}
-
-/** Wait for the single approval card until the run's turn is abandoned. */
-async function awaitDecision(config, call, approvalId) {
-  const fetchImpl = config.fetch ?? fetch;
-  const controlUrl = required(config, "controlUrl").replace(/\/+$/, "");
-  // 等人点卡是业务等待：默认十分钟，期间会话租约已由控制面放开。
-  const deadline = Date.now() + Number(config.approvalTimeoutMs ?? 600_000);
-  for (;;) {
-    const token = await readToken(config);
-    const response = await fetchImpl(
-      `${controlUrl}/kernel/approvals/${encodeURIComponent(approvalId)}`,
-      { headers: { "x-api-key": token }, signal: AbortSignal.timeout(30_000) },
-    );
-    const body = await response.json().catch(() => ({}));
-    if (body.state === "approved") return { approved: true, approvalId };
-    if (body.state === "rejected" || body.state === "expired")
-      return { approved: false, approvalId };
-    if (Date.now() > deadline) {
-      await expireCard(config, approvalId);
-      return { approved: false, approvalId, timedOut: true };
-    }
-    await poll(Number(config.approvalPollMs ?? 750));
-  }
-}
+/** 需要用户决定时，把请求交给控制面，然后如实告诉模型「在等用户」。 */
+const waiting = (what, approvalId) => ({
+  status: "waiting_for_user",
+  approvalId,
+  message:
+    `已把「${what}」的请求交给用户（审批 ${approvalId}），等用户处理后会从这一段继续。` +
+    "这不代表已批准，也不代表失败：不要反复重试同一个请求。",
+});
 
 const text = (value) => [{ type: "text", text: JSON.stringify(value) }];
 
@@ -134,22 +114,14 @@ export function apply(ctx, config) {
         output,
         // Waiting for the user's decision is not a slow tool: keep the turn open.
         timeoutMs: 660_000,
-        async execute(args) {
-          const first = await call("papers", "fetch", args);
-          if (first.error) return first.error;
-          if (!first.pending) return first.result;
-          const decision = await awaitDecision(config, call, first.approvalId);
-          if (!decision.approved)
-            return decision.timedOut
-              ? { status: "stopped", reason: "expired", message: "审批已过期，可以重新开始" }
-              : { status: "stopped", reason: "rejected", message: "已停止 · 没有下载" };
-          const second = await call("papers", "fetch", args, {
-            approvalId: decision.approvalId,
-          });
-          if (second.error) return second.error;
-          if (second.pending) return { error: { code: "APPROVAL_NOT_CONSUMED", message: "审批没生效，请重试。" } };
-          return second.result ?? {};
-        },
+      async execute(args) {
+        // 已批准（续接那一轮）再调到这里时，控制面会直接执行并返回结果；
+        // 还没批准就返回「在等用户」，这一轮到此结束，不占着执行段轮询。
+        const first = await call("papers", "fetch", args);
+        if (first.error) return first.error;
+        if (!first.pending) return first.result;
+        return waiting("下载论文全文", first.approvalId);
+      },
       }),
     );
 
@@ -206,6 +178,32 @@ export function apply(ctx, config) {
     }),
   );
 
+  // 课程台最小能力：把一份简短学习计划交给用户确认并同时入档。
+  // 计划确认就是入档批准，不额外再要一次。
+  register(
+    defineTool({
+      name: "course_plan",
+      description:
+        "提交一份简短学习计划（目标 + 少量阶段）给用户确认；用户同意后这份计划即写入课程档案，并回报已入档。计划确认与入档是同一次批准。",
+      parameters: {
+        goal: { type: "string", required: true, description: "这次要达成的学习目标，一两句话。" },
+        steps: {
+          type: "array",
+          items: { type: "object", additionalProperties: true },
+          description: "计划阶段，每项含 title 与可选 detail；保持简短。",
+        },
+        note: { type: "string", description: "可选的补充说明。" },
+      },
+      output,
+      async execute(args) {
+        const first = await call("courses", "plan", args);
+        if (first.error) return first.error;
+        if (!first.pending) return first.result;
+        return waiting("这份学习计划并入档", first.approvalId);
+      },
+    }),
+  );
+
   register(
     defineTool({
       name: "clarify_question",
@@ -223,18 +221,11 @@ export function apply(ctx, config) {
           Array.isArray(args.candidates) && args.candidates.length > 0
             ? { ...args, kind: "paper_pick" }
             : args;
+        // 用户已经回答过（续接那一轮）会直接拿到答案；还没回答就交出去等待。
         const first = await call("cards", "clarify.question", askArgs);
         if (first.error) return first.error;
         if (!first.pending) return first.result;
-        const decision = await awaitDecision(config, call, first.approvalId);
-        if (!decision.approved) return { state: "cancelled" };
-        const answered = await call("cards", "clarify.question", args, {
-          approvalId: decision.approvalId,
-        });
-        if (answered.error) return answered.error;
-        return answered.pending
-          ? { state: "answered", approvalId: decision.approvalId }
-          : answered.result;
+        return waiting("需要你确认的信息", first.approvalId);
       },
     }),
   );

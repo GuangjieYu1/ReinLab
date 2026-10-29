@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ApiFailure } from "../api/errors";
+import { ensureAccountContainer } from "./container-lifecycle";
 import type { Database } from "../db/database";
 import type { KernelAuth } from "./auth";
 import { launchPlan, materializeLaunch, type LaunchIo } from "./dsh/launch";
@@ -22,6 +23,22 @@ export type KernelLayout = {
   pluginEntry: string;
   /** Container transport ("docker") or local ("host"). */
   shimMode: "docker" | "host";
+  /** 容器模式下的账户执行环境；宿主模式为空。 */
+  container?: {
+    image: string;
+    /** 容器内账户根。 */
+    home: string;
+    /** 容器内 DSH 会话目录。 */
+    dshHome: string;
+    /** 容器内档案工作区根。 */
+    workspace: string;
+    /** 容器内 dsh 可执行模块。 */
+    dshModule: string;
+    /** 容器内插件入口。 */
+    pluginEntry: string;
+    /** 容器内 restrict 补丁。 */
+    restrictPatch: string;
+  };
   nodeModule?: string;
   io: LaunchIo;
 };
@@ -58,7 +75,7 @@ export class KernelService {
   async submit(
     account: string,
     runId: string,
-    options: { newSession?: boolean } = {},
+    options: { newSession?: boolean; prompt?: string } = {},
   ): Promise<{ runId: string; sessionId: string; resume: boolean }> {
     const { db, layout } = this.dependencies;
     const prepared = await db.withAccount(account, async (client) => {
@@ -74,9 +91,10 @@ export class KernelService {
       const dossierId = run.dossier_id as string;
       const input = (run.input ?? {}) as Record<string, unknown>;
       const message =
-        typeof input.query === "string" && input.query.trim() !== ""
+        options.prompt ??
+        (typeof input.query === "string" && input.query.trim() !== ""
           ? input.query
-          : "请开始这段精读。";
+          : "请开始这段精读。");
       const existing = options.newSession
         ? undefined
         : (
@@ -122,14 +140,52 @@ export class KernelService {
         restrictPatch: layout.restrictPatch,
         pluginEntry: layout.pluginEntry,
       },
+      ...(layout.shimMode === "docker" && layout.container
+        ? {
+            container: {
+              home: layout.container.home,
+              dshHome: layout.container.dshHome,
+              workspace: layout.container.workspace,
+              dshModule: layout.container.dshModule,
+              pluginEntry: layout.container.pluginEntry,
+              restrictPatch: layout.container.restrictPatch,
+            },
+          }
+        : {}),
     });
-    if (layout.shimMode === "host") plan.options.env.SHIM_MODE = "host";
+    // shim 默认按宿主模式跑；容器模式必须显式告诉它，否则会在宿主上
+    // 加载只有容器里才存在的内核路径。
+    plan.options.env.SHIM_MODE = layout.shimMode;
+    // 容器模式下 shim 要在宿主上执行 docker exec：把 daemon 地址一起给它，
+    // 否则会去找默认 socket（本机 colima 不是那个路径）。
+    if (layout.shimMode === "docker" && process.env.DOCKER_HOST)
+      plan.options.env.DOCKER_HOST = process.env.DOCKER_HOST;
     const token = this.dependencies.auth.issue(
       { account, dossier: prepared.dossierId, run: runId },
       this.now(),
     );
     try {
       await materializeLaunch(plan, token, layout.io);
+      // 容器模式：令牌与运行目录已落盘，再把这一账户的容器确保到运行状态，
+      // 之后 shim 才能 docker exec 进去。容器只挂这个账户自己的两块目录。
+      if (layout.shimMode === "docker" && layout.container) {
+        // dsh 要在 HOME 下建 profile：先在账户卷里把它建好。
+        await layout.io.mkdir(layout.home + "/accounts/" + account + "/home");
+        await ensureAccountContainer({
+          account,
+          image: layout.container.image,
+          accountRoot: layout.home + "/accounts/" + account,
+          containerRoot: layout.container.home,
+          dshHome: layout.home + "/dsh-home/accounts/" + account,
+          containerDshHome: layout.container.dshHome,
+          controlUrl: this.controlUrl(),
+          tokenFile: plan.paths.tokenFile,
+          // 账户卷是宿主进程建的：用宿主 uid 跑容器，容器里才写得进去。
+          ...(process.getuid && process.getgid
+            ? { user: process.getuid() + ":" + process.getgid() }
+            : {}),
+        });
+      }
     } catch (error) {
       await this.failBeforeRun(account, prepared.dossierId, prepared.sessionId, runId);
       throw error;
@@ -184,53 +240,52 @@ export class KernelService {
               "update dsh_turn set state=$2, error_code=$3, ended_at=now() where run_id=$1 and state='running'",
               [runId, state, detail ?? null],
             );
-            await client.query(
-              "update run set state=$2, ended_at=now() where id=$1 and state not in ('completed','failed','cancelled','interrupted')",
-              [runId, state],
+            // 这一轮结束了，但还有等用户处理的请求时任务没结束：记成 waiting，
+            // 把执行段让出去，等人回答后再按同一会话续上。
+            const pending = Number(
+              (
+                await client.query(
+                  "select count(*)::int n from approval where account_id=$1 and run_id=$2 and state='pending'",
+                  [account, runId],
+                )
+              ).rows[0]?.n ?? 0,
             );
-            await this.release(client, account, prepared.dossierId, prepared.sessionId, runId, state);
+            const next = state === "completed" && pending > 0 ? "waiting" : state;
+            await client.query(
+              `update run set state=$2,
+                 ended_at = case when $2 in ('completed','failed','cancelled','interrupted') then now() else null end
+               where id=$1 and state not in ('completed','failed','cancelled','interrupted')`,
+              [runId, next],
+            );
+            // 任务结束了，它名下的待批卡也就没有意义：一并关掉并写明原因，
+            // 免得收件箱里一直挂着点不动的旧卡。
+            if (next !== "waiting") {
+              const closed = await client.query(
+                `update approval set state='expired'
+                  where account_id=$1 and run_id=$2 and state='pending'
+                  returning id`,
+                [account, runId],
+              );
+              for (const row of closed.rows)
+                await client.query(
+                  `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+                   values($1::uuid,$2::uuid,$3::uuid,'approval','approval.expired',$4,$5)
+                   on conflict do nothing`,
+                  [
+                    account,
+                    prepared.dossierId,
+                    runId,
+                    JSON.stringify({ approvalId: row.id, reason: "run_ended" }),
+                    "run-ended:" + row.id,
+                  ],
+                );
+            }
+            await this.release(client, account, prepared.dossierId, prepared.sessionId, runId, next);
           });
         },
         // 这一轮的产品承诺没兑现时，后端再提醒一次；补不回来就照实结束。
-        followUp:
-          prepared.mode === "read"
-            ? {
-                code: "KERNEL_LAYERS_SHORT",
-                detail: async () =>
-                  "layers=" +
-                  (await KernelService.countEvents(this.dependencies.db, account, runId, "card_created", "payload->>'cardType'='layer'")),
-                reminder: async () => {
-                  const have = await KernelService.countEvents(this.dependencies.db, account, runId, "card_created", "payload->>'cardType'='layer'");
-                  if (have >= 5) return null;
-                  return `讲解卡现在只有 ${have} 层，还没到 5 层。请只补写讲解：用 card_layer 继续写第 ${have + 1} 到第 5 层（参数是 card 对象，含 no/title/en/body[{text,refs}]），写完就停，不要重复已写的层，不要再检索，也不要总结。`;
-                },
-              }
-            : {
-                code: "KERNEL_PICK_MISSING",
-                detail: async () =>
-                  "searches=" +
-                  (await KernelService.countEvents(this.dependencies.db, account, runId, "tool/call", "payload->>'name'='papers_search'")),
-                reminder: async () => {
-                  // 候选必须由用户点选：检索过却还没把候选交给用户时，补一次。
-                  const cards = await KernelService.countEvents(
-                    this.dependencies.db,
-                    account,
-                    runId,
-                    "tool/call",
-                    "payload->>'name'='clarify_question' and payload->>'arguments' like '%candidates%'",
-                  );
-                  if (cards > 0) return null;
-                  const searches = await KernelService.countEvents(
-                    this.dependencies.db,
-                    account,
-                    runId,
-                    "tool/call",
-                    "payload->>'name'='papers_search'",
-                  );
-                  if (searches === 0) return null;
-                  return "这一轮检索到了候选，但用户还没看到可选列表。请调用 clarify_question，带 kind=paper_pick 和 candidates（用检索到的真实候选），让用户自己选。";
-                },
-              },
+        // 不再往对话里注入「提醒」：那是系统替模型定步骤，还会以用户身份出现在
+        // 页面上（纲领第 9 条）。结果照实记录在事件里，不伪装成人说的话。
         release: plan.release,
       },
       { plan, prompt: prepared.message, resume: prepared.resume, token },
@@ -238,6 +293,31 @@ export class KernelService {
     this.handles.set(runId, handle);
     void handle.done.catch(() => {}).finally(() => this.handles.delete(runId));
     return { runId, sessionId: prepared.sessionId, resume: prepared.resume };
+  }
+
+  /**
+   * 用户回答/批准之后接着跑同一段任务：把回答作为这一轮的输入送进原会话，
+   * 不新建空会话，也不伪造上一个工具调用的结果。
+   */
+  async resumeAfterAnswer(
+    account: string,
+    runId: string,
+    prompt: string,
+  ): Promise<{ started: boolean }> {
+    try {
+      await this.submit(account, runId, { prompt });
+      return { started: true };
+    } catch (error) {
+      // 会话还被占着或这一段已经收尾：如实留给用户，不静默假装续上。
+      const code = (error as { code?: string })?.code ?? "RESUME_FAILED";
+      console.error(JSON.stringify({ code: "KERNEL_RESUME_FAILED", run: runId, detail: code }));
+      return { started: false };
+    }
+  }
+
+  /** 这一段执行此刻是否还挂在本进程里（残留判定用）。 */
+  isLive(runId: string): boolean {
+    return this.handles.has(runId);
   }
 
   /** Cancel one run; the session is released only when the stop is confirmed. */
