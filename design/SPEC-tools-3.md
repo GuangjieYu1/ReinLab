@@ -98,12 +98,22 @@ dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**�
 **已修**：容器内 workspace 与宿主 `accounts/<account>/dossiers` 对齐（之前写成
 `dossiers-root`，dsh 报 working-directory does not exist）。
 
-**当前进展**：dsh 已在加固容器里跑完整一轮——产生 assistant 消息、会话标题、
-`request/context`，并发出真实模型请求。**当前卡在模型代理鉴权**：
-`turn/end AUTH 401 Authentication Failed`。即容器内 dsh 调控制面 `/llm/anthropic`
-时鉴权没通过。已补 `--add-host host.docker.internal:host-gateway`（Linux 容器里该名字
-默认不存在），401 依旧，说明不是解析问题，下一步要拿控制面日志区分是「控制面拒绝令牌」
-还是「上游拒绝」；核对点：容器内 `.credentials.yaml` 是否可读、令牌是否随 patch 生效。整栈默认仍为宿主模式，可正常验收。
+**片二已在真实栈验证通过（2026-10-30）**：容器模式下跑完一轮，run 状态 `completed`，
+有真实模型响应与 token 用量。到达这一步修的最后一环是：
+
+- 上游 401（`Your api key: ****-xxx is invalid`）说明容器里的 dsh **没走控制面代理**、
+  直连了上游。原因是 `DEEPSEEK_BASE_URL` 被我的凭据过滤器误删——`^DEEPSEEK_` 前缀
+  过宽，把配置也当密钥挡了。收窄成 `^DEEPSEEK_(API_KEY|KEY|SECRET|TOKEN)`，并补
+  `--add-host host.docker.internal:host-gateway` 让容器能到控制面。
+
+控制面 stderr 现在落盘到 `<state>/control.log`（`local:up` 起的分离进程以前日志全丢，
+排障只能靠猜）。
+
+**已验证的隔离**：宿主源码树、`~/.ssh`、`~/.config/reinlab`、`docker.sock`、其他账户
+目录在容器里全部不可达；基础工具 bash/grep/python3 在加固容器内可用。
+
+**尚未验**：容器模式下的完整精读（下载→审批→讲解），以及默认 transport 是否切到
+container。默认仍是 host，Claude 的 T1–T5 验收不受影响。整栈默认仍为宿主模式，可正常验收。
 
 **下一步（历史记录）**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
 需要改的地方已定位：`launch.ts` 目前只设了 `SHIM_CONTAINER/SHIM_RUN_ID/SHIM_PID_FILE/SHIM_DSH_MODULE`，

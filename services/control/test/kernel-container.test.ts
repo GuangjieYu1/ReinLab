@@ -49,6 +49,8 @@ describe("每账户执行容器规格", () => {
     ])
       expect(names).not.toContain(forbidden);
     expect(spec.env.SHIM_NODE).toBe("/usr/local/bin/node");
+    // 模型代理地址是配置不是密钥：必须能进容器，否则 dsh 会直连上游。
+    expect(names).toContain("DEEPSEEK_BASE_URL");
     expect(() => assertSpecSafe(spec)).not.toThrow();
   });
 

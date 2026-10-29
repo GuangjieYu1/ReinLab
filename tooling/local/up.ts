@@ -203,7 +203,7 @@ try {
   await startControlProcess({
     script: resolve("tooling/local/control.ts"),
     cwd: paths.root,
-    env: { ...cliEnvironment, SHIM_NODE: nodeBin },
+    env: { ...cliEnvironment, SHIM_NODE: nodeBin, REINLAB_CONTROL_LOG_DIR: paths.state },
     recordFile: paths.process,
     node: nodeBin,
   });

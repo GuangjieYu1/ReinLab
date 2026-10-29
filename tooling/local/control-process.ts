@@ -1,11 +1,22 @@
 import { spawn, execFile, type ChildProcess } from "node:child_process";
-import { constants, type Stats } from "node:fs";
+import { constants, openSync, type Stats } from "node:fs";
 import { open, mkdir, lstat, rename, unlink } from "node:fs/promises";
 import { dirname, basename, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getuid } from "node:process";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
+
+/** 控制面日志文件句柄：与会话记录同目录，追加写入。 */
+let controlLogFd: number | undefined;
+function logFd(): number {
+  if (controlLogFd === undefined) {
+    const dir = process.env.REINLAB_CONTROL_LOG_DIR;
+    const file = (dir ? dir + "/" : "") + "control.log";
+    controlLogFd = openSync(file, "a", 0o600);
+  }
+  return controlLogFd;
+}
 
 export type ControlRecord = {
   pid: number;
@@ -217,7 +228,14 @@ export async function startControlProcess(options: {
     {
       cwd: options.cwd,
       env: options.env,
-      stdio: ["ignore", "ignore", "ignore", "ipc"],
+      // 控制面的 stderr 落盘：出问题要能看见真实原因，而不是只剩一句
+      //「本地环境尚未就绪」。日志与运行记录同目录，权限跟着状态目录走。
+      stdio: [
+        "ignore",
+        "ignore",
+        logFd(),
+        "ipc",
+      ],
       detached: true,
     },
   );

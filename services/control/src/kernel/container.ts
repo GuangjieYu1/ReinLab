@@ -57,7 +57,8 @@ export const containerNameFor = (account: string) =>
  * 命中这些前缀或名字的变量即使误传也会被丢掉。
  */
 const FORBIDDEN_ENV = [
-  /^DEEPSEEK_/i,
+  // 只挡真正的密钥；DEEPSEEK_BASE_URL 这类配置必须能进容器，否则 dsh 会直连上游。
+  /^DEEPSEEK_(API_KEY|KEY|SECRET|TOKEN)/i,
   /_API_KEY$/i,
   /^OPENAI_/i,
   /^ANTHROPIC_/i,
@@ -116,6 +117,8 @@ export function accountContainerSpec(
     SHIM_MODE: "host",
     REINLAB_ACCOUNT_ROOT: containerRoot,
     REINLAB_CONTROL_URL: input.controlUrl,
+    // 模型必须走控制面代理，不能在容器里直连上游：Provider key 只在宿主控制面。
+    DEEPSEEK_BASE_URL: input.controlUrl.replace(/\/+$/, "") + "/llm/anthropic",
     REINLAB_RUN_TOKEN_FILE: containerToken,
     ...extraEnv,
   };
