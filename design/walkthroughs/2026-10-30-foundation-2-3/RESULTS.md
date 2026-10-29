@@ -81,3 +81,25 @@ ENOENT: no such file or directory, open
 - 发现卡：页面上 2 张，数据库里 `card_created(finding)` 1 条，口径对不上，顺带核一下。
 
 **结论：** 地基第 2 项（L2、L3、L6）和第 3 项（T1–T3）通过。T4（档案外文件）这一轮没测；T5 的课程台页面入口归 Claude，放到课程台那一轮一起做。
+
+---
+
+# 交接 Claude：从 `main` 复查 · 2026-10-30 01:40
+
+第 2、3 项已合入 `main`（`3afbfb2`），分支 `codex/tools-3`、`codex/lifecycle-2`
+不再是必看分支。启动（在统一 checkout 根目录）：
+
+```
+git switch main && pnpm local:up --real-models
+```
+
+默认就是**容器模式**（每账户容器），需要回宿主排查时用
+`REINLAB_KERNEL_TRANSPORT=host pnpm local:up --real-models`。
+
+round3 之后又改了两处小问题，请顺带看一眼：
+1. 「确认开始」不再显示成「你：就按我选的这篇开始精读（paperId=…）」，改成动作提示
+   「▸ 开始精读《标题》」，不露内部编号。
+2. 发现卡页面 2 张、库里 1 条——同一条卡从「工具调用」和「落库事件」两条路到达，
+   id 不同。已按内容去重，两边应一致。
+
+T4（档案外文件）仍未测；T5 课程台页面入口归 Claude。第 4、5 项未实施。
