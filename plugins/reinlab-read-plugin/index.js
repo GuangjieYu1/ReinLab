@@ -121,35 +121,38 @@ export function apply(ctx, config) {
     }),
   );
 
-  register(
-    defineTool({
-      name: "papers_fetch",
-      description:
-        "把一篇论文下载进当前档案并登记资产。paperId 支持 arxiv:、W（OpenAlex）、doi:。下载要用户批准一次；同一篇重复调用返回已有资产。",
-      parameters: {
-        paperId: { type: "string", required: true, description: "arxiv:2302.04761v1 / W123456 / doi:10.1000/xyz。" },
-      },
-      output,
-      // Waiting for the user's decision is not a slow tool: keep the turn open.
-      timeoutMs: 660_000,
-      async execute(args) {
-        const first = await call("papers", "fetch", args);
-        if (first.error) return first.error;
-        if (!first.pending) return first.result;
-        const decision = await awaitDecision(config, call, first.approvalId);
-        if (!decision.approved)
-          return decision.timedOut
-            ? { status: "stopped", reason: "expired", message: "审批已过期，可以重新开始" }
-            : { status: "stopped", reason: "rejected", message: "已停止 · 没有下载" };
-        const second = await call("papers", "fetch", args, {
-          approvalId: decision.approvalId,
-        });
-        if (second.error) return second.error;
-        if (second.pending) return { error: { code: "APPROVAL_NOT_CONSUMED", message: "审批没生效，请重试。" } };
-        return second.result ?? {};
-      },
-    }),
-  );
+  // 澄清阶段还没有选定的论文，本来就不该下载：这个工具在那一阶段不存在。
+  if (config.mode === "read")
+    register(
+      defineTool({
+        name: "papers_fetch",
+        description:
+          "把一篇论文下载进当前档案并登记资产。paperId 支持 arxiv:、W（OpenAlex）、doi:。下载要用户批准一次；同一篇重复调用返回已有资产。",
+        parameters: {
+          paperId: { type: "string", required: true, description: "arxiv:2302.04761v1 / W123456 / doi:10.1000/xyz。" },
+        },
+        output,
+        // Waiting for the user's decision is not a slow tool: keep the turn open.
+        timeoutMs: 660_000,
+        async execute(args) {
+          const first = await call("papers", "fetch", args);
+          if (first.error) return first.error;
+          if (!first.pending) return first.result;
+          const decision = await awaitDecision(config, call, first.approvalId);
+          if (!decision.approved)
+            return decision.timedOut
+              ? { status: "stopped", reason: "expired", message: "审批已过期，可以重新开始" }
+              : { status: "stopped", reason: "rejected", message: "已停止 · 没有下载" };
+          const second = await call("papers", "fetch", args, {
+            approvalId: decision.approvalId,
+          });
+          if (second.error) return second.error;
+          if (second.pending) return { error: { code: "APPROVAL_NOT_CONSUMED", message: "审批没生效，请重试。" } };
+          return second.result ?? {};
+        },
+      }),
+    );
+
 
   register(
     defineTool({

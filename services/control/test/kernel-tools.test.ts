@@ -257,4 +257,101 @@ describe("kernel tool gateway", () => {
     });
     expect((await poll.json()) as { state: string }).toEqual({ state: "rejected" });
   });
+
+  it("一个 run 的等待超时不会过期另一个 run 的审批", async () => {
+    const dispatch = vi.fn(async () => ({ assetId: "asset-scope", status: "full_text" }));
+    const { app } = build(dispatch);
+    // 两段运行各有一张待批卡：上一段（比如被取消的澄清）等待超时，不能碰这一张。
+    const older = await runFor("arxiv:2302.04791");
+    const current = await runFor("arxiv:2302.04792");
+    const olderCard = (await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04791" } }, older.token)).body as { approvalId: string };
+    const currentCard = (await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04792" } }, current.token)).body as { approvalId: string };
+
+    // 旧 run 的等待者超时，只能过期自己那张。
+    await app.request(`/kernel/approvals/${currentCard.approvalId}/expire`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": older.token },
+      body: "{}",
+    });
+
+    const stillPending = await admin.query(
+      "select id,state from approval where id=$1",
+      [currentCard.approvalId],
+    );
+    expect(stillPending.rows[0]).toMatchObject({ state: "pending" });
+    const olderState = await admin.query("select state from approval where id=$1", [olderCard.approvalId]);
+    expect(olderState.rows[0]).toMatchObject({ state: "pending" });
+  });
+
+  it("审批过期后再次请求同一动作，新建一张卡而不是回 409", async () => {
+    const dispatch = vi.fn(async () => ({ assetId: "asset-reask", status: "full_text" }));
+    const { app } = build(dispatch);
+    const own = await runFor("arxiv:2302.04781");
+    const first = await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04781" } }, own.token);
+    const staleId = (first.body as { approvalId: string }).approvalId;
+    expect(first.status).toBe(409);
+
+    // 人一直没点：插件把这张卡标成过期。
+    await app.request(`/kernel/approvals/${staleId}/expire`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": own.token },
+      body: "{}",
+    });
+
+    // 同一动作再来一次：必须是新的一张待批卡，让人还能批下来。
+    const again = await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04781" } }, own.token);
+    expect(again.status).toBe(409);
+    expect(again.body).toMatchObject({ state: "pending" });
+    const freshId = (again.body as { approvalId: string }).approvalId;
+    expect(freshId).not.toBe(staleId);
+
+    // 但任何时候只留一张有效卡：旧的过期卡不再算有效。
+    const live = await admin.query(
+      "select id from approval where account_id=$1 and run_id=$2 and state='pending'",
+      [account, own.id],
+    );
+    expect(live.rows.map((r) => r.id)).toEqual([freshId]);
+
+    // 新卡批下来就能下载。
+    await app.request(`/kernel/approvals/${freshId}/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": own.token },
+      body: JSON.stringify({ decision: "approve" }),
+    });
+    const approved = await call(app, {
+      server: "papers",
+      tool: "fetch",
+      args: { paperId: "arxiv:2302.04781" },
+      approvalId: freshId,
+    }, own.token);
+    expect(approved.status).toBe(200);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("已过期的卡不会被当成有效卡：同一动作拿到的永远是当前那张", async () => {
+    const dispatch = vi.fn(async () => ({ assetId: "asset-one-live", status: "full_text" }));
+    const { app } = build(dispatch);
+    const own = await runFor("arxiv:2302.04782");
+    const first = await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04782" } }, own.token);
+    const staleId = (first.body as { approvalId: string }).approvalId;
+    await app.request(`/kernel/approvals/${staleId}/expire`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": own.token },
+      body: "{}",
+    });
+    const second = await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04782" } }, own.token);
+    const freshId = (second.body as { approvalId: string }).approvalId;
+    // 再来一次仍返回新卡，不会退回那张过期卡。
+    const third = await call(app, { server: "papers", tool: "fetch", args: { paperId: "arxiv:2302.04782" } }, own.token);
+    expect((third.body as { approvalId: string }).approvalId).toBe(freshId);
+    // 用过期卡的 id 批不动这一轮。
+    const withStale = await call(app, {
+      server: "papers",
+      tool: "fetch",
+      args: { paperId: "arxiv:2302.04782" },
+      approvalId: staleId,
+    }, own.token);
+    expect(withStale.status).toBe(409);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
 });

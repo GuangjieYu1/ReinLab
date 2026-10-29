@@ -324,9 +324,11 @@ export function registerKernelTools(
     const claims = authenticate(c.req.raw);
     return dependencies.db.withAccount(claims.account, async (client) => {
       const row = (
+        // 只过期本 run 自己的卡：别的运行（含上一段被取消的澄清）等待超时
+        // 时，不能把这一轮刚建的卡一起标掉。
         await client.query(
-          "update approval set state='expired' where id=$1 and account_id=$2 and state='pending' returning run_id",
-          [c.req.param("id"), claims.account],
+          "update approval set state='expired' where id=$1 and account_id=$2 and run_id=$3 and state='pending' returning run_id",
+          [c.req.param("id"), claims.account, claims.run],
         )
       ).rows[0];
       if (!row) return c.json({ state: "expired" });

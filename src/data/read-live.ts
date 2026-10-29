@@ -267,6 +267,7 @@ export function createLiveReadAdapter(
           fetchCardShown = true;
           permissionCardShown = true;
           shownPermissionId = callId;
+          expired = false;
           emit({
             type: "approval",
             id: callId,
@@ -337,6 +338,9 @@ export function createLiveReadAdapter(
           permissionCardShown = false;
           fetchCardShown = false;
           shownPermissionId = undefined;
+          // 之前有过一次过期、这次人批下来了：这一轮就是正常完成，结束标题不该
+          // 还挂着「审批已过期」。
+          if (decision === "approve") expired = false;
           emit({
             type: "approval",
             id: decidedId,
@@ -482,6 +486,8 @@ export function createLiveReadAdapter(
       announced.add(card.id);
       permissionCardShown = true;
       shownPermissionId = card.id;
+      // 这张是当前有效的那一张：之前那张过期了也不影响这一张能被批。
+      expired = false;
       // A pending permission means the run is waiting on the user: show the
       // run panel with the card instead of the local estimate step.
       localPhase = undefined;
@@ -902,14 +908,42 @@ export function createLiveReadAdapter(
   }
 }
 
+/** 消息内容可能是字符串，也可能是 [{type:'text',text:'…'}]：只取文字。 */
+function messageText(message: any): string {
+  const content = message?.text ?? message?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block: any) => typeof block?.text === "string" && (block.type === "text" || !block.type))
+    .map((block: any) => block.text)
+    .join("");
+}
+
+/** 不是给人的工具：运行时内部事件（步/轮边界、投递执据、注入的上下文）不该
+ *  显示成工具调用。 */
+const INTERNAL_EVENTS = new Set([
+  "step/start",
+  "step/end",
+  "turn/start",
+  "turn/end",
+  "request/header",
+  "request/context",
+  "system/message",
+  "session/title",
+  "session-log-deepseek/delivery-accepted",
+  "agent/inbox/spliced",
+]);
+
 /** One stored kernel event in the history shape a re-opened page can render. */
 function toHistory(event: KernelEvent): ReadEvent | null {
   const data = event.payload ?? {};
   // 运行时上下文不是用户说的话，刷新后也不该出现（里面有本机路径）。
   if (event.action === "user/message" && data.source?.kind === "runtime-context") return null;
+  // 内部事件不显示，刷新回填时也一样。
+  if (INTERNAL_EVENTS.has(event.action)) return null;
   switch (event.action) {
     case "user/message":
-      return { type: "user", id: String(data.id ?? "u:" + event.seq), text: String(data.text ?? data.content ?? "") };
+      return { type: "user", id: String(data.id ?? "u:" + event.seq), text: messageText(data) };
 
     case "assistant/message":
       return {

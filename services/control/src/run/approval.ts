@@ -22,9 +22,10 @@ export type ApprovalCard = {
 };
 
 /**
- * One card per concrete action. Requesting the same action twice returns the
- * existing card instead of opening a second one; the unique effect key makes
- * that a database guarantee rather than a caller convention.
+ * One live card per concrete action. Requesting the same action again returns
+ * the card that is still live; an expired or already-decided card no longer
+ * holds that slot, so the request opens a fresh card the user can still answer
+ * instead of handing back a dead one.
  */
 export async function requestApproval(
   client: pg.PoolClient,
@@ -34,7 +35,7 @@ export async function requestApproval(
   const inserted = await client.query(
     `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key)
      values(gen_random_uuid(),$1,$2,$7,$3,$4,$5,'pending',$6)
-     on conflict (account_id,run_id,effect_key) where effect_key is not null do nothing
+     on conflict (account_id,run_id,effect_key) where effect_key is not null and state = 'pending' do nothing
      returning id,state,consumed_at`,
     [
       request.account,
@@ -50,10 +51,14 @@ export async function requestApproval(
     inserted.rows[0] ??
     (
       await client.query(
-        `select id,state,consumed_at from approval where account_id=$1 and run_id=$2 and effect_key=$3`,
+        `select id,state,consumed_at from approval
+          where account_id=$1 and run_id=$2 and effect_key=$3 and state='pending'
+          order by id desc limit 1`,
         [request.account, request.run, key],
       )
-    ).rows[0];
+    ).rows[0] ??
+    // 没有任何有效卡了：这不是「需要审批」的错，而是这一轮该停下来说清楚。
+    null;
   if (!row) throw new ApiFailure("APPROVAL_REQUIRED", 409, "需要一次审批。");
   return card(row);
 }

@@ -89,6 +89,10 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
       const { catalog: current, handlers: table } = await paper();
       const handler = table[`papers.${call.tool}`];
       if (!handler) throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "该论文工具尚未接入。");
+      // 读页的 assetId 也可能是 arXiv / OpenAlex 号：本轮已下载过就换成资产 id，
+      // 否则这次读页被拒，模型会绕去抓网页，页码依据就落不了库。
+      if (call.tool === "pages" && typeof call.args?.assetId === "string")
+        call = { ...call, args: await withAssetId(dependencies.db, call) };
       const result = await handler(contextFor(current), call.args, randomUUID());
       // Reading a page is a citation receipt: the card check requires these rows,
       // so the kernel path records them the same way the old engine did.
@@ -143,20 +147,38 @@ async function withAssetId(
     ).rows[0];
     return row?.id;
   };
-  const mapped = await resolve(args.paperId);
-  if (mapped) args.paperId = mapped;
-  if (Array.isArray(args.evidence)) {
-    for (const entry of args.evidence) {
+  // 卡片工具的参数有两种形状：直接把字段摊在 args 上，或者整张卡放在 args.card。
+  const card = (args.card && typeof args.card === "object" && !Array.isArray(args.card))
+    ? (args.card as Record<string, any>)
+    : args;
+  const mapped = await resolve(card.paperId ?? card.assetId);
+  if (mapped) {
+    if (card.paperId) card.paperId = mapped;
+    if (card.assetId) card.assetId = mapped;
+  }
+  if (Array.isArray(card.evidence)) {
+    for (const entry of card.evidence) {
       const asset = await resolve(entry?.paperId);
       if (asset) entry.paperId = asset;
     }
   }
-  if (Array.isArray(args.items)) {
-    for (const item of args.items) {
+  if (Array.isArray(card.items)) {
+    for (const item of card.items) {
       if (!Array.isArray(item?.citations)) continue;
       for (const citation of item.citations) {
         const asset = await resolve(citation?.paperId);
         if (asset) citation.paperId = asset;
+      }
+    }
+  }
+  // 分层讲解卡的页码依据挂在 body[].refs[] 上，那里同样按资产 id 核账。
+  // 模型照样会写 arXiv / OpenAlex 号，不换就会被 schema 整张拒掉。
+  if (Array.isArray(card.body)) {
+    for (const entry of card.body) {
+      if (!Array.isArray(entry?.refs)) continue;
+      for (const ref of entry.refs) {
+        const asset = await resolve(ref?.paperId);
+        if (asset) ref.paperId = asset;
       }
     }
   }

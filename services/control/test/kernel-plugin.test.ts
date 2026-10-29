@@ -37,12 +37,20 @@ describe("reading plugin", () => {
   });
 
   it("exposes only reading tools, with no general writer, shell or subagent", () => {
-    // 每轮都拿到同一套能力：用什么、先用哪个由模型决定，工具集不再按阶段裁剪。
     const surface = ["card_finding", "card_layer", "clarify_question", "papers_fetch", "papers_pages", "papers_search"].sort();
-    expect(mount(vi.fn()).registered.map((d) => d.name).sort()).toEqual(surface);
     expect(mount(vi.fn(), "read").registered.map((d) => d.name).sort()).toEqual(surface);
     for (const name of ["files.write", "bash", "web_search"]) {
-      expect(mount(vi.fn()).registered.map((d) => d.name)).not.toContain(name);
+      expect(mount(vi.fn(), "read").registered.map((d) => d.name)).not.toContain(name);
+    }
+  });
+
+  it("澄清阶段没有下载工具：还没选定论文，本来就不该有这张审批卡", () => {
+    // 这一步不是限制模型怎么做，而是这个阶段不该存在下载能力。
+    const clarify = mount(vi.fn(), "clarify").registered.map((d) => d.name);
+    expect(clarify).not.toContain("papers_fetch");
+    // 检索、提问、读页仍在：靠它们拿到真实候选并让用户选定。
+    for (const name of ["papers_search", "clarify_question", "papers_pages", "card_layer", "card_finding"]) {
+      expect(clarify).toContain(name);
     }
   });
 

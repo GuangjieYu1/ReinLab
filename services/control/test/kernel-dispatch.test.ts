@@ -105,6 +105,50 @@ describe("kernel tool dispatch", () => {
     }
   });
 
+  it("把分层讲解卡 body[].refs[] 里的 arXiv 号换成这次运行的资产 id", async () => {
+    // 模型的页码依据习惯写 arXiv 号，而 schema 与回执按资产 id 核账：
+    // dispatch 必须在落卡前换掉，否则整张讲解卡被拒，讲解写不出来。
+    const assetId = randomUUID();
+    await admin.query(
+      "insert into paper_asset(id,account_id,dossier_id,run_id,paper_id,source,status,is_open_access,sha256,path,abstract,view_metadata) values($1,$2,$3,$4,'arxiv:2302.04799v1','https://arxiv.org/abs/2302.04799','full_text',true,repeat('b',64),'papers/y.pdf','', '{}')",
+      [assetId, account, dossier, runId],
+    );
+    const seen: Array<{ args: any }> = [];
+    const dispatch = createKernelDispatch({
+      db,
+      cacheRoot: mkdtempSync(join(tmpdir(), "papers-cache-")),
+      deposit: async () => {},
+      cardDeposit: async () => {},
+      cardHandlers: () => ({
+        "cards.card.layer": async (_context: unknown, args: unknown) => {
+          seen.push({ args });
+          return { cardId: "card-layer", cardType: "layer" };
+        },
+      }),
+      http: { get: async () => wire({ results: [] }) } as never,
+    });
+    await dispatch({
+      account,
+      dossier,
+      run: runId,
+      server: "cards",
+      tool: "card.layer",
+      args: {
+        card: {
+          paperId: "arxiv:2302.04799v1",
+          no: "1",
+          title: "提出问题",
+          en: "Problem",
+          body: [{ text: "这一层讲问题。", refs: [{ paperId: "arxiv:2302.04799v1", page: 1, quote: "原文" }] }],
+        },
+      },
+    });
+    expect(seen).toHaveLength(1);
+    const card = seen[0].args.card;
+    expect(card.paperId).toBe(assetId);
+    expect(card.body[0].refs[0].paperId).toBe(assetId);
+  });
+
   it("routes a finding card to the card layer and returns its receipt", async () => {
     const calls: Array<{ tool: string; args: unknown }> = [];
     const dispatch = createKernelDispatch({

@@ -43,6 +43,58 @@ describe("live read adapter over the DSH kernel", () => {
     expect(kinds.filter((kind) => kind === "tool").length).toBeGreaterThan(0);
   });
 
+  it("shows a replayed user message as its text, not as [object Object]", async () => {
+    // 刷新后从事件回填历史：content 是 [{type:'text',text:'…'}] 时不能直接转字符串。
+    const { instance } = adapter({
+      "/v1/dossiers": () => ({ items: [{ id: "d-1", title: "档案" }] }),
+      "/v1/kernel/dossiers/d-1/runs": () => ({ runs: [{ id: "r-1", state: "running" }] }),
+      "/v1/kernel/runs/r-1/events": () => ({
+        events: [
+          event(1, "user/message", { id: "u1", content: [{ type: "text", text: "我想读提出 Transformer 的那篇原始论文" }] }),
+          // 运行时上下文不是用户说的话，回填时也不该出现。
+          event(2, "user/message", { id: "u2", source: { kind: "runtime-context" }, content: [{ type: "text", text: "/private/path" }] }),
+        ],
+      }),
+      "/v1/kernel/runs/r-1": () => ({ state: "running", usage: { known: false } }),
+    });
+    const snapshot = await instance.load();
+    const users = snapshot.history.filter((entry) => entry.type === "user");
+    expect(users).toHaveLength(1);
+    expect(users[0]).toMatchObject({ text: "我想读提出 Transformer 的那篇原始论文" });
+    expect(JSON.stringify(snapshot.history)).not.toContain("[object Object]");
+  });
+
+  it("does not show step/turn boundaries as tool calls", async () => {
+    // step/end、turn/end 是运行时内部事件，不是给用户的工具调用。
+    const { instance } = adapter({
+      "/v1/dossiers": () => ({ items: [{ id: "d-1", title: "档案" }] }),
+      "/v1/kernel/dossiers/d-1/runs": () => ({ runs: [{ id: "r-1", state: "running" }] }),
+      "/v1/kernel/runs/r-1/events": () => ({
+        events: [
+          event(1, "step/start", { step: 1, turn: 1 }),
+          event(2, "tool/call", { name: "papers_search", callId: "c1", arguments: "{}" }),
+          event(3, "step/end", { step: 1, turn: 1 }),
+          event(4, "turn/end", { reason: { kind: "completed" } }),
+          event(5, "system/message", { text: "系统提示" }),
+          event(6, "request/context", { tools: [] }),
+          event(7, "session/title", { title: "标题" }),
+        ],
+      }),
+      "/v1/kernel/runs/r-1": () => ({ state: "done", usage: { known: false } }),
+    });
+    const snapshot = await instance.load();
+    const actions = snapshot.history
+      .filter((entry) => entry.type === "tool")
+      .map((entry) => (entry as { action?: string }).action);
+    expect(actions).not.toContain("step/start");
+    expect(actions).not.toContain("step/end");
+    expect(actions).not.toContain("turn/end");
+    expect(actions).not.toContain("system/message");
+    expect(actions).not.toContain("request/context");
+    expect(actions).not.toContain("session/title");
+    expect(actions).toContain("papers.search");
+  });
+
   it("rejects load with a readable reason when the kernel is unreachable", async () => {
     const { instance } = adapter({
       "/v1/dossiers": () => {
