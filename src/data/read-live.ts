@@ -118,6 +118,8 @@ export function createLiveReadAdapter(
 
   const sections = new Map<number, SourceSection>();
   let paperView: PaperView | undefined;
+  /** 这次「确认开始」选定的书名：开始指令要按动作行显示，带书名。 */
+  let startTitle: string | undefined;
   const emitPaper = () => {
     if (!paperView) return;
     const merged: PaperView = {
@@ -231,15 +233,18 @@ export function createLiveReadAdapter(
         // 不是用户说的话（还带本机路径），不显示。
         if (data.source?.kind === "runtime-context") return;
         const text = textOf(data);
-        const asAction = text ? startInstruction(text) : null;
-        if (text)
+        // 「确认开始」是页面替用户发的指令：不放进用户气泡，显示成一行动作。
+        if (text && startInstruction(text)) {
           emit({
-            type: "user",
-            id: String(data.id ?? "user:" + event.seq),
-            // 替用户发出的开始指令按动作提示显示。
-            text: asAction ?? text,
-            ...(asAction ? { action: true } : {}),
+            type: "tool",
+            id: String(data.id ?? "start:" + event.seq),
+            action: "read.start",
+            label: startTitle ? `开始精读《${startTitle}》` : "开始精读",
+            state: "done",
           });
+          return;
+        }
+        if (text) emit({ type: "user", id: String(data.id ?? "user:" + event.seq), text });
         return;
       }
       case "assistant/message": {
@@ -891,6 +896,9 @@ export function createLiveReadAdapter(
         await new Promise((resolve) => setTimeout(resolve, 1200));
       }
       const picked = chosen ?? lastPicked;
+      startTitle =
+        (picked as { title?: string } | undefined)?.title ??
+        (picked as { name?: string } | undefined)?.name;
       // 没拿到可用标识时不要拼出「paperId=」这种空指令：让模型按已谈定的那篇走。
       const pickedId = picked ? candidateId(picked) : "";
       // The chosen paper travels with the instruction so this turn is
@@ -1043,13 +1051,16 @@ function toHistory(event: KernelEvent): ReadEvent | null {
   switch (event.action) {
     case "user/message": {
       const raw = messageText(data);
-      const asAction = startInstruction(raw);
-      return {
-        type: "user",
-        id: String(data.id ?? "u:" + event.seq),
-        text: asAction ?? raw,
-        ...(asAction ? { action: true } : {}),
-      };
+      // 兜底路径（正常会被 apply 处理并带上书名）：至少不要冒充用户。
+      if (startInstruction(raw))
+        return {
+          type: "tool",
+          id: String(data.id ?? "start:" + event.seq),
+          action: "read.start",
+          label: "开始精读",
+          state: "done",
+        };
+      return { type: "user", id: String(data.id ?? "u:" + event.seq), text: raw };
     }
 
     case "assistant/message":
