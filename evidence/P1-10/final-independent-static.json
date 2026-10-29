@@ -1,0 +1,25 @@
+{
+  "node": "v22.23.3",
+  "scope": "format freeze static checks before final smoke cleanup addition",
+  "checks": {
+    "controlTypecheck": {
+      "status": "passed",
+      "log": "/tmp/reinlab-final-tsc.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "build": {
+      "status": "passed",
+      "log": "/tmp/reinlab-final-build.log",
+      "sha256": "8427b6eb90d62155696e9c3257787a9faba8ae2e92933940f61f749b5ea571e0"
+    },
+    "lint": {
+      "status": "passed",
+      "log": "/tmp/reinlab-final-lint.log",
+      "sha256": "076a75585a931ea2cefec1f56a2eb99887eb2cdfca0c7a2cc2ecb99be4fe1bcc"
+    }
+  },
+  "diffCheck": "passed",
+  "buildWarning": "existing bundle chunks over 500kB; build exit0",
+  "realModelRequests": 0,
+  "realKeyReads": 0
+}

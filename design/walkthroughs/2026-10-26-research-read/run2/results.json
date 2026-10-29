@@ -1,0 +1,148 @@
+{
+  "base": "http://127.0.0.1:5183",
+  "live": true,
+  "cap": 2.9,
+  "startedAt": "2026-10-26T06:17:42.069Z",
+  "seconds": 107.834,
+  "results": [
+    {
+      "id": "E1",
+      "kind": "错",
+      "action": "邮箱对、密码错，提交",
+      "expected": "红色封锁画面 + 提示核对邮箱和密码，不进入选台",
+      "actual": "封锁后恢复，提示「核验未通过：请核对邮箱和密码」",
+      "verdict": "✓",
+      "note": "",
+      "at": 7
+    },
+    {
+      "id": "E2",
+      "kind": "错",
+      "action": "邮箱留空直接提交",
+      "expected": "提示先填写身份（邮箱），不发请求",
+      "actual": "提示「请输入用户名或邮箱」",
+      "verdict": "✓",
+      "note": "",
+      "at": 15
+    },
+    {
+      "id": "E3",
+      "kind": "正",
+      "action": "输入正确账户登录",
+      "expected": "核验动画 → 选台出现",
+      "actual": "登录成功，选台出现",
+      "verdict": "✓",
+      "note": "",
+      "at": 20
+    },
+    {
+      "id": "E4",
+      "kind": "正",
+      "action": "选 RSCH → 进入工作台 → 抽取档案 → 继续工作",
+      "expected": "进入研究台，页面不整页刷新、登录不掉",
+      "actual": "进入研究台，登录状态保留",
+      "verdict": "✓",
+      "note": "",
+      "at": 27
+    },
+    {
+      "id": "W2",
+      "kind": "正",
+      "action": "看收件箱",
+      "expected": "没有测试残留；有待办时是人话，不是原始 JSON",
+      "actual": "收件箱里出现原始 JSON",
+      "verdict": "✗",
+      "note": "",
+      "at": 45
+    },
+    {
+      "id": "W1",
+      "kind": "错",
+      "action": "点「群研」「自研」入口",
+      "expected": "置灰并标出接入期次，点了不切换",
+      "actual": "置灰入口 2 个：SWARM群研第三期 / AUTO自研第一期末；点击后仍在精读",
+      "verdict": "✓",
+      "note": "",
+      "at": 51
+    },
+    {
+      "id": "W3",
+      "kind": "正",
+      "action": "＋ 新建精读",
+      "expected": "出现「想读哪篇？」，没有「预估费用」按钮，澄清 ¥0.000 / ¥0.05",
+      "actual": "「想读哪篇？」；澄清对话用便宜档模型，上限 ¥0.05，不单独确认；已用 ¥0.000。",
+      "verdict": "✓",
+      "note": "",
+      "at": 56
+    },
+    {
+      "id": "C1",
+      "kind": "正",
+      "action": "发：我想读那篇让大模型自己学会什么时候调用计算器、搜索这些工具的论文",
+      "expected": "立刻显示「工作中」；数秒内回话并列出候选；AI 不替你选",
+      "actual": "5 秒内没有出现候选（agent:AI另有澄清在途或未知用量，已停止新转发；未知费用不按零记账。14:18）",
+      "verdict": "✗",
+      "note": "",
+      "at": 61
+    },
+    {
+      "id": "C2",
+      "kind": "正",
+      "action": "看候选是否包含 Toolformer",
+      "expected": "候选含 Toolformer，信息齐全",
+      "actual": "候选里没有 Toolformer",
+      "verdict": "✗",
+      "note": "",
+      "at": 70
+    },
+    {
+      "id": "C3",
+      "kind": "错",
+      "action": "点「都不是」，补一句：是 Meta 2023 年的 Toolformer",
+      "expected": "第二轮检索出现 Toolformer，两轮合计 ≤ ¥0.05",
+      "actual": "第二轮没有出现候选（agent:AI澄清未受理或结果尚未核对，请只读刷新账本；没有自动重试或提高预算。14:18）",
+      "verdict": "✗",
+      "note": "s、Mahsa Amani、Arijit Nag、Seungeon Lee、Krishna P. Gummadi、Abhilasha Ravichander、Muhammad Bilal Zafar · arXiv (Cornell University) · 有开放全文公开元数据未提供可靠页数；估价将明确使用保守假设。都不是AI澄清未受理或结果尚未核对，请只读刷新账本；没有自动重试或提高预算。14:18AI您选的都是不是。我需要更多信息才能定位。14:19AI能否补充一些线索？例如作者或机构、年份/会议、方法名称（如自学习、强化学习、工具路由）、标题关键词，或你记得的结论。另外，强调“让模型自己学会什么时候调用工具”的论文可能有很多篇（如 Toolformer 一类的自监督工具学习、以及强化学习工具调用），你能否确认是哪个方向？14:19@ 引用对象 · / 调用动作 · 写入需审批发送",
+      "at": 75
+    },
+    {
+      "id": "C3b",
+      "kind": "正",
+      "action": "另开一份新精读，直接说出完整标题",
+      "expected": "用准确标题检索能找到 Toolformer",
+      "actual": "没有出现候选（agent:AI澄清未受理或结果尚未核对，请只读刷新账本；没有自动重试或提高预算。14:19）",
+      "verdict": "✗",
+      "note": "",
+      "at": 85
+    },
+    {
+      "id": "C4",
+      "kind": "正",
+      "action": "看底栏澄清花费",
+      "expected": "真实花了钱，金额大于 0",
+      "actual": "显示 ¥0.000 / ¥0.05，花了钱却显示 0",
+      "verdict": "✗",
+      "note": "",
+      "at": 94
+    },
+    {
+      "id": "STOP",
+      "kind": "—",
+      "action": "停止",
+      "expected": "—",
+      "actual": "两轮澄清都没找到 Toolformer，后续步骤需要选定论文，走查到此为止",
+      "verdict": "✗",
+      "at": 96
+    },
+    {
+      "id": "X1",
+      "kind": "错",
+      "action": "刷新页面",
+      "expected": "已知问题：会话只在内存里，刷新后回到登录页",
+      "actual": "刷新后回到登录页（已知问题，会话不持久）",
+      "verdict": "△",
+      "note": "",
+      "at": 98
+    }
+  ]
+}

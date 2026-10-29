@@ -1,0 +1,105 @@
+name: Research foundation
+on:
+  push:
+    branches: ["codex/**", "slim/**"]
+  pull_request:
+jobs:
+  check:
+    strategy:
+      matrix:
+        node: [22, 24]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg16
+        env:
+          POSTGRES_DB: reinlab_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d reinlab_test"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    env:
+      VITE_BACKEND: mock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: 依赖边界
+        run: pnpm lint
+      - name: PDF 文本层依赖
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: 凭据扫描器（仅合成 fixture）
+        run: |
+          python3 tooling/security/test-scan.py
+          python3 tooling/security/test-scan-p113.py
+      - name: 测试
+        run: pnpm test --reporter=json --outputFile=test-report.json
+      - name: 共享契约类型检查
+        run: pnpm exec tsc -p packages/contracts/tsconfig.json
+      - name: 控制面类型检查
+        run: pnpm exec tsc -p services/control/tsconfig.json
+      - name: 本地编排类型检查
+        run: pnpm exec tsc --noEmit --strict --skipLibCheck --esModuleInterop --moduleResolution bundler --module ESNext --target ES2022 --lib ES2023,DOM --types node --allowJs tooling/local/up.ts tooling/local/live-frontend.ts tooling/local/control.ts
+      - name: mock 构建
+        run: pnpm build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-test-report-node-${{ matrix.node }}
+          path: test-report.json
+  local-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: 完整本地Supabase与控制面
+        run: pnpm local:up
+      - name: 安装浏览器（仅测试隔离浏览器）
+        run: pnpm exec playwright install --with-deps chromium
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-infrastructure-test-report
+          path: ${{ runner.temp }}
+  legacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_BACKEND: mock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: 原样20场景T-REG
+        run: |
+          pnpm dev > /tmp/reinlab-mock-vite.log 2>&1 &
+          for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:5173/ > /dev/null && break; sleep 1; done
+          pnpm e2e:legacy
+        env:
+          E2E_OUT: ${{ runner.temp }}/legacy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-t-reg
+          path: ${{ runner.temp }}/legacy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-t-reg-summary
+          path: ${{ runner.temp }}/legacy/report.json

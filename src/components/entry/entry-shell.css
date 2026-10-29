@@ -1,0 +1,131 @@
+/* 正式入口（data-shell="entry"）专用的返回与到达转场；入口对比演示不受影响。 */
+
+/* 从 Files 返回选台：阅读层分层退场，档案场模糊下沉，印章由回飞的标识接管 */
+.entry-comparison[data-shell='entry'] :is(.fx-callout,.fx-list,.fx-heading,.fx-identity,.fx-line,.fx-leader,.fx-veil) {
+  transition:opacity .42s var(--rh-ease-exit), transform .6s var(--rh-ease-move); }
+.entry-comparison[data-shell='entry'] .entry-field-viewport { transition:opacity .75s ease .12s, transform .95s var(--rh-ease-move); }
+.entry-comparison[data-shell='entry'][data-leaving='files'] :is(.fx-heading,.fx-identity) { opacity:0; transform:translateY(-14px); }
+.entry-comparison[data-shell='entry'][data-leaving='files'] .fx-list { opacity:0; transform:translateX(-42px); transition-delay:.06s; }
+.entry-comparison[data-shell='entry'][data-leaving='files'] .fx-callout { opacity:0; transform:translateX(42px); transition-delay:.1s; }
+.entry-comparison[data-shell='entry'][data-leaving='files'] :is(.fx-line,.fx-leader) { opacity:0; }
+.entry-comparison[data-shell='entry'][data-leaving='files'] .entry-field-viewport { opacity:0; transform:scale(.965); }
+.entry-comparison[data-shell='entry'][data-leaving='files'] .entry-seal { opacity:0; }
+.entry-comparison[data-shell='entry'] .entry-back-flyer { z-index:31; transition:opacity .5s ease; }
+
+/* 从工作台返回 Files：档案场从模糊中显影，阅读层从两侧滑入，随后选中的档案发出一圈波纹 */
+.entry-comparison[data-shell='entry'][data-return-arrive] .entry-field-viewport { animation:es-field-in 1.1s cubic-bezier(.16,1,.3,1) both; }
+.entry-comparison[data-shell='entry'][data-return-arrive] :is(.fx-heading,.fx-identity) { animation:es-in-down .6s .2s cubic-bezier(.16,1,.3,1) both; }
+.entry-comparison[data-shell='entry'][data-return-arrive] .fx-list { animation:es-in-left .7s .3s cubic-bezier(.16,1,.3,1) both; }
+.entry-comparison[data-shell='entry'][data-return-arrive] .fx-callout { animation:es-in-right .7s .4s cubic-bezier(.16,1,.3,1) both; }
+/* 引线等档案场就位后再出现 */
+.entry-comparison[data-shell='entry'][data-return-arrive] .fx-leader { opacity:0; }
+@keyframes es-field-in { from { opacity:0; transform:scale(1.04); } }
+@keyframes es-in-down { from { opacity:0; transform:translateY(-14px); } }
+@keyframes es-in-left { from { opacity:0; transform:translateX(-46px); } }
+@keyframes es-in-right { from { opacity:0; transform:translateX(46px); } }
+
+/* ———— 统一：颜色、字体、字号（与登录页同一套 Rhine token） ———— */
+.entry-comparison[data-shell='entry'] { --fx-ink:#141213; --fx-gold:#ff7a1a; --fx-mute:#9a9792; }
+.entry-comparison[data-shell='entry'] .ceremony { --ink:#141213; --sage:#3a3837; --muted:#9a9792; --gold:#ff7a1a; }
+/* 品牌由入口外层常驻，页面自带的品牌隐藏，避免转场时跳动 */
+.entry-comparison[data-shell='entry'] :is(.ceremony-brand,.entry-brand) { visibility:hidden; }
+/* 展示字：档案号、区块代码统一用宽体 Archivo */
+.entry-comparison[data-shell='entry'] :is(.fx-callout h1,.fx-identity > span > b,.fx-list button > em) { font-family:'Archivo','Noto Sans SC',sans-serif; font-stretch:125%; }
+/* 微标注：统一等宽 10.5px、字距 .12em，不再出现 5–9px 的小字 */
+.entry-comparison[data-shell='entry'] :is(.fx-heading > span,.fx-heading > b,.fx-eyebrow,.fx-meta span,.fx-list-head,.fx-line span,.fx-identity small,.fx-list button > small,.fx-leader-tag,
+  .ceremony-caption > span,.ceremony-series > span,.ceremony-position > span,.ceremony-register button span,.ceremony-tools button,
+  .ed-tag,.ed-block small,.ed-readout span,.ed-readout small,.ed-line span,.ed-index span,.mb-card-head small,.mb-serial) {
+  font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.12em; }
+.entry-comparison[data-shell='entry'] :is(.fx-heading > span,.fx-eyebrow,.fx-list-head,.fx-line span,.fx-identity small,.ceremony-caption > span,.ceremony-series > span,.ed-line span,.ed-readout span) { color:#9a9792; }
+/* 正文灰阶：去掉偏绿的灰，统一到墨 / 灰 */
+.entry-comparison[data-shell='entry'] :is(.fx-heading p,.fx-callout h2,.ed-index button[aria-pressed='false']) { color:#141213; }
+.entry-comparison[data-shell='entry'] :is(.fx-callout p,.fx-line b) { color:#6b6865; }
+.entry-comparison[data-shell='entry'] .fx-line b { font-size:13px; }
+.entry-comparison[data-shell='entry'] .entry-path-footer { font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.1em; color:#9a9792; }
+
+/* ———— 选台 → Files：选台一开始离场，档案场就从模糊中透出来，不再出现空白帧 ———— */
+.entry-comparison[data-shell='entry'] .ceremony[data-phase='leaving'] { background-color:transparent; transition:background-color .8s ease .15s; }
+.entry-comparison[data-shell='entry']:has(.ceremony[data-phase='leaving']) .entry-field-viewport { opacity:.6; transform:scale(1.04); transition:opacity 1s ease .2s, transform 1.2s var(--rh-ease-move) .2s; }
+.entry-comparison[data-shell='entry'][data-arriving='true'] .entry-field-viewport { animation:es-field-arrive 1.25s cubic-bezier(.16,.8,.2,1) both; }
+@keyframes es-field-arrive { from { opacity:.6; transform:scale(1.04); } }
+
+/* 锁定：路径里的「登录」就是返回登录的入口 */
+.entry-comparison[data-shell='entry'] .entry-lock { display:inline-flex; align-items:baseline; gap:8px; padding:2px 8px; margin:-2px -8px; border:0; background:transparent; color:inherit; font:inherit; cursor:pointer; pointer-events:auto; }
+.entry-comparison[data-shell='entry'] .entry-lock small { font-size:9.5px; color:#9a9792; letter-spacing:.14em; }
+.entry-comparison[data-shell='entry'] .entry-lock:hover { background:#141213; color:#f0eeea; }
+
+@media (prefers-reduced-motion: reduce) {
+  .entry-comparison[data-shell='entry'] * { transition-duration:1ms !important; animation-duration:1ms !important; }
+}
+.entry-comparison[data-shell='entry'] .entry-path-footer > div > span { color:#9a9792; }
+.entry-comparison[data-shell='entry'] .entry-path-footer > div > span.active { color:#141213; }
+.entry-comparison[data-shell='entry'] .entry-path-footer b { font-size:10.5px; }
+.entry-comparison[data-shell='entry'] .entry-path-footer .active b { color:#141213; font-weight:500; }
+.entry-comparison[data-shell='entry'] .entry-local-note { font-size:10.5px; letter-spacing:.1em; padding-right:0; }
+
+/* Files → 选台：选台不重播开场，以就位状态浮现；回飞的标识落地前，选台上的同一枚标识先隐去 */
+.entry-comparison[data-shell='entry'] .ceremony[data-returning] .ceremony-stage { animation:es-ceremony-return .7s var(--rh-ease-enter) both; }
+.entry-comparison[data-shell='entry'] .ceremony[data-returning] .ceremony-ui { animation:es-ui-return .55s .2s var(--rh-ease-enter) both; }
+.entry-comparison[data-shell='entry'] .ceremony [data-ceremony-source] { transition:opacity .3s ease; }
+.entry-comparison[data-shell='entry'] .ceremony[data-returning] [data-ceremony-source] { opacity:0; transition:none; }
+@keyframes es-ceremony-return { from { opacity:0; transform:scale(1.035); } }
+@keyframes es-ui-return { from { opacity:0; transform:translateY(10px); } }
+
+/* 莫比乌斯选台：后层画布的 blur 滤镜每帧都要在整张 4K 画布上重算，是掉帧主因；改用降低不透明度表现景深 */
+.entry-comparison[data-shell='entry'] .mb-back { filter:none; opacity:.5; }
+/* 选台期间预先把档案场提升为合成层：离场时它的淡入与缩放交给 GPU，不再整片重新栅格化 */
+.entry-comparison[data-shell='entry'][data-stage='chooser'] .entry-field-viewport,
+.entry-comparison[data-shell='entry'][data-arriving='true'] .entry-field-viewport { will-change:transform, opacity; }
+
+/* 打开档案：列表向左、档案号向右分层退开，给即将长出来的预览卡让位 */
+.entry-comparison[data-shell='entry'][data-leaving='list'] .fx-list { opacity:0; transform:translateX(-36px); }
+.entry-comparison[data-shell='entry'][data-leaving='list'] .fx-callout { opacity:0; transform:translateX(36px); transition-delay:.04s; }
+.entry-comparison[data-shell='entry'][data-leaving='list'] .fx-leader { opacity:0; }
+/* 关闭档案后：列表与档案号从两侧滑回 */
+.entry-comparison[data-shell='entry'][data-from-detail] .fx-list { animation:es-in-left .6s .28s var(--rh-ease-enter) both; }
+.entry-comparison[data-shell='entry'][data-from-detail] .fx-callout { animation:es-in-right .6s .34s var(--rh-ease-enter) both; }
+
+/* 抽取档案：印章亮起一圈橙色光环（光圈对焦），档案盒开始抬升 */
+.entry-comparison[data-shell='entry'][data-extracting] .cine-cassette.selected .entry-seal { animation:es-seal-press .5s var(--rh-ease-enter) both; }
+.entry-comparison[data-shell='entry'][data-extracting] .cine-cassette.selected .entry-seal::after { content:''; position:absolute; inset:-6px; border:2px solid #ff7a1a; border-radius:50%; animation:es-seal-ring .7s var(--rh-ease-enter) both; pointer-events:none; }
+@keyframes es-seal-press { 0% { transform:scale(1); } 35% { transform:scale(.88); } 100% { transform:scale(1); } }
+@keyframes es-seal-ring { from { transform:scale(1.8); opacity:0; } 40% { opacity:1; } to { transform:scale(1); opacity:0; } }
+/* 底部状态行：抽取中显示「正在抽取」，橙色方块前缀，逐字出现 */
+.entry-comparison[data-shell='entry'] .fx-line[data-status='extracting'] b { display:inline-flex; align-items:center; gap:10px; color:#141213; }
+.entry-comparison[data-shell='entry'] .fx-line[data-status='extracting'] b::before { content:''; width:8px; height:8px; background:#ff7a1a; animation:es-blink .6s steps(2) infinite; }
+.entry-comparison[data-shell='entry'] .fx-line[data-status='extracting'] { animation:es-in-down .35s var(--rh-ease-enter) both; }
+@keyframes es-blink { 50% { opacity:.25; } }
+/* 抽取时阅读层要在 320ms 切换前退完：用起步更快的曲线和更短的时长 */
+.entry-comparison[data-shell='entry'][data-leaving='list'] :is(.fx-list,.fx-callout,.fx-heading,.fx-identity) { transition:opacity .26s cubic-bezier(.4,0,.6,1), transform .3s cubic-bezier(.4,0,.6,1); }
+.entry-comparison[data-shell='entry'][data-leaving='list'] .fx-callout { transition-delay:.03s; }
+.entry-comparison[data-shell='entry'][data-stage='detail'] .fx-leader { opacity:0; transition:none; }
+
+
+/* ———— 无限档案场的浏览条（参考档案库界面：ARCHIVE / SELECT · ↑ 刻度 ↓ · ← COLUMN →） ———— */
+.entry-comparison[data-shell='entry'] .fx-nav { position:absolute; left:48px; bottom:64px; z-index:6; display:grid; grid-template-columns:auto auto auto; align-items:end; column-gap:56px; row-gap:16px; color:#141213;
+  animation:fx-nav-in .5s var(--rh-ease-enter, cubic-bezier(.16,1,.3,1)) .2s both; }
+@keyframes fx-nav-in { from { opacity:0; transform:translateY(10px); } }
+.entry-comparison[data-shell='entry'][data-leaving] .fx-nav { opacity:0; transform:translateY(8px); transition:opacity .2s ease, transform .2s ease; }
+.fx-nav button { display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; background:transparent; color:#141213; cursor:pointer; transition:background .2s ease, color .2s ease; }
+.fx-nav button:hover { background:#141213; color:#f0eeea; }
+.fx-nav-count { display:grid; grid-template-columns:auto auto auto; align-items:baseline; column-gap:12px; }
+.fx-nav-count span { grid-column:1 / -1; margin-bottom:10px; font:400 10.5px/1 'IBM Plex Mono',monospace; letter-spacing:.14em; color:#6b6865; }
+.fx-nav-count b { font:400 54px/.9 'Archivo',sans-serif; font-stretch:112%; letter-spacing:-.02em; animation:fx-count-in .36s var(--rh-ease-enter, cubic-bezier(.16,1,.3,1)) both; }
+@keyframes fx-count-in { from { opacity:0; transform:translateY(12px); } }
+.fx-nav-count i { font:normal 300 26px/1 'Archivo',sans-serif; color:#9a9792; }
+.fx-nav-count em { font:normal 400 22px/1 'Archivo',sans-serif; color:#9a9792; }
+.fx-nav-rows { display:flex; align-items:center; gap:14px; }
+.fx-ticks { display:flex; align-items:center; gap:14px; padding:0 4px; }
+.fx-ticks i { width:1px; height:12px; background:#9a9792; transition:height .25s ease, background .25s ease, width .25s ease; }
+.fx-ticks i[data-on] { width:2px; height:26px; background:#ff7a1a; }
+.fx-nav-cols { display:flex; align-items:center; gap:18px; }
+.fx-nav-cols div { display:grid; gap:6px; min-width:150px; }
+.fx-nav-cols small { font:400 10px/1 'IBM Plex Mono',monospace; letter-spacing:.14em; color:#6b6865; }
+.fx-nav-cols b { font:600 14px/1.2 'DM Sans','Noto Sans SC',sans-serif; animation:fx-count-in .36s var(--rh-ease-enter, cubic-bezier(.16,1,.3,1)) both; }
+.fx-nav-cols .fx-nav-next { box-shadow:inset 0 0 0 1.5px #c89a5a; }
+.fx-nav-keys { grid-column:1 / -1; margin:0; font:400 10px/1 'IBM Plex Mono',monospace; letter-spacing:.12em; color:#9a9792; }
+.fx-nav-keys i { font-style:normal; margin:0 8px; color:#c9c6c0; }
+@media (max-width:900px) { .entry-comparison[data-shell='entry'] .fx-nav { display:none; } }
+/* 浏览条下方一片淡淡的纸面，压住档案场的纹理，保证可读 */
+.entry-comparison[data-shell='entry'] .fx-nav::before { content:''; position:absolute; z-index:-1; left:-48px; right:-120px; top:-48px; bottom:-64px; pointer-events:none;
+  background:radial-gradient(120% 100% at 0% 100%, #f2f0ebf2 0%, #f2f0ebcc 45%, transparent 75%); }

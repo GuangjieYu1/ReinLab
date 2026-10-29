@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "runtime": "2.0.150",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "checks": [
+    "real-runtime-ready-version",
+    "proxy-authorization-origin",
+    "authenticated-runtime-api",
+    "real-tar-backup",
+    "slow-12MiB-backup-complete",
+    "restart-persistence-health"
+  ],
+  "count": 6,
+  "modelCalls": 0,
+  "boundary": "真实npm原生二进制和相同启动/代理模块；未验证Linux镜像、root-owned新卷、Fly、Supabase Vault或云三分钟SLA",
+  "backupSha256": "1cf14c026c07b2fd436da7608d99962ed9da38ecea09f5950a003121d278ca6a"
+}

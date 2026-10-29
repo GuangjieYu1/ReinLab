@@ -1,0 +1,24 @@
+
+ RUN  v4.1.11 /Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab
+
+ ❯ services/control/test/docker-driver.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  services/control/test/docker-driver.test.ts [ services/control/test/docker-driver.test.ts ]
+Error: Cannot find module '../src/provisioner/docker' imported from /Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/docker-driver.test.ts
+ ❯ services/control/test/docker-driver.test.ts:2:1
+      1| import {it,expect} from 'vitest';
+      2| import {DockerMachines,dockerPlan} from '../src/provisioner/docker';
+       | ^
+      3| const accountId='12345678-1234-4234-8234-123456789abc';
+      4| const input={accountId,volumeId:'rl_'+accountId.replaceAll('-',''),ima…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  01:31:34
+   Duration  92ms (transform 12ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+

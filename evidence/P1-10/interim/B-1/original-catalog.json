@@ -1,0 +1,100 @@
+{
+  "fixtureOnly": true,
+  "realModelRequests": 0,
+  "realKeyReads": 0,
+  "nativeVersion": "2.0.150",
+  "before": {
+    "connected": [],
+    "all": [
+      {
+        "id": "deepseek",
+        "models": [
+          {
+            "id": "deepseek-v4-flash-vision-exp",
+            "api": {
+              "id": "deepseek-v4-flash-vision-exp",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          },
+          {
+            "id": "deepseek-flash",
+            "api": {
+              "id": "deepseek-flash",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "api": {
+              "id": "deepseek-v4-pro",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          },
+          {
+            "id": "deepseek-v4-flash",
+            "api": {
+              "id": "deepseek-v4-flash",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "connected": [
+      "deepseek"
+    ],
+    "all": [
+      {
+        "id": "deepseek",
+        "models": [
+          {
+            "id": "deepseek-flash",
+            "api": {
+              "id": "deepseek-flash",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "api": {
+              "id": "deepseek-v4-pro",
+              "npm": "@ai-sdk/deepseek"
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 393216
+            },
+            "reasoning": true
+          }
+        ]
+      }
+    ]
+  }
+}

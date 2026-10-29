@@ -1,0 +1,35 @@
+{
+  "at": "2026-10-20T02:00:14.471Z",
+  "realInfrastructure": true,
+  "modelRequests": 0,
+  "passed": 5,
+  "failed": 1,
+  "completed": false,
+  "results": [
+    {
+      "name": "real_auth_registration_and_login",
+      "passed": true
+    },
+    {
+      "name": "auth_trigger_queue_and_two_real_account_containers",
+      "passed": true
+    },
+    {
+      "name": "real_auth_jwt_control_api_and_cross_account_rls",
+      "passed": true
+    },
+    {
+      "name": "real_vault_envelope_and_private_metadata_denied",
+      "passed": true
+    },
+    {
+      "name": "isolated_named_volume_probe_and_repeat_provision",
+      "passed": true
+    },
+    {
+      "name": "real_private_storage_snapshot_and_account_access_denied",
+      "passed": false,
+      "code": "SNAPSHOT_UNAVAILABLE"
+    }
+  ]
+}

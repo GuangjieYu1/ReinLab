@@ -1,0 +1,42 @@
+{
+  "time": "2026-10-25T00:21:21.622793+00:00",
+  "sourceRoot": "/Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab",
+  "files": [
+    {
+      "file": "src/components/workbenches/research/read/readTypes.ts",
+      "sourceSha256": "ff988772543142d3e0a0e586426f63a331b077cc739c6077421b8072705d1205",
+      "previousSha256": null,
+      "syncedSha256": "ff988772543142d3e0a0e586426f63a331b077cc739c6077421b8072705d1205"
+    },
+    {
+      "file": "src/components/workbenches/research/read/useRead.ts",
+      "sourceSha256": "60bae1deb75c912a320de1fbaa1c95c6566c594067cb3fa5c09f9a7dd6f02468",
+      "previousSha256": null,
+      "syncedSha256": "60bae1deb75c912a320de1fbaa1c95c6566c594067cb3fa5c09f9a7dd6f02468"
+    },
+    {
+      "file": "src/components/workbenches/research/read/mockRead.ts",
+      "sourceSha256": "e7ef1485d8ecdca1f42837a2b2756d3a9592529a82dace03c33c2c08854da9ab",
+      "previousSha256": null,
+      "syncedSha256": "e7ef1485d8ecdca1f42837a2b2756d3a9592529a82dace03c33c2c08854da9ab"
+    },
+    {
+      "file": "src/components/workbenches/research/read/ReadMode.tsx",
+      "sourceSha256": "6376f48e959d23a25c420204b5317c2296f65b23a388cebef3266c093d2df321",
+      "previousSha256": "eea90f81ec18e48b05a83973076b6ebbd4331be8146af6e579910a72d381a22e",
+      "syncedSha256": "6376f48e959d23a25c420204b5317c2296f65b23a388cebef3266c093d2df321"
+    },
+    {
+      "file": "src/components/workbenches/research/read/read.css",
+      "sourceSha256": "aa77506b444f108e61f63f427122fae5ff5940b28427afe8cf749e987f6c90ca",
+      "previousSha256": "07cb433020a0cbef83f4974621fa6f308c5120ef99171ea390742daa9e692853",
+      "syncedSha256": "aa77506b444f108e61f63f427122fae5ff5940b28427afe8cf749e987f6c90ca"
+    },
+    {
+      "file": "e2e/legacy/scenarios/20-read-run.mjs",
+      "sourceSha256": "b33ec12395d737dff392caf4918e6f6da82c7b58a1f6e8edf53cb76e6fe4fcbf",
+      "previousSha256": null,
+      "syncedSha256": "b33ec12395d737dff392caf4918e6f6da82c7b58a1f6e8edf53cb76e6fe4fcbf"
+    }
+  ]
+}

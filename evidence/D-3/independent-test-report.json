@@ -1,0 +1,384 @@
+{
+  "schemaVersion": 1,
+  "timestamp": "2026-10-19T17:17:15.047999+00:00",
+  "scope": "D-3 delegation default independent verification",
+  "branch": "codex/d-3-delegation-default",
+  "nodeVersion": "v22.23.3",
+  "nativeVersion": "2.0.150",
+  "provider": "test-only loopback fixture",
+  "realModelValidated": false,
+  "realModelRequests": 0,
+  "realModelCost": 0,
+  "success": true,
+  "summary": {
+    "httpAndConstructorTestsPassed": 10,
+    "nativeDelegationTestsPassed": 2,
+    "nativeOtherTestsSkipped": 8,
+    "failures": 0
+  },
+  "observations": [
+    {
+      "case": "default-http-payload",
+      "delegation": false,
+      "passed": true
+    },
+    {
+      "case": "explicit-test-constructor-http-payload",
+      "delegation": true,
+      "passed": true
+    },
+    {
+      "case": "non-test-environment-enablement",
+      "environments": [
+        "production",
+        "development",
+        "test ",
+        "unset"
+      ],
+      "rejected": true
+    },
+    {
+      "case": "constructor-options-mutation",
+      "defaultRemainsFalse": true,
+      "explicitTrueRemainsTrue": true
+    },
+    {
+      "case": "prompt-body-delegation-injection",
+      "values": [
+        true,
+        false
+      ],
+      "rejected": true,
+      "extraPromptRequests": 0
+    },
+    {
+      "case": "native-task-delegation-off",
+      "taskOffered": false,
+      "forcedTaskSucceeded": false,
+      "childSessions": 0
+    },
+    {
+      "case": "native-task-delegation-on",
+      "taskOffered": false,
+      "forcedTaskSucceeded": false,
+      "childSessions": 0
+    }
+  ],
+  "setupIssue": {
+    "description": "Initial delegation-default fixture omitted required role.steps, so 2 cases failed before payload assertions. Author added steps:8; final rerun passed. This setup failure is not treated as a D-3 regression red test.",
+    "resolved": true
+  },
+  "commands": [
+    "pnpm exec vitest run services/control/test/delegation-default.test.ts services/control/test/delegation-independent.test.ts --reporter=json --outputFile=/tmp/reinlab-d3-unit-independent.json",
+    "pnpm exec vitest run services/control/test/role-runtime.test.ts -t T-ROLE4 --reporter=json --outputFile=/tmp/reinlab-d3-native-independent.json"
+  ],
+  "rawReports": {
+    "httpAndConstructor": {
+      "numTotalTestSuites": 3,
+      "numPassedTestSuites": 3,
+      "numFailedTestSuites": 0,
+      "numPendingTestSuites": 0,
+      "numTotalTests": 10,
+      "numPassedTests": 10,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numTodoTests": 0,
+      "snapshot": {
+        "added": 0,
+        "failure": false,
+        "filesAdded": 0,
+        "filesRemoved": 0,
+        "filesRemovedList": [],
+        "filesUnmatched": 0,
+        "filesUpdated": 0,
+        "matched": 0,
+        "total": 0,
+        "unchecked": 0,
+        "uncheckedKeysByFile": [],
+        "unmatched": 0,
+        "updated": 0,
+        "didUpdate": false
+      },
+      "startTime": 1792430203009,
+      "success": true,
+      "testResults": [
+        {
+          "assertionResults": [
+            {
+              "ancestorTitles": [
+                "D-3 delegation defense in depth"
+              ],
+              "fullName": "D-3 delegation defense in depth cannot enable the test constructor switch in a production process",
+              "status": "passed",
+              "title": "cannot enable the test constructor switch in a production process",
+              "duration": 0.8797500000000014,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "D-3 delegation defense in depth"
+              ],
+              "fullName": "D-3 delegation defense in depth sends delegation=false only via an explicit test constructor option",
+              "status": "passed",
+              "title": "sends delegation=false only via an explicit test constructor option",
+              "duration": 36.823167,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "D-3 delegation defense in depth"
+              ],
+              "fullName": "D-3 delegation defense in depth sends delegation=true only via an explicit test constructor option",
+              "status": "passed",
+              "title": "sends delegation=true only via an explicit test constructor option",
+              "duration": 19.823583000000013,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            }
+          ],
+          "startTime": 1792430203135,
+          "endTime": 1792430203192.8235,
+          "status": "passed",
+          "message": "",
+          "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/delegation-default.test.ts"
+        },
+        {
+          "assertionResults": [
+            {
+              "ancestorTitles": [],
+              "fullName": "captures delegation=false at construction in 'production' despite later options mutation",
+              "status": "passed",
+              "title": "captures delegation=false at construction in 'production' despite later options mutation",
+              "duration": 42.445042,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [],
+              "fullName": "captures delegation=false at construction in 'test' despite later options mutation",
+              "status": "passed",
+              "title": "captures delegation=false at construction in 'test' despite later options mutation",
+              "duration": 19.712499999999977,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [],
+              "fullName": "captures delegation=true at construction in 'test' despite later options mutation",
+              "status": "passed",
+              "title": "captures delegation=true at construction in 'test' despite later options mutation",
+              "duration": 11.948667,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [],
+              "fullName": "rejects explicit delegation enablement unless NODE_ENV is exactly test: production",
+              "status": "passed",
+              "title": "rejects explicit delegation enablement unless NODE_ENV is exactly test: production",
+              "duration": 0.2508749999999793,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [],
+              "fullName": "rejects explicit delegation enablement unless NODE_ENV is exactly test: development",
+              "status": "passed",
+              "title": "rejects explicit delegation enablement unless NODE_ENV is exactly test: development",
+              "duration": 0.11416700000000901,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [],
+              "fullName": "rejects explicit delegation enablement unless NODE_ENV is exactly test: test ",
+              "status": "passed",
+              "title": "rejects explicit delegation enablement unless NODE_ENV is exactly test: test ",
+              "duration": 0.05062500000002501,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [],
+              "fullName": "rejects explicit delegation enablement unless NODE_ENV is exactly test: undefined",
+              "status": "passed",
+              "title": "rejects explicit delegation enablement unless NODE_ENV is exactly test: undefined",
+              "duration": 0.04008300000000986,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            }
+          ],
+          "startTime": 1792430203135,
+          "endTime": 1792430203210.1143,
+          "status": "passed",
+          "message": "",
+          "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/delegation-independent.test.ts"
+        }
+      ]
+    },
+    "nativeTaskBoundary": {
+      "numTotalTestSuites": 2,
+      "numPassedTestSuites": 2,
+      "numFailedTestSuites": 0,
+      "numPendingTestSuites": 0,
+      "numTotalTests": 10,
+      "numPassedTests": 2,
+      "numFailedTests": 0,
+      "numPendingTests": 8,
+      "numTodoTests": 0,
+      "snapshot": {
+        "added": 0,
+        "failure": false,
+        "filesAdded": 0,
+        "filesRemoved": 0,
+        "filesRemovedList": [],
+        "filesUnmatched": 0,
+        "filesUpdated": 0,
+        "matched": 0,
+        "total": 0,
+        "unchecked": 0,
+        "uncheckedKeysByFile": [],
+        "unmatched": 0,
+        "updated": 0,
+        "didUpdate": false
+      },
+      "startTime": 1792430203009,
+      "success": true,
+      "testResults": [
+        {
+          "assertionResults": [
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE1 injects only the selected role prompt and its AGENTS memory into actual model HTTP",
+              "status": "skipped",
+              "title": "T-ROLE1 injects only the selected role prompt and its AGENTS memory into actual model HTTP",
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE2 permits own dossier reads and blocks canonical path, cross-role and symlink escapes",
+              "status": "skipped",
+              "title": "T-ROLE2 permits own dossier reads and blocks canonical path, cross-role and symlink escapes",
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE2 fails closed before a model request if own AGENTS becomes a cross-role symlink",
+              "status": "skipped",
+              "title": "T-ROLE2 fails closed before a model request if own AGENTS becomes a cross-role symlink",
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE2 rejects file template references before any model request",
+              "status": "skipped",
+              "title": "T-ROLE2 rejects file template references before any model request",
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE2 rejects env template references before any model request",
+              "status": "skipped",
+              "title": "T-ROLE2 rejects env template references before any model request",
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE3 rejects model-forced default tools without files, todos or observer traffic",
+              "status": "skipped",
+              "title": "T-ROLE3 rejects model-forced default tools without files, todos or observer traffic",
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE3 grants write only to declared targets and denies ungranted edit aliases",
+              "status": "skipped",
+              "title": "T-ROLE3 grants write only to declared targets and denies ungranted edit aliases",
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE4 denies forced task with test delegation=false and rejects injected parts or agent",
+              "status": "passed",
+              "title": "T-ROLE4 denies forced task with test delegation=false and rejects injected parts or agent",
+              "duration": 377.7322089999999,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE4 denies forced task with test delegation=true and rejects injected parts or agent",
+              "status": "passed",
+              "title": "T-ROLE4 denies forced task with test delegation=true and rejects injected parts or agent",
+              "duration": 148.983792,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [
+                "P1-10 native role boundaries T-ROLE1\u20135"
+              ],
+              "fullName": "P1-10 native role boundaries T-ROLE1\u20135 T-ROLE5 returns the durable receipt without another provider request and conflicts on changed content",
+              "status": "skipped",
+              "title": "T-ROLE5 returns the durable receipt without another provider request and conflicts on changed content",
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            }
+          ],
+          "startTime": 1792430203763,
+          "endTime": 1792430204289.984,
+          "status": "passed",
+          "message": "",
+          "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/role-runtime.test.ts"
+        }
+      ]
+    }
+  }
+}

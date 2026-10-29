@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "nodeVersion": "v22.23.3",
+  "engine": "test-only fake Docker Engine or temporary Unix HTTP socket",
+  "realDockerValidated": false,
+  "observations": [
+    {
+      "case": "control host remapped",
+      "rejected": true
+    },
+    {
+      "case": "foreign attached network",
+      "rejected": true
+    },
+    {
+      "case": "unconfined apparmor",
+      "rejected": true
+    },
+    {
+      "case": "extra device request",
+      "rejected": true
+    },
+    {
+      "case": "foreign-volume-attachment",
+      "rejected": true,
+      "destructiveRequests": 0
+    },
+    {
+      "case": "named-volume-restart-upgrade",
+      "volumeCreates": 1,
+      "preserved": true
+    },
+    {
+      "case": "invalid-json",
+      "errorCode": "PROVISIONER_UNAVAILABLE",
+      "secretSurfaced": false
+    },
+    {
+      "case": "oversized-body",
+      "errorCode": "PROVISIONER_UNAVAILABLE",
+      "secretSurfaced": false
+    },
+    {
+      "case": "unknown-create-replay",
+      "stage": "volume",
+      "hidden": false,
+      "createRequests": 1,
+      "recovered": true
+    },
+    {
+      "case": "unknown-create-replay",
+      "stage": "volume",
+      "hidden": true,
+      "createRequests": 1,
+      "recovered": false
+    },
+    {
+      "case": "unknown-create-replay",
+      "stage": "machine",
+      "hidden": false,
+      "createRequests": 1,
+      "recovered": true
+    },
+    {
+      "case": "unknown-create-replay",
+      "stage": "machine",
+      "hidden": true,
+      "createRequests": 1,
+      "recovered": false
+    },
+    {
+      "case": "unknown-upgrade-replay",
+      "containerCreates": 2,
+      "volumeCreates": 1,
+      "operationApplied": true
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "exitCode": 1,
+  "reason": "tooling/spikes/openmaic-independent.test.ts import node:vm违反依赖边界；修复测试执行方式，保留规则"
+}

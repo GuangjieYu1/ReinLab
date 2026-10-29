@@ -1,0 +1,65 @@
+/* 档案小票：窄长的一张小票，竖着放在档案盒里。抽取档案时从盒口竖直提出，沿弧线落到档案盒右边（.fp-pin）。
+   取出 / 放回由 FilePreview 的 WAAPI 完成，只动 transform 与 opacity。 */
+.fp-pin { position:absolute; left:60.5%; top:15.5%; z-index:7; width:232px; filter:drop-shadow(0 16px 26px #14121324) drop-shadow(0 2px 4px #14121314); }
+.fp { position:relative; display:flex; flex-direction:column; width:232px; min-height:468px; color:var(--fx-ink,#141213);
+  background:linear-gradient(176deg,#fdfcf9,#f3f0e9); transform-origin:50% 50%; will-change:transform, opacity;
+  /* 下缘是撕开的锯齿 */
+  -webkit-mask:linear-gradient(#000 0 0) top/100% calc(100% - 7px) no-repeat, conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) bottom/12px 7px repeat-x;
+          mask:linear-gradient(#000 0 0) top/100% calc(100% - 7px) no-repeat, conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) bottom/12px 7px repeat-x; }
+.fp-body > * { animation:fp-rise .4s cubic-bezier(.2,.8,.2,1) both; animation-delay:calc(var(--fp-i,0) * 40ms + .5s); }
+.fp-body > :nth-child(2) { --fp-i:1; } .fp-body > :nth-child(3) { --fp-i:2; } .fp-body > :nth-child(4) { --fp-i:3; }
+@keyframes fp-rise { from { opacity:.25; } }
+
+.fp-head { display:flex; align-items:baseline; gap:10px; height:46px; padding:16px 16px 0; background:var(--fx-ink,#141213); color:#f0eeea; }
+.fp-head b { font:800 19px/1 'Archivo','Noto Sans SC',sans-serif; font-stretch:125%; letter-spacing:.02em; white-space:pre; }
+.fp-head span { font:400 10px/1 'IBM Plex Mono',monospace; letter-spacing:.12em; color:#9a9792; }
+.fp-close { position:absolute; right:4px; top:8px; width:28px; height:28px; border:0; background:transparent; color:#f0eeeaaa; font-size:17px; cursor:pointer; }
+.fp-close:hover { color:#f0eeea; }
+.fp-body { padding:16px 16px 0; display:grid; }
+.fp-eyebrow { display:flex; align-items:center; gap:8px; font:400 10px/1 'IBM Plex Mono',monospace; letter-spacing:.14em; color:var(--fx-mute,#9a9792); }
+.fp-eyebrow i { width:6px; height:6px; background:var(--fx-gold,#ff7a1a); }
+.fp h2 { margin:10px 0 14px; font:650 19px/1.3 'DM Sans','Noto Sans SC',sans-serif; letter-spacing:.03em; }
+.fp-meta { margin:0; padding:10px 0; border-top:1px dashed #b9b5ad; border-bottom:1px dashed #b9b5ad; display:grid; gap:7px; }
+.fp-meta div { display:flex; justify-content:space-between; gap:10px; }
+.fp-meta dt { font:400 10px/1.3 'IBM Plex Mono',monospace; letter-spacing:.12em; color:var(--fx-mute,#9a9792); }
+.fp-meta dd { margin:0; font-size:11.5px; text-align:right; color:#3a3837; }
+.fp-last { padding-top:12px; display:grid; gap:7px; }
+.fp-last-head { font:400 10px/1 'IBM Plex Mono',monospace; letter-spacing:.12em; color:var(--fx-mute,#9a9792); }
+.fp-last strong { font-size:14px; font-weight:650; line-height:1.4; }
+.fp-rail { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; align-items:center; gap:3px; }
+.fp-rail i { height:4px; background:#d9d6cf; }
+.fp-rail i.done { background:var(--fx-ink,#141213); }
+.fp-rail i.now { background:var(--fx-gold,#ff7a1a); animation:fp-blink 1.6s ease-in-out infinite; }
+.fp-rail em { font:normal 400 10px/1 'IBM Plex Mono',monospace; color:var(--fx-mute,#9a9792); padding-left:6px; width:max-content; }
+@keyframes fp-blink { 50% { opacity:.45; } }
+.fp-note { margin:12px 16px 0; padding:8px 10px; background:#1412130a; border-left:3px solid var(--fx-gold,#ff7a1a); font-size:11px; line-height:1.6; color:#3a3837; }
+
+.fp-actions { margin-top:auto; padding:16px 16px 0; display:grid; gap:8px; }
+.fp-go { display:flex; align-items:center; justify-content:space-between; height:38px; padding:0 12px 0 14px; border:0; background:var(--fx-ink,#141213); color:#f0eeea; font-size:12.5px; font-weight:600; letter-spacing:.08em; cursor:pointer; transition:background .25s ease; }
+.fp-go svg { color:var(--fx-gold,#ff7a1a); transition:transform .25s ease; }
+.fp-go:hover { background:#2a2827; } .fp-go:hover svg { transform:translateX(3px); }
+.fp-back { display:flex; align-items:center; justify-content:center; gap:6px; height:30px; border:0; background:transparent; box-shadow:inset 0 0 0 1px #b9b5ad; color:#3a3837; font:400 10.5px/1 'IBM Plex Mono',monospace; letter-spacing:.1em; cursor:pointer; }
+.fp-back:hover { box-shadow:inset 0 0 0 1px var(--fx-ink,#141213); color:var(--fx-ink,#141213); }
+/* 底部条码 */
+.fp-barcode { display:block; height:30px; margin:14px 16px 18px; background:repeating-linear-gradient(90deg,#141213 0 1px,#0000 1px 3px,#141213 3px 5px,#0000 5px 6px,#141213 6px 7px,#0000 7px 10px); opacity:.85; }
+
+/* 盒口灯：档案盒上缘一道橙色的光，小票经过盒口时亮起（位置由 FilePreview 写入） */
+.fp-lip { position:absolute; left:0; top:0; width:0; height:2px; background:linear-gradient(90deg,transparent,#ff7a1a 14%,#ff9a4d 50%,#ff7a1a 86%,transparent);
+  box-shadow:0 0 10px 1px #ff7a1a88; opacity:0; pointer-events:none; transform-origin:50% 50%; }
+
+/* 档案盒里的小票：竖着放在盒内，隔着玻璃隐约可见；取出期间（data-slip-out）与开盒取文档时隐去 */
+.entry-slip-inside { position:absolute; left:376px; top:92px; width:96px; height:194px; transform:translateZ(-8px); background:linear-gradient(176deg,#fdfcf9e6,#efece4d9);
+  box-shadow:0 0 0 1px #14121314; display:grid; align-content:start; gap:9px; padding:0 10px; pointer-events:none; transition:opacity .2s ease; }
+.entry-slip-inside i { display:block; height:3px; background:#1412131f; }
+.entry-slip-inside i:first-child { height:20px; margin:0 -10px 4px; background:#141213b3; }
+.entry-slip-inside i:nth-child(3) { width:70%; } .entry-slip-inside i:nth-child(4) { width:84%; }
+.entry-slip-inside i:last-child { margin-top:58px; height:12px; background:repeating-linear-gradient(90deg,#14121366 0 1px,transparent 1px 3px); }
+.entry-comparison[data-slip-out] .entry-slip-inside, html[data-cassette='open'] .entry-slip-inside { opacity:0; transition:none; }
+.entry-comparison:not([data-stage='module']):not([data-stage='detail']) .entry-slip-inside { display:none; }
+
+@media (max-width:700px) {
+  .fp-pin { left:16px; right:16px; top:auto; bottom:64px; width:auto; }
+  .fp { width:auto; min-height:0; }
+}
+.fp[data-instant] .fp-body > * { animation:none; }
+@media (prefers-reduced-motion: reduce) { .fp-body > *, .fp-rail i.now { animation:none !important; } }

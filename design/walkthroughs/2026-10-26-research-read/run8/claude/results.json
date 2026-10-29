@@ -1,0 +1,229 @@
+{
+  "base": "http://127.0.0.1:5183",
+  "live": true,
+  "cap": 2.6,
+  "startedAt": "2026-10-26T18:24:42.337Z",
+  "seconds": 25335.936,
+  "results": [
+    {
+      "id": "E1",
+      "kind": "错",
+      "action": "邮箱对、密码错，提交",
+      "expected": "红色封锁画面 + 提示核对邮箱和密码，不进入选台",
+      "actual": "封锁后恢复，提示「核验未通过：请核对邮箱和密码」",
+      "verdict": "✓",
+      "note": "",
+      "at": 8
+    },
+    {
+      "id": "E2",
+      "kind": "错",
+      "action": "邮箱留空直接提交",
+      "expected": "提示先填写身份（邮箱），不发请求",
+      "actual": "提示「请输入用户名或邮箱」",
+      "verdict": "✓",
+      "note": "",
+      "at": 19
+    },
+    {
+      "id": "E3",
+      "kind": "正",
+      "action": "输入正确账户登录",
+      "expected": "核验动画 → 选台出现",
+      "actual": "登录成功，选台出现",
+      "verdict": "✓",
+      "note": "",
+      "at": 25
+    },
+    {
+      "id": "E4",
+      "kind": "正",
+      "action": "选 RSCH → 进入工作台 → 抽取档案 → 继续工作",
+      "expected": "进入研究台，页面不整页刷新、登录不掉",
+      "actual": "进入研究台，登录状态保留",
+      "verdict": "✓",
+      "note": "",
+      "at": 39
+    },
+    {
+      "id": "W2",
+      "kind": "正",
+      "action": "看收件箱",
+      "expected": "没有测试残留；有待办时是人话，不是原始 JSON",
+      "actual": "收件箱没有自动弹出待办",
+      "verdict": "✓",
+      "note": "",
+      "at": 63
+    },
+    {
+      "id": "W1",
+      "kind": "错",
+      "action": "点「群研」「自研」入口",
+      "expected": "置灰并标出接入期次，点了不切换",
+      "actual": "置灰入口 2 个：SWARM群研第三期 / AUTO自研第一期末；点击后仍在精读",
+      "verdict": "✓",
+      "note": "",
+      "at": 68
+    },
+    {
+      "id": "W3",
+      "kind": "正",
+      "action": "＋ 新建精读",
+      "expected": "出现「想读哪篇？」，没有「预估费用」按钮，澄清 ¥0.000 / ¥0.5",
+      "actual": "「想读哪篇？」；澄清对话用便宜档模型，上限 ¥0.5，不单独确认；已用 ¥0.000。不够可以在右边「预算余额」里加。",
+      "verdict": "✓",
+      "note": "",
+      "at": 74
+    },
+    {
+      "id": "C1",
+      "kind": "正",
+      "action": "发：我想读那篇让大模型自己学会什么时候调用计算器、搜索这些工具的论文",
+      "expected": "立刻显示「工作中」；数秒内回话并列出候选；AI 不替你选",
+      "actual": "47 秒列出 5 篇：Toolformer: Language Models Can Teach Themselves to Use Tools；GPT4Tools: Teaching Large Language Model to Use Tools via Self-instruction；Tool Zero: Training Tool-Augmented LLMs via Pure RL from Scratch；To Call or Not to Call: A Framework to Assess and Optimize LLM Tool Calling；Externalising reasoning by teaching language models to use programs as tools",
+      "verdict": "✓",
+      "note": "",
+      "at": 80
+    },
+    {
+      "id": "C2",
+      "kind": "正",
+      "action": "看候选是否包含 Toolformer",
+      "expected": "候选含 Toolformer，信息齐全",
+      "actual": "候选里有 Toolformer",
+      "verdict": "✓",
+      "note": "",
+      "at": 131
+    },
+    {
+      "id": "C4",
+      "kind": "正",
+      "action": "看底栏澄清花费",
+      "expected": "真实花了钱，金额大于 0",
+      "actual": "澄清 ¥0.006 / ¥0.5",
+      "verdict": "✓",
+      "note": "",
+      "at": 136
+    },
+    {
+      "id": "C5",
+      "kind": "正",
+      "action": "选 Toolformer",
+      "expected": "出现「读这篇」卡片：标题、作者、页数或说明、预算栏",
+      "actual": "步骤出错：locator.waitFor: Timeout 10000ms exceeded.",
+      "verdict": "✗",
+      "note": "",
+      "at": 141
+    },
+    {
+      "id": "C6",
+      "kind": "错",
+      "action": "点「换一篇」，再从候选里选回来",
+      "expected": "回到「想读哪篇？」，对话保留；重新选回 Toolformer",
+      "actual": "步骤出错：locator.waitFor: Timeout 10000ms exceeded.",
+      "verdict": "✗",
+      "note": "",
+      "at": 156
+    },
+    {
+      "id": "S1",
+      "kind": "错",
+      "action": "预算填 0，点预估",
+      "expected": "提示「预算填 0 到 50 元之间」，不发请求",
+      "actual": "没有选定论文，无法预估",
+      "verdict": "✗",
+      "note": "",
+      "at": 174
+    },
+    {
+      "id": "S2",
+      "kind": "错",
+      "action": "预算填 ¥0.5，预估",
+      "expected": "若预估上限 > ¥0.5：提示超预算，「确认开始」不可点",
+      "actual": "步骤出错：locator.fill: Timeout 30000ms exceeded.",
+      "verdict": "✗",
+      "note": "",
+      "at": 179
+    },
+    {
+      "id": "S3",
+      "kind": "正",
+      "action": "预算改 ¥2.5，重新预估",
+      "expected": "显示模型、最多步数、最多约 ¥y ≤ 2.5，「确认开始」可点",
+      "actual": "步骤出错：locator.fill: Timeout 30000ms exceeded.",
+      "verdict": "✗",
+      "note": "",
+      "at": 213
+    },
+    {
+      "id": "R1",
+      "kind": "正",
+      "action": "确认开始",
+      "expected": "运行开始；第一步是「下载全文」审批，主面板和助手面板都能看到",
+      "actual": "步骤出错：locator.click: Timeout 30000ms exceeded.",
+      "verdict": "✗",
+      "note": "",
+      "at": 248
+    },
+    {
+      "id": "R2",
+      "kind": "错",
+      "action": "点「不下载」",
+      "expected": "运行如实停下，说明因拒绝而停止，不偷偷下载；花费照实显示",
+      "actual": "步骤出错：locator.click: Timeout 30000ms exceeded.",
+      "verdict": "✗",
+      "note": "",
+      "at": 283
+    },
+    {
+      "id": "R3",
+      "kind": "正",
+      "action": "重新开始 → 选同一篇 → 预估 → 确认 → 批准下载",
+      "expected": "讲解逐层出现，带原文页码；运行条显示步骤和已花费",
+      "actual": "步骤出错：locator.waitFor: Timeout 120000ms exceeded.",
+      "verdict": "✗",
+      "note": "",
+      "at": 318
+    },
+    {
+      "id": "R4",
+      "kind": "正",
+      "action": "等精读完成（最长 10 分钟），中途出现的审批逐项批准",
+      "expected": "状态「已完成」；有讲解层和发现卡；实际花费 ≤ 预算，未知用量标出",
+      "actual": "状态 ?，讲解 0 层，发现卡 0 张，，途中批准 19 次",
+      "verdict": "✗",
+      "note": "",
+      "at": 474
+    },
+    {
+      "id": "R5",
+      "kind": "正",
+      "action": "追问：为什么要自监督地插入 API 调用？",
+      "expected": "如实说明「追问第二期接入」，不编回答",
+      "actual": "步骤出错：locator.fill: Timeout 30000ms exceeded.",
+      "verdict": "✗",
+      "note": "",
+      "at": 25226
+    },
+    {
+      "id": "R6",
+      "kind": "错",
+      "action": "检验页提交一个答案",
+      "expected": "如实说明「评分未接入」",
+      "actual": "步骤出错：locator.click: Timeout 30000ms exceeded.",
+      "verdict": "✗",
+      "note": "",
+      "at": 25267
+    },
+    {
+      "id": "X1",
+      "kind": "错",
+      "action": "刷新页面",
+      "expected": "已知问题：会话只在内存里，刷新后回到登录页",
+      "actual": "刷新后回到登录页（已知问题，会话不持久）",
+      "verdict": "△",
+      "note": "",
+      "at": 25302
+    }
+  ]
+}

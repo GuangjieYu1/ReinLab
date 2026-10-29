@@ -1,0 +1,49 @@
+{
+  "version": "2.0.150",
+  "checks": [
+    {
+      "check": "session.create extra agent未形成绑定",
+      "status": 200,
+      "hasAgent": false
+    },
+    {
+      "check": "runtime.prompt顶层agent严格拒绝",
+      "status": 400
+    },
+    {
+      "check": "dev agent header不可用",
+      "status": 400
+    },
+    {
+      "check": "legacy session.prompt支持agent/noReply",
+      "status": 200,
+      "agent": "rl-spike"
+    },
+    {
+      "check": "mention生成委托提示不改变主agent",
+      "agent": "research"
+    },
+    {
+      "check": "default_agent只在legacy消息选择路径生效",
+      "agent": "rl-spike"
+    },
+    {
+      "check": "消息全为user无模型回答",
+      "count": 3
+    },
+    {
+      "check": "隔离project可覆写research定义",
+      "project": 0,
+      "marker": "SPIKE_RESEARCH_A"
+    },
+    {
+      "check": "隔离project可覆写research定义",
+      "project": 1,
+      "marker": "SPIKE_RESEARCH_B"
+    }
+  ],
+  "passed": 9,
+  "failed": 0,
+  "modelCalls": 0,
+  "boundary": "真实npm二进制HTTP；noReply只保存消息。未运行模型，未证明替代方案实际生成或执行隔离。"
+}

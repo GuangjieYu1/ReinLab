@@ -1,0 +1,27 @@
+{
+  "authorization": "第二次授权",
+  "approvedBy": "用户明确确认按SECOND_SMOKE_PLAN.md执行一次",
+  "commit": "36f854d7469a6e6be4724960f88dabef2ddd5bce",
+  "ciRuns": [
+    39657871645,
+    39657863810
+  ],
+  "ciConclusion": "completed/success",
+  "pricingSource": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "window": "offpeak",
+  "currency": "CNY",
+  "validFromUtc": "2026-10-21T18:00:00.000Z",
+  "validUntilUtc": "2026-10-22T00:50:00.000Z",
+  "backendKeyFilter": "ReinLab",
+  "dedicatedKeyMatchedByMaskedHostCheck": true,
+  "beforeExportRows": [
+    0,
+    0
+  ],
+  "beforeExportSha256": "9a1555493c0d51f679ce2fbb5cb05fff56ce326a664dc8f81b6dd0f6dfc388e5",
+  "rawExportOutsideRepository": true,
+  "rawMode": "0600",
+  "firstMarkerPreserved": true,
+  "secondMarkerAndAdmissionAbsentBeforeExecution": true,
+  "budgetCny": 1
+}

@@ -1,0 +1,2 @@
+authorization,run_id,request_id,currency,window,fx,request_count,input_cache_miss_tokens,input_cache_hit_tokens,output_tokens,ledger_cost_cny,provider_invoice_cost_cny,error_percent,reconciled
+第二次授权,5c142780-4a9d-4ac5-8b97-7e35c49a3b6f,bf56136d-ba39-4486-944e-26cd76e7bd12,CNY,offpeak,7.2,1,2754,0,3,0.002766,0.0027660000000000,0,true

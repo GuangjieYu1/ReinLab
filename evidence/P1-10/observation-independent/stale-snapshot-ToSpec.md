@@ -1,0 +1,7 @@
+# Replay 后旧 snapshot 竞态最小修复
+
+确定性行为红灯：独立3项全部失败，stale-snapshot-red.json；原生诊断证明provider响应完成、native completed/latest28，但DB cursor6/usage0且scheduler失败。根因为先snapshot再replay，后者可读到更新事件，旧snapshot同步触发CURSOR_AHEAD并被当sinkfailure终止。
+
+修复范围仅observer.ts和必要observer fixture时序：非terminal replay结束后重新snapshot并读取committed cursor；fresh.latest<cursor保留真实CURSOR_AHEAD，=cursor才synchronize并允许snapshot terminal收口，>cursor不把可回放历史误记缺口/unknown，直接subscribe(after committed)消费原生补历史。观察器仍没有prompt/decision能力，不忽略真正cursor倒退，不猜费用、不改sink事务或SDK。原terminal event已经完整持久化时仍直接停止。
+
+新3测试覆盖旧snapshot被replay追过、订阅前native已terminal但仍有可回放历史、真实fresh倒退稳定failed且不订阅。修改者docker_driver为本修复作者，原独立身份不用于自批；交root源审与另一agent独立测试。

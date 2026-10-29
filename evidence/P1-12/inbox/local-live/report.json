@@ -1,0 +1,37 @@
+{
+  "realInfrastructure": true,
+  "syntheticReviewData": true,
+  "modelRequests": 0,
+  "passed": 7,
+  "failed": 0,
+  "results": [
+    {
+      "name": "real_supabase_login_proxy",
+      "passed": true
+    },
+    {
+      "name": "real_login_pending_grouped_inbox",
+      "passed": true
+    },
+    {
+      "name": "source_event_evidence_opened",
+      "passed": true
+    },
+    {
+      "name": "four_promotion_actions_and_once_approval",
+      "passed": true
+    },
+    {
+      "name": "real_rls_memory_and_ledger",
+      "passed": true
+    },
+    {
+      "name": "foreground_refresh",
+      "passed": true
+    },
+    {
+      "name": "visible_idle_interval_refresh",
+      "passed": true
+    }
+  ]
+}

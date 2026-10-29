@@ -1,0 +1,21 @@
+{
+  "name": "@reinlab/control",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.1-rc.4",
+    "@deepseek-ai/dsh-sdk-client": "0.2.1-rc.4",
+    "@hono/node-server": "2.1.5",
+    "@reinlab/contracts": "workspace:*",
+    "ajv": "8.17.1",
+    "hono": "4.13.13",
+    "jose": "6.2.12",
+    "pg": "8.16.3",
+    "yaml": "2.8.2",
+    "zod": "3.25.76"
+  }
+}

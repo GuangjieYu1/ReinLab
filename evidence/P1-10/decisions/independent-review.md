@@ -1,0 +1,13 @@
+# DecisionService 独立审查
+
+限定模块当前未见额外P1/P2；独立复跑原30项真实PG/RLS fixture通过，组合原始记录 ../harness/independent-factory-materialize-decisions.json。无真实SDK决定/真实账户操作。
+
+身份从RLS approval与哈希核验binding取，不接外部session/run/request；prepare仅DB、strict输入，默认once、question仅once；intent哈希冻结并幂等。dispatch事务外fresh snapshot核对绑定session/run/request、实时pending及question选项；permission approve只允许冻结grant内非danger/non-deny，reject不会授予权限。
+
+SDK前CAS提交sent与indeterminate，只有winner发送；所有未知调用保留sent，重启只snapshot核对而不重发。只有匹配session/request的真实resolved响应可按已存用户intent置approved/rejected；历史reply不能凭空产生approve。cancel亦固定binding目标，持久围栏后仅一次，终态只读收口。010迁移禁止重写intent/倒退sent/改resolvedreceipt。无公开HTTP注册或自动决定能力。
+
+需产品决定的限制已通知root：fresh答案INVALID_ANSWER400发生在intent已永久冻结之后，更正不同答案同approval会409；当前ToSpec显式要求intent不可改，因此未擅自修改安全围栏。若要求用户纠正该卡，需单独受信unsent修正/再发卡设计，不能放开sent后的重发或意图修改。
+
+## 答案前置校验独立复核
+
+原限制已改善：新增validate为仅只读fresh snapshot预检，不保存intent；错误答案400后hash/sent均未写，用户改正确答案后validate→prepare事务提交→dispatch可正常resolved。已有intent重放仍只接受原hash，不会因pending消失重发；dispatch发送前保留第二次fresh校验和sent不可退围栏。独立最新32/32通过（与HarnessStore9组合41/41），见../harness/independent-store-cap-decision-green.json。API必须遵循validate在prepare之前且在DB事务之外；实际API接线另验。

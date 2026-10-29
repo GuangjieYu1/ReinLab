@@ -1,0 +1,99 @@
+{
+  "url": "https://models.dev/api.json",
+  "fetchedAt": "2026-10-21T00:56:50.026Z",
+  "status": 200,
+  "bytes": 5889411,
+  "sha256": "0e2b65744063ae82c3cf8e33ed71672e49b1f58a4eb910acddabd292f955afe1",
+  "hasDirectProvider": true,
+  "directModelIds": [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash-vision-exp",
+    "deepseek-flash"
+  ],
+  "directTarget": {
+    "id": "deepseek-v4-flash",
+    "name": "DeepSeek V4 Flash",
+    "description": "October 17 update of DeepSeek V4.1 Flash with improved reasoning, coding, agentic tasks, and visual understanding",
+    "family": "deepseek-flash",
+    "attachment": true,
+    "reasoning": true,
+    "reasoning_options": [
+      {
+        "type": "toggle"
+      },
+      {
+        "type": "effort",
+        "values": [
+          "low",
+          "high",
+          "max"
+        ]
+      }
+    ],
+    "tool_call": true,
+    "interleaved": {
+      "field": "reasoning_content"
+    },
+    "structured_output": true,
+    "temperature": true,
+    "knowledge": "2025-05",
+    "release_date": "2026-10-17",
+    "last_updated": "2026-10-17",
+    "modalities": {
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "open_weights": true,
+    "limit": {
+      "context": 1048576,
+      "output": 393216
+    },
+    "status": "deprecated",
+    "cost": {
+      "input": 0.15,
+      "output": 0.6,
+      "reasoning": 0.6,
+      "cache_read": 0.003
+    },
+    "canonical_model_id": "deepseek/deepseek-v4.1-flash-1017"
+  },
+  "matches": [
+    {
+      "provider": "deepseek",
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "cost": {
+        "input": 0.15,
+        "output": 0.6,
+        "reasoning": 0.6,
+        "cache_read": 0.003
+      },
+      "limit": {
+        "context": 1048576,
+        "output": 393216
+      }
+    },
+    {
+      "provider": "deepseek",
+      "id": "deepseek-v4-flash-vision-exp",
+      "name": "DeepSeek V4 Flash Vision Exp",
+      "cost": {
+        "input": 0.15,
+        "output": 0.6,
+        "reasoning": 0.6,
+        "cache_read": 0.003
+      },
+      "limit": {
+        "context": 1048576,
+        "output": 393216
+      }
+    }
+  ],
+  "otherProviderMatchingModelCount": 171
+}

@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab
+
+ ❯ services/control/test/account-entrypoint-lock.test.ts (1 test | 1 failed) 450ms
+   × 入口配置与子进程强制禁用自动升级并保留模型和插件 449ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  services/control/test/account-entrypoint-lock.test.ts > 入口配置与子进程强制禁用自动升级并保留模型和插件
+AssertionError: expected { …(2) } to deeply equal { autoupdate: false, …(2) }
+
+- Expected
++ Received
+
+  {
+-   "autoupdate": false,
+    "model": "deepseek/deepseek-v4-flash",
+    "plugin": [
+      "file:///opt/reinlab/plugin/index.js",
+    ],
+  }
+
+ ❯ services/control/test/account-entrypoint-lock.test.ts:14:350
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  01:40:52
+   Duration  536ms (transform 13ms, setup 0ms, import 17ms, tests 450ms, environment 0ms)
+

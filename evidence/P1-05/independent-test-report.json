@@ -1,0 +1,411 @@
+{
+  "task": "P1-05",
+  "role": "independent-test",
+  "snapshot": {
+    "date": "2026-10-19T03:11:01.041Z",
+    "node": "v22.23.3",
+    "sha256": {
+      "services/control/src/ledger/index.ts": "2fa7089a9c25a31f3c7d401fac0ac3c73c7561c3c4f77a65cc6203500d23caca",
+      "services/control/src/api/ledger.ts": "d3f639eeebd89eff43a4886f06b03f517d6926ffbfe12f940d0fbcf71dc33aba",
+      "packages/contracts/src/index.ts": "7b0a2416e658346d540331b27502d7a6397c04de56f26fd26e1ebce631f6c816",
+      "services/control/test/ledger.test.ts": "5b022f350f09dc4ca120f976d5fe4890f26fffb95abd7512da5868f5fbc53a17"
+    }
+  },
+  "status": "passed",
+  "summary": {
+    "checks": 68,
+    "passed": 68,
+    "failed": 0,
+    "independentCases": 62,
+    "independentPassed": 62,
+    "independentFailed": 0
+  },
+  "cases": [
+    {
+      "id": "eight-concurrent-dedupe",
+      "pass": true
+    },
+    {
+      "id": "same-key-replay-stable",
+      "pass": true
+    },
+    {
+      "id": "same-key-different-content-conflict",
+      "pass": true
+    },
+    {
+      "id": "cross-account-dossier",
+      "pass": true,
+      "actual": "RLS_DENIED",
+      "expected": "RLS_DENIED"
+    },
+    {
+      "id": "wrong-account-context",
+      "pass": true,
+      "actual": "RLS_DENIED",
+      "expected": "RLS_DENIED"
+    },
+    {
+      "id": "same-account-other-dossier-run",
+      "pass": true,
+      "actual": "23503",
+      "expected": "23503"
+    },
+    {
+      "id": "other-account-run",
+      "pass": true,
+      "actual": "23503",
+      "expected": "23503"
+    },
+    {
+      "id": "second-sequence-blocked-until-first-commit",
+      "pass": true
+    },
+    {
+      "id": "commit-order-matches-visible-sequence",
+      "pass": true
+    },
+    {
+      "id": "after-cursor-does-not-skip-later-commit",
+      "pass": true
+    },
+    {
+      "id": "rollback-event-absent",
+      "pass": true
+    },
+    {
+      "id": "rolledback-dedupe-key-retry",
+      "pass": true
+    },
+    {
+      "id": "invalid-cost-negative",
+      "pass": true
+    },
+    {
+      "id": "invalid-cost-infinite",
+      "pass": true
+    },
+    {
+      "id": "invalid-cost-nan",
+      "pass": true
+    },
+    {
+      "id": "invalid-cost-precision",
+      "pass": true
+    },
+    {
+      "id": "invalid-cost-overflow",
+      "pass": true
+    },
+    {
+      "id": "six-decimal-cost-summary",
+      "pass": true,
+      "summary": {
+        "eventCount": 3,
+        "knownCostCny": "0.100002",
+        "unknownCostEvents": 1,
+        "quota": 7,
+        "gpuSeconds": 15
+      }
+    },
+    {
+      "id": "unknown-quota-gpu-separate",
+      "pass": true
+    },
+    {
+      "id": "real-http-jsonl-summary-matches",
+      "pass": true
+    },
+    {
+      "id": "real-http-cross-account-audit",
+      "pass": true
+    },
+    {
+      "id": "real-http-auth-required-audit",
+      "pass": true
+    },
+    {
+      "id": "real-http-cross-account-events",
+      "pass": true
+    },
+    {
+      "id": "real-http-auth-required-events",
+      "pass": true
+    },
+    {
+      "id": "invalid-cursor--1",
+      "pass": true
+    },
+    {
+      "id": "invalid-cursor-01",
+      "pass": true
+    },
+    {
+      "id": "invalid-cursor-1.2",
+      "pass": true
+    },
+    {
+      "id": "invalid-cursor-1e2",
+      "pass": true
+    },
+    {
+      "id": "invalid-cursor-9007199254740992",
+      "pass": true
+    },
+    {
+      "id": "invalid-cursor-+1",
+      "pass": true
+    },
+    {
+      "id": "real-http-sse-first-connection",
+      "pass": true
+    },
+    {
+      "id": "real-http-sse-reconnect-111-events",
+      "pass": true,
+      "received": 111
+    },
+    {
+      "id": "SSE-disconnect-releases-connections",
+      "pass": true,
+      "total": 8,
+      "idle": 8,
+      "idleTransactions": 0
+    },
+    {
+      "id": "oauth-fragment-and-text-not-stored",
+      "pass": true,
+      "markerDetected": false
+    },
+    {
+      "id": "oauth-probe-not-in-audit",
+      "pass": true,
+      "markerDetected": false
+    },
+    {
+      "id": "oauth-probe-not-in-real-SSE",
+      "pass": true,
+      "markerDetected": false
+    },
+    {
+      "id": "existing-structured-bearer-query-redaction",
+      "pass": true
+    },
+    {
+      "id": "empty-SSE-immediate-headers-and-comment",
+      "pass": true,
+      "milliseconds": 20,
+      "status": 200
+    },
+    {
+      "id": "empty-SSE-abort-stops-polling",
+      "pass": true,
+      "readsAfterAbort": 0,
+      "busy": 0
+    },
+    {
+      "id": "reject-overprecision-1e-7",
+      "pass": true
+    },
+    {
+      "id": "reject-overprecision-9e-7",
+      "pass": true
+    },
+    {
+      "id": "reject-overprecision-0.1234567",
+      "pass": true
+    },
+    {
+      "id": "reject-overprecision-0.0000011",
+      "pass": true
+    },
+    {
+      "id": "valid-six-decimal-cost-0",
+      "pass": true,
+      "receivedCost": 0
+    },
+    {
+      "id": "valid-six-decimal-cost-0.000001",
+      "pass": true,
+      "receivedCost": 0.000001
+    },
+    {
+      "id": "valid-six-decimal-cost-0.123456",
+      "pass": true,
+      "receivedCost": 0.123456
+    },
+    {
+      "id": "valid-six-decimal-cost-999999.999999",
+      "pass": true,
+      "receivedCost": 999999.999999
+    },
+    {
+      "id": "repaired-multi-form-credential-storage",
+      "pass": true
+    },
+    {
+      "id": "repaired-credential-audit",
+      "pass": true
+    },
+    {
+      "id": "repaired-credential-real-SSE-event-read",
+      "pass": true,
+      "matchedTargetEvent": true
+    },
+    {
+      "id": "unmapped-error-retained",
+      "pass": true
+    },
+    {
+      "id": "invalid-quota-gpu-{\"quota\":0.5}",
+      "pass": true
+    },
+    {
+      "id": "invalid-quota-gpu-{\"quota\":-1}",
+      "pass": true
+    },
+    {
+      "id": "invalid-quota-gpu-{\"quota\":2147483648}",
+      "pass": true
+    },
+    {
+      "id": "invalid-quota-gpu-{\"gpuSeconds\":0.5}",
+      "pass": true
+    },
+    {
+      "id": "invalid-quota-gpu-{\"gpuSeconds\":-1}",
+      "pass": true
+    },
+    {
+      "id": "invalid-quota-gpu-{\"gpuSeconds\":2147483648}",
+      "pass": true
+    },
+    {
+      "id": "independent-outage-baseline-stream",
+      "pass": true
+    },
+    {
+      "id": "real-http-empty-SSE-15second-heartbeat",
+      "pass": true,
+      "elapsedMs": 15217
+    },
+    {
+      "id": "real-http-30second-disconnect-105events",
+      "pass": true,
+      "disconnectMs": 30441,
+      "received": 105
+    },
+    {
+      "id": "heartbeat-and-reconnect-cancel-release",
+      "pass": true,
+      "busyConnections": 0
+    },
+    {
+      "id": "basic-encoded-value-explicitly-redacted",
+      "pass": true,
+      "encodedProbePresent": false
+    }
+  ],
+  "cleanup": "Only own random A/B accounts and their fixtures created; admin deletion scoped to those two IDs; all connections/HTTP streams/server closed; no other data or implementation changed.",
+  "limits": [
+    "Real local PostgreSQL and actual local signed JWT; not Supabase cloud Auth validation",
+    "Synthetic credential probes only; report contains leak booleans, not actual credentials"
+  ],
+  "history": [
+    {
+      "round": 0,
+      "note": "Initial direct scrub probes preserved OAuth URL fragments, labelled refresh-token free text and Basic authentication text; immediately reported and developer repaired before first full integration harness."
+    },
+    {
+      "round": 1,
+      "independentCases": 37,
+      "passed": 36,
+      "failed": 1,
+      "note": "Real storage/HTTP credential repair passed; 1e-7 cost unexpectedly accepted by Zod3 multipleOf, developer replaced precision check."
+    },
+    {
+      "round": 2,
+      "note": "Strict decimal precision and credential storage/audit/real TCP SSE probes passed; real empty stream immediate comment, cancellation stops polling; independent real TCP 15-second heartbeat and 30-second/105-event reconnect passed."
+    }
+  ],
+  "checks": [
+    {
+      "id": "lint",
+      "command": "pnpm lint",
+      "pass": true
+    },
+    {
+      "id": "control-strict-tsc",
+      "command": "pnpm exec tsc -p services/control/tsconfig.json",
+      "pass": true
+    },
+    {
+      "id": "contracts-strict-tsc",
+      "command": "pnpm exec tsc -p packages/contracts/tsconfig.json",
+      "pass": true
+    },
+    {
+      "id": "original-frontend-tests",
+      "command": "pnpm exec vitest run src",
+      "pass": true,
+      "passedTests": 162,
+      "passedFiles": 20
+    },
+    {
+      "id": "mock-build",
+      "command": "VITE_BACKEND=mock pnpm build",
+      "pass": true
+    },
+    {
+      "id": "frontend-baseline",
+      "pass": true,
+      "files": 250,
+      "mismatches": []
+    }
+  ],
+  "parentExecutedReports": {
+    "source": "Read and inspected saved reports; not independently rerun full long suite.",
+    "ledger": {
+      "passed": 23,
+      "failed": 0,
+      "success": true
+    },
+    "allRepository": {
+      "passed": 455,
+      "failed": 0,
+      "success": true
+    },
+    "coverage": {
+      "lines": {
+        "total": 58,
+        "covered": 57,
+        "skipped": 0,
+        "pct": 98.27
+      },
+      "statements": {
+        "total": 121,
+        "covered": 107,
+        "skipped": 0,
+        "pct": 88.42
+      },
+      "functions": {
+        "total": 25,
+        "covered": 22,
+        "skipped": 0,
+        "pct": 88
+      },
+      "branches": {
+        "total": 65,
+        "covered": 51,
+        "skipped": 0,
+        "pct": 78.46
+      },
+      "branchesTrue": {
+        "total": 0,
+        "covered": 0,
+        "skipped": 0,
+        "pct": 100
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "checkedOn": "2026-10-21",
+  "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "sourceKind": "official_public_documentation",
+  "publicFacts": [
+    {
+      "pageLines": [29, 32],
+      "fact": "Flash公开路由的版本为DeepSeek-V4.1-Flash-1017。"
+    },
+    {
+      "pageLines": [53, 53],
+      "fact": "旧deepseek-v4-flash路由仍可调用，由上述canonical版本提供服务，按Flash价格计费。"
+    }
+  ],
+  "implementationChange": "only add exact canonical actual-model allowlist entry and declared direct usage source",
+  "requestedModelUnchanged": "deepseek/deepseek-v4-flash",
+  "pricesFxWindowAndProvenanceUnchanged": true,
+  "nearMatchesStillUnknown": true,
+  "liveProviderCalled": false,
+  "nativeCalled": false,
+  "gatewayHandlerImplemented": false,
+  "gatewayDeployed": false
+}

@@ -1,0 +1,51 @@
+{
+  "sourceRoot": "/Users/guangjieyu/Documents/DeepSeekPlugin/OpenScience",
+  "commit": "539bff49900b302e3e96df8c50e1668fbd02228e",
+  "status": "",
+  "sources": [
+    {
+      "path": "backend/cli/src/server/routes/runtime.ts",
+      "sha256": "b3e359acd09e91abe5070c46bd8c56c554414cc3aae7b4bab1a45fb7aa20c0c7"
+    },
+    {
+      "path": "backend/cli/src/runtime/runs.ts",
+      "sha256": "f0308d8cffbda4e2b9d2641232352b018d17991fcb8743086ab664e9419cd3db"
+    },
+    {
+      "path": "backend/cli/src/session/index.ts",
+      "sha256": "9db45fa6e57dbd9103cf2edd5b8b8b449442a356d1ecac99f492b2485cfdf617"
+    },
+    {
+      "path": "backend/cli/src/session/prompt-input.ts",
+      "sha256": "9fccddebd55391d9820a2270ac47912fb5d5879ea86ba7652da4c7358261d2f8"
+    },
+    {
+      "path": "backend/cli/src/session/prompt.ts",
+      "sha256": "d9bbdb62ece282c4705907984d7832c72ca52c8ef2c1c7328ba5e737ef54d492"
+    },
+    {
+      "path": "backend/cli/src/agent/agent.ts",
+      "sha256": "b040e09a0f19cc24377a6eb35ca29310f18739e2e519c587b9698f281f49f14e"
+    },
+    {
+      "path": "backend/cli/src/session/instruction.ts",
+      "sha256": "40075f69445d4d87f2a66b62b209050bba8366ca0236a1ca704aca03ac2e51af"
+    },
+    {
+      "path": "backend/cli/src/util/filesystem.ts",
+      "sha256": "c03a333896e0389a1dc10c79a6c8729fbf0c314a2ad966f858e5afe499f973ac"
+    },
+    {
+      "path": "backend/cli/src/project/project.ts",
+      "sha256": "0c4920a416d0ee5b76ffe618be282f714a670e77c4afc57ff5a2e514d133067f"
+    },
+    {
+      "path": "backend/cli/src/flag/flag.ts",
+      "sha256": "5c9a3d02ac2faff670ebf234c08be03f965f06aab5b5bfef0056d04f45e4b455"
+    },
+    {
+      "path": "backend/cli/test/session/instruction.test.ts",
+      "sha256": "069e9b5e5a767ecb5a9b5c7b5e1e81deb34f28940dbc8288186a3d8121b75c42"
+    }
+  ]
+}

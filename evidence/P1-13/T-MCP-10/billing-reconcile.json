@@ -1,0 +1,26 @@
+{
+  "observedAt": "2026-10-24T17:53:51.177612+00:00",
+  "clientTimezone": "Asia/Shanghai",
+  "alias": "ReinLab",
+  "keyMatchesAliasPrivately": true,
+  "requestsBefore": 0,
+  "requestsAfter": 0,
+  "tokensBefore": 0,
+  "tokensAfter": 0,
+  "costBeforeCny": "0.00",
+  "costAfterCny": "0.00",
+  "actualProviderRequests": 0,
+  "reconciled": true,
+  "basis": "专用key当日UI，结合未启动guard/无run和usage行；不是余额差额推测",
+  "screenshotSourceSha256": "fe4bbb2b80c43b143164a58511dbf7cccb5e1f7e15ed67433aa0cbcb59bb5768",
+  "crop": [
+    750,
+    700,
+    2700,
+    1694
+  ],
+  "sourceDimensions": [
+    2940,
+    1694
+  ]
+}

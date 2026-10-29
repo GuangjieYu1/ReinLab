@@ -1,0 +1,20 @@
+{
+  "checks": {
+    "secondAuthorizationLabel": true,
+    "singleForward": true,
+    "completed": true,
+    "usageKnown": true,
+    "usageRowsOne": true,
+    "reasoningTokensZero": true,
+    "withinOutputCap": true,
+    "costBelowOneCny": true,
+    "holdSettled": true,
+    "cleaned": true,
+    "originalReportsUnchanged": true,
+    "dedicatedKeyInvoiceMatchesLedger": true,
+    "invoiceRequestCountOne": true
+  },
+  "passed": 13,
+  "failed": 0,
+  "providerInvoiceReconciliation": "passed; see billing-reconciliation.json"
+}

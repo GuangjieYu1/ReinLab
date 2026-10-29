@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "pricingVersion": "deepseek-official-2026-10-20",
+  "verifiedOn": "2026-10-20",
+  "sources": {
+    "CNY": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+    "USD": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "cacheSemantics": "https://api-docs.deepseek.com/zh-cn/guides/kv_cache/"
+  },
+  "nativePricesPerMillionTokens": {
+    "CNY": {
+      "offpeak": {
+        "cacheRead": "0.02",
+        "inputMiss": "1",
+        "output": "4"
+      },
+      "peak": {
+        "cacheRead": "0.04",
+        "inputMiss": "2",
+        "output": "8"
+      }
+    },
+    "USD": {
+      "offpeak": {
+        "cacheRead": "0.003",
+        "inputMiss": "0.15",
+        "output": "0.6"
+      },
+      "peak": {
+        "cacheRead": "0.006",
+        "inputMiss": "0.3",
+        "output": "1.2"
+      }
+    }
+  },
+  "requestedRoute": "deepseek/deepseek-v4-flash",
+  "acceptedActualProvider": "deepseek",
+  "acceptedActualModels": [
+    "deepseek-v4-flash",
+    "deepseek-flash"
+  ],
+  "cacheWriteRule": "Native normalized cache.write restored into input miss, no independent cache-write surcharge; this is an explicit mapping rule, not a separately published price.",
+  "priceWindowRule": "Caller supplies a verified peak/offpeak window; no local-clock or holiday inference in this module.",
+  "fx": {
+    "usdCnyRate": "7.2",
+    "source": "fixed product configuration",
+    "appliedOnlyWhenNativeCurrency": "USD"
+  },
+  "realModelValidated": false,
+  "providerInvoiceReconciled": false,
+  "acceptedBillingRoutes": [
+    "byok"
+  ],
+  "rejectedBillingRoutes": [
+    "managed",
+    "chatgpt",
+    "subscription",
+    "local",
+    "custom"
+  ],
+  "maximumLedgerCostCny": "999999.999999",
+  "nativeRouteSources": [
+    {
+      "path": "/Users/guangjieyu/Documents/DeepSeekPlugin/OpenScience/backend/cli/src/session/access-route.ts",
+      "lines": [
+        24,
+        43
+      ],
+      "sha256": "b5186393a2736a43453c8ccd9fbf0839afb6342b00e85f05af6d34690a224549"
+    },
+    {
+      "path": "/Users/guangjieyu/Documents/DeepSeekPlugin/OpenScience/backend/cli/src/session/processor.ts",
+      "lines": [
+        1255,
+        1267
+      ],
+      "sha256": "8a8e1bff2b8a0e932f4ecce0ff56bc69cbf6e1288d987ef69f3e6ee0dbcc6430"
+    }
+  ],
+  "nativeRouteInterpretation": "Actual finish-step uses accessRoute: local endpoint first, OAuth subscription/chatgpt next, managed gateway next, otherwise BYOK. Custom fallback is not evidence of direct API cash billing."
+}

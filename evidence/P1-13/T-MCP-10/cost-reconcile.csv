@@ -1,0 +1,2 @@
+case,authorization_attempts,model_requests,provider_key_alias,ledger_cny,provider_cny,difference_cny,exchange_rate,status,evidence
+T-MCP-10,1,0,ReinLab,0.000000,0.000000,0.000000,7.2,preflight_failed_no_model_request,billing-reconcile.json;execution-facts.json

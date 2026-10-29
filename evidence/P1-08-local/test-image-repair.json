@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-20T01:55:53.473Z",
+  "productionRepairEndpoint": false,
+  "observations": [
+    {
+      "accountId": "f9f18ffa-a0b4-406f-9a8e-4766f5c71818",
+      "action": "explicit_test_container_recreation",
+      "volumePreserved": "rl_f9f18ffaa0b4406f9a8e4766f5c71818",
+      "oldImageMetadataUnavailable": true,
+      "runCount": 0,
+      "dossierCount": 0
+    },
+    {
+      "accountId": "e301c349-5854-4f83-b307-7b578bcfe779",
+      "action": "explicit_test_container_recreation",
+      "volumePreserved": "rl_e301c34958544f83b3077b578bcfe779",
+      "oldImageMetadataUnavailable": true,
+      "runCount": 0,
+      "dossierCount": 0
+    },
+    {
+      "accountId": "f9f18ffa-a0b4-406f-9a8e-4766f5c71818",
+      "state": "ready",
+      "action": "real_ensure_after_explicit_test_repair"
+    },
+    {
+      "accountId": "e301c349-5854-4f83-b307-7b578bcfe779",
+      "state": "ready",
+      "action": "real_ensure_after_explicit_test_repair"
+    }
+  ]
+}

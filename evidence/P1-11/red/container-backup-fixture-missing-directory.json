@@ -1,0 +1,12 @@
+{
+  "status": "failed",
+  "checks": [
+    "real-linux-runtime-health",
+    "root-owned-volume-init-and-drop-uid",
+    "ocr-pdf-scientific-tools",
+    "private-proxy-auth-and-origin"
+  ],
+  "passed": 4,
+  "failed": 1,
+  "code": "CONTAINER_VERIFY_FAILED"
+}

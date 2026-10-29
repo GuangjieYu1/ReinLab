@@ -1,0 +1,35 @@
+{
+  "node": "v22.23.3",
+  "guardRed": {
+    "passed": 1,
+    "failed": 16
+  },
+  "runtimeRed": {
+    "passed": 0,
+    "failed": 9
+  },
+  "finalGreen": {
+    "passed": 35,
+    "failed": 0,
+    "guard": 19,
+    "runtimeSmoke": 12,
+    "runtimeObservation": 4
+  },
+  "realModelRequests": 0,
+  "realKeyReads": 0,
+  "priceBoundCny": "0.500000",
+  "priceBoundMeaning": "conservative reservation estimate, not an official byte-token or billing guarantee",
+  "static": {
+    "controlTypecheck": "passed",
+    "guardStrictTypecheck": "passed",
+    "lint": "passed",
+    "diffCheck": "passed"
+  },
+  "independentReview": "root arranges",
+  "sha256": {
+    "tooling/local/one-shot-smoke-guard.ts": "247e1d6f0a85f0d2443a1426487562112c193453b21ef21bca58e664a6d828e4",
+    "tooling/one-shot-smoke-guard.test.ts": "ed063d36e3137e5d0df945bfeb17ee4a5269c0502eb939618727f85e52fa1932",
+    "services/control/src/bridge/openscience/role-runtime.ts": "ca41835da5b8eb4d26e0e2ad8e1545fa2a84a59d49ae5229d991da89f494c0a3",
+    "services/control/test/runtime-smoke-gateway.test.ts": "249ff15a2fb53547b78397b581d17873025816027f52f23f4e23c6b79c451be2"
+  }
+}

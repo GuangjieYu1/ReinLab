@@ -1,0 +1,26 @@
+{
+  "fixtureOnly": true,
+  "providerCalls": 1,
+  "requestModels": [
+    "fixture"
+  ],
+  "rows": [
+    {
+      "state": "running",
+      "ended_at": null,
+      "phase": "accepted",
+      "cursor": "6",
+      "usage_uncertain": false,
+      "usage_count": 0
+    }
+  ],
+  "logs": [
+    {
+      "type": "server.ready",
+      "schemaVersion": 1,
+      "url": "http://127.0.0.1:57405/",
+      "pid": 36682,
+      "version": "2.0.150"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+[
+  {
+    "file": "green/full-node22.json",
+    "passed": 1385,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "file": "green/data-green.json",
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "file": "green/files-green.json",
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0
+  },
+  {
+    "file": "green/native-ledger.json",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "file": "green/full-node24.json",
+    "passed": 1385,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "file": "green/papers-green.json",
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "file": "green/cleanup-final.json",
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "file": "green/pre-freeze-security.json",
+    "passed": 16,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "file": "green/security-stage-green.json",
+    "passed": 12,
+    "failed": 0,
+    "skipped": 0
+  }
+]

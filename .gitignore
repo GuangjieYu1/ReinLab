@@ -4,3 +4,32 @@ dist/
 .DS_Store
 reference-clips/
 previews/
+
+# 本地环境变量；.env.example 需要提交，作为配置说明。
+.env
+.env.local
+.env.*.local
+
+# iOS 原生工程的构建产物（由 Capacitor 生成，不进版本库）。
+ios/App/build/
+ios/App/DerivedData/
+ios/App/output/
+
+# 大体积或临时产物：走查录像、宣传素材、MV 工程、对话导出（2026-10-27 基线时排除）
+design/walkthroughs/**/*.mp4
+design/walkthroughs/**/*.webm
+design/walkthroughs/**/raw/
+promo/
+mv-platinum-ink/
+Claude outputs/
+README-1.md
+# Supabase CLI local state can include development credentials.
+infra/supabase/.temp/
+infra/supabase/.branches/
+.local/
+
+.artifacts/
+
+
+# 统一用 pnpm：npm 的锁文件不再进版本库（2026-10-29 集成）。
+package-lock.json

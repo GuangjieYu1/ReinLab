@@ -1,0 +1,27 @@
+{
+  "realService": true,
+  "baseUrl": "http://127.0.0.1:3000",
+  "endpoint": "/api/generate/scene-content",
+  "callCount": 1,
+  "status": 200,
+  "state": "generated",
+  "courseCreationEndpointCalled": false,
+  "costCny": null,
+  "costStatus": "服务未返回费用，未知，不记0",
+  "modelOverride": false,
+  "durationMs": 109252,
+  "effectiveOutlineType": "interactive",
+  "widgetType": "simulation",
+  "htmlBytes": 32426,
+  "htmlSha256": "9e0055ea44a640c0eec6bb16cab58e16e9725c66fac8707a55692d609303cc43",
+  "htmlComplete": true,
+  "externalScriptUrls": [
+    "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js",
+    "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  ],
+  "hasBase": false,
+  "hasForm": false,
+  "hasWindowTop": false,
+  "providerCallCount": null,
+  "callCountScope": "生成HTTP请求次数；服务内部模型重试/用量未知"
+}

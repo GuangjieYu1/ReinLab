@@ -1,0 +1,23 @@
+{
+  "task": "P1-06",
+  "role": "independent-test-continuation",
+  "verifiedAt": "2026-10-19T05:37:15.808Z",
+  "node": "v22.23.3",
+  "command": "pnpm exec vitest run services/control/test/gates.test.ts --reporter=json --outputFile=evidence/P1-06/independent-recheck-report.json",
+  "exitCode": 0,
+  "total": 46,
+  "passed": 46,
+  "failed": 0,
+  "success": true,
+  "sourceSha256": {
+    "services/control/src/gates/index.ts": "b9f594e779bc266e73510cdbe90d0ae7ceb0a6e709ea1e806ce1ff45adfa6593",
+    "services/control/src/api/gates.ts": "204b98756ae99edf8bbee96563abaad9a222b29d4f85c5ab8d99d8ab39dec4bd",
+    "services/control/src/api/app.ts": "5c142a6af1baae99e0298a2d447d95fde4620609690016e8f73b7ed7f6dcbf0f",
+    "packages/contracts/src/index.ts": "204c6621c5e1ef68a2441b4d1a8eb66d63be67d368c700f55386e421a835c538",
+    "infra/supabase/migrations/202610190004_gate_chain.sql": "c8795480bbdc584c7eb5789a644698f2b7c8690cf3dd512d15d4a33b566a7ab6",
+    "infra/supabase/migrations/202610190005_gate_revision.sql": "6af2942cf92986eb6b3bfd52f79b6b978736657a9e6d721a66af6606348e696c",
+    "services/control/test/gates.test.ts": "640461e0ffd81c8f366aee227bdba18d6fbdeca895b7044348c9ea3824c39bd5"
+  },
+  "historicalHashLimitation": "Inherited 62-case report contains no source hashes; current hashes were checked before and after this 46-case rerun and are unchanged. No claim of historical hash equality.",
+  "implementationChanged": false
+}

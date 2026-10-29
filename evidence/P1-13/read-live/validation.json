@@ -1,0 +1,41 @@
+{
+  "realModelRequests": 0,
+  "directed": {
+    "passed": 30,
+    "failed": 0,
+    "skipped": 0,
+    "report": "read-final-all-directed-v2.json"
+  },
+  "nativeAfterWebBuild": {
+    "passed": 31,
+    "failed": 0,
+    "skipped": 0,
+    "report": "read-native-after-build.json"
+  },
+  "tReg": {
+    "passed": 20,
+    "failed": 0,
+    "report": "t-reg-report.json"
+  },
+  "readBrowser": {
+    "passed": 7,
+    "failed": 0,
+    "syntheticStudyData": true,
+    "nativeRuntime": false,
+    "report": "browser/report.json"
+  },
+  "inboxBrowser": {
+    "passed": 9,
+    "failed": 0,
+    "report": "inbox-regression/report.json"
+  },
+  "securityScannerFixtures": {
+    "passed": 14,
+    "failed": 0,
+    "realCredentialReads": 0
+  },
+  "typescript": "passed",
+  "boundaries": "passed",
+  "independentSecurityAndMigration": "read-security-final.md",
+  "finalHeadCI": "See PR19 checks; do not treat preflight full reports as final-head CI."
+}

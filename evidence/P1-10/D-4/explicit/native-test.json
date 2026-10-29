@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "timestamp": "2026-10-20T02:27:29.466Z",
+  "nativeVersion": "2.0.150",
+  "nativeBinary": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/account-runtime/node_modules/.bin/openscience",
+  "provider": "test-only loopback OpenAI-compatible fixture",
+  "realModelValidated": false,
+  "realModelRequests": 0,
+  "realModelCost": 0,
+  "providerRequests": 42,
+  "observerRequests": 0,
+  "observations": [
+    {
+      "marker": "role1-alpha",
+      "runID": "run_5f1aff8ee42dc6ff52ab82c68bc567f5c6e12941c5fdce57cf7d654c89e02650",
+      "state": "completed",
+      "providerRequests": 2
+    },
+    {
+      "marker": "role1-beta",
+      "runID": "run_834c7b4a94c51fe5daf72eda479e9dc0f81b4a0b870e09a7856579ae6414380b",
+      "state": "completed",
+      "providerRequests": 4
+    },
+    {
+      "case": "T-ROLE1",
+      "actualModelHTTP": true,
+      "alphaRequestCount": 2,
+      "betaRequestCount": 2,
+      "isolatedPromptsAndMemory": true
+    },
+    {
+      "marker": "role2-positive",
+      "runID": "run_878443e10774c3de032261ed1d39a93b650cff4ef18ebc5c7f420f01e405b996",
+      "state": "completed",
+      "providerRequests": 7
+    },
+    {
+      "marker": "role2-escape-0",
+      "runID": "run_23ce651151f324c5d52f83e7c3dace7d9fcf6fb699de01fdec12bcc00159f9ca",
+      "state": "completed",
+      "providerRequests": 10
+    },
+    {
+      "marker": "role2-escape-1",
+      "runID": "run_7a54e32b13dba83b7ebd29b18a1d5d584d03ca3c9f94742b153aa908bef500c9",
+      "state": "completed",
+      "providerRequests": 13
+    },
+    {
+      "marker": "role2-escape-2",
+      "runID": "run_4c99a160ea4dbf0029a567a41dd0bd4e3582bf0f8468e0200e5a5e331defe80e",
+      "state": "completed",
+      "providerRequests": 16
+    },
+    {
+      "marker": "role2-escape-3",
+      "runID": "run_c77c6b2c9fdcd0e79dc49357c5cc54681b239bb41a8253318459c1252fbae21b",
+      "state": "completed",
+      "providerRequests": 19
+    },
+    {
+      "marker": "role2-escape-4",
+      "runID": "run_d5eef32387ceabfb48284263534512a34d6c159b2f20fd5071131fd7eb93491b",
+      "state": "completed",
+      "providerRequests": 22
+    },
+    {
+      "case": "T-ROLE2",
+      "allowedDossierRead": true,
+      "blockedCrossRoleAndCanonicalEscapes": 5,
+      "leakedSentinels": 0
+    },
+    {
+      "case": "T-ROLE2-AGENTS",
+      "createAndPromptRejected": true,
+      "modelRequestDelta": 0
+    },
+    {
+      "case": "T-ROLE2-template-file",
+      "preparationRejected": true,
+      "modelRequestDelta": 0,
+      "leakedCrossRoleMemory": false
+    },
+    {
+      "case": "T-ROLE2-template-env",
+      "preparationRejected": true,
+      "modelRequestDelta": 0,
+      "leakedCrossRoleMemory": false
+    },
+    {
+      "marker": "role3-default-denials",
+      "runID": "run_11ce13a9ab7591b4db0393603f98591f1b84d9e77a25b069c8053d600790aad9",
+      "state": "completed",
+      "providerRequests": 25
+    },
+    {
+      "case": "T-ROLE3",
+      "forcedTools": [
+        "bash",
+        "write",
+        "webfetch",
+        "todowrite"
+      ],
+      "forbiddenToolsOffered": false,
+      "fileSideEffects": 0,
+      "observerRequests": 0
+    },
+    {
+      "marker": "role3-write-positive",
+      "runID": "run_8d33206e02cd433487ac0f54f01ed52830d871c7a1bbddc6bb3fd140f27236c8",
+      "state": "completed",
+      "providerRequests": 28
+    },
+    {
+      "marker": "role3-write-outside-target",
+      "runID": "run_5ac0d4063d53fa458a032cb1f4f232c023115d35a30c845c60c55de323a5154b",
+      "state": "completed",
+      "providerRequests": 31
+    },
+    {
+      "marker": "role3-edit-alias",
+      "runID": "run_75edde666c05bae590a4d34c6ae46eb0a799e9925f0deb6018599f4ad780ba30",
+      "state": "completed",
+      "providerRequests": 34
+    },
+    {
+      "case": "T-ROLE3-write",
+      "authorizedWriteExecuted": true,
+      "outsideTargetWriteBlocked": true,
+      "ungrantedEditAliasBlocked": true
+    },
+    {
+      "marker": "role4-forced-task-false",
+      "runID": "run_f0812bfbf260d06bf3f096ed4ce8e3d9ce1ba4702ed2379e9b754b68e443c970",
+      "state": "completed",
+      "providerRequests": 37
+    },
+    {
+      "case": "T-ROLE4",
+      "testDelegationEnabled": false,
+      "taskOffered": false,
+      "childSessions": 0,
+      "injectedPartsAndAgentRejected": true,
+      "injectionModelRequestDelta": 0
+    },
+    {
+      "marker": "role4-forced-task-true",
+      "runID": "run_cb3c5bda84b99c8e8bce62449a4350261757b3c6e59ec5d4b06b394049371075",
+      "state": "completed",
+      "providerRequests": 40
+    },
+    {
+      "case": "T-ROLE4",
+      "testDelegationEnabled": true,
+      "taskOffered": false,
+      "childSessions": 0,
+      "injectedPartsAndAgentRejected": true,
+      "injectionModelRequestDelta": 0
+    },
+    {
+      "marker": "role5-idempotency",
+      "runID": "run_51b0e6339783ff8031714c820558a9e552fdb6d97042d778d32b71705d5676d1",
+      "state": "completed",
+      "providerRequests": 42
+    },
+    {
+      "marker": "role5-replay",
+      "replaySameRunID": true,
+      "replaySameAcceptedAt": true,
+      "providerRequestDelta": 0
+    },
+    {
+      "case": "native-project-files",
+      "alpha": [
+        ".role-policy.json",
+        "AGENTS.md",
+        "openscience.json"
+      ],
+      "beta": [
+        ".role-policy.json",
+        "AGENTS.md",
+        "openscience.json"
+      ]
+    }
+  ]
+}

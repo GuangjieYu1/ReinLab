@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "nodeVersion": "v22.23.3",
+  "realAuthSignup": false,
+  "realDockerUsed": false,
+  "pgFixtureTransactionsRollback": true,
+  "observations": [
+    {
+      "case": "db-url-suffix",
+      "suffix": "?host=203.0.113.7",
+      "rejected": true
+    },
+    {
+      "case": "db-url-suffix",
+      "suffix": "?port=6543",
+      "rejected": true
+    },
+    {
+      "case": "db-url-suffix",
+      "suffix": "?sslmode=require",
+      "rejected": true
+    },
+    {
+      "case": "db-url-suffix",
+      "suffix": "#fragment",
+      "rejected": true
+    },
+    {
+      "case": "timeout-zero-exit",
+      "code": "LOCAL_COMMAND_TIMEOUT"
+    },
+    {
+      "case": "child-error-sanitized",
+      "passed": true
+    },
+    {
+      "case": "hardlink-fifo-private-file",
+      "rejected": true
+    },
+    {
+      "case": "ancestor-symlink-private-file",
+      "rejected": true
+    },
+    {
+      "case": "private-env-roundtrip",
+      "passed": true
+    },
+    {
+      "case": "business-role-queue-denials",
+      "denied": 3
+    },
+    {
+      "case": "worker-direct-access-denied",
+      "denied": 3
+    },
+    {
+      "case": "stale-reclaimed-lease",
+      "oldWorkerDenied": true,
+      "foreignAccountDenied": true,
+      "duplicateAckDenied": true
+    },
+    {
+      "case": "eighth-live-then-expired-lease",
+      "livePreserved": true,
+      "expiredTerminal": true
+    },
+    {
+      "case": "queue-error-code-injection",
+      "rejected": true,
+      "leasePreserved": true
+    },
+    {
+      "case": "unsafe-worker-startup-pool",
+      "remainingConnections": 0
+    },
+    {
+      "case": "queue-retry-cooldown",
+      "immediateReclaim": false,
+      "laterAttempt": 2
+    }
+  ]
+}

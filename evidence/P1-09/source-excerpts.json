@@ -1,0 +1,31 @@
+{
+  "license": "Apache-2.0",
+  "source": "synthetic-sciences/openscience",
+  "purpose": "只读接口研究摘录，不导入或执行",
+  "excerpts": [
+    {
+      "path": "backend/cli/src/server/routes/runtime.ts",
+      "startLine": 118,
+      "text": "        // The public runtime remains Research-only.\n        if (c.req.header(\"x-openscience-dev-agent\")) {\n          return c.json(\n            { error: \"dev_agent_unavailable\", message: \"The requested development agent is unavailable.\" },\n            400,\n          )\n        }\n        const agent = \"research\"\n",
+      "sha256": "e9d7c24776923e374d0d9e78acb109d8f58dd7f91cf72ed4743e3151a4ad19d8"
+    },
+    {
+      "path": "backend/cli/src/session/instruction.ts",
+      "startLine": 15,
+      "text": "const FILES = [\n  \"AGENTS.md\",\n  \"CLAUDE.md\",\n  \"CONTEXT.md\", // deprecated\n]\n\nconst SOURCE_BYTES = 256 * 1024\nconst TOTAL_BYTES = 1024 * 1024\nconst SOURCE_COUNT = 64\n\n",
+      "sha256": "856b57a877d68707de796872e23bb87b15f3a14d006f17f2b7796267e3f72e3c"
+    },
+    {
+      "path": "backend/cli/src/session/instruction.ts",
+      "startLine": 187,
+      "text": "  export async function systemPaths() {\n    const config = await Config.get()\n    const paths = new Set<string>()\n\n    if (!Flag.OPENSCIENCE_DISABLE_PROJECT_CONFIG) {\n      for (const file of FILES) {\n        const matches = await Filesystem.findUp(file, Instance.directory, Instance.worktree)\n        if (matches.length > 0) {\n          matches.slice(0, SOURCE_COUNT - paths.size).forEach((p) => paths.add(path.resolve(p)))\n          break\n        }\n      }\n    }\n\n    for (const file of globalFiles()) {\n      if (paths.size >= SOURCE_COUNT) break\n      if (await Bun.file(file).exists()) {\n        paths.add(path.resolve(file))\n        break\n      }\n    }\n\n    if (config.instructions) {\n      for (let instruction of config.instructions) {\n        if (paths.size >= SOURCE_COUNT) break\n        if (instruction.startsWith(\"https://\") || instruction.startsWith(\"http://\")) continue\n        if (instruction.startsWith(\"~/\")) {\n          instruction = path.join(Global.Path.home, instruction.slice(2))\n        }\n        const matches = path.isAbsolute(instruction)\n          ? await globUp(\n              path.basename(instruction),\n              path.dirname(instruction),\n              path.dirname(instruction),\n              SOURCE_COUNT - paths.size,\n            )\n          : await resolveRelative(instruction, SOURCE_COUNT - paths.size)\n        matches.slice(0, SOURCE_COUNT - paths.size).forEach((p) => paths.add(path.resolve(p)))\n      }\n    }\n\n    return paths\n  }\n\n",
+      "sha256": "c348fa8e5efa9790e1cbd94a89f3d36a6cdb181d74a535c6bd02d59e22ad3b6b"
+    },
+    {
+      "path": "backend/cli/src/session/instruction.ts",
+      "startLine": 231,
+      "text": "  export async function system() {\n    const config = await Config.get()\n    const paths = await systemPaths()\n    const sources = [\n      ...Array.from(paths).map((filepath) => ({ label: filepath, read: () => local(filepath) })),\n      ...(config.instructions ?? [])\n        .filter((instruction) => instruction.startsWith(\"https://\") || instruction.startsWith(\"http://\"))\n        .map((url) => ({ label: url, read: () => remote(url) })),\n    ].slice(0, SOURCE_COUNT)\n    const entries = await Promise.all(\n      sources.map((source) =>\n        source\n          .read()\n          .catch(() => \"\")\n          .then((content) => (content ? \"Instructions from: \" + source.label + \"\\n\" + content : \"\")),\n      ),\n    )\n    return bounded(entries)\n  }\n\n",
+      "sha256": "acdff2fc167b01ef0f1e45ce115c6d248e3b72ff513c425a57843af5aff89872"
+    }
+  ]
+}

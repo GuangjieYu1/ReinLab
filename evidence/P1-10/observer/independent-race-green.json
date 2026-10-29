@@ -1,0 +1,328 @@
+{
+  "reviewer": "role_independent_test",
+  "node": "v22.23.3",
+  "realModelRequests": 0,
+  "realKeyReads": 0,
+  "passed": 30,
+  "total": 30,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "replay advancing past the first snapshot refreshes before any synchronization",
+          "status": "passed",
+          "title": "replay advancing past the first snapshot refreshes before any synchronization",
+          "duration": 9.893750000000011,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "terminal before subscribe with newer replayable history consumes all events without gap or unknown synchronization",
+          "status": "passed",
+          "title": "terminal before subscribe with newer replayable history consumes all events without gap or unknown synchronization",
+          "duration": 0.8165000000000191,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "a fresh snapshot actually behind the committed replay cursor remains a stable failure",
+          "status": "passed",
+          "title": "a fresh snapshot actually behind the committed replay cursor remains a stable failure",
+          "duration": 0.3650419999999883,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792577545581,
+      "endTime": 1792577545592.365,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/independent-observer-stale-snapshot.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "snapshots before replay and subscribes from the successfully committed cursor",
+          "status": "passed",
+          "title": "snapshots before replay and subscribes from the successfully committed cursor",
+          "duration": 3.9055840000000046,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "awaits each ingest transaction before advancing or opening subscription",
+          "status": "passed",
+          "title": "awaits each ingest transaction before advancing or opening subscription",
+          "duration": 53.555041999999986,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "stops after committing replay terminal runtime.completed",
+          "status": "passed",
+          "title": "stops after committing replay terminal runtime.completed",
+          "duration": 0.3670840000000055,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "stops after committing replay terminal runtime.failed",
+          "status": "passed",
+          "title": "stops after committing replay terminal runtime.failed",
+          "duration": 0.2513749999999959,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "stops after committing replay terminal runtime.cancelled",
+          "status": "passed",
+          "title": "stops after committing replay terminal runtime.cancelled",
+          "duration": 0.21258299999999508,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not mistake another run terminal for this run ending",
+          "status": "passed",
+          "title": "does not mistake another run terminal for this run ending",
+          "duration": 0.14587500000001796,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not stop on malformed terminal properties that mapping rejects",
+          "status": "passed",
+          "title": "does not stop on malformed terminal properties that mapping rejects",
+          "duration": 0.3843750000000057,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "synchronizes matching snapshot terminal without manufacturing an event sequence",
+          "status": "passed",
+          "title": "synchronizes matching snapshot terminal without manufacturing an event sequence",
+          "duration": 0.5095420000000104,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "another run terminal snapshot does not terminate this observer",
+          "status": "passed",
+          "title": "another run terminal snapshot does not terminate this observer",
+          "duration": 1.146208999999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "EOF reconnects at most three times with 500/1000ms backoff and committed replay",
+          "status": "passed",
+          "title": "EOF reconnects at most three times with 500/1000ms backoff and committed replay",
+          "duration": 2.9961669999999856,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "expired replay uses new snapshot and transactional gap cursor before retry",
+          "status": "passed",
+          "title": "expired replay uses new snapshot and transactional gap cursor before retry",
+          "duration": 1.2469999999999857,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "expired subscribe uses new snapshot and transactional gap cursor before retry",
+          "status": "passed",
+          "title": "expired subscribe uses new snapshot and transactional gap cursor before retry",
+          "duration": 0.8742500000000177,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "cursor ahead from replay stops without gap or cursor rollback",
+          "status": "passed",
+          "title": "cursor ahead from replay stops without gap or cursor rollback",
+          "duration": 0.16849999999999454,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "cursor ahead from subscribe stops without gap or cursor rollback",
+          "status": "passed",
+          "title": "cursor ahead from subscribe stops without gap or cursor rollback",
+          "duration": 0.21825000000001182,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "ordinary reader exceptions retry with stable code and never expose error text",
+          "status": "passed",
+          "title": "ordinary reader exceptions retry with stable code and never expose error text",
+          "duration": 0.5988330000000133,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "sink transaction failure stops without replaying or treating it as a reader retry",
+          "status": "passed",
+          "title": "sink transaction failure stops without replaying or treating it as a reader retry",
+          "duration": 0.6951669999999979,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "already aborted observer does no work",
+          "status": "passed",
+          "title": "already aborted observer does no work",
+          "duration": 0.14645799999999554,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "aborting backoff ends promptly without recording a service fault",
+          "status": "passed",
+          "title": "aborting backoff ends promptly without recording a service fault",
+          "duration": 0.3750839999999869,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refreshes pending snapshot immediately before every replay asked event",
+          "status": "passed",
+          "title": "refreshes pending snapshot immediately before every replay asked event",
+          "duration": 0.3872079999999869,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refreshes pending snapshot immediately before every subscribe asked event",
+          "status": "passed",
+          "title": "refreshes pending snapshot immediately before every subscribe asked event",
+          "duration": 0.5098749999999939,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "question asked also refreshes pending snapshot and replay synchronization uses the fresh value",
+          "status": "passed",
+          "title": "question asked also refreshes pending snapshot and replay synchronization uses the fresh value",
+          "duration": 0.23683400000001598,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not roll a committed cursor backwards even if a gap recovery snapshot is older",
+          "status": "passed",
+          "title": "does not roll a committed cursor backwards even if a gap recovery snapshot is older",
+          "duration": 0.1324160000000063,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "snapshot terminal for the same run ID but another session does not terminate observation",
+          "status": "passed",
+          "title": "snapshot terminal for the same run ID but another session does not terminate observation",
+          "duration": 0.23879199999998946,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "wrong session snapshot is a stable failure without ingestion or retry",
+          "status": "passed",
+          "title": "wrong session snapshot is a stable failure without ingestion or retry",
+          "duration": 0.17629199999998946,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "aborting after a completed ingest prevents further replay and subscription work",
+          "status": "passed",
+          "title": "aborting after a completed ingest prevents further replay and subscription work",
+          "duration": 0.21891600000000722,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "trusted ingestion CURSOR_GAP recovers only through fresh snapshot and durable gap",
+          "status": "passed",
+          "title": "trusted ingestion CURSOR_GAP recovers only through fresh snapshot and durable gap",
+          "duration": 1.2609580000000165,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "trusted ingestion CURSOR_EXPIRED recovers only through fresh snapshot and durable gap",
+          "status": "passed",
+          "title": "trusted ingestion CURSOR_EXPIRED recovers only through fresh snapshot and durable gap",
+          "duration": 0.41150000000001796,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792577545581,
+      "endTime": 1792577545652.4116,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/control/test/observer.test.ts"
+    }
+  ]
+}

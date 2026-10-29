@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "historicalRedFindings": [
+    {
+      "case": "hardlink-read-before-trusted-global-plugin",
+      "observed": "read completed; cross-dossier fixture sentinel reached model HTTP"
+    },
+    {
+      "case": "ungranted-edit-after-read-before-trusted-global-plugin",
+      "observed": "edit completed despite only read/write grant"
+    },
+    {
+      "case": "prompt-stall-before-deadline",
+      "observed": "still pending after 800ms, expected OS_UNAVAILABLE/503"
+    }
+  ],
+  "timestamp": "2026-10-20T02:27:29.236Z",
+  "nativeVersion": "2.0.150",
+  "nodeVersion": "v22.23.3",
+  "nativeBinary": "/Users/guangjieyu/.codex/worktrees/research-foundation/ReinLab/services/account-runtime/node_modules/.bin/openscience",
+  "provider": "test-only loopback fixture",
+  "realModelValidated": false,
+  "realModelRequests": 0,
+  "realModelCost": 0,
+  "providerRequests": 27,
+  "observerRequests": 0,
+  "observations": [
+    {
+      "case": "descriptor-and-path-injection",
+      "forgedDescriptors": 3,
+      "roleIds": 6,
+      "writeTargets": 8,
+      "rejected": true
+    },
+    {
+      "case": "managed-file-tamper",
+      "files": 3,
+      "contentHardlinkSymlinkRejected": true
+    },
+    {
+      "case": "ancestor-git-and-directory-substitution",
+      "allRejected": true
+    },
+    {
+      "case": "session-and-envelope",
+      "foreignOperations": 4,
+      "extraFields": 5,
+      "modelRequestDelta": 0
+    },
+    {
+      "case": "independent-wide-native-grant",
+      "state": "completed",
+      "tools": [
+        {
+          "tool": "read",
+          "status": "error"
+        },
+        {
+          "tool": "read",
+          "status": "error"
+        }
+      ]
+    },
+    {
+      "case": "wide-native-filesystem-grant",
+      "grantStatuses": [
+        200,
+        200
+      ],
+      "forcedReadCount": 2,
+      "successfulReads": 0
+    },
+    {
+      "case": "independent-exact-write",
+      "state": "completed",
+      "tools": [
+        {
+          "tool": "write",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "case": "independent-before-edit-read",
+      "state": "completed",
+      "tools": [
+        {
+          "tool": "read",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "case": "independent-exact-edit",
+      "state": "completed",
+      "tools": [
+        {
+          "tool": "read",
+          "status": "completed"
+        },
+        {
+          "tool": "edit",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "case": "independent-no-edit-read",
+      "state": "completed",
+      "tools": [
+        {
+          "tool": "read",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "case": "independent-no-edit-after-read",
+      "state": "completed",
+      "tools": [
+        {
+          "tool": "read",
+          "status": "completed"
+        },
+        {
+          "tool": "edit",
+          "status": "error"
+        }
+      ]
+    },
+    {
+      "case": "ungranted-edit-after-prior-read",
+      "successfulEdits": 0
+    },
+    {
+      "case": "independent-prefix-write",
+      "state": "completed",
+      "tools": [
+        {
+          "tool": "write",
+          "status": "error"
+        }
+      ]
+    },
+    {
+      "case": "exact-write-edit-and-symlink",
+      "writePositive": true,
+      "editPositive": true,
+      "prefixDenied": true,
+      "symlinkDeniedBeforeHTTP": true
+    },
+    {
+      "case": "independent-hardlink-read",
+      "state": "completed",
+      "tools": [
+        {
+          "tool": "read",
+          "status": "error"
+        }
+      ]
+    },
+    {
+      "case": "hardlink-read-attack",
+      "successfulReads": 0,
+      "sentinelReachedModel": false
+    },
+    {
+      "case": "cross-dossier-hardlink-read",
+      "successfulReads": 0
+    },
+    {
+      "case": "missing-required-global-plugin",
+      "sessionCreationDenied": true,
+      "promptDenied": true,
+      "promptRequests": 0
+    },
+    {
+      "case": "stalled-native-prompt",
+      "bounded": true,
+      "promptRequests": 1,
+      "requestIdPreserved": true,
+      "automaticRetries": 0
+    },
+    {
+      "case": "independent-hardlink-write",
+      "state": "completed",
+      "tools": [
+        {
+          "tool": "write",
+          "status": "error"
+        },
+        {
+          "tool": "edit",
+          "status": "error"
+        }
+      ]
+    },
+    {
+      "case": "outside-file-hardlink-write-edit",
+      "successfulWrites": 0,
+      "outsideFileUnchanged": true
+    }
+  ]
+}

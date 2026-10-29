@@ -1,0 +1,33 @@
+# Reading kernel profile: disable the base coding-agent tools so the model can
+# only reach ReinLab's reading tools. One row per base tool id.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+# 网页搜索/抓取保留：来源由模型自己选，控制面把宿主密钥留在本机。
+- id: tool-working-directory
+  disabled: true
+- id: plan-mode
+  disabled: true

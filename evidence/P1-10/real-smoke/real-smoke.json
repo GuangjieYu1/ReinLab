@@ -1,0 +1,392 @@
+{
+  "realInfrastructure": true,
+  "realModel": true,
+  "startedAt": "2026-10-21T10:26:09.537Z",
+  "budgetCny": 1,
+  "completed": false,
+  "providerInvoiceReconciled": false,
+  "accountId": "60af9cc6-d0c3-4ecc-91e3-46baaba824b7",
+  "dossierId": "fc051d47-7524-475f-b423-ccae07345e1d",
+  "estimateId": "590e36ca-d8c4-46e6-a304-a2a216addd15",
+  "submittedAt": "2026-10-21T10:26:16.567Z",
+  "runId": "d5dfbb71-3a28-4139-804b-c3caeed27aed",
+  "run": {
+    "state": "failed",
+    "ended_at": "2026-10-21T10:26:17.660Z",
+    "spent_cny": "0.000000"
+  },
+  "publicRun": {
+    "id": "d5dfbb71-3a28-4139-804b-c3caeed27aed",
+    "dossierId": "fc051d47-7524-475f-b423-ccae07345e1d",
+    "roleId": "research-read",
+    "mode": "read",
+    "state": "failed",
+    "budgetCny": "1.000000",
+    "spentCny": "0.000000",
+    "endedAt": "2026-10-21T10:26:17.660Z",
+    "submissionPhase": "accepted",
+    "usageUnknown": true
+  },
+  "guard": {
+    "forwardCount": 0,
+    "bytes": 0,
+    "priceBound": "0.500000",
+    "status": "ready"
+  },
+  "failureStage": "read-only-observation",
+  "code": "SMOKE_CHECK_FAILED",
+  "finishedAt": "2026-10-21T10:26:17.406Z",
+  "binding": {
+    "session_id": "ses_rl5ae8417275464ebd9f2af4679fb88901",
+    "request_id": "97d6de34-94ed-4f4d-ab49-eb41bf9702fe",
+    "phase": "accepted",
+    "cursor": "9",
+    "receipt": {
+      "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+      "acceptedAt": 1792578377428
+    },
+    "pricing_context": {
+      "window": "offpeak",
+      "currency": "CNY",
+      "validFrom": 1792576800000,
+      "usdCnyRate": "7.2",
+      "validUntil": 1792598399000,
+      "pricingVersion": "deepseek-official-2026-10-20",
+      "requestedModel": "deepseek/deepseek-v4-flash"
+    },
+    "usage_uncertain": true
+  },
+  "usage": [],
+  "events": [
+    {
+      "seq": "2",
+      "at": "2026-10-21T10:26:17.156Z",
+      "kind": "gate",
+      "action": "budget_allocated",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "period": "2026-10-01",
+        "parentId": "ef250faf-0352-461f-956b-dfa3bce0efed",
+        "amountCny": "1.000000",
+        "quotaRuns": 0,
+        "gpuSeconds": 0,
+        "allocationId": "54fdb0b1-d1e9-4798-b4bc-5ca21cae4a1e",
+        "accountReservation": false
+      }
+    },
+    {
+      "seq": "3",
+      "at": "2026-10-21T10:26:17.156Z",
+      "kind": "gate",
+      "action": "run_queued",
+      "risk": "write",
+      "cost_cny": null,
+      "payload": {
+        "model": "deepseek/deepseek-v4-flash",
+        "budgetCny": "1.000000",
+        "confirmed": true,
+        "quotaRuns": 0,
+        "estimateId": "590e36ca-d8c4-46e6-a304-a2a216addd15",
+        "gpuSeconds": 0,
+        "benchVersion": "1.0.0",
+        "effectiveConfigDigest": "b28fc714f7f7fd5a97e394a4f60f87959ca9adbf39f964f1574f5678e2c17ee3"
+      }
+    },
+    {
+      "seq": "4",
+      "at": "2026-10-21T10:26:17.390Z",
+      "kind": "gate",
+      "action": "runtime_admitted",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "requestID": "97d6de34-94ed-4f4d-ab49-eb41bf9702fe",
+        "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901",
+        "definitionHash": "111207a0791176abb7581af6876de4d4d6e4e218f49498986bf0213c3f067815"
+      }
+    },
+    {
+      "seq": "5",
+      "at": "2026-10-21T10:26:17.605Z",
+      "kind": "gate",
+      "action": "runtime_accepted",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "source": {
+          "time": 1792578377433,
+          "type": "runtime.accepted",
+          "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+          "sequence": 1,
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        },
+        "properties": {
+          "effort": "normal",
+          "acceptedAt": 1792578377428
+        }
+      }
+    },
+    {
+      "seq": "6",
+      "at": "2026-10-21T10:26:17.617Z",
+      "kind": "message",
+      "action": "message_updated",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "source": {
+          "time": 1792578377539,
+          "type": "message.updated",
+          "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+          "sequence": 2,
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        },
+        "properties": {
+          "info": {
+            "id": "msg_15dff56d40018yHaMTbXnpDOUY",
+            "role": "user",
+            "time": {
+              "created": 1792578377459
+            },
+            "agent": "research",
+            "model": {
+              "modelID": "deepseek-v4-flash",
+              "providerID": "deepseek"
+            },
+            "effort": "normal",
+            "internal": {
+              "type": "prompt",
+              "epoch": "msg_15dff56d40018yHaMTbXnpDOUY"
+            },
+            "inference": {
+              "effort": "default",
+              "source": "byok"
+            },
+            "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901",
+            "delegation": false
+          }
+        }
+      }
+    },
+    {
+      "seq": "7",
+      "at": "2026-10-21T10:26:17.624Z",
+      "kind": "message",
+      "action": "part_text",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "source": {
+          "time": 1792578377570,
+          "type": "message.part.updated",
+          "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+          "sequence": 3,
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        },
+        "properties": {
+          "part": {
+            "id": "prt_15dff5730001eUxDtIzjsWobyj",
+            "text": "这是后端链路冒烟。请只回复“链路已通”，不要调用任何工具或提出问题。",
+            "type": "text",
+            "messageID": "msg_15dff56d40018yHaMTbXnpDOUY",
+            "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+          }
+        }
+      }
+    },
+    {
+      "seq": "8",
+      "at": "2026-10-21T10:26:17.630Z",
+      "kind": "message",
+      "action": "part_text",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "source": {
+          "time": 1792578377570,
+          "type": "message.part.updated",
+          "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+          "sequence": 4,
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        },
+        "properties": {
+          "part": {
+            "id": "prt_98d4780bdc08f1c5b04851393d",
+            "text": "",
+            "type": "text",
+            "ignored": true,
+            "metadata": {
+              "openscience.loop": {
+                "type": "compaction-reset",
+                "version": 2,
+                "transaction": "msg_15dff56d40018yHaMTbXnpDOUY"
+              }
+            },
+            "messageID": "msg_15dff56d40018yHaMTbXnpDOUY",
+            "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901",
+            "synthetic": true
+          }
+        }
+      }
+    },
+    {
+      "seq": "9",
+      "at": "2026-10-21T10:26:17.636Z",
+      "kind": "gate",
+      "action": "session_status",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "source": {
+          "time": 1792578377570,
+          "type": "session.status",
+          "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+          "sequence": 5,
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        },
+        "properties": {
+          "status": {
+            "type": "busy"
+          },
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        }
+      }
+    },
+    {
+      "seq": "10",
+      "at": "2026-10-21T10:26:17.642Z",
+      "kind": "error",
+      "action": "session_error",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "source": {
+          "time": 1792578377570,
+          "type": "session.error",
+          "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+          "sequence": 6,
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        },
+        "properties": {
+          "error": {
+            "data": {
+              "message": "Model deepseek/deepseek-v4-flash is not available. Add your own API key (`openscience keys add`) or connect a provider in Customize → Models, then choose a model."
+            },
+            "name": "UnknownError"
+          },
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        }
+      }
+    },
+    {
+      "seq": "11",
+      "at": "2026-10-21T10:26:17.649Z",
+      "kind": "gate",
+      "action": "session_status",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "source": {
+          "time": 1792578377570,
+          "type": "session.status",
+          "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+          "sequence": 7,
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        },
+        "properties": {
+          "status": {
+            "type": "idle"
+          },
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        }
+      }
+    },
+    {
+      "seq": "12",
+      "at": "2026-10-21T10:26:17.654Z",
+      "kind": "gate",
+      "action": "session_idle",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "source": {
+          "time": 1792578377570,
+          "type": "session.idle",
+          "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+          "sequence": 8,
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        },
+        "properties": {
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        }
+      }
+    },
+    {
+      "seq": "13",
+      "at": "2026-10-21T10:26:17.660Z",
+      "kind": "error",
+      "action": "runtime_failed",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "source": {
+          "time": 1792578377572,
+          "type": "runtime.failed",
+          "runID": "run_293a3c61be5bcac3ffdecffde5babec541ae5234eb07e7a4a1f83515d63b0580",
+          "sequence": 9,
+          "sessionID": "ses_rl5ae8417275464ebd9f2af4679fb88901"
+        },
+        "properties": {
+          "message": "[\n  {\n    \"origin\": \"number\",\n    \"code\": \"too_small\",\n    \"minimum\": 0,\n    \"inclusive\": false,\n    \"path\": [\n      \"internal\",\n      \"step\"\n    ],\n    \"message\": \"Too small: expected number to be >0\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "seq": "14",
+      "at": "2026-10-21T10:26:17.660Z",
+      "kind": "gate",
+      "action": "os_usage_settled",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "holdId": "49e17075-7e38-4739-88c7-80eeac7e663f",
+        "reason": "provider_usage_missing",
+        "source": "os_usage",
+        "requestId": "model-run:97d6de34-94ed-4f4d-ab49-eb41bf9702fe",
+        "overrunCny": "0.000000",
+        "reconciled": false,
+        "actualCostCny": null,
+        "reservationExcessCny": "0.000000"
+      }
+    },
+    {
+      "seq": "15",
+      "at": "2026-10-21T10:26:17.660Z",
+      "kind": "gate",
+      "action": "budget_paused",
+      "risk": null,
+      "cost_cny": null,
+      "payload": {
+        "reason": "USAGE_UNKNOWN",
+        "gpuLimit": 0,
+        "revision": 0,
+        "spentCny": "0.000000",
+        "budgetCny": "1.000000",
+        "quotaRuns": 0,
+        "gpuSeconds": 0,
+        "quotaLimit": 0
+      }
+    }
+  ],
+  "holds": [
+    {
+      "state": "unpriced",
+      "maximum_cny": "1.000000",
+      "actual_cny": null
+    }
+  ],
+  "evidenceCaptured": true,
+  "cleanupFailures": [],
+  "temporaryConfigurationCleaned": true
+}
