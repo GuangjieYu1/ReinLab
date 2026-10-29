@@ -83,6 +83,8 @@
 - `requestApproval` 的「有效卡」含 `pending` 与「已批准未执行」，续接那一轮不带 approvalId 也能直接执行。
 - 24 小时业务时限 + 收尾：`services/control/src/kernel/lifecycle.ts` 的 `reconcileAccount`，在读取收件箱时按账户核对。
 - 残留判定必须拿到「执行是否还活着」的判据（`isLive`），没有判据时只做超时收尾，绝不猜。
+- 收件箱统一承接（最小）：待办沿用 `/v1/approvals`（计划/问题/审批同一份记录）；报告走新增的
+  `GET /v1/reports`（任务终态、原因、已有成果层数/发现卡数），不需要「批准」才能结束任务。
 - 启动核对：`reconcileOnStartup` 在 `pnpm local:up` 起控制面之前用管理员连接跨账户跑
   （账户表对应用角色强制 RLS，应用进程列不出账户），把上一轮残留补成中断并留原因。
 

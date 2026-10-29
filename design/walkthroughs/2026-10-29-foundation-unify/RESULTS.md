@@ -71,3 +71,31 @@ pnpm local:up --real-models
 **请验 U5：** 从主目录用同一条命令起栈、原账号登录、进研究台并使用已验收的精读。不再依赖 `slim/frontend` 或 `slim/backend` checkout。合并未引入新变化，不要求再跑整套付费精读。
 
 **合入时核对：** 工作树与提交一致；`pnpm build` 通过；`pnpm test` 73 文件 / 671 用例全绿；整栈 `LOCAL_STACK_READY`，前端与控制面均从本 checkout 起，沿用原实例 `803a04fcd69a`（账号 19、档案/运行等业务数据未清空）。
+
+---
+
+## 第 2 项 运行生命周期 · 交 Claude 验收（分支 `codex/lifecycle-2`）
+
+**分支**：`codex/lifecycle-2`（从 `main` `7992266` 起）。spec 见 [SPEC-lifecycle-2.md](../../SPEC-lifecycle-2.md)。
+
+**启动**（在该分支上）：
+
+```
+cd /Users/guangjieyu/Documents/DeepSeekPlugin/ReinLab
+git switch codex/lifecycle-2
+pnpm local:up --real-models
+```
+
+页面仍是 <http://127.0.0.1:5183>。
+
+**已改的三条**（PRD 2.8 点名要去掉的）：
+1. 插件不再轮询等人：需要用户决定时把请求交给控制面就返回，这一轮结束。
+2. 等待时执行段真的让出：任务记 `waiting`，租约释放、进程退出（实测 `state=waiting` + 租约 released）。
+3. 回答/批准/驳回按同一会话续接，Agent 会继续执行（实测续接后确实再调了工具）。
+4. 业务时限 24 小时；超时关闭请求并把任务按中断收尾，留原因。
+5. 起栈时自动核对残留（实测输出 `LOCAL_RECONCILED interruptedRuns:1`）。
+6. 新增 `GET /v1/reports`：任务终态、原因、已有成果数量，供收件箱展示报告。
+
+**已知未闭环（不属本项范围）**：真实下载仍会被 `PAPERS_EGRESS_DENIED` 挡住——那是第 3 项要取消的来源域名白名单。所以 L3 的「批准后下载完成并出讲解」要等第 3 项落地才能真正走完。
+
+**请按 L1–L6 验收**（PRD 2.7），重点看 L2（离开页面后请求仍在、不因等待变拒绝）和 L3（在收件箱批准后原任务续上）。

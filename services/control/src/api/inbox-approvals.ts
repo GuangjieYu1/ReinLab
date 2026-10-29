@@ -117,6 +117,44 @@ export function registerApprovalInbox(
   });
 }
 
+/**
+ * 报告：一项任务结束后，收件箱要能看到结果、已有成果和原因（PRD 2.5 / L6）。
+ * 只列该账户已经落终态的任务，不要求「批准」才能结束。
+ */
+export function registerReports(app: Hono<ApiEnv>, db: Database) {
+  app.get("/v1/reports", (c) =>
+    db.withAccount(c.get("accountId"), async (client) => {
+      const rows = (
+        await client.query(
+          `select r.id "runId", r.dossier_id "dossierId", r.state, r.ended_at "endedAt",
+                  d.title "dossierTitle",
+                  (select e.payload->>'message' from event e
+                    where e.run_id=r.id and e.action in ('run.interrupted') order by e.seq desc limit 1) "reason",
+                  (select count(*)::int from event e
+                    where e.run_id=r.id and e.action='card_created' and e.payload->>'cardType'='layer') "layers",
+                  (select count(*)::int from event e
+                    where e.run_id=r.id and e.action='card_created' and e.payload->>'cardType'='finding') "findings"
+             from run r join dossier d on d.account_id=r.account_id and d.id=r.dossier_id
+            where r.account_id=$1 and r.state in ('completed','failed','cancelled','interrupted')
+            order by r.ended_at desc nulls last limit 20`,
+          [c.get("accountId")],
+        )
+      ).rows;
+      return c.json({
+        items: rows.map((row) => ({
+          runId: row.runId,
+          dossierId: row.dossierId,
+          dossierTitle: row.dossierTitle,
+          state: row.state,
+          endedAt: row.endedAt,
+          reason: row.reason ? String(row.reason) : null,
+          produced: { layers: row.layers, findings: row.findings },
+        })),
+      });
+    }),
+  );
+}
+
 /** Called by the runtime route for `/v1/approvals/:id/decide`. */
 export async function decideInboxCard(
   c: ApiContext,
