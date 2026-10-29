@@ -28,7 +28,7 @@ const ANIMS: { id: Anim; title: string; en: string; ref: string }[] = [
 const clock = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const END_TEXT: Record<NonNullable<RunView['endReason']>, string> = { completed: '已完成', rejected: '已停止 · 没有下载', cancelled: '已停止', budget: '预算用完，已暂停', abstract_only: '没拿到全文', failed: '出错停止' };
 // 讲解层没写满时后端给了照实的话（「讲解只生成了 N 层」），结束标题就用它，不写「已完成」。
-const runText = (r: RunView) => (r.endReason && (r.state === 'done' || r.state === 'cancelled' || r.state === 'failed') ? (r.endReason === 'completed' && r.message ? r.message : END_TEXT[r.endReason]) : RUN_TEXT[r.state]);
+const runText = (r: RunView) => (r.endReason && (r.state === 'done' || r.state === 'cancelled' || r.state === 'failed') ? (r.message && r.message.length <= 24 ? r.message : END_TEXT[r.endReason])  /* 后端给了简短的照实说法（如「审批已过期，可以重新开始」「讲解只生成了 N 层」）就用它当标题；长说明留在正文 */ : RUN_TEXT[r.state]);
 const RUN_TEXT: Record<RunView['state'], string> = { idle: '未开始', estimating: '正在预估', confirm: '等你确认预算', queued: '排队中', running: '运行中', waiting: '等你批准', done: '已完成', failed: '失败', cancelled: '已停止' };
 const active = (r: RunView) => r.state === 'queued' || r.state === 'running' || r.state === 'waiting';
 const money = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `¥${v < 0.1 ? v.toFixed(3) : v.toFixed(2)}`);

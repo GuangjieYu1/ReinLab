@@ -441,3 +441,43 @@ PLAYWRIGHT_MODULE=<…/playwright/index.mjs> node scripts/walkthrough/research-r
 4. （建议）澄清阶段也开放网页搜索 / 抓取。按纲领第 9 条，用不用由模型自己决定。
 
 **结论：精读核心功能已经可用，放行。** 接下来进入 B2（OpenScience 退役）。上面第 1～3 条在同一批里顺手修掉。
+
+---
+
+## 验收 run14（B2：OpenScience 退役，`c8c1331`）· 2026-10-29 — **阻塞**
+
+**结构核对 ✓：** `bridge/openscience/`、`account-runtime`、`worker`、`@synsci/*` 都已删除；没有 OpenScience / Hatchet / worker 进程。（但 `reinlab-hatchet-803a04fcd69a` 容器还在跑，已经运行 33 小时，是旧栈留下的，要停掉并删除。）
+
+**使用 ✗：** 新建精读后发一句话，中间面板直接显示「失败」，原因：
+
+```
+dsh profile "sdk": JSON-RPC input closed exit code: 1
+dsh: host preparation failed: node-addon-require-builtin unsupported:
+unsupported Electron runtime fingerprint: Node 24.18.1, V8 15.0.245.23-electro…
+```
+
+**原因：** 现在运行的控制面进程（pid 90158，01:56 启动），是用 **DSH Desktop 应用自带的 Electron 运行时**拉起来的（`/Applications/DSH Desktop.app/Contents/MacOS/DSH Desktop --require …/runtime-commands/…`），不是项目的 Node 22 工具链。估计是 DSH 在它自己的桌面应用里执行了 `local:up`，`node` 指到了 Electron 上。内核再拉起 dsh 子进程时，就因为运行时指纹不受支持而失败。
+
+**修复（DSH）：**
+1. `local:up` 固定使用项目工具链的 Node 22（`~/.local/share/reinlab/toolchains/node-v22…`），不要依赖当前环境里 PATH 上的 `node`；启动时检查到 Electron 运行时，就直接报错退出。
+2. 用 Node 22 重启栈，在真实页面上跑一遍「说一句 → 候选」，确认能用再交付。
+3. 停掉并删除遗留的 Hatchet 容器。
+
+---
+
+## 验收 run15（`111e20b`，Node 22）· 2026-10-29 03:22 — **阻塞（回归）**
+
+| 核心功能 | 结果 |
+|---|---|
+| 运行时 | ✓ 控制面跑在工具链 Node 22 上 |
+| 聊天式澄清 | ✓ **非常好**。我说「我听说 GPT 写了 700 多篇数学论文，想读读相关的研究」，助手自己用了 `web_search` / `web_fetch` / `papers_search`，查到了这件事本身（2026-10-06 OpenAI 发出 700 多篇 AI 生成的数学预印本，附 Nature 和科学网的报道），然后给了几个方向和 3 篇真实论文让我选，另外还有一个「先读事件本身」的选项 |
+| 下载审批 | ✗ **审批卡没有出现**。选定论文、确认开始后，等了 120 秒，中间面板和助手面板都没有审批卡。审批行 `f720fa38…` 的状态是 `expired`，`papers_fetch` 随即返回 `rejected / 已停止 · 没有下载`（事件 14375、14397） |
+| 结果 | 模型改用 `web_fetch` 读 arXiv 的 HTML 版，但因为没有页码，**拒绝编造引用**（这一点做得对），最后照实结束：「这一轮没有写出分层讲解」，已花 ¥0.047 |
+
+**原因（很可能是这批顺手修的第 2 条造成的回归）：** 「待办里没有对应卡时，把本地那张同步收成已批准 / 点了就消失」，结果卡在用户看到之前就被收掉了。卡片过期后后端按拒绝处理。run13 时同样的流程是正常的。
+
+**修复（DSH）：**
+1. 审批卡只在用户真正点了「批准 / 不下载」、或者后端确认已经决定之后才消失；待办还没同步过来时要先显示，不能先收掉。
+2. 等人审批的超时要用业务上合理的时长（比如 10 分钟），并且等待期间释放会话租约；超时以后界面要写「审批已过期，可重新开始」，不能悄悄按拒绝处理。
+
+**另外（我来做，前端）：** 助手消息里的 Markdown 链接现在显示成原文，后半句还被 URL 编码成了乱码（`%E3%80%81…`），要改成能点的链接。
