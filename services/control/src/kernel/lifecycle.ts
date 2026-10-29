@@ -48,6 +48,29 @@ export async function reconcileAccount(
         [account, row.id, row.run_id],
       );
 
+    // 1a) 任务已经结束、卡还挂着的：一并关掉（历史遗留与漏网都在这收）。
+    const orphanCards = (
+      await client.query(
+        `update approval set state='expired'
+          where account_id=$1 and state='pending'
+            and run_id in (select id from run
+                            where account_id=$1
+                              and state in ('completed','failed','cancelled','interrupted'))
+          returning id, run_id`,
+        [account],
+      )
+    ).rows;
+    for (const row of orphanCards)
+      await client.query(
+        `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+         select $1::uuid,r.dossier_id,r.id,'approval','approval.expired',
+                jsonb_build_object('approvalId',$2::text,'reason','run_ended'),
+                'run-ended:'||$2::text
+           from run r where r.id=$3::uuid
+         on conflict do nothing`,
+        [account, row.id, row.run_id],
+      );
+
     // 1b) 请求关了以后没有别的待办、也不在执行中的任务，按中断收尾
     const stranded = (
       await client.query(
@@ -134,6 +157,14 @@ export async function reconcileOnStartup(
         where state='pending' and created_at < $1 returning id, account_id, run_id`,
       [cutoff],
     );
+    // 已结束任务名下还挂着的待批卡：跨账户一并关掉（启动时有管理员权限）。
+    await client.query(
+      `update approval set state='expired'
+        where state='pending'
+          and run_id in (select id from run
+                          where state in ('completed','failed','cancelled','interrupted'))`,
+    );
+
     const orphaned = await client.query(
       `update run set state='interrupted', ended_at=now()
         where state in ('queued','running') and ended_at is null
