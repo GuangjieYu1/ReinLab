@@ -112,13 +112,19 @@ export async function api(path: string, body?: unknown, key?: string) {
 }
 
 export async function inbox() {
-  const [promotions, approvals, unknown] = await Promise.all([
-    api("/v1/promotions?state=pending"),
+  // promotion 表随旧内核退役一起删掉了（202610280001_retire_openscience）；
+  // 服务端不再有这个入口时，收件箱照常只列当前内核的审批，不因为一个 404 整块失败。
+  const promotions = api("/v1/promotions?state=pending").catch((error: { status?: number }) => {
+    if (error?.status === 404) return { items: [] as unknown[] };
+    throw error;
+  });
+  const [promoted, approvals, unknown] = await Promise.all([
+    promotions,
     api("/v1/approvals?state=pending"),
     api("/v1/approvals?state=indeterminate"),
   ]);
   return {
-    promotions: promotions.items as InboxPromotion[],
+    promotions: promoted.items as InboxPromotion[],
     approvals: [...approvals.items, ...unknown.items] as InboxApproval[],
   };
 }
