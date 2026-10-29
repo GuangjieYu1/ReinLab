@@ -620,6 +620,15 @@ export function createLiveReadAdapter(
     if (state === "done" || state === "failed" || state === "cancelled") {
       if (timer) clearInterval(timer);
       timer = undefined;
+      // 收尾前再取一次事件：这一轮最后写进去的卡片（讲解层、发现卡）可能
+      // 刚落库就碰上「已结束」，不补这一下就会永远看不到。
+      void (async () => {
+        try {
+          for (const event of await fetchEvents(cursor)) apply(event);
+        } catch {
+          /* 拿不到就保持现状，不制造假失败 */
+        }
+      })();
     }
   }
 
