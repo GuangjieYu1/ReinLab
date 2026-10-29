@@ -36,11 +36,20 @@
   误传的 Provider/基础设施凭据按名单剔除；宿主专用路径（`.ssh`、`.config/reinlab`、
   `docker.sock`、`.codex`）由 `assertSpecSafe` 兜底拒绝。6 条测试覆盖这些边界。
 - `infra/account/Dockerfile`：账户镜像定义（node22 + 解析工具 + 内核 shim/插件依赖）。
-  **尚未构建验证**，下轮构建并接上容器生命周期。
+- `services/control/src/kernel/container-lifecycle.ts`：确保/复用/回收（docker 动作可注入，5 条测试）。
+  已存在且在跑就复用（容器里的工作草稿要留住），没在跑先清掉再按同一规格重建。
+
+**已实测（本机，2026-10-30）**：
+- 镜像可以构建成功；镜像内 `@deepseek-ai/dsh@0.2.1-rc.4` 就位（`/opt/reinlab/node_modules/@deepseek-ai/dsh/lib/bin.js`）。
+- 以 `--read-only --cap-drop ALL --security-option no-new-privileges` 起容器后，基础工具全部可用：
+  `bash`、`grep`、`python3 3.11.2`、`pdftotext`、`node v22.23.4`。这是片三「基础工具全开」的前提。
+- 容器内有公网访问（registry.npmjs.org 返回 200）。
 - 现有 `shim.mjs`/`launch.ts` 的容器传输路径仍完整（`docker exec`），不需要重写。
 
-**下一步**：建容器生命周期（确保/复用/回收）、把 `REINLAB_KERNEL_TRANSPORT` 切到 container、
-在真实栈上验证基础工具跑在容器内、宿主目录不可达。
+**下一步**：把容器生命周期接到内核启动，并把 `REINLAB_KERNEL_TRANSPORT` 切到 `container`。
+需要改的地方已定位：`launch.ts` 目前只设了 `SHIM_CONTAINER/SHIM_RUN_ID/SHIM_PID_FILE/SHIM_DSH_MODULE`，
+容器模式还缺 `SHIM_HOST_ROOT`、`SHIM_CONTAINER_ROOT` 与容器内的 dsh 模块路径；
+`dshHome`/`cwd` 等写进 plan 配置的路径也要换成容器内路径（`materializeLaunch` 要按模式生成）。
 
 ### 片三：基础工具开放与两条写入底线
 
