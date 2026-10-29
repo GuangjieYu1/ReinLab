@@ -120,8 +120,10 @@ dsh 的会话目录就看不见；把整个 kernelHome 挂进去又会露出**�
 到达这一步修的最后一环：仓库 COPY 进镜像的补丁文件权限是 0600，而容器以宿主 uid
 运行 → `failed to read overlay ... Permission denied`。镜像里统一 `chmod -R a+rX`。
 
-默认 transport 仍是 host（Claude 的 T1–T5 不受影响）；容器模式用
-`REINLAB_KERNEL_TRANSPORT=container pnpm local:up --real-models` 打开。
+**默认已切到容器**（2026-10-30）：`pnpm local:up --real-models` 现在默认起在每账户容器里
+（PRD 3.2「正式工具执行不回退到宿主模式」）。需要对照排查时可临时
+`REINLAB_KERNEL_TRANSPORT=host pnpm local:up --real-models` 回到宿主。
+切完做过烟测：默认容器模式下发起一轮，`completed`，模型用的是 `bash`。
 
 **两条写入底线（用户 2026-10-30 选 A：一次批准 = 一篇论文正式入档）**：
 - 下载到工作区、解压、解析、笔记草稿、讲解卡与发现卡都自主写，不逐个打扰

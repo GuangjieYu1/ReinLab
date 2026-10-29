@@ -132,8 +132,10 @@ try {
   });
   // 只有新内核：本机不再构建、也不再升级账户镜像。
   // 容器模式：dsh 跑在每账户容器里。默认保持宿主，验证通过后再改默认。
+  // 第 3 项起，正式工具执行默认在每账户容器里跑（PRD 3.2：不回退宿主模式）。
+  // 仍可用 REINLAB_KERNEL_TRANSPORT=host 临时回到宿主，便于对照排查。
   const kernelTransport =
-    process.env.REINLAB_KERNEL_TRANSPORT === "container" ? "container" : "host";
+    process.env.REINLAB_KERNEL_TRANSPORT === "host" ? "host" : "container";
   const accountImage = "reinlab-account:local";
   if (kernelTransport === "container") {
     step("LOCAL_ACCOUNT_IMAGE_CHECKING");
