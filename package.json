@@ -19,7 +19,8 @@
     "check": "pnpm lint && pnpm test && pnpm build",
     "e2e:legacy": "node e2e/legacy/run.mjs",
     "local:up": "tsx tooling/local/up.ts",
-    "local:up22": "bash tooling/local/start.sh"
+    "local:up22": "bash tooling/local/start.sh",
+    "openmaic:up": "bash tooling/local/openmaic-up.sh"
   },
   "dependencies": {
     "@capacitor/browser": "^8.0.4",

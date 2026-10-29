@@ -249,25 +249,28 @@ export function registerDossierApi(app: Hono<ApiEnv>, database: Database) {
   });
 }
 
-/** 本地 OpenMAIC 的课程列表；读不到就返回空数组，让页面显示「没有课程」。 */
+/** 本地 OpenMAIC 的课程列表（契约第 2 节的形状）。读不到就返回空，页面显示「没有课程」。 */
 async function localCourses(): Promise<
   { courseId: string; title: string; source: "local-openmaic" | "native"; sceneCount: number; progress: number | null }[]
 > {
-  const origin = process.env.REINLAB_OPENMAIC_ORIGIN ?? "http://127.0.0.1:3000";
+  const origin = (process.env.REINLAB_OPENMAIC_ORIGIN ?? "http://127.0.0.1:3000").replace(/\/+$/, "");
+  const token = process.env.REINLAB_OPENMAIC_TOKEN ?? "";
   try {
-    const res = await fetch(origin.replace(/\/+$/, "") + "/api/courses", {
-      signal: AbortSignal.timeout(3000),
+    const res = await fetch(origin + "/api/reinlab/courses", {
+      headers: token ? { authorization: "Bearer " + token } : {},
+      signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) return [];
     const json: any = await res.json();
-    const list = Array.isArray(json) ? json : (json?.items ?? json?.courses ?? []);
-    return (Array.isArray(list) ? list : []).map((item: any) => ({
-      courseId: String(item?.id ?? item?.courseId ?? randomUUID()),
-      title: String(item?.title ?? item?.name ?? "未命名课程"),
+    const list = Array.isArray(json?.courses) ? json.courses : Array.isArray(json) ? json : [];
+    return list.map((item: any) => ({
+      courseId: String(item?.id ?? item?.courseId ?? ""),
+      title: String(item?.name ?? item?.title ?? "未命名课程"),
       source: "local-openmaic" as const,
-      sceneCount: Number(item?.sceneCount ?? item?.scenes?.length ?? 0),
+      sceneCount: Number(item?.sceneCount ?? 0),
+      // 学习进度在浏览器本地，服务端不知道就照实返回 null。
       progress: typeof item?.progress === "number" ? item.progress : null,
-    }));
+    })).filter((c: any) => c.courseId);
   } catch {
     return [];
   }

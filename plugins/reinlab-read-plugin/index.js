@@ -178,6 +178,55 @@ export function apply(ctx, config) {
     }),
   );
 
+  // 第 7 节：档案工具。七个台的最小侧边会话都靠这组工具；和页面调同一组服务函数。
+  const dossierTool = (name, description, parameters) =>
+    register(
+      defineTool({
+        name,
+        description,
+        parameters,
+        output,
+        async execute(args) {
+          const out = await call("dossiers", name.replace(/^dossier_/, "").replace(/_/g, "_"), args);
+          return out.error ?? out.result;
+        },
+      }),
+    );
+
+  dossierTool("dossier_list", "列出/搜索这个账户的档案。", {
+    bench: { type: "string", description: "只看某个台：research/curriculum/…；不传就是全部。" },
+    q: { type: "string", description: "按标题或目标搜索。" },
+    view: { type: "string", description: "active | archived。" },
+  });
+  dossierTool("dossier_get", "读取一份档案的概况、最近运行和成果。", {
+    dossierId: { type: "string", description: "档案 id；不传就是当前这份。" },
+  });
+  dossierTool("dossier_create", "新建一份档案。", {
+    bench: { type: "string", required: true, description: "工作台 id。" },
+    kind: { type: "string", description: "reading | topic | workspace | learning。" },
+    title: { type: "string", description: "用户明确给了标题才传。" },
+    intent: { type: "string", description: "用户想做什么。" },
+  });
+  dossierTool("dossier_update", "改档案标题、目标或标记完成。", {
+    dossierId: { type: "string" },
+    baseVersion: { type: "number", description: "必填：读到的最新版本号。" },
+    title: { type: "string" },
+    intent: { type: "string" },
+    lifecycle: { type: "string", description: "active | completed。" },
+  });
+  dossierTool("dossier_archive", "归档一份档案；有活跃工作时会返回确认卡。", { dossierId: { type: "string" } });
+  dossierTool("dossier_unarchive", "取消归档。", { dossierId: { type: "string" } });
+  dossierTool("dossier_delete", "请求删除一份档案，只返回确认卡，不直接删。", { dossierId: { type: "string" } });
+  dossierTool("dossier_attach_course", "把一门已有课程加进学习档案。", {
+    dossierId: { type: "string" },
+    courseId: { type: "string", required: true },
+    title: { type: "string" },
+  });
+  dossierTool("dossier_detach", "把一项成果从档案里解除关联（不删原件）。", {
+    dossierId: { type: "string" },
+    artifactId: { type: "string", required: true },
+  });
+
   // 课程台最小能力：把一份简短学习计划交给用户确认并同时入档。
   // 计划确认就是入档批准，不额外再要一次。
   register(

@@ -5,6 +5,85 @@ import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
 import { paperHandle } from "../mcp/papers";
 import { nameFromPaper } from "../dossier/service";
+import {
+  attachCourse,
+  createDossier,
+  detachArtifact,
+  getDossier,
+  listArtifacts,
+  listDossiers,
+  requestDelete,
+  setArchived,
+  updateDossier,
+} from "../dossier/service";
+
+/** 第 7 节：把档案工具映射到服务函数。结果里带 open，Agent 坞据此渲染可点卡片。 */
+async function dossierTool(
+  client: any,
+  input: { account: string; dossier: string; tool: string; args: Record<string, unknown> },
+) {
+  const a = input.args ?? {};
+  const dossierId = typeof a.dossierId === "string" ? a.dossierId : input.dossier;
+  switch (input.tool) {
+    case "list": {
+      const found = await listDossiers(client, input.account, {
+        bench: typeof a.bench === "string" ? a.bench : undefined,
+        q: typeof a.q === "string" ? a.q : undefined,
+        view: typeof a.view === "string" ? a.view : undefined,
+      });
+      // 多个匹配原样返回，由模型自己决定怎么问用户。
+      return {
+        items: found.items.map((d: any) => ({
+          id: d.id,
+          title: d.title,
+          bench: d.bench,
+          lifecycle: d.lifecycle,
+          work: d.work,
+          artifacts: d.artifacts.total,
+          open: { to: "dossier", dossierId: d.id },
+        })),
+      };
+    }
+    case "get": {
+      const d = await getDossier(client, input.account, dossierId);
+      const arts = await listArtifacts(client, input.account, dossierId);
+      return { ...d, artifacts: arts.items, open: { to: "dossier", dossierId: d.id } };
+    }
+    case "create":
+      return createDossier(
+        client,
+        input.account,
+        { bench: a.bench, kind: a.kind, title: a.title, intent: a.intent },
+        "agent",
+      );
+    case "update":
+      return updateDossier(
+        client,
+        input.account,
+        dossierId,
+        { baseVersion: a.baseVersion, title: a.title, intent: a.intent, lifecycle: a.lifecycle },
+        "agent",
+      );
+    case "archive":
+      return setArchived(client, input.account, dossierId, true, "agent");
+    case "unarchive":
+      return setArchived(client, input.account, dossierId, false, "agent");
+    case "delete":
+      // 只返回确认卡，不直接删。
+      return requestDelete(client, input.account, dossierId, "agent");
+    case "attach_course": {
+      const courseId = String(a.courseId ?? "");
+      if (!courseId) throw new ApiFailure("INVALID_INPUT", 400, "需要课程 id。");
+      return attachCourse(client, input.account, dossierId, courseId, String(a.title ?? "课程"));
+    }
+    case "detach": {
+      await detachArtifact(client, input.account, dossierId, String(a.artifactId ?? ""));
+      return { removed: true };
+    }
+    default:
+      throw new ApiFailure("KERNEL_TOOL_DENIED", 403, "没有这个档案工具。");
+  }
+}
 import type { Database } from "../db/database";
 import type { KernelAuth } from "../kernel/auth";
 import {
@@ -21,6 +100,18 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   cards: ["card.layer", "card.finding", "clarify.question"],
   // 课程台最小能力：提交一份学习计划并入档。计划确认与入档是同一次批准。
   courses: ["plan"],
+  // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
+  dossiers: [
+    "list",
+    "get",
+    "create",
+    "update",
+    "archive",
+    "unarchive",
+    "delete",
+    "attach_course",
+    "detach",
+  ],
 };
 
 /** One turn must not call tools forever: the budget page already promises a step cap. */
@@ -169,6 +260,16 @@ export function registerKernelTools(
             call.run,
           ]);
           return c.json({ state: "pending", approvalId: card.id }, 409);
+        }
+        // 第 7 节：档案工具。和页面同一组服务函数，删除只返回确认卡。
+        if (body.server === "dossiers") {
+          const result = await dossierTool(client, {
+            account: call.account,
+            dossier: call.dossier,
+            tool: String(body.tool),
+            args,
+          });
+          return c.json({ result });
         }
         // 课程计划：还没批准就交出一张确认卡（卡上就是计划本身），
         // 批准后同一次动作把计划写进档案。不再另外索要入档审批。
