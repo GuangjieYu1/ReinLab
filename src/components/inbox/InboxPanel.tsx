@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BENCH, RISK_TEXT, TARGET, type EvidenceView, type InboxAdapter, type InboxApproval, type InboxPromotion, type InboxQuestion, type Json, type PromotionDecision, type PromotionItem, type SupersededView } from './inboxTypes';
+import { BENCH, type InboxReport, RISK_TEXT, TARGET, type EvidenceView, type InboxAdapter, type InboxApproval, type InboxPromotion, type InboxQuestion, type Json, type PromotionDecision, type PromotionItem, type SupersededView } from './inboxTypes';
 import '../../styles/rhine.css';
 import './inbox.css';
+
+const REPORT_STATE: Record<InboxReport['state'], string> = { completed: '已完成', interrupted: '已中断', failed: '失败', cancelled: '已停止', rejected: '未获批准' };
 
 // 「上线时待批准」收件箱（design/BACKEND_MEMORY_SESSION.md §13）。
 // 登录 / 回到前台时弹出一次：左边按工作台分组，中间是「要记住什么 · 依据 · 会影响什么」，底部四个动作。
@@ -35,6 +37,8 @@ function editable(v: Json): Record<string, string> | string {
 
 export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter: InboxAdapter; onClose: () => void; onRemaining?: (n: number) => void }) {
   const [entries, setEntries] = useState<Entry[] | null>(null);
+  const [reports, setReports] = useState<InboxReport[]>([]);
+  useEffect(() => { adapter.reports?.().then(setReports).catch(() => {}); }, [adapter]);
   const [done, setDone] = useState<Record<string, Done>>({});
   const [sel, setSel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -162,6 +166,14 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
           {approvals.length > 0 && <h3>待确认动作 <small>只放行这一次</small></h3>}
           {approvals.length > 0 && <div className="ibx-group">{approvals.map(row)}</div>}
           {entries?.length === 0 && <p className="ibx-empty">没有待处理的事项。</p>}
+          {reports.length > 0 && <h3>任务报告 <small>已结束，看了就行</small></h3>}
+          {reports.length > 0 && <div className="ibx-group ibx-reports">{reports.map(r => <div key={r.id} className="ibx-report" data-state={r.state}>
+            <span className="ibx-report-state">{REPORT_STATE[r.state]}</span>
+            <b>{r.title}</b>
+            <small>{[BENCH[r.source.bench]?.name ?? r.source.bench, r.source.dossierTitle, r.artifacts ? `${r.artifacts} 项成果` : '没有成果', r.at].filter(Boolean).join(' · ')}</small>
+            {r.reason && <p>{r.reason}</p>}
+            {r.source.href && <a href={r.source.href}>打开</a>}
+          </div>)}</div>}
         </nav>
 
         <article className="ibx-detail" aria-live="polite">

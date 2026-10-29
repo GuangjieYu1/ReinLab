@@ -15,7 +15,7 @@ import { createVerifier, type JwtConfig } from "./auth";
 import { mutate, type ApiEnv } from "./context";
 import { ApiFailure, denied } from "./errors";
 import { registerKernelRuns } from "./kernel-runs";
-import { registerApprovalInbox, decideInboxCard } from "./inbox-approvals";
+import { registerApprovalInbox, registerReports, decideInboxCard } from "./inbox-approvals";
 import { registerKernelTools, type KernelToolCall } from "./kernel-tools";
 import { pricingFromEnvironment, type PricingService } from "../budget/pricing";
 import { monthlyBudgetSnapshot, currentPeriod } from "../budget";
@@ -181,9 +181,13 @@ export async function createApp(options: {
       );
     }),
   );
-  registerApprovalInbox(app, database);
+  registerApprovalInbox(app, database, options.kernel ? (id) => options.kernel!.isLive(id) : undefined);
+  registerReports(app, database);
   app.post("/v1/approvals/:id/decide", async (c) => {
-    const card = await decideInboxCard(c, database);
+    const card = await decideInboxCard(c, database, (account, runId, prompt) => {
+      // 回答之后接着跑同一段任务；失败不影响这次决定本身。
+      void options.kernel?.resumeAfterAnswer(account, runId, prompt).catch(() => {});
+    });
     if (card) return card;
     throw denied();
   });

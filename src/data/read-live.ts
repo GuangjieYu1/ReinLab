@@ -30,6 +30,13 @@ type LiveReadAdapter = ReadAdapter & {
   dispatchUnavailable(to: "swarm" | "auto", text: string): void;
 };
 
+/** 候选论文的标识：模型可能写 paperId、id、arxivId 或原链接，取第一个有值的。 */
+function candidateId(candidate: any): string {
+  const raw =
+    candidate?.paperId ?? candidate?.id ?? candidate?.arxivId ?? candidate?.url ?? "";
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
 const CANDIDATE_LABEL: Record<string, string> = {
   "papers.search": "检索论文",
   "papers.fetch": "下载论文全文",
@@ -250,7 +257,7 @@ export function createLiveReadAdapter(
               query: String(args.question ?? ""),
               candidates: Array.isArray(args.candidates)
                 ? args.candidates.map((candidate: any) => ({
-                    id: String(candidate.paperId ?? candidate.id ?? ""),
+                    id: candidateId(candidate),
                     title: String(candidate.title ?? ""),
                     authors: String(candidate.authors ?? "检索结果"),
                     venue: String(candidate.venue ?? defaultVenue(candidate)),
@@ -417,6 +424,57 @@ export function createLiveReadAdapter(
         }
         return;
       }
+      // 卡片是已经落库的成果：刷新页面、或者回答后续接的那一轮，都要能看见。
+      // 之前只从进行中的工具调用里生成，重新加载就全丢了。
+      case "card_created": {
+        const card = (data.card ?? {}) as any;
+        const cardType = String(data.cardType ?? "");
+        const cardId = String(data.cardId ?? "card:" + event.seq);
+        if (cardType === "layer") {
+          const body = Array.isArray(card.body) ? card.body : [];
+          const layer: LayerCard = {
+            id: "layer:" + cardId,
+            no: String(card.no ?? "1"),
+            title: String(card.title ?? "讲解"),
+            en: String(card.en ?? ""),
+            body: body
+              .map((entry: any) => ({
+                text: String(entry?.text ?? ""),
+                refs: (Array.isArray(entry?.refs) ? entry.refs : [])
+                  .map((ref: any) => (ref?.page ? "p." + String(ref.page) : ""))
+                  .filter(Boolean),
+              }))
+              .filter((entry: { text: string }) => entry.text),
+          };
+          if (layer.body.length && !snapshot.layers.some((entry) => entry.no === layer.no)) {
+            snapshot.layers.push(layer);
+            emit({ type: "layer", layer });
+          }
+          return;
+        }
+        if (cardType === "finding") {
+          const evidence = Array.isArray(card.evidence) ? card.evidence : [];
+          const finding: FindingCard = {
+            id: "finding:" + cardId,
+            n: Number(card.n ?? snapshot.findings.length + 1),
+            text: String(card.text ?? ""),
+            refs: evidence
+              .map((item: any) => (item?.page ? "p." + String(item.page) : ""))
+              .filter(Boolean),
+            confidence: ["low", "mid", "high"].includes(card.confidence) ? card.confidence : "mid",
+            status: ["hypothesis", "supported", "refuted"].includes(card.status)
+              ? card.status
+              : "hypothesis",
+            at: String(card.at ?? new Date().toISOString()),
+          };
+          if (finding.text && !snapshot.findings.some((entry) => entry.id === finding.id)) {
+            snapshot.findings.push(finding);
+            emit({ type: "finding", finding });
+          }
+          return;
+        }
+        return;
+      }
       case "turn/end": {
         const kind = String(data.reason?.kind ?? "");
         endReason = kind === "completed" ? "completed" : "failed";
@@ -468,7 +526,7 @@ export function createLiveReadAdapter(
             id: card.id,
             query: String(card.title ?? ""),
             candidates: candidates.map((candidate: any) => ({
-              id: String(candidate.paperId ?? candidate.id ?? ""),
+              id: candidateId(candidate),
               title: String(candidate.title ?? ""),
               authors: String(candidate.authors ?? "检索结果"),
               venue: String(candidate.venue ?? defaultVenue(candidate)),
@@ -801,13 +859,15 @@ export function createLiveReadAdapter(
         await new Promise((resolve) => setTimeout(resolve, 1200));
       }
       const picked = chosen ?? lastPicked;
+      // 没拿到可用标识时不要拼出「paperId=」这种空指令：让模型按已谈定的那篇走。
+      const pickedId = picked ? candidateId(picked) : "";
       // The chosen paper travels with the instruction so this turn is
       // deterministic: fetch this exact paper, no searching, no re-asking.
       await startRun(
-        picked
-          ? `就按我选的这篇开始精读（paperId=${picked.id}）。`
+        pickedId
+          ? `就按我选的这篇开始精读（paperId=${pickedId}）。`
           : "就按我选的这篇开始精读",
-        picked?.id,
+        pickedId || undefined,
       );
     },
     async cancel() {

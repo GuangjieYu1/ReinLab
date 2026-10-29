@@ -25,7 +25,12 @@ export type EvidenceView = { ref: string; kind: string; title: string; quote: st
 /** 被替换的旧条目（supersedes 指向的那条），用来显示「将替换」。 */
 export type SupersededView = { id: string; key: string; value: Json };
 
+/** 任务报告：任务结束（完成 / 中断 / 失败 / 被拒）后留在收件箱的一条只读记录。不需要批准，看了就行。 */
+export type InboxReport = { id: string; runId: string; title: string; state: 'completed' | 'interrupted' | 'failed' | 'cancelled' | 'rejected'; reason?: string; artifacts: number; at: string; source: InboxSource };
+
 export interface InboxAdapter {
+  /** 最近结束的任务报告（可选；没实现时收件箱不显示报告区）。 */
+  reports?(): Promise<InboxReport[]>;
   load(): Promise<{ promotions: InboxPromotion[]; approvals: InboxApproval[] }>;
   decidePromotion(id: string, decision: PromotionDecision): Promise<void>;
   /** kind 为 question 时，批准必须带 answers（每题一组所选标签，顺序与 questions 一致）；驳回不带。 */
