@@ -417,6 +417,8 @@ DSH 不预设旧 read-state/read-events 字段不变，不自行猜新路由和 
 
 ## 5. 登录会话（grill 已完成）
 
+前后端约定见 [04-session-contract.md](04-session-contract.md)。
+
 ### 5.1 已确认的用户行为
 
 - 刷新、关闭标签再打开，仍保持登录；重新启动本地栈不主动丢掉有效登录。
