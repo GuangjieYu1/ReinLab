@@ -25,7 +25,8 @@ function RhineBrand() {
 
 export default function RhineEntry({ auth = mockEntryAuth }: { auth?: EntryAuth } = {}) {
   // 从工作台返回（?return=）且仍在会话中，直接回到对应的 Files；会话已失效（live 刷新页面后）则重新登录。
-  const [returning] = useState(() => new URLSearchParams(window.location.search).has('return') && auth.active());
+  // live：Cookie 恢复出的登录直接进选台（刷新不用重新输密码）；mock 仍是 ?return= 才跳过登录。
+  const [returning] = useState(() => (auth.kind === 'live' || new URLSearchParams(window.location.search).has('return')) && auth.active());
   const [reduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [design, setDesign] = useState(pickDesign);
   const [chooser, setChooser] = useState(returning);
@@ -54,6 +55,10 @@ export default function RhineEntry({ auth = mockEntryAuth }: { auth?: EntryAuth 
     auth.lock?.();
     setRelocking(true); setLogin(true);
   }, [auth]);
+  // 别的标签锁定、或会话过期：选台还开着就盖回登录层
+  useEffect(() => auth.subscribe?.(() => {
+    if (!auth.active() && !login) { setRelocking(true); setLogin(true); }
+  }), [auth, login]);
   const arrived = useCallback(() => {
     setChooser(false); setRelocking(false); setSession(n => n + 1); setDesign(randomDesign());
   }, []);

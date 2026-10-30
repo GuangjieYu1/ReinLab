@@ -14,6 +14,8 @@ export type EntryAuth = {
   active(): boolean;
   /** 锁定：退出会话。 */
   lock?(): void;
+  /** 会话在别处变化（别的标签锁定、过期）时通知入口；返回取消订阅。 */
+  subscribe?(on: () => void): () => void;
 };
 
 export const MIN_KEY = 4;

@@ -153,9 +153,11 @@ export default function RhineLogin({ reduced, design, arriving = false, onVerify
     if (!key.trim()) { setError('请输入授权口令'); input.current?.focus(); return; }
     const length = key.trim().length;
     setError(''); setVerdict(null); setWaited(false); setPhase('verifying');
-    auth.verify(identity.trim(), key).catch(() => false).then(ok => {
+    let reason = '';
+    auth.verify(identity.trim(), key).catch((e: unknown) => { reason = e instanceof Error ? e.message : ''; return false; }).then(ok => {
       setLog(appendAccessLog({ at: Date.now(), result: ok ? 'granted' : 'denied', length }));
-      if (!ok && auth.kind === 'live') setError('核验未通过：请核对邮箱和密码');
+      // live 照实说是哪种没过：账号密码不对，还是连不上服务
+      if (!ok && auth.kind === 'live') setError(reason ? `核验未通过：${reason}` : '核验未通过：请核对邮箱和密码');
       if (ok) setKey('');
       setVerdict(ok);
       // 核验画面相对平静，趁这时挂上下一页最重的部分（档案场），交接时就不卡。
