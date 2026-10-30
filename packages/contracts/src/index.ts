@@ -634,3 +634,4 @@ export type BrowserSession = {
   accountId: string;
 };
 export type * from './dossier';
+export type * from './explore';
