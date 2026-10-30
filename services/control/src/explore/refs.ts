@@ -27,6 +27,17 @@ export type ExploreStorage = {
   saveRef: (input: { dossier: string; refId: string; ext: string; bytes: Buffer }) => Promise<string>;
   readRef: (input: { dossier: string; path: string }) => Promise<{ bytes: Buffer; mime: string } | null>;
   removeRef: (input: { dossier: string; path: string }) => Promise<void>;
+  /** 地图快照（页面导出的矢量底图）。 */
+  saveSnapshot: (input: {
+    dossier: string;
+    revision: number;
+    key: string;
+    bytes: Buffer;
+  }) => Promise<string>;
+  readSnapshot: (input: { dossier: string; path: string }) => Promise<{ bytes: Buffer; mime: string } | null>;
+  /** 计划书 PDF。 */
+  saveBook: (input: { dossier: string; artifactId: string; bytes: Buffer }) => Promise<string>;
+  readBook: (input: { dossier: string; path: string }) => Promise<{ bytes: Buffer; mime: string } | null>;
 };
 
 export const refImageUrl = (dossier: string, refId: string) =>

@@ -4,11 +4,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
 import { paperHandle } from "../mcp/papers";
-import { announceDossierChanged, nameFromPaper } from "../dossier/service";
+import { announceDossierChanged, nameFromPaper, publishAccountEvent } from "../dossier/service";
 import { applyOps, loadPlan, readPlan, stopCenter, weatherView, type OpsOutcome } from "../explore/service";
 import { createProfile, deleteProfile, listProfiles, updateProfile } from "../explore/profiles";
 import { listRefs } from "../explore/refs";
 import { planUsage } from "../explore/usage";
+import { prepareBook, type BookPlan } from "../explore/book-job";
 import { userSaidClearly } from "../explore/authorize";
 import { sunAtWindow, sunDay } from "../explore/sun";
 import { localDayOf } from "../explore/weather";
@@ -163,6 +164,7 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
     "profile_write",
     "refs",
     "usage",
+    "book",
   ],
   // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
   dossiers: [
@@ -203,6 +205,8 @@ export type KernelToolDependencies = {
   auth: KernelAuth;
   db: Database;
   now: () => number;
+  /** 生成计划书（由控制面注入：需要文件存放与字体）。 */
+  bookEngine?: (account: string, dossier: string, plan: import("../explore/book-job").BookPlan) => void;
   /** Executes an allowed tool against the business layer. */
   dispatch: (call: KernelToolCall) => Promise<unknown>;
 };
@@ -610,7 +614,7 @@ export function registerKernelTools(
           );
         return c.json({ result });
       });
-      if (settled) publishSettled(claims.account, settled);
+      if (settled) publishSettled(claims.account, claims.dossier, settled, dependencies.bookEngine);
       return response;
     } catch (error) {
       // 工具失败必须带错误码和一句原因，模型与日志才有据可查。
@@ -747,10 +751,29 @@ type ExploreSettlement =
       runId: string;
       viewport: Viewport;
       basemap: Basemap;
-    };
+    }
+  | { kind: "book"; plan: import("../explore/book-job").BookPlan }
+  | { kind: "snapshots_needed"; revision: number; keys: string[] };
 
-function publishSettled(account: string, settled: ExploreSettlement) {
+/**
+ * 事务提交之后再推事件 / 起后台活：页面不能先看到还没生效的东西。
+ * 计划书生成要自己开事务，所以这里只「点火」，不等它。
+ */
+function publishSettled(
+  account: string,
+  dossier: string,
+  settled: ExploreSettlement,
+  bookEngine?: (account: string, dossier: string, plan: import("../explore/book-job").BookPlan) => void,
+) {
   if (settled.kind === "ops") publishOps(account, settled.outcome);
+  else if (settled.kind === "book") bookEngine?.(account, dossier, settled.plan);
+  else if (settled.kind === "snapshots_needed")
+    publishAccountEvent(account, "exploration", {
+      type: "explore.snapshots_needed",
+      dossierId: dossier,
+      revision: settled.revision,
+      keys: settled.keys,
+    });
   else
     publishCamera(account, settled.bench, {
       dossierId: settled.dossierId,
@@ -793,6 +816,54 @@ async function exploreTool(
         basemap,
       },
     };
+  }
+  if (input.tool === "book") {
+    const variant = args.variant === "full" ? "full" : "brief";
+    const current = await readPlan(client, input.account, input.dossier);
+    const revision = typeof args.revision === "number" ? args.revision : current.plan.revision;
+    try {
+      const prepared = await prepareBook(client, {
+        account: input.account,
+        dossier: input.dossier,
+        variant,
+        revision,
+      });
+      return {
+        status: 200,
+        body: {
+          result: {
+            state: "generating",
+            jobId: prepared.artifactId,
+            version: prepared.version,
+            variant,
+            revision,
+          },
+        },
+        publish: { kind: "book" as const, plan: prepared },
+      };
+    } catch (error) {
+      // 素材不齐：告诉页面补哪几张图，别假称已经开始生成。
+      if (error instanceof ApiFailure && error.code === "NEEDS_MAP_SNAPSHOTS") {
+        const extra = (error.extra ?? {}) as { keys?: string[]; revision?: number };
+        return {
+          status: 200,
+          body: {
+            result: {
+              state: "needs_map_snapshot",
+              revision: extra.revision ?? revision,
+              missing: extra.keys ?? [],
+              message: "这一版还缺地图快照：请用户在计划页面点一次生成，页面会导出并上传这几张图。",
+            },
+          },
+          publish: {
+            kind: "snapshots_needed" as const,
+            revision: extra.revision ?? revision,
+            keys: extra.keys ?? [],
+          },
+        };
+      }
+      throw error;
+    }
   }
   if (input.tool === "profiles") {
     return {

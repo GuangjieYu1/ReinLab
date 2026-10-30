@@ -20,6 +20,7 @@ import { recordUsage } from "./run/usage";
 import { readRuntimeConfiguration } from "./configuration";
 import { mapConfigFrom } from "./explore/map-config";
 import { localExploreStorage } from "./explore/storage";
+import { generateBook } from "./explore/book-job";
 import { createWeatherJudge } from "./explore/weather-judge";
 import { createWeatherScheduler } from "./explore/schedule";
 import { runWeatherCheck } from "./explore/weather-check";
@@ -124,6 +125,21 @@ const weatherJudge = providerKey
     })
   : undefined;
 
+const exploreStorage = localExploreStorage(kernelHome);
+const pdfFontFile = config.REINLAB_PDF_FONT_FILE;
+/** 助手要求生成计划书时用它点火：和页面按钮走同一套排版与存放。 */
+const bookEngine = (account: string, dossier: string, plan: import("./explore/book-job").BookPlan) => {
+  void generateBook(
+    {
+      db: database,
+      storage: exploreStorage,
+      fontFile: pdfFontFile,
+      publish: (target, event) => publishAccountEvent(target, "exploration", event),
+    },
+    { account, dossier, plan },
+  );
+};
+
 const app = await createApp({
   pool,
   session: config.SUPABASE_ANON_KEY
@@ -136,10 +152,12 @@ const app = await createApp({
   // 只下发地图公开 key 与图层地址；其余服务凭据不出进程。
   mapConfig: () => mapConfigFrom(config),
   kernel,
-  kernelTools: { auth: kernelAuth, dispatch: kernelDispatch },
+  kernelTools: { auth: kernelAuth, dispatch: kernelDispatch, bookEngine },
   weatherJudge,
   // 参考图、以后的计划书 PDF 都存在档案自己的目录下。
-  exploreStorage: localExploreStorage(kernelHome),
+  exploreStorage,
+  // 中文 PDF 用的开源黑体；可用 REINLAB_PDF_FONT_FILE 指到别处。
+  pdfFontFile,
   realModelsEnabled: realModels,
   auth: {
     issuer: config.SUPABASE_URL.replace(/\/$/, "") + "/auth/v1",

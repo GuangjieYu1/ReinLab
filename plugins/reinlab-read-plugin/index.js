@@ -289,6 +289,19 @@ export function apply(ctx, config) {
 
     register(
       defineTool({
+        name: "explore_book",
+        description:
+          "生成两版计划书之一：brief 是一页精简版，full 是总览加每个停留点一页。用户说「出一份计划书 / 打印一份」就用它，生成后自动入档，不用再问要不要挂载。只用同一计划修订的地图快照：素材不齐会返回 needs_map_snapshot 并请用户打开计划页面点一次生成，这时不要假称已经生成。",
+        parameters: { variant: { type: "string", description: "brief | full。" } },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "book", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
         name: "explore_refs",
         description:
           "读这份档案里的参考图（用户上传的、以及从网上入档的）。image 为 null 表示没拿到图，只有来源，这时照实说「只有链接」，不要拿别的图顶替。",

@@ -38,6 +38,7 @@ export async function createApp(options: {
   kernelTools?: {
     auth: import("../kernel/auth").KernelAuth;
     dispatch: (call: KernelToolCall) => Promise<unknown>;
+    bookEngine?: (account: string, dossier: string, plan: import("../explore/book-job").BookPlan) => void;
   };
   clarifyAuthorizationFile?: string;
   /** 地图公开配置（只含地图公开 key 与图层地址）。 */
@@ -48,6 +49,8 @@ export async function createApp(options: {
   weatherJudge?: import("../explore/weather-judge").WeatherJudge;
   /** 参考图等文件的存放端口；没有就只记录资料、不存副本。 */
   exploreStorage?: import("../explore/refs").ExploreStorage;
+  /** 中文 PDF 用的字体文件。 */
+  pdfFontFile?: string;
   realModelsEnabled?: boolean;
   testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
   testOnlyClarifyModelTransport?: (body: Buffer) => Promise<Response>;
@@ -141,6 +144,7 @@ export async function createApp(options: {
     weatherTransport: options.weatherTransport,
     weatherJudge: options.weatherJudge,
     exploreStorage: options.exploreStorage,
+    pdfFontFile: options.pdfFontFile,
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
     let applied: OpsOutcome | null = null;
@@ -167,6 +171,7 @@ export async function createApp(options: {
       db: database,
       now: () => Math.floor(Date.now() / 1000),
       dispatch: options.kernelTools.dispatch,
+      ...(options.kernelTools.bookEngine ? { bookEngine: options.kernelTools.bookEngine } : {}),
     });
   app.notFound((c) =>
     c.json({ code: "NOT_FOUND", message: "接口不存在。" }, 404),

@@ -45,6 +45,14 @@ import {
   updateProfile,
 } from "../explore/profiles";
 import { planUsage } from "../explore/usage";
+import {
+  defaultFontFile,
+  generateBook,
+  prepareBook,
+  readBook,
+  saveSnapshot,
+  SNAPSHOT_MAX_BYTES,
+} from "../explore/book-job";
 import { mapConfigFrom, type MapConfig } from "../explore/map-config";
 import { publishAccountEvent } from "../dossier/service";
 
@@ -57,6 +65,8 @@ export type ExploreApiOptions = {
   weatherJudge?: WeatherJudge;
   /** 参考图等文件的存放端口。 */
   exploreStorage?: ExploreStorage;
+  /** 中文 PDF 用的字体文件（开源黑体 TTF）。 */
+  pdfFontFile?: string;
 };
 
 /** 批次生效后推给页面：页面本地修订 +1 时直接应用，否则重拉。 */
@@ -280,6 +290,79 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
     }),
   );
 
+  // 页面导出的地图快照：按「修订 + 键」保存，同一修订同一键重传覆盖。
+  app.post("/v1/explore/plans/:dossierId/snapshots", async (c) => {
+    const account = c.get("accountId");
+    const dossierId = c.req.param("dossierId");
+    const form = await c.req.formData().catch(() => null);
+    const file = form?.get("file");
+    if (!file || typeof file === "string")
+      throw new ApiFailure("SNAPSHOT_FILE_REQUIRED", 400, "需要上传一张 PNG 地图快照。");
+    if ((file as File).size > SNAPSHOT_MAX_BYTES)
+      throw new ApiFailure("SNAPSHOT_TOO_LARGE", 413, "地图快照太大了。");
+    const bytes = Buffer.from(await (file as File).arrayBuffer());
+    return database.withAccount(account, async (client) => {
+      const saved = await saveSnapshot(client, options.exploreStorage ?? unavailableStorage(), {
+        account,
+        dossier: dossierId,
+        revision: Number(form?.get("revision") ?? 0),
+        key: String(form?.get("key") ?? "overview"),
+        bytes,
+        attribution: form?.get("attribution") ? String(form?.get("attribution")) : null,
+        basemap: form?.get("basemap") ? String(form?.get("basemap")) : null,
+      });
+      return c.json(saved, 201);
+    });
+  });
+
+  // 生成计划书：先校验修订与素材，202 之后再异步排版。
+  app.post("/v1/explore/plans/:dossierId/books", async (c) => {
+    const account = c.get("accountId");
+    const dossierId = c.req.param("dossierId");
+    let started: Awaited<ReturnType<typeof prepareBook>> | null = null;
+    const response = await mutate(c, database, z.object({
+      variant: z.enum(["brief", "full"]),
+      revision: z.number().int().positive(),
+    }).strict(), async (client, input) => {
+      started = await prepareBook(client, {
+        account,
+        dossier: dossierId,
+        variant: input.variant,
+        revision: input.revision,
+      });
+      return { status: 202, body: { jobId: started.artifactId, version: started.version } };
+    });
+    if (started)
+      void generateBook(
+        {
+          db: database,
+          storage: options.exploreStorage ?? unavailableStorage(),
+          fontFile: options.pdfFontFile ?? defaultFontFile(),
+          publish: (target, event) => publishAccountEvent(target, "exploration", event),
+        },
+        { account, dossier: dossierId, plan: started },
+      );
+    return response;
+  });
+
+  // 打开已生成的计划书（PDF）。
+  app.get("/v1/explore/plans/:dossierId/books/:artifactId/file", (c) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) => {
+      const book = await readBook(client, options.exploreStorage ?? unavailableStorage(), {
+        account: c.get("accountId"),
+        dossier: c.req.param("dossierId"),
+        artifactId: c.req.param("artifactId"),
+      });
+      return new Response(book.bytes, {
+        headers: {
+          "content-type": book.mime,
+          "cache-control": "private, max-age=0, must-revalidate",
+          "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(book.title)}.pdf`,
+        },
+      });
+    }),
+  );
+
   app.get("/v1/explore/map-config", (c) =>
     c.json((options.mapConfig ?? (() => mapConfigFrom({})))()),
   );
@@ -303,7 +386,15 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
 /** 没有配置存放目录时：上传明确失败，不假装存好了。 */
 function unavailableStorage(): ExploreStorage {
   const fail = () => {
-    throw new ApiFailure("REF_STORAGE_UNAVAILABLE", 503, "参考图存储还没准备好，先配置存放目录。");
+    throw new ApiFailure("STORAGE_UNAVAILABLE", 503, "文件存储还没准备好，先配置存放目录。");
   };
-  return { saveRef: fail, readRef: fail, removeRef: fail };
+  return {
+    saveRef: fail,
+    readRef: fail,
+    removeRef: fail,
+    saveSnapshot: fail,
+    readSnapshot: fail,
+    saveBook: fail,
+    readBook: fail,
+  };
 }
