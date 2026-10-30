@@ -140,7 +140,17 @@ export type PlanUsage = {
   unknownCalls: number;                                                 // 用量缺失的调用数，不记 0
 };
 
-export type AppliedOp = Op & { opId: string; actor: 'agent' | 'user'; summary: string };   // summary 是右侧操作记录那一行
+export type AppliedOp = Op & {
+  opId: string; actor: 'agent' | 'user';
+  summary: string;                           // 右侧操作记录那一行
+  result: {                                  // 生效后的权威结果，页面按它更新，不自己推算（新对象的 id 由服务端分配）
+    stop?: Stop; removedStopId?: string;
+    object?: CanvasObject; removedObjectId?: string;
+    plan?: Partial<Pick<ExplorePlan, 'state' | 'destination' | 'days' | 'kinds' | 'feel' | 'people' | 'gear'>>;
+    stops?: Stop[];                          // 批量确认等一次改多个停留点时
+    routes?: RouteLeg[]; conflicts?: Conflict[];   // 路线重算了就带上（整份替换）
+  };
+};
 export type PendingChange = {                       // 需要用户批准、尚未生效的修改
   approvalId: string;                        // 复用地基第 2 项的审批（收件箱、对话里同一张卡）
   ops: Op[];                                 // 批准后会执行的修改

@@ -183,7 +183,17 @@ POST /v1/explore/plans/:dossierId/ops
 ```
 
 ```ts
-type AppliedOp = Op & { opId: string; actor: 'agent' | 'user'; summary: string };   // summary 是右侧操作记录那一行
+type AppliedOp = Op & {
+  opId: string; actor: 'agent' | 'user';
+  summary: string;                           // 右侧操作记录那一行
+  result: {                                  // 生效后的权威结果，页面按它更新，不自己推算（新对象的 id 由服务端分配）
+    stop?: Stop; removedStopId?: string;
+    object?: CanvasObject; removedObjectId?: string;
+    plan?: Partial<Pick<ExplorePlan, 'state' | 'destination' | 'days' | 'kinds' | 'feel' | 'people' | 'gear'>>;
+    stops?: Stop[];                          // 批量确认等一次改多个停留点时
+    routes?: RouteLeg[]; conflicts?: Conflict[];   // 路线重算了就带上（整份替换）
+  };
+};
 type PendingChange = {                       // 需要用户批准、尚未生效的修改
   approvalId: string;                        // 复用地基第 2 项的审批（收件箱、对话里同一张卡）
   ops: Op[];                                 // 批准后会执行的修改
@@ -266,7 +276,8 @@ Agent 的操作要**逐条实时**推送，不能等这一轮回答结束再一�
 
 ## 5. 右侧助手
 
-- 用现有 `AgentDock`，会话即这份探索档案的 DSH 运行（模式同研究台精读：发一句起一轮，事件流回放）。
+- 用现有 `AgentDock`，会话即这份探索档案的 DSH 运行：发一句 = `POST /v1/kernel/runs { dossierId, query, mode: 'explore', refIds? }` 起一轮，事件沿用 `/v1/kernel/runs/:id/events`，打开档案时回放最近一轮 `mode === 'explore'` 的运行（同档案助手）。
+- 工具结果（`tool/result` 的 JSON）里带 `stopIds?: string[]` 时，对话里按 id 显示对应停留点的卡；带 `pending?: PendingChange` 时显示计划修改卡；带 `refIds?` 时显示参考图卡。
 - **候选卡由计划状态渲染，不由消息内容渲染**：工具结果里带 `stopIds`，对话里按 id 显示对应停留点的卡（名称、类型、时段、理由、"留下 / 不要"）。地图上点"留下"，对话里的卡同时变成已确认，反过来也一样。
 - 计划修改卡、天气调整卡、"整份确认"都用对话里的审批卡样式（同精读里的入档卡），和收件箱是同一张。
 - 参考图：对话输入框支持拖入 / 粘贴图片，先走 `POST /refs` 上传，再把 `refId` 随消息发出。"想要的感觉"卡钉在计划顶部，推测项标"推测"。
