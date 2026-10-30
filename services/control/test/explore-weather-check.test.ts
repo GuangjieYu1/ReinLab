@@ -388,6 +388,20 @@ describe("待执行计划的天气监测", () => {
     expect(second).toBe(0);
   });
 
+  it("计划结束后真的停掉监测：下次检查清空", async () => {
+    const plan = await planOf();
+    const finished = await ops(dossier, { baseRevision: plan.plan.revision, ops: [{ op: "plan.finish" }] });
+    expect(finished.status).toBe(200);
+    const row = (
+      await admin.query("select state, next_check_at from explore_plan where account_id=$1 and dossier_id=$2", [A, dossier])
+    ).rows[0];
+    expect(row.state).toBe("finished");
+    expect(row.next_check_at).toBeNull();
+    // 结束之后调度也不会再领到它。
+    const due = await admin.query("select count(*)::int n from reinlab_explore_due_plans(50) where dossier_id=$1", [dossier]);
+    expect(due.rows[0].n).toBe(0);
+  });
+
   it("建议只给本账户看", async () => {
     const denied = await app.request(`/v1/explore/plans/${dossier}/suggestions`, {
       headers: headers(cookieB),

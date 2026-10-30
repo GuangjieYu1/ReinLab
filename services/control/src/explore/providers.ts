@@ -80,6 +80,8 @@ export async function searchPlaces(input: {
         "PLACES_NOT_CONFIGURED",
         503,
         "国内地点搜索要配高德 Web 服务 key（AMAP_KEY），现在没有配。",
+        // 页面据此显示「没配置」而不是报错弹窗；助手据此照实转述。
+        { provider: "amap", missing: ["AMAP_KEY"] },
       );
     const params = new URLSearchParams({ key: current.amapKey, keywords: q, offset: String(limit), page: "1" });
     if (input.near) {
@@ -112,6 +114,7 @@ export async function searchPlaces(input: {
       "PLACES_NOT_CONFIGURED",
       503,
       "海外地点搜索要配 openrouteservice key（ORS_KEY），现在没有配。",
+      { provider: "ors", missing: ["ORS_KEY"] },
     );
   const params = new URLSearchParams({ api_key: current.orsKey, text: q, size: String(limit) });
   if (input.near) params.set("focus.point.lat", String(input.near[1])), params.set("focus.point.lon", String(input.near[0]));

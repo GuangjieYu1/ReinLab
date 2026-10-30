@@ -241,11 +241,16 @@ describe("页面接口：地点搜索与同批次重算路线", () => {
     await admin.end();
   });
 
-  it("没配置地点服务时，搜索框照实说缺哪项", async () => {
+  it("没配置地点服务时，搜索框照实说缺哪项（结构化给出缺的键，页面不用猜）", async () => {
     configureGeoProviders({ amapKey: null, orsKey: null });
     const response = await app.request(`/v1/explore/places?q=白川&provider=amap`, { headers: headers() });
     expect(response.status).toBe(503);
-    expect((await response.json()).code).toBe("PLACES_NOT_CONFIGURED");
+    const body = await response.json();
+    expect(body.code).toBe("PLACES_NOT_CONFIGURED");
+    expect(body).toMatchObject({ provider: "amap", missing: ["AMAP_KEY"] });
+    expect(body.message).toContain("高德");
+    const overseas = await app.request(`/v1/explore/places?q=Gion&provider=ors`, { headers: headers() });
+    expect(await overseas.json()).toMatchObject({ provider: "ors", missing: ["ORS_KEY"] });
   });
 
   it("配好之后返回真实来源的地点", async () => {
