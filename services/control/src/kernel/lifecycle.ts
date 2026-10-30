@@ -74,9 +74,17 @@ export async function reconcileAccount(
     // 1b) 请求关了以后没有别的待办、也不在执行中的任务，按中断收尾
     const stranded = (
       await client.query(
+        // 只有「确实等超时」才收尾：刚批准、正在续接的那一轮不能被当成残留，
+        // 否则批准后紧接着的一次收件箱刷新就会把它误标成 interrupted。
         `update run set state='interrupted', ended_at=now()
           where account_id=$1 and state='waiting' and ended_at is null
             and not exists (select 1 from approval a where a.run_id=run.id and a.state='pending')
+            -- 刚批准、正在续接的那一轮不算残留：批准后的那次收件箱刷新
+            -- 不能把还在跑的 run 误标成 interrupted。
+            and not exists (
+              select 1 from approval a
+               where a.run_id=run.id and a.state='approved'
+                 and a.decided_at > now() - interval '2 minutes')
           returning id, dossier_id`,
         [account],
       )

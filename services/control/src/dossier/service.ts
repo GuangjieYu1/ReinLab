@@ -40,6 +40,21 @@ export function subscribe(account: string, bench: string, push: (e: StreamEvent)
   };
 }
 
+/** 其它模块（如论文入档）改完档案后，用它把变化推给页面。 */
+export async function announceDossierChanged(
+  client: Client,
+  account: string,
+  dossier: string,
+  change: string,
+) {
+  const row = await one(client, "select bench, version from dossier where account_id=$1 and id=$2", [
+    account,
+    dossier,
+  ]);
+  if (!row) return;
+  emit(account, row.bench, { type: "dossier.changed", id: dossier, version: row.version, change });
+}
+
 function emit(account: string, bench: string, event: StreamEvent) {
   for (const push of subscribers.get(account + ":" + bench) ?? []) {
     try {

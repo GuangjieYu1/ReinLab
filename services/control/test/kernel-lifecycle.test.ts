@@ -90,6 +90,19 @@ describe("运行生命周期收尾", () => {
     expect(await state(own.run)).toBe("waiting");
   });
 
+  it("刚批准的等待不算残留：续接中的任务不会被误标成中断", async () => {
+    const own = await runWith("waiting");
+    const id = randomUUID();
+    await admin.query(
+      `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key,created_at,decided_at)
+       values($1,$2,$3,'permission','把《示例》正式入档','[]'::jsonb,'write','approved',$4,now(),now())`,
+      [id, account, own.run, "papers.register:fresh"],
+    );
+    await reconcileAccount(db, account);
+    // 批准刚发生，续接可能还在路上：这一轮必须保持 waiting，不能当成残留收尾。
+    expect(await state(own.run)).toBe("waiting");
+  });
+
   it("进程已经不在了、状态还停在执行中的任务，补成中断并释放占用", async () => {
     const own = await runWith("running");
     const card1 = await pendingCard(own.run, 1_000, "papers.fetch:orphan");

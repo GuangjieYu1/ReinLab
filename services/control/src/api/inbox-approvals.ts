@@ -53,6 +53,16 @@ function describe(effects: any) {
     typeof first?.capability === "string" ? first.capability : "";
   if (!capability) return [];
   const what = capabilityLabel[capability];
+  if (capability === "papers.register") {
+    const first0 = Array.isArray(effects) ? effects[0] : effects;
+    const where = String(first0?.path ?? "工作区里的这份文件");
+    const title = String(first0?.title ?? "");
+    return [
+      `把工作区里的 ${where}${title ? `（《${title}》` + "）" : ""}登记进当前档案，成为这份档案的正式论文`,
+      "不会去网上重新下载，只读你工作区里这一份",
+      "不批准就不入档、也不改名；你工作区里的原文件都还在",
+    ];
+  }
   if (capability === "papers.fetch")
     return [
       "把这篇论文下载进当前档案，并登记成正式资料",

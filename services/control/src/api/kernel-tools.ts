@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
 import { paperHandle } from "../mcp/papers";
-import { nameFromPaper } from "../dossier/service";
+import { announceDossierChanged, nameFromPaper } from "../dossier/service";
 import {
   attachCourse,
   createDossier,
@@ -35,6 +35,8 @@ async function afterPaperRegistered(
     "update dossier set last_activity_at=now(), version=version+1 where account_id=$1 and id=$2",
     [call.account, call.dossier],
   );
+  // 改名/入档要立刻反映到页面头部与列表，不要求用户重新打开。
+  await announceDossierChanged(client, call.account, call.dossier, "artifacts").catch(() => {});
   await client.query(
     `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
      values($1,$2,$3,'user_op','attach',$4,$5) on conflict do nothing`,
@@ -360,7 +362,8 @@ export function registerKernelTools(
                   // 批准绑定的是这份内容：摘要写进卡里，之后文件换了就不认。
                   sha256: prepared?.digest,
                   title,
-                  path: prepared?.path,
+                  // 卡上只写工作区内的相对位置，不外泄宿主绝对路径。
+                  path: String(args.path ?? "工作区里的这份 PDF"),
                 },
               ],
               risk: "write",
