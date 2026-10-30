@@ -317,17 +317,25 @@ export function applyBatch(input: BatchInput): Batch {
       const index = document.canvas.findIndex((object) => object.id === op.id);
       if (index < 0) throw new ApiFailure("CANVAS_NOT_FOUND", 404, "画布上没有这个草图，可能刚被撤掉。");
       const object = document.canvas[index];
-      const patch: Partial<CanvasObject> = { ...op.patch };
+      const patch = { ...(op.patch as Record<string, unknown>) };
       delete patch.id;
       delete patch.author;
       delete patch.createdAt;
-      if (!changedKeys(patch).length) throw invalid("没有要改的草图内容。");
-      const before = previousValues(object, patch);
-      Object.assign(object, patch);
+      const keys = Object.keys(patch);
+      if (!keys.length) throw invalid("没有要改的草图内容。");
+      // 反向值里缺的键写 null（草图上原本没有这个字段），落 jsonb 时不会被丢掉；
+      // 应用时 null 表示清空这个字段，所以「给草图加一句话」也能撤回。
+      const before: Record<string, unknown> = {};
+      for (const key of keys)
+        before[key] = key in (object as Record<string, unknown>) ? (object as any)[key] : null;
+      for (const key of keys) {
+        if (patch[key] === null) delete (object as Record<string, unknown>)[key];
+        else (object as Record<string, unknown>)[key] = patch[key];
+      }
       return {
         summary: "修改草图",
         result: { object },
-        inverse: { op: "canvas.update", id: object.id, patch: before },
+        inverse: { op: "canvas.update", id: object.id, patch: before as Partial<CanvasObject> },
       };
     }
     const index = document.canvas.findIndex((object) => object.id === op.id);

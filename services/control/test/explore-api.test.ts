@@ -473,6 +473,67 @@ describe("探索台 Agent 工具", () => {
     expect(after.plan.stops[0].day).toBe("2026-11-17");
   });
 
+  it("别处改了计划，这张卡仍然适用（只核对目标，不是核对修订号）", async () => {
+    const before = await readPlan();
+    const stopId = before.plan.stops[0].id;
+    const card = await tool("ops", { ops: [{ op: "stop.update", id: stopId, patch: { window: null } }] });
+    expect(card.status).toBe(409);
+    // 期间页面加了另一个无关的候选点：修订 +1，但这张卡的目标没被动过。
+    await ops({ baseRevision: (await readPlan()).plan.revision, ops: [addStopOp("顺带拍的河岸")] });
+    const decided = await app.request(`/v1/approvals/${card.body.approvalId}/decide`, {
+      method: "POST",
+      headers: headers(cookieA, randomUUID()),
+      body: JSON.stringify({ decision: "approve", scope: "once" }),
+    });
+    expect(decided.status).toBe(200);
+    expect((await decided.json()).state).toBe("approved");
+    const after = await readPlan();
+    expect(after.plan.stops.find((row: any) => row.id === stopId).window).toBeNull();
+  });
+
+  it("给草图加一句话也能撤回（反向 patch 不会变成空的）", async () => {
+    const drawn = await tool("ops", {
+      ops: [
+        {
+          op: "canvas.add",
+          object: {
+            kind: "note",
+            geometry: { type: "Point", coordinates: [135.78, 35.01] },
+          },
+        },
+      ],
+    });
+    expect(drawn.status).toBe(200);
+    const noteId = (drawn.body.result.applied as AppliedOp[])[0].result.object!.id;
+    const edited = await tool("ops", {
+      ops: [{ op: "canvas.update", id: noteId, patch: { text: "这里逆光" } }],
+    });
+    expect(edited.status).toBe(200);
+    const undo = await ops({ baseRevision: (await readPlan()).plan.revision, ops: [{ op: "canvas.undo" }] });
+    expect(undo.status).toBe(200);
+    const after = await readPlan();
+    const note = after.canvas.find((row: any) => row.id === noteId);
+    expect(note.text).toBeUndefined();
+  });
+
+  it("换日期这类计划级改动，一句含糊的话不放行", async () => {
+    await admin.query(
+      `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+       values($1,$2,$3,'dsh','user/message',$4,$5)`,
+      [
+        A,
+        dossierA,
+        runId,
+        JSON.stringify({ id: "msg-vague", content: [{ type: "text", text: "改一下理由吧" }] }),
+        "test-msg-vague",
+      ],
+    );
+    const request = await tool("ops", { ops: [{ op: "plan.set", patch: { days: ["2026-11-20"] } }] });
+    expect(request.status).toBe(409);
+    expect(request.body.state).toBe("pending");
+    expect((await readPlan()).plan.days).not.toContain("2026-11-20");
+  });
+
   it("助手不能借 token 去改别人的档案", async () => {
     const response = await app.request("/kernel/tool", {
       method: "POST",

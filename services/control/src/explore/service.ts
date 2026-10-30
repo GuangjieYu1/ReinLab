@@ -188,9 +188,9 @@ export async function applyOps(
     if (!card) throw new ApiFailure("APPROVAL_NOT_FOUND", 404, "这张审批卡不存在了。");
     // kernel 卡的 effects 是数组（[{kind, forRevision, ops…}]）。
     const effectsOf = Array.isArray(card.effects) ? card.effects[0] : card.effects;
-    const forRevision = Number((effectsOf as any)?.forRevision ?? 0);
-    if (forRevision !== plan.revision)
-      throw new ApiFailure("PLAN_STALE", 409, "计划在这张卡之后改过了，这次修改不再适用。");
+    // 契约：批准后在当前最新修订上执行；只有目标本身变了才作废。
+    // 改一个停留点的时段，不该因为别处加了一个点就整张卡失效。
+    assertApprovedStillApplies(plan, effectsOf, ops);
     const consumed = await consumeApproval(client, {
       approvalId: request.approved.approvalId,
       effectKey: effectKeyOf(CAPABILITY, opsHash(ops)),
@@ -301,10 +301,13 @@ async function commitBatch(
       seqs.push(inserted.seq);
     }
     if (batch.undone.length && seqs.length) {
+      // 记在「撤回」那一条上：批次里撤回后面还可能跟着别的动作。
+      const undoIndex = batch.applied.findIndex((entry) => entry.op === "canvas.undo");
+      const markedBy = seqs[undoIndex >= 0 ? undoIndex : seqs.length - 1];
       await client.query(
         `update explore_op set undone_by=$3
           where account_id=$1 and dossier_id=$2 and seq = any($4::bigint[])`,
-        [account, dossier, seqs[seqs.length - 1], batch.undone],
+        [account, dossier, markedBy, batch.undone],
       );
     }
     await client.query(
@@ -347,4 +350,37 @@ export async function requireTimezone(client: Client, account: string, provided?
   const existing = await accountTimezone(client, account);
   if (existing) return existing;
   throw new ApiFailure("TIMEZONE_REQUIRED", 409, "天气检查要用账户时区，先确认一个时区（默认取浏览器时区）。");
+}
+
+/**
+ * 这张审批卡现在还适用吗？
+ * 改停留点：点还在，且卡上那几项仍是当时的值（用户后来自己改过就别套用）。
+ * 删停留点：点还在。整份计划类动作：修订没变。
+ */
+function assertApprovedStillApplies(plan: StoredPlan, effects: any, ops: Op[]) {
+  const stale = () =>
+    new ApiFailure("PLAN_STALE", 409, "计划在这张卡之后改过了，这次修改不再适用。");
+  const forRevision = Number(effects?.forRevision ?? 0);
+  const changes = Array.isArray(effects?.changes) ? effects.changes : [];
+  for (const op of ops) {
+    if (op.op === "stop.update") {
+      const stop = plan.document.stops.find((row) => row.id === op.id);
+      if (!stop) throw stale();
+      const change = changes.find((row: any) => row?.stopId === op.id);
+      for (const [key, value] of Object.entries(change?.before ?? {})) {
+        if (["id", "state", "source", "light", "revision"].includes(key)) continue;
+        const current = (stop as Record<string, unknown>)[key] ?? null;
+        if (canonical({ v: current }) !== canonical({ v: (value as unknown) ?? null })) throw stale();
+      }
+    } else if (op.op === "stop.remove") {
+      if (!plan.document.stops.some((row) => row.id === op.id)) throw stale();
+    } else if (
+      op.op === "plan.confirm" ||
+      op.op === "plan.finish" ||
+      op.op === "plan.cancel" ||
+      op.op === "plan.set"
+    ) {
+      if (forRevision !== plan.revision) throw stale();
+    }
+  }
 }

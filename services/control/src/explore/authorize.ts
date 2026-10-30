@@ -118,8 +118,18 @@ function requiredMatch(plan: StoredPlan, op: Op): { targets: string[][]; verbs: 
       return { targets: [], verbs: VERBS["plan.finish"] };
     case "plan.cancel":
       return { targets: [], verbs: VERBS["plan.cancel"] };
-    case "plan.set":
-      return { targets: [], verbs: VERBS["plan.set"] };
+    // 换地点、改日期要能对上具体目标：只凭「改一下」不给放行。
+    case "plan.set": {
+      const groups: string[][] = [];
+      const destination = op.patch?.destination;
+      if (destination?.name) groups.push([destination.name]);
+      if (Array.isArray(op.patch?.days) && op.patch.days.length) {
+        // 用户常说的是「改到 16 号」而不是完整日期：日期词或那一天的号数都算对上。
+        const days = op.patch.days;
+        groups.push([...days, ...days.map((day) => String(Number(day.slice(8, 10))))].filter(Boolean));
+      }
+      return { targets: groups, verbs: VERBS["plan.set"] };
+    }
     default:
       return null;
   }

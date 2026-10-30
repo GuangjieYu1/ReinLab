@@ -255,6 +255,20 @@ describe("探索台计划引擎", () => {
     expect((removed.inverses[0] as any).object.text).toBe("原来的字");
   });
 
+  it("草图原本没有的字段，反向 patch 记成 null（落 jsonb 不会丢），撤回后字段消失", () => {
+    const note = canvas({ id: "note-1", kind: "note", text: undefined });
+    delete (note as { text?: string }).text;
+    const plan = planOfDocument({ canvas: [note] });
+    const edited = run(plan, [{ op: "canvas.update", id: note.id, patch: { text: "这里逆光" } }]);
+    expect(edited.inverses[0]).toMatchObject({ op: "canvas.update", id: note.id, patch: { text: null } });
+    const undone = run(edited.plan, [{ op: "canvas.undo" }], {
+      undoCandidates: [
+        { seq: "5", actor: "page", inverse: edited.inverses[0]!, summary: "修改草图" },
+      ],
+    });
+    expect(undone.plan.document.canvas[0].text).toBeUndefined();
+  });
+
   it("计划修改卡列出前后对照与一句话标题", () => {
     const candidate = stop();
     const plan = planOfDocument({ stops: [candidate] });
