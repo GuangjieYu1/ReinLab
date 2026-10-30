@@ -7,7 +7,7 @@ import { paperHandle } from "../mcp/papers";
 import { announceDossierChanged, nameFromPaper, publishAccountEvent } from "../dossier/service";
 import { applyOps, loadPlan, readPlan, stopCenter, weatherView, type OpsOutcome } from "../explore/service";
 import { createProfile, deleteProfile, listProfiles, updateProfile } from "../explore/profiles";
-import { listRefs } from "../explore/refs";
+import { addWebRef, fetchWebRef, listRefs, type ExploreStorage, type WeatherLikeTransport } from "../explore/refs";
 import { planUsage } from "../explore/usage";
 import { prepareBook, type BookPlan } from "../explore/book-job";
 import { userSaidClearly } from "../explore/authorize";
@@ -165,6 +165,7 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
     "refs",
     "usage",
     "book",
+    "ref_add",
   ],
   // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
   dossiers: [
@@ -207,6 +208,10 @@ export type KernelToolDependencies = {
   now: () => number;
   /** 生成计划书（由控制面注入：需要文件存放与字体）。 */
   bookEngine?: (account: string, dossier: string, plan: import("../explore/book-job").BookPlan) => void;
+  /** 网图入档要存副本；没有就只记来源。 */
+  exploreStorage?: ExploreStorage;
+  /** 抓取通道：缺省用真实 fetch。 */
+  refTransport?: WeatherLikeTransport;
   /** Executes an allowed tool against the business layer. */
   dispatch: (call: KernelToolCall) => Promise<unknown>;
 };
@@ -338,13 +343,20 @@ export function registerKernelTools(
         }
         // 探索台：读计划、改计划与画布、移视野、撤回自己的涂鸦。
         if (body.server === "explore") {
-          const settledNow = await exploreTool(client, {
-            account: call.account,
-            dossier: call.dossier,
-            run: call.run,
-            tool: String(body.tool),
-            args,
-          });
+          const settledNow = await exploreTool(
+            client,
+            {
+              account: call.account,
+              dossier: call.dossier,
+              run: call.run,
+              tool: String(body.tool),
+              args,
+            },
+            {
+              storage: dependencies.exploreStorage,
+              refTransport: dependencies.refTransport,
+            },
+          );
           if (settledNow.publish) settled = settledNow.publish;
           return c.json(settledNow.body, settledNow.status as any);
         }
@@ -786,8 +798,39 @@ function publishSettled(
 async function exploreTool(
   client: pg.PoolClient,
   input: { account: string; dossier: string; run: string; tool: string; args: Record<string, unknown> },
+  deps: { storage?: ExploreStorage; refTransport?: WeatherLikeTransport } = {},
 ): Promise<{ status: number; body: Record<string, unknown>; publish?: ExploreSettlement }> {
   const args = input.args ?? {};
+
+  if (input.tool === "ref_add") {
+    // 网上找到的参考图：抄一份副本进档案，同时保留原网页与作者/平台。
+    const target = String(args.url ?? args.pageUrl ?? "").trim();
+    if (!target) throw new ApiFailure("REF_URL_REQUIRED", 400, "需要一个图片或网页链接。");
+    const material = await fetchWebRef(target, { transport: deps.refTransport });
+    const ref = await addWebRef(client, deps.storage, {
+      account: input.account,
+      dossier: input.dossier,
+      kind: args.kind === "same-spot" ? "same-spot" : "style",
+      stopId: typeof args.stopId === "string" && args.stopId ? args.stopId : null,
+      pageUrl: material.page?.url ?? (typeof args.pageUrl === "string" ? args.pageUrl : target),
+      pageTitle: material.page?.title ?? (typeof args.pageTitle === "string" ? args.pageTitle : null),
+      author: typeof args.author === "string" ? args.author : null,
+      platform: typeof args.platform === "string" ? args.platform : null,
+      takenAt: typeof args.takenAt === "string" ? args.takenAt : null,
+      image: material.image,
+    });
+    return {
+      status: 200,
+      body: {
+        result: {
+          ref,
+          ...(ref.stopId ? { stopIds: [ref.stopId] } : {}),
+          ...(material.warning ? { warning: material.warning } : {}),
+          ...(ref.image ? {} : { imageUnavailable: true }),
+        },
+      },
+    };
+  }
   if (input.tool === "get") {
     const bundle = await readPlan(client, input.account, input.dossier);
     // 对话里的候选卡按 id 显示，模型不必背名称。

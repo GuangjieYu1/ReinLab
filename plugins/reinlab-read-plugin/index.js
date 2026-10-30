@@ -289,6 +289,26 @@ export function apply(ctx, config) {
 
     register(
       defineTool({
+        name: "explore_ref_add",
+        description:
+          "把网上找到的参考图收进这份档案：服务端抄一份副本（页面和计划书都能稳定显示），同时保留原网页、作者、平台和出处时间。可以直接给图片地址，也可以给带图的网页（会读页面的分享图）。拿不到图时只记来源并告诉你原因，这时照实跟用户说「只有链接」，不要拿别的图顶替。kind：same-spot = 该机位实拍，style = 风格参考，别把风格参考说成实拍。",
+        parameters: {
+          url: { type: "string", required: true, description: "图片地址或带图的网页地址（http/https）。" },
+          kind: { type: "string", description: "same-spot | style。" },
+          stopId: { type: "string", description: "关联到哪个停留点（可选）。" },
+          author: { type: "string", description: "作者，知道才填。" },
+          platform: { type: "string", description: "平台，比如 小红书 / Instagram / Flickr。" },
+          takenAt: { type: "string", description: "拍摄或发布的时间，知道才填。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "ref_add", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
         name: "explore_book",
         description:
           "生成两版计划书之一：brief 是一页精简版，full 是总览加每个停留点一页。用户说「出一份计划书 / 打印一份」就用它，生成后自动入档，不用再问要不要挂载。只用同一计划修订的地图快照：素材不齐会返回 needs_map_snapshot 并请用户打开计划页面点一次生成，这时不要假称已经生成。",

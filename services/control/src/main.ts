@@ -152,6 +152,7 @@ const app = await createApp({
   // 只下发地图公开 key 与图层地址；其余服务凭据不出进程。
   mapConfig: () => mapConfigFrom(config),
   kernel,
+  // 网图入档用的是同一个存放目录（createApp 里的 exploreStorage）。
   kernelTools: { auth: kernelAuth, dispatch: kernelDispatch, bookEngine },
   weatherJudge,
   // 参考图、以后的计划书 PDF 都存在档案自己的目录下。

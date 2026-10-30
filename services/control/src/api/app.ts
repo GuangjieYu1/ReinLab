@@ -51,6 +51,8 @@ export async function createApp(options: {
   exploreStorage?: import("../explore/refs").ExploreStorage;
   /** 中文 PDF 用的字体文件。 */
   pdfFontFile?: string;
+  /** 网图抓取通道；缺省用真实 fetch，测试可注入。 */
+  refTransport?: import("../explore/refs").WeatherLikeTransport;
   realModelsEnabled?: boolean;
   testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
   testOnlyClarifyModelTransport?: (body: Buffer) => Promise<Response>;
@@ -172,6 +174,9 @@ export async function createApp(options: {
       now: () => Math.floor(Date.now() / 1000),
       dispatch: options.kernelTools.dispatch,
       ...(options.kernelTools.bookEngine ? { bookEngine: options.kernelTools.bookEngine } : {}),
+      // 网图入档和页面上传用同一个存放目录。
+      ...(options.exploreStorage ? { exploreStorage: options.exploreStorage } : {}),
+      ...(options.refTransport ? { refTransport: options.refTransport } : {}),
     });
   app.notFound((c) =>
     c.json({ code: "NOT_FOUND", message: "接口不存在。" }, 404),
