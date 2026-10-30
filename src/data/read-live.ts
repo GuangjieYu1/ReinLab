@@ -247,6 +247,8 @@ export function createLiveReadAdapter(
           });
           return;
         }
+        // 服务端投递的档案变动（契约第 8 节）：一行操作提示，不放进用户气泡
+        if (text && text.startsWith("档案变动：")) { emit({ type: "note", id: String(data.id ?? "note:" + event.seq), text: text.slice(5).trim() }); return; }
         if (text) emit({ type: "user", id: String(data.id ?? "user:" + event.seq), text });
         return;
       }
@@ -1096,6 +1098,7 @@ function toHistory(event: KernelEvent): ReadEvent | null {
           label: "开始精读",
           state: "done",
         };
+      if (raw.startsWith("档案变动：")) return { type: "note", id: String(data.id ?? "n:" + event.seq), text: raw.slice(5).trim() };
       return { type: "user", id: String(data.id ?? "u:" + event.seq), text: raw };
     }
 

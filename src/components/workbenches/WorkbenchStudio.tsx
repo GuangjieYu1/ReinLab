@@ -19,9 +19,10 @@ import { liveInboxAdapter } from '../../data/inbox-live';
 import DossierMenu from '../dossier/DossierMenu';
 import ConfirmDialog from '../dossier/ConfirmDialog';
 import DossierEmpty from '../dossier/DossierEmpty';
+import AssistDock from '../dossier/AssistDock';
 import { dossiers } from '../dossier/store';
 import { DossierError, type Artifact, type Confirmation, type Dossier, type ResumePoint } from '../dossier/adapter';
-import { isDemoBench } from '../../backendMode';
+import { backendMode, isDemoBench } from '../../backendMode';
 import { lazy, Suspense } from 'react';
 import { courseOrigin, courseToken } from '../classroom/native/courseOrigin';
 const NativeCourse = lazy(() => import('../classroom/native/NativeCourse'));
@@ -164,7 +165,11 @@ export default function WorkbenchStudio() {
         ? <Bench file={file} reduced={reduced} chrome={chrome} dossier={dossier} resume={dossier.resume} onPosition={onPosition} />
         : <ShellFrame chrome={chrome} title={info.title}>
             {status === 'loading' ? null
-              : status === 'ready' && dossier ? <DossierEmpty mode="shell" title={CODES[bench]} noun={FILE_NOUN[bench]} dossier={dossier} onOpenMenu={() => setMenu(true)} />
+              : status === 'ready' && dossier ? <div className="wb-assist">
+                  <DossierEmpty mode="shell" title={CODES[bench]} noun={FILE_NOUN[bench]} dossier={dossier} onOpenMenu={() => setMenu(true)} />
+                  {/* 档案助手：这个台的专业能力没接入，但档案可以和侧边 Agent 一起管理（D4） */}
+                  {backendMode === 'live' && bench !== 'research' && <AssistDock key={dossier.id} dossier={dossier} onOpen={o => openArtifact({ id: '', dossierId: o.to === 'dossier' ? o.dossierId : dossier.id, kind: o.to === 'course' ? 'course' : 'file', title: '', runId: null, version: 0, createdAt: '', status: 'available', open: o })} />}
+                </div>
               : <DossierEmpty mode={status === 'deleted' ? 'deleted' : 'none'} title={CODES[bench]} noun={FILE_NOUN[bench]} onCreate={() => void create()} onOpenMenu={() => setMenu(true)} />}
           </ShellFrame>}
     </div>

@@ -182,3 +182,5 @@
 .wb-shellbody { min-height:0; overflow:auto; }
 .wb-file { position:relative; }
 .wb-course { position:fixed; inset:0; z-index:80; background:var(--rh-paper, #f3f1ec); overflow:auto; }
+.wb-assist { height:100%; display:grid; grid-template-columns:1fr minmax(320px, 380px); }
+.wb-assist > .ad { border-left:1.5px solid var(--rh-ink, #141213); height:100%; min-height:0; }
