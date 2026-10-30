@@ -13,6 +13,8 @@ const Create = z
     query: z.string().min(1).max(4000),
     chosenPaperId: z.string().max(200).optional(),
     newSession: z.boolean().optional(),
+    // 非研究台的最小侧边会话：只带档案工具，不读论文。
+    mode: z.enum(["assist"]).optional(),
   })
   .strict();
 
@@ -33,9 +35,8 @@ export function registerKernelRuns(
   app.post("/v1/kernel/runs", async (c) => {
     const account = c.get("accountId");
     let created: string | undefined;
-    let lastInput: { newSession?: boolean } | undefined;
+    let lastInput: { newSession?: boolean; mode?: "assist" } | undefined;
     const response = await mutate(c, dependencies.db, Create, async (client, input) => {
-      const account = c.get("accountId");
       const dossier = (
         await client.query(
           "select id,bench from dossier where id=$1 and account_id=$2",
@@ -43,17 +44,20 @@ export function registerKernelRuns(
         )
       ).rows[0];
       if (!dossier) throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "档案不存在。");
-      if (dossier.bench !== "research")
+      // 研究台跑精读；其它台的最小侧边会话（assist）只做档案操作。
+      if (dossier.bench !== "research" && input.mode !== "assist")
         throw new ApiFailure("BENCH_UNSUPPORTED", 400, "只有研究档案可以精读。");
       lastInput = input;
       const runId = randomUUID();
       await client.query(
         `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
-         values($1,$2,$3,'research-read','read',$4,'queued',1,$5)`,
+         values($1,$2,$3,$4,$5,$6,'queued',1,$7)`,
         [
           runId,
           account,
           input.dossierId,
+          input.mode === "assist" ? "bench-assist" : "research-read",
+          input.mode === "assist" ? "assist" : "read",
           randomUUID(),
           JSON.stringify({
             query: input.query,
@@ -67,6 +71,7 @@ export function registerKernelRuns(
     // The kernel starts after the run row commits; it opens its own transaction.
     if (!created) return response;
     const started = await dependencies.kernel.submit(account, created, {
+      ...(lastInput?.mode === "assist" ? { mode: "assist" as const } : {}),
       newSession: lastInput?.newSession === true,
     });
     return c.json({ id: created, sessionId: started.sessionId, resume: started.resume }, 201);

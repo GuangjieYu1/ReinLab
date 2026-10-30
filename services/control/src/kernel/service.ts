@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ApiFailure } from "../api/errors";
 import { ensureAccountContainer } from "./container-lifecycle";
+import { withDossierContext } from "../dossier/deliver";
 import type { Database } from "../db/database";
 import type { KernelAuth } from "./auth";
 import { launchPlan, materializeLaunch, type LaunchIo } from "./dsh/launch";
@@ -75,7 +76,7 @@ export class KernelService {
   async submit(
     account: string,
     runId: string,
-    options: { newSession?: boolean; prompt?: string } = {},
+    options: { newSession?: boolean; prompt?: string; mode?: "assist" } = {},
   ): Promise<{ runId: string; sessionId: string; resume: boolean }> {
     const { db, layout } = this.dependencies;
     const prepared = await db.withAccount(account, async (client) => {
@@ -120,7 +121,20 @@ export class KernelService {
       );
       const chosenPaper =
         typeof input.chosenPaperId === "string" && input.chosenPaperId !== "";
-      return { dossierId, sessionId, message, resume: Boolean(existing), mode: chosenPaper ? "read" : "clarify" };
+      // 第 8 节：把这期间新增的档案操作事实随这一轮送进去（重启不会重复投递）。
+      const prompt = await withDossierContext(client, {
+        account,
+        dossier: dossierId,
+        sessionId,
+        prompt: typeof options.prompt === "string" && options.prompt ? options.prompt : message,
+      });
+      return {
+        dossierId,
+        sessionId,
+        message: prompt,
+        resume: Boolean(existing),
+        mode: options.mode === "assist" ? "assist" : chosenPaper ? "read" : "clarify",
+      };
     });
 
     const plan = launchPlan({
@@ -132,7 +146,7 @@ export class KernelService {
       model: this.dependencies.model,
       maxTokens: this.dependencies.maxTokens,
       home: layout.home,
-      mode: prepared.mode as "clarify" | "read",
+      mode: prepared.mode as "clarify" | "read" | "assist",
       bundler: {
         shimModule: layout.shimModule,
         shimContainerModule: layout.shimContainerModule,

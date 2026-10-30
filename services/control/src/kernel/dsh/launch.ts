@@ -29,7 +29,7 @@ export type LaunchInput = {
   /** Root of the per-account volume inside the account container. */
   home?: string;
   /** Which tool surface this turn gets: clarify only searches/asks, read only reads. */
-  mode?: "clarify" | "read";
+  mode?: "clarify" | "read" | "assist";
   /**
    * 容器模式：给了这套路径，就让 dsh 跑在账户容器里，plan 里所有交给 dsh 的
    * 路径都换成容器内路径；`paths` 仍是宿主路径，控制面照旧在宿主读写。
@@ -61,7 +61,7 @@ export type LaunchPaths = {
 
 export type LaunchPlan = {
   bundler: LaunchBundler;
-  mode: "clarify" | "read";
+  mode: "clarify" | "read" | "assist";
   account: string;
   dossier: string;
   run: string;
