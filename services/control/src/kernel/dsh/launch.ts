@@ -126,7 +126,10 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
   // 研究台仍按当前 transport 的补丁（容器模式基础工具全开）。
   const basePatch =
     input.mode === "assist"
-      ? input.bundler.restrictPatch
+      ? // assist 在容器里也要用容器内路径，否则 dsh 读不到这个补丁。
+        inContainer
+        ? "/opt/reinlab/plugins/reinlab-read-plugin/restrict.patch.yml"
+        : input.bundler.restrictPatch
       : inContainer
         ? inContainer.restrictPatch
         : input.bundler.restrictPatch;
