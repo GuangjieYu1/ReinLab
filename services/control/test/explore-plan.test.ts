@@ -282,7 +282,17 @@ describe("探索台计划引擎", () => {
     });
   });
 
-  it("账户资料还没接通时不假装选上了模特器材", () => {
-    expect(() => run(planOfDocument(), [{ op: "plan.select", gear: ["x"] }])).toThrowError(/还没接通/);
+  it("选资料要用解析好的快照：解析不到就明确报错，解析到才写进计划", () => {
+    expect(() => run(planOfDocument(), [{ op: "plan.select", gear: ["x"] }])).toThrowError(/选不上/);
+    const snapshot = {
+      profileId: "p1",
+      revision: 2,
+      data: { id: "p1", type: "gear" as const, revision: 2, name: "85mm F1.8", kind: "lens" as const },
+    };
+    const batch = run(planOfDocument(), [{ op: "plan.select", gear: ["p1"] }], {
+      profileSnapshots: new Map([["p1", snapshot]]),
+    });
+    expect(batch.plan.document.gear).toHaveLength(1);
+    expect(batch.applied[0].summary).toContain("85mm F1.8");
   });
 });

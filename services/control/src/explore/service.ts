@@ -13,6 +13,7 @@ import type {
   LngLat,
   Op,
   PendingChange,
+  ProfileSnapshot,
   RefImage,
   Source,
   WeatherHour,
@@ -32,6 +33,8 @@ import {
 } from "./plan";
 import { consumeUserAuthorization, verifyUserAuthorization } from "./authorize";
 import { nextCheckAt } from "./schedule";
+import { profileSnapshots as snapshotsFor } from "./profiles";
+import { listRefs } from "./refs";
 import {
   fetchStopWeather,
   weatherSource,
@@ -113,8 +116,7 @@ export async function readPlan(client: Client, account: string, dossier: string)
   return {
     plan: planOf(dossier, plan),
     canvas: plan.document.canvas,
-    // 参考图在下一批接通；现在如实给空，不拿示例顶。
-    refs: [],
+    refs: await listRefs(client, account, dossier),
     lastViewport: plan.document.lastViewport,
     basemap: plan.document.basemap,
   };
@@ -275,11 +277,32 @@ async function commitBatch(
   const confirmOp = (request.ops as (Op & { timezone?: string })[]).find((op) => op.op === "plan.confirm");
   if (confirmOp) await requireTimezone(client, account, confirmOp.timezone);
   const needsUndo = (request.ops as Op[]).some((op) => op.op === "canvas.undo");
+  // 选资料要把快照落到计划里：刷新时采用最新修订，否则沿用当时那一版。
+  const selects = (request.ops as Op[]).filter((op) => op.op === "plan.select");
+  const resolvedProfiles = new Map<string, ProfileSnapshot>();
+  for (const select of selects) {
+    const refresh = (select as { refresh?: boolean }).refresh === true;
+    const people = (select as { people?: string[] }).people;
+    const gear = (select as { gear?: string[] }).gear;
+    if (Array.isArray(people))
+      for (const snapshot of await snapshotsFor(client, account, people, "model", {
+        refresh,
+        existing: plan.document.people,
+      }))
+        resolvedProfiles.set(snapshot.profileId, snapshot);
+    if (Array.isArray(gear))
+      for (const snapshot of await snapshotsFor(client, account, gear, "gear", {
+        refresh,
+        existing: plan.document.gear,
+      }))
+        resolvedProfiles.set(snapshot.profileId, snapshot);
+  }
   const batch = applyBatch({
     plan,
     ops: request.ops as Op[],
     actor: request.actor,
     undoCandidates: needsUndo ? await undoCandidates(client, account, dossier) : [],
+    profileSnapshots: resolvedProfiles,
   });
 
   if (batch.business) {

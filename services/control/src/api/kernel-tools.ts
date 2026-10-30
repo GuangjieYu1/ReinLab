@@ -6,6 +6,10 @@ import { ApiFailure } from "../api/errors";
 import { paperHandle } from "../mcp/papers";
 import { announceDossierChanged, nameFromPaper } from "../dossier/service";
 import { applyOps, loadPlan, readPlan, stopCenter, weatherView, type OpsOutcome } from "../explore/service";
+import { createProfile, deleteProfile, listProfiles, updateProfile } from "../explore/profiles";
+import { listRefs } from "../explore/refs";
+import { planUsage } from "../explore/usage";
+import { userSaidClearly } from "../explore/authorize";
 import { sunAtWindow, sunDay } from "../explore/sun";
 import { localDayOf } from "../explore/weather";
 import { OpsBody } from "../explore/schema";
@@ -148,7 +152,18 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   // 课程台最小能力：提交一份学习计划并入档。计划确认与入档是同一次批准。
   courses: ["plan"],
   // 探索台的计划与画布：和页面调同一组服务函数，只是 via='agent'。
-  explore: ["get", "ops", "view", "undo", "weather", "sun"],
+  explore: [
+    "get",
+    "ops",
+    "view",
+    "undo",
+    "weather",
+    "sun",
+    "profiles",
+    "profile_write",
+    "refs",
+    "usage",
+  ],
   // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
   dossiers: [
     "list",
@@ -777,6 +792,79 @@ async function exploreTool(
         viewport,
         basemap,
       },
+    };
+  }
+  if (input.tool === "profiles") {
+    return {
+      status: 200,
+      body: {
+        result: {
+          items: await listProfiles(
+            client,
+            input.account,
+            typeof args.type === "string" ? args.type : undefined,
+          ),
+        },
+      },
+    };
+  }
+  if (input.tool === "profile_write") {
+    // 新推测、新总结必须先得到用户确认：他的原话要同时点到目标与动作。
+    const action = args.action === "update" ? "update" : args.action === "delete" ? "delete" : "add";
+    const type = args.type === "gear" ? "gear" : "model";
+    const existing = await listProfiles(client, input.account, type);
+    const target =
+      typeof args.id === "string" && args.id
+        ? existing.find((profile) => profile.id === args.id)
+        : typeof args.name === "string" && args.name
+          ? existing.find((profile) => profile.name === args.name)
+          : undefined;
+    const name = String(args.name ?? target?.name ?? "");
+    const verdict = await userSaidClearly(client, {
+      account: input.account,
+      dossier: input.dossier,
+      run: input.run,
+      targets: [name],
+      verbs:
+        action === "delete"
+          ? ["删", "去掉", "移除", "不要"]
+          : ["记住", "加上", "加进", "改成", "更新", "我有", "存进", "记一下"],
+    });
+    if (!verdict.ok)
+      return {
+        status: 409,
+        body: { state: "needs_user_confirmation", reason: verdict.reason },
+      };
+    if (action === "delete") {
+      if (!target)
+        throw new ApiFailure("PROFILE_NOT_FOUND", 404, "账号里没有这条资料。");
+      await deleteProfile(client, input.account, target.id);
+      return { status: 200, body: { result: { removed: target.id } } };
+    }
+    if (action === "update") {
+      if (!target) throw new ApiFailure("PROFILE_NOT_FOUND", 404, "账号里没有这条资料。");
+      const profile = await updateProfile(client, input.account, target.id, {
+        ...(args as Record<string, unknown>),
+        baseRevision: target.revision,
+      });
+      return { status: 200, body: { result: profile } };
+    }
+    const profile = await createProfile(client, input.account, {
+      ...(args as Record<string, unknown>),
+      type,
+    });
+    return { status: 200, body: { result: profile } };
+  }
+  if (input.tool === "refs") {
+    return {
+      status: 200,
+      body: { result: { items: await listRefs(client, input.account, input.dossier) } },
+    };
+  }
+  if (input.tool === "usage") {
+    return {
+      status: 200,
+      body: { result: await planUsage(client, input.account, input.dossier) },
     };
   }
   if (input.tool === "weather") {

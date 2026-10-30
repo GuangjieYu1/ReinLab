@@ -46,6 +46,8 @@ export async function createApp(options: {
   weatherTransport?: import("../explore/weather").WeatherTransport;
   /** 天气判断的模型通道；没有就只记录数据变化、不下结论。 */
   weatherJudge?: import("../explore/weather-judge").WeatherJudge;
+  /** 参考图等文件的存放端口；没有就只记录资料、不存副本。 */
+  exploreStorage?: import("../explore/refs").ExploreStorage;
   realModelsEnabled?: boolean;
   testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
   testOnlyClarifyModelTransport?: (body: Buffer) => Promise<Response>;
@@ -70,14 +72,17 @@ export async function createApp(options: {
   const sessions = new BrowserSessions(options.pool);
   const app = new Hono<ApiEnv>();
   app.use("*", secureHeaders());
-  app.use(
-    "/v1/*",
-    bodyLimit({
-      maxSize: 1024 * 1024,
-      onError: (c) =>
-        c.json({ code: "PAYLOAD_TOO_LARGE", message: "请求内容过大。" }, 413),
-    }),
-  );
+  const tooLarge = (c: any) =>
+    c.json({ code: "PAYLOAD_TOO_LARGE", message: "请求内容过大。" }, 413);
+  const smallBody = bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge });
+  // 参考图上传要能收几 MB 的图；其余接口仍然只收 1MB。
+  const imageBody = bodyLimit({ maxSize: 8 * 1024 * 1024, onError: tooLarge });
+  app.use("/v1/*", (c, next) => {
+    const pathname = new URL(c.req.url).pathname;
+    if (c.req.method === "POST" && /^\/v1\/explore\/plans\/[^/]+\/refs$/.test(pathname))
+      return imageBody(c, next);
+    return smallBody(c, next);
+  });
   app.use("/v1/*", async (c, next) => {
     // 全部业务接口（含 SSE）只认 HttpOnly 会话 Cookie；写操作另校验同源 + 防伪造头。
     c.set("accountId", await requireAccount(c, sessions));
@@ -88,10 +93,13 @@ export async function createApp(options: {
     );
     if (!exists.rowCount)
       throw new ApiFailure("ACCOUNT_NOT_READY", 404, "账户尚未完成初始化。");
-    // 只放开「解除成果关联」这一种 DELETE：它不删文件、不删课程原件。
+    // 只放开这几种 DELETE：都是逻辑删除，不删原件。
+    const pathname = new URL(c.req.url).pathname;
     if (
       c.req.method === "DELETE" &&
-      !/^\/v1\/dossiers\/[^/]+\/artifacts\/[^/]+$/.test(new URL(c.req.url).pathname)
+      !/^\/v1\/dossiers\/[^/]+\/artifacts\/[^/]+$/.test(pathname) &&
+      !/^\/v1\/profiles\/[^/]+$/.test(pathname) &&
+      !/^\/v1\/explore\/plans\/[^/]+\/refs\/[^/]+$/.test(pathname)
     )
       throw new ApiFailure("SCOPE_DENIED", 403, "危险删除操作不开放。");
     await next();
@@ -132,6 +140,7 @@ export async function createApp(options: {
     mapConfig: options.mapConfig,
     weatherTransport: options.weatherTransport,
     weatherJudge: options.weatherJudge,
+    exploreStorage: options.exploreStorage,
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
     let applied: OpsOutcome | null = null;

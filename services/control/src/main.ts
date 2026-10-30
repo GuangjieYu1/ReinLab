@@ -19,6 +19,7 @@ import { registerMessagesProxy } from "./model/messages-proxy";
 import { recordUsage } from "./run/usage";
 import { readRuntimeConfiguration } from "./configuration";
 import { mapConfigFrom } from "./explore/map-config";
+import { localExploreStorage } from "./explore/storage";
 import { createWeatherJudge } from "./explore/weather-judge";
 import { createWeatherScheduler } from "./explore/schedule";
 import { runWeatherCheck } from "./explore/weather-check";
@@ -137,6 +138,8 @@ const app = await createApp({
   kernel,
   kernelTools: { auth: kernelAuth, dispatch: kernelDispatch },
   weatherJudge,
+  // 参考图、以后的计划书 PDF 都存在档案自己的目录下。
+  exploreStorage: localExploreStorage(kernelHome),
   realModelsEnabled: realModels,
   auth: {
     issuer: config.SUPABASE_URL.replace(/\/$/, "") + "/auth/v1",

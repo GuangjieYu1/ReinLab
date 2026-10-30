@@ -184,6 +184,37 @@ export async function verifyUserAuthorization(
   return { ok: true, messageId: message.messageId };
 }
 
+/**
+ * 用户在对话里是否明确说了这件事（不看消息 id 的通用检查）：
+ * 原话要同时点到目标、并且包含这类动作的词。
+ * 用于助手写账户资料：新推测、新总结必须先得到用户的确认。
+ */
+export async function userSaidClearly(
+  client: Client,
+  input: {
+    account: string;
+    dossier: string;
+    run: string | null;
+    messageId?: string;
+    targets: string[];
+    verbs: string[];
+  },
+): Promise<AuthVerdict> {
+  const messages = await recentUserMessages(client, input.account, input.dossier);
+  if (!messages.length) return { ok: false, reason: "还没看到你在对话里说这件事。" };
+  const message = input.messageId
+    ? messages.find((row) => row.messageId === input.messageId)
+    : (messages.find((row) => input.run && row.runId === input.run) ?? messages[0]);
+  if (!message) return { ok: false, reason: "这句话不是你在本档案里的原始消息，不能作为依据。" };
+  const said = normalize(message.text);
+  if (!input.verbs.some((verb) => said.includes(normalize(verb))))
+    return { ok: false, reason: "你这句话没有明确要求这件事，先在对话里问一句再写。" };
+  for (const target of input.targets.filter(Boolean))
+    if (!said.includes(normalize(target)))
+      return { ok: false, reason: `你这句话没有点到「${target}」。` };
+  return { ok: true, messageId: message.messageId };
+}
+
 /** 授权用掉之后记账：同一句话不能再用第二次。 */
 export async function consumeUserAuthorization(
   client: Client,

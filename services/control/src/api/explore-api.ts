@@ -11,7 +11,13 @@ import type { ApiEnv } from "./context";
 import type { Database } from "../db/database";
 import { ApiFailure } from "./errors";
 import { z } from "zod";
-import { OpsBody, SettingsBody, isIanaTimezone } from "../explore/schema";
+import {
+  OpsBody,
+  ProfileBody,
+  ProfilePatchBody,
+  SettingsBody,
+  isIanaTimezone,
+} from "../explore/schema";
 import { runWeatherCheck } from "../explore/weather-check";
 import {
   applyOps,
@@ -25,6 +31,20 @@ import {
 import type { WeatherTransport } from "../explore/weather";
 import type { WeatherJudge } from "../explore/weather-judge";
 import type { WeatherCheckOutcome } from "../explore/weather-check";
+import {
+  REF_IMAGE_MAX_BYTES,
+  addUploadedRef,
+  readRefImage,
+  removeRef,
+  type ExploreStorage,
+} from "../explore/refs";
+import {
+  createProfile,
+  deleteProfile,
+  listProfiles,
+  updateProfile,
+} from "../explore/profiles";
+import { planUsage } from "../explore/usage";
 import { mapConfigFrom, type MapConfig } from "../explore/map-config";
 import { publishAccountEvent } from "../dossier/service";
 
@@ -35,6 +55,8 @@ export type ExploreApiOptions = {
   weatherTransport?: WeatherTransport;
   /** 天气判断的模型通道；没有就只记录数据变化、不下结论。 */
   weatherJudge?: WeatherJudge;
+  /** 参考图等文件的存放端口。 */
+  exploreStorage?: ExploreStorage;
 };
 
 /** 批次生效后推给页面：页面本地修订 +1 时直接应用，否则重拉。 */
@@ -162,6 +184,102 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
     return response;
   });
 
+  app.post("/v1/explore/plans/:dossierId/refs", async (c) => {
+    const account = c.get("accountId");
+    const dossierId = c.req.param("dossierId");
+    const form = await c.req.formData().catch(() => null);
+    const file = form?.get("file");
+    const kind = String(form?.get("kind") ?? "style");
+    if (!file || typeof file === "string")
+      throw new ApiFailure("REF_FILE_REQUIRED", 400, "需要上传一张图片。");
+    if ((file as File).size > REF_IMAGE_MAX_BYTES)
+      throw new ApiFailure("REF_TOO_LARGE", 413, "图片太大了，换一张小于 8MB 的。");
+    const bytes = Buffer.from(await (file as File).arrayBuffer());
+    const stopId = form?.get("stopId");
+    return database.withAccount(account, async (client) => {
+      await loadPlan(client, account, dossierId);
+      const ref = await addUploadedRef(client, options.exploreStorage ?? unavailableStorage(), {
+        account,
+        dossier: dossierId,
+        bytes,
+        mime: String((file as File).type ?? ""),
+        kind: kind === "same-spot" ? "same-spot" : "style",
+        stopId: typeof stopId === "string" && stopId ? stopId : null,
+      });
+      return c.json(ref, 201);
+    });
+  });
+
+  app.delete("/v1/explore/plans/:dossierId/refs/:refId", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      await removeRef(client, options.exploreStorage, {
+        account: c.get("accountId"),
+        dossier: c.req.param("dossierId"),
+        id: c.req.param("refId"),
+      });
+      return c.body(null, 204);
+    }),
+  );
+
+  app.get("/v1/explore/plans/:dossierId/refs/:refId/image", (c) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) => {
+      const file = await readRefImage(client, options.exploreStorage, {
+        account: c.get("accountId"),
+        dossier: c.req.param("dossierId"),
+        id: c.req.param("refId"),
+      });
+      if (!file) throw new ApiFailure("REF_NOT_FOUND", 404, "找不到这张参考图。");
+      return new Response(file.bytes, {
+        headers: {
+          "content-type": file.mime,
+          "cache-control": "private, max-age=300",
+          // 只在这份档案的会话里显示，别的站点不能嵌。
+          "x-content-type-options": "nosniff",
+        },
+      });
+    }),
+  );
+
+  app.get("/v1/explore/plans/:dossierId/usage", (c) =>
+    // loadPlan 会补建默认计划行，所以这里不能用只读事务。
+    database.withAccount(c.get("accountId"), async (client) => {
+      await loadPlan(client, c.get("accountId"), c.req.param("dossierId"));
+      return c.json(await planUsage(client, c.get("accountId"), c.req.param("dossierId")));
+    }),
+  );
+
+  app.get("/v1/profiles", (c) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) =>
+      c.json({ items: await listProfiles(client, c.get("accountId"), c.req.query("type")) }),
+    ),
+  );
+
+  app.post("/v1/profiles", (c) =>
+    mutate(c, database, ProfileBody, async (client, input) => ({
+      status: 201,
+      body: await createProfile(client, c.get("accountId"), input as unknown as Record<string, unknown>),
+    })),
+  );
+
+  app.patch("/v1/profiles/:id", (c) =>
+    mutate(c, database, ProfilePatchBody, async (client, input) => ({
+      status: 200,
+      body: await updateProfile(
+        client,
+        c.get("accountId"),
+        c.req.param("id"),
+        input as unknown as Record<string, unknown>,
+      ),
+    })),
+  );
+
+  app.delete("/v1/profiles/:id", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      await deleteProfile(client, c.get("accountId"), c.req.param("id"));
+      return c.body(null, 204);
+    }),
+  );
+
   app.get("/v1/explore/map-config", (c) =>
     c.json((options.mapConfig ?? (() => mapConfigFrom({})))()),
   );
@@ -180,4 +298,12 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
       return { status: 200, body: { timezone: input.timezone } };
     }),
   );
+}
+
+/** 没有配置存放目录时：上传明确失败，不假装存好了。 */
+function unavailableStorage(): ExploreStorage {
+  const fail = () => {
+    throw new ApiFailure("REF_STORAGE_UNAVAILABLE", 503, "参考图存储还没准备好，先配置存放目录。");
+  };
+  return { saveRef: fail, readRef: fail, removeRef: fail };
 }

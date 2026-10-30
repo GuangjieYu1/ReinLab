@@ -248,6 +248,72 @@ export function apply(ctx, config) {
 
     register(
       defineTool({
+        name: "explore_profiles",
+        description:
+          "读这个账户里的模特和器材（只读你确认过的内容）。给用户推荐时只用这里已有的机身和镜头，不要假设他有什么。",
+        parameters: { type: { type: "string", description: "model | gear；不传就都给。" } },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "profiles", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_profile_write",
+        description:
+          "新增/修改/删除账户里的模特或器材。只能写用户自己说过的内容：他的原话里要同时点到「这条资料」和「记住/加上/改成/删掉」。没得到明确要求时服务端会退回 needs_user_confirmation——那就先在对话里问一句，别自己编。",
+        parameters: {
+          action: { type: "string", description: "add | update | delete。" },
+          type: { type: "string", description: "model | gear。" },
+          id: { type: "string", description: "改或删的时候用；也可以用 name 对上。" },
+          name: { type: "string", description: "称呼或器材名，要跟用户说的一致。" },
+          height: { type: "number", description: "模特身高（cm），用户说过才填。" },
+          style: { type: "string" },
+          experience: { type: "string" },
+          wardrobe: { type: "string" },
+          notes: { type: "string" },
+          kind: { type: "string", description: "器材：body | lens。" },
+          focal: { type: "array", items: { type: "number" }, description: "镜头焦段范围，比如 [85, 85]。" },
+          aperture: { type: "number", description: "最大光圈，比如 1.8。" },
+        },
+        output,
+        async execute(args) {
+          const out = await call("explore", "profile_write", args);
+          if (out.error) return out.error;
+          return out.result;
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_refs",
+        description:
+          "读这份档案里的参考图（用户上传的、以及从网上入档的）。image 为 null 表示没拿到图，只有来源，这时照实说「只有链接」，不要拿别的图顶替。",
+        parameters: {},
+        output,
+        async execute() {
+          return unwrap(await call("explore", "refs", {}));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_usage",
+        description: "看这份计划已经用掉的模型调用与 token（按用途、按模型、Search/Fetch 次数）。未知的用量是未知，不是 0。",
+        parameters: {},
+        output,
+        async execute() {
+          return unwrap(await call("explore", "usage", {}));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
         name: "explore_weather",
         description:
           "读这份计划里停留点的逐时天气（Open-Meteo，真实预报）：云量 %、降水概率 %、降水量 mm/h、风速与阵风 m/s、温度 °C，按那个点自己的位置和当地时间给，跨午夜取完整时段。返回里带取数时间、来源，以及 state（ok / out_of_range / failed）；out_of_range 说明那一天还没进预报范围，约从 fromDate 起能查，这时不要编数据。",

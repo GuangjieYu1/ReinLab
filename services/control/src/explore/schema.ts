@@ -85,6 +85,41 @@ export const OpsBody = z
 
 export const SettingsBody = z.object({ timezone: z.string().min(1).max(64) }).strict();
 
+/**
+ * 模特 / 器材：字段按契约给，服务端只认这些键。
+ * 具体的数值范围与「机身还是镜头」由资料层再校验一次。
+ */
+export const ProfileBody = z
+  .object({
+    type: z.enum(["model", "gear"]),
+    name: z.string().min(1).max(80),
+    height: z.number().finite().min(50).max(250).optional(),
+    style: z.string().max(200).optional(),
+    experience: z.string().max(300).optional(),
+    wardrobe: z.string().max(500).optional(),
+    notes: z.union([z.array(z.string().max(200)).max(20), z.string().max(300)]).optional(),
+    kind: z.enum(["body", "lens"]).optional(),
+    focal: z.tuple([z.number().finite().positive(), z.number().finite().positive()]).optional(),
+    aperture: z.number().finite().positive().max(64).optional(),
+  })
+  .strict();
+
+/** 修改：带 baseRevision（乐观并发），其余字段可选。 */
+export const ProfilePatchBody = z
+  .object({
+    baseRevision: z.number().int().nonnegative(),
+    name: z.string().min(1).max(80).optional(),
+    height: z.number().finite().min(50).max(250).optional(),
+    style: z.string().max(200).optional(),
+    experience: z.string().max(300).optional(),
+    wardrobe: z.string().max(500).optional(),
+    notes: z.union([z.array(z.string().max(200)).max(20), z.string().max(300)]).optional(),
+    kind: z.enum(["body", "lens"]).optional(),
+    focal: z.tuple([z.number().finite().positive(), z.number().finite().positive()]).optional(),
+    aperture: z.number().finite().positive().max(64).optional(),
+  })
+  .strict();
+
 /** geometry 的导出形状给引擎类型用。 */
 export const geometrySchema = geometry;
 

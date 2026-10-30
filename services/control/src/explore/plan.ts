@@ -55,6 +55,8 @@ export type BatchInput = {
   ops: Op[];
   actor: "page" | "agent";
   undoCandidates?: UndoCandidate[];
+  /** plan.select 要写的资料快照（由服务层按 id 解析好）。 */
+  profileSnapshots?: Map<string, ProfileSnapshot>;
   now?: () => Date;
   newId?: () => string;
 };
@@ -512,12 +514,32 @@ export function applyBatch(input: BatchInput): Batch {
         break;
       }
       case "plan.select": {
-        // 账户资料库在下一批接通；这之前不假装选上了什么。
-        throw new ApiFailure(
-          "PROFILES_PENDING",
-          501,
-          "账户里的模特和器材还没接通，先把资料库做好再选。",
+        const resolve = (ids: string[]): ProfileSnapshot[] =>
+          ids.map((id) => {
+            const snapshot = input.profileSnapshots?.get(id);
+            if (!snapshot)
+              throw new ApiFailure("PROFILE_NOT_FOUND", 404, "计划里有资料选不上，先确认这条资料还在。");
+            return snapshot;
+          });
+        const next: Partial<Pick<ExplorePlan, "people" | "gear">> = {};
+        if (Array.isArray(op.people)) next.people = resolve(op.people);
+        if (Array.isArray(op.gear)) next.gear = resolve(op.gear);
+        if (!Object.keys(next).length) throw invalid("没有要选的资料。");
+        Object.assign(document, next);
+        business = true;
+        const names = [...(next.people ?? []), ...(next.gear ?? [])].map(
+          (snapshot) => (snapshot.data as { name?: string }).name ?? "资料",
         );
+        applied.push({
+          ...op,
+          opId: newId(),
+          actor,
+          summary:
+            names.length === 1 ? `选择「${names[0]}」` : `选择 ${names.length} 项资料`,
+          result: { plan: next },
+        });
+        inverses.push(null);
+        break;
       }
       case "feel.set": {
         const feel = op.feel;
