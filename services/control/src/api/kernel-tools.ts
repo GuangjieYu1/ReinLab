@@ -8,6 +8,7 @@ import { announceDossierChanged, nameFromPaper, publishAccountEvent } from "../d
 import { applyOps, loadPlan, readPlan, stopCenter, weatherView, type OpsOutcome } from "../explore/service";
 import { createProfile, deleteProfile, listProfiles, updateProfile } from "../explore/profiles";
 import { addWebRef, fetchWebRef, listRefs, type ExploreStorage, type WeatherLikeTransport } from "../explore/refs";
+import { searchPlaces, stopPoint, walkingRoute } from "../explore/providers";
 import { planUsage } from "../explore/usage";
 import { prepareBook, type BookPlan } from "../explore/book-job";
 import { userSaidClearly } from "../explore/authorize";
@@ -166,6 +167,8 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
     "usage",
     "book",
     "ref_add",
+    "places",
+    "route",
   ],
   // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
   dossiers: [
@@ -802,6 +805,50 @@ async function exploreTool(
 ): Promise<{ status: number; body: Record<string, unknown>; publish?: ExploreSettlement }> {
   const args = input.args ?? {};
 
+  if (input.tool === "places") {
+    const current = await readPlan(client, input.account, input.dossier);
+    const timezone = current.plan.destination?.timezone ?? null;
+    const near = Array.isArray(args.near) ? (args.near as [number, number]) : null;
+    const items = await searchPlaces({
+      q: String(args.q ?? ""),
+      near,
+      timezone,
+      ...(typeof args.provider === "string" ? { provider: args.provider } : {}),
+    });
+    return { status: 200, body: { result: { items } } };
+  }
+  if (input.tool === "route") {
+    const current = await readPlan(client, input.account, input.dossier);
+    const stopOf = (id: unknown) =>
+      current.plan.stops.find((stop) => stop.id === String(id ?? "")) ?? null;
+    const fromStop = stopOf(args.fromStopId);
+    const toStop = stopOf(args.toStopId);
+    const from = fromStop ? stopPoint(fromStop) : (args.from as [number, number] | undefined);
+    const to = toStop ? stopPoint(toStop) : (args.to as [number, number] | undefined);
+    if (!from || !to || !Array.isArray(from) || !Array.isArray(to))
+      throw new ApiFailure("INVALID_INPUT", 400, "要给两个停留点，或两组 [经度, 纬度]。");
+    const walk = await walkingRoute({
+      from,
+      to,
+      timezone: current.plan.destination?.timezone ?? null,
+    });
+    return {
+      status: 200,
+      body: {
+        result:
+          walk.state === "ok"
+            ? {
+                state: "ok",
+                distanceM: walk.distanceM,
+                durationS: walk.durationS,
+                minutes: Math.round(walk.durationS / 60),
+                source: walk.source,
+                geometry: { type: "LineString", coordinates: walk.geometry },
+              }
+            : { state: "unavailable", reason: walk.reason },
+      },
+    };
+  }
   if (input.tool === "ref_add") {
     // 网上找到的参考图：抄一份副本进档案，同时保留原网页与作者/平台。
     const target = String(args.url ?? args.pageUrl ?? "").trim();

@@ -248,6 +248,41 @@ export function apply(ctx, config) {
 
     register(
       defineTool({
+        name: "explore_places",
+        description:
+          "查真实地点（页面搜索框同一条路）：国内走高德、海外走 openrouteservice，返回名称、地址、坐标和来源。查不到或没配服务会照实说明，不要自己编地名或坐标。",
+        parameters: {
+          q: { type: "string", required: true, description: "地点名或关键词。" },
+          near: { type: "array", items: { type: "number" }, description: "可选：附近 [经度, 纬度]，用来排序和挑服务商。" },
+          provider: { type: "string", description: "可选：amap | ors（不说就按目的地时区挑）。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "places", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_route",
+        description:
+          "两个停留点（或两组坐标）之间的真实步行路线与用时。给 fromStopId/toStopId 用计划里的点；也可以直接给 from/to 的 [经度, 纬度]。拿不到就返回 unavailable 和原因，别拿直线距离当步行路线。",
+        parameters: {
+          fromStopId: { type: "string", description: "起点停留点 id。" },
+          toStopId: { type: "string", description: "终点停留点 id。" },
+          from: { type: "array", items: { type: "number" }, description: "起点 [经度, 纬度]（不用停留点时）。" },
+          to: { type: "array", items: { type: "number" }, description: "终点 [经度, 纬度]。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "route", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
         name: "explore_profiles",
         description:
           "读这个账户里的模特和器材（只读你确认过的内容）。给用户推荐时只用这里已有的机身和镜头，不要假设他有什么。",

@@ -20,6 +20,7 @@ import { recordUsage } from "./run/usage";
 import { readRuntimeConfiguration } from "./configuration";
 import { mapConfigFrom } from "./explore/map-config";
 import { localExploreStorage } from "./explore/storage";
+import { configureGeoProviders } from "./explore/providers";
 import { generateBook } from "./explore/book-job";
 import { createWeatherJudge } from "./explore/weather-judge";
 import { createWeatherScheduler } from "./explore/schedule";
@@ -124,6 +125,13 @@ const weatherJudge = providerKey
       provider: "deepseek-official",
     })
   : undefined;
+
+// 地点搜索与步行路线：国内高德、海外 ORS。密钥只在进程里，不发给浏览器。
+configureGeoProviders({
+  amapKey: config.AMAP_KEY ?? null,
+  orsKey: config.ORS_KEY ?? null,
+  ...(config.ORS_BASE_URL ? { orsBaseUrl: config.ORS_BASE_URL } : {}),
+});
 
 const exploreStorage = localExploreStorage(kernelHome);
 const pdfFontFile = config.REINLAB_PDF_FONT_FILE;

@@ -33,6 +33,7 @@ import {
 } from "./plan";
 import { consumeUserAuthorization, verifyUserAuthorization } from "./authorize";
 import { nextCheckAt } from "./schedule";
+import { conflictsOf, walkLegs } from "./providers";
 import { profileSnapshots as snapshotsFor } from "./profiles";
 import { listRefs } from "./refs";
 import {
@@ -304,6 +305,21 @@ async function commitBatch(
     undoCandidates: needsUndo ? await undoCandidates(client, account, dossier) : [],
     profileSnapshots: resolvedProfiles,
   });
+
+  // 停留点或地点变了：在同一批次里重算步行路线与冲突（契约第 3 节）。
+  const touched = (request.ops as Op[]).some(
+    (op) => op.op.startsWith("stop.") || op.op === "plan.confirm" || op.op === "plan.set",
+  );
+  if (batch.business && touched) {
+    const confirmed = batch.plan.document.stops.filter((stop) => stop.state === "confirmed");
+    const timezone = batch.plan.document.destination?.timezone ?? null;
+    const legs = await walkLegs(confirmed, { timezone });
+    batch.plan.document.routes = legs;
+    batch.plan.document.conflicts = conflictsOf(confirmed, legs);
+    const last = batch.applied[batch.applied.length - 1];
+    if (last)
+      last.result = { ...last.result, routes: legs, conflicts: batch.plan.document.conflicts };
+  }
 
   if (batch.business) {
     // 待执行才监测天气：确认整份计划时排下一次检查（账户时区 08/16/23），

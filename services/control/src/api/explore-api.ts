@@ -45,6 +45,7 @@ import {
   updateProfile,
 } from "../explore/profiles";
 import { planUsage } from "../explore/usage";
+import { searchPlaces } from "../explore/providers";
 import {
   defaultFontFile,
   generateBook,
@@ -360,6 +361,36 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
           "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(book.title)}.pdf`,
         },
       });
+    }),
+  );
+
+  // 页面搜索框：国内走高德、海外走 ORS；缺配置就照实说缺哪项。
+  app.get("/v1/explore/places", (c) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) => {
+      const nearParam = c.req.query("near");
+      const near = nearParam
+        ? (nearParam.split(",").map(Number) as [number, number])
+        : null;
+      if (near && (near.length !== 2 || !near.every((value) => Number.isFinite(value))))
+        throw new ApiFailure("INVALID_INPUT", 400, "near 要写成 lng,lat。");
+      // 只读：不补建计划行，只取这份计划的目的地时区来挑服务商。
+      const dossierId = c.req.query("dossierId");
+      let timezone: string | null = null;
+      if (dossierId)
+        timezone =
+          (
+            await client.query(
+              "select document->'destination'->>'timezone' tz from explore_plan where account_id=$1 and dossier_id=$2",
+              [c.get("accountId"), dossierId],
+            )
+          ).rows[0]?.tz ?? null;
+      const items = await searchPlaces({
+        q: c.req.query("q") ?? "",
+        near,
+        timezone,
+        ...(c.req.query("provider") ? { provider: c.req.query("provider") } : {}),
+      });
+      return c.json({ items });
     }),
   );
 
