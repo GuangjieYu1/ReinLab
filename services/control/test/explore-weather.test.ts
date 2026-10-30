@@ -186,3 +186,55 @@ describe("停留点逐时天气", () => {
     expect(hours[0]).toMatchObject({ cloud: null, precipProb: null, precipMm: null, wind: null, gust: null, temp: null });
   });
 });
+
+describe("天气判断通道", () => {
+  const json = (body: any) => async () => ({
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify(body),
+  });
+
+  it("输出被截断（没有可解析的 JSON）时明确失败，不当成「没影响」", async () => {
+    const { createWeatherJudge } = await import("../src/explore/weather-judge");
+    const judge = createWeatherJudge({
+      baseUrl: "https://provider.example/anthropic",
+      apiKey: "test",
+      model: "deepseek-v4-flash",
+      transport: json({
+        content: [{ type: "text", text: '{"material":tr' }],
+        usage: { input_tokens: 900, output_tokens: 900 },
+      }) as never,
+    });
+    await expect(
+      judge({ timezone: "Asia/Tokyo", destination: "京都", revision: 1, stops: [] }),
+    ).rejects.toThrowError(/可解析/);
+  });
+
+  it("正常 JSON 就按它给的结论走", async () => {
+    const { createWeatherJudge } = await import("../src/explore/weather-judge");
+    const judge = createWeatherJudge({
+      baseUrl: "https://provider.example/anthropic",
+      apiKey: "test",
+      model: "deepseek-v4-flash",
+      transport: json({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ material: true, summary: "要改", changes: [{ stopId: "s1", patch: { fallback: "廊下" }, why: "雨" }] }),
+          },
+        ],
+        usage: { input_tokens: 500, output_tokens: 120 },
+      }) as never,
+    });
+    const out = await judge({
+      timezone: "Asia/Tokyo",
+      destination: "京都",
+      revision: 1,
+      stops: [{ stopId: "s1", name: "桥", day: "2026-11-02", window: null, before: null, after: null }],
+    });
+    expect(out.judgement.material).toBe(true);
+    // fallback 简称并进 detail.fallback
+    expect(out.judgement.changes[0].patch).toEqual({ detail: { fallback: "廊下" } });
+    expect(out.usage).toMatchObject({ known: true, inputTokens: 500, outputTokens: 120 });
+  });
+});

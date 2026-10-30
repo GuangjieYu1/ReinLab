@@ -304,6 +304,17 @@ describe("形状错了要说清怎么改", () => {
     );
   });
 
+  it("stop.update 只收契约里的字段，写野字段会被明确拒掉", () => {
+    const plan = planOfDocument({ stops: [stop()] });
+    const id = plan.document.stops[0].id;
+    expect(() =>
+      run(plan, [{ op: "stop.update", id, patch: { fallback: "雨大就换" } } as never]),
+    ).toThrowError(/改不了这些字段：fallback/);
+    // detail.fallback 是正路。
+    const ok = run(plan, [{ op: "stop.update", id, patch: { detail: { fallback: "雨大就换" } } }]);
+    expect(ok.plan.document.stops[0].detail?.fallback).toBe("雨大就换");
+  });
+
   it("plan.set 只给地名、feel.set 只给一句话时，说清该写成什么", () => {
     expect(() =>
       run(planOfDocument(), [{ op: "plan.set", patch: { destination: "京都" } } as never]),

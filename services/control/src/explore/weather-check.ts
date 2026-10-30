@@ -14,7 +14,7 @@ import { recordUsage } from "../run/usage";
 import { currentSlot, nextCheckAt, type CheckReason, type CheckSlot } from "./schedule";
 import { accountTimezone, loadPlan, weatherView } from "./service";
 import type { WeatherTransport } from "./weather";
-import type { WeatherJudge } from "./weather-judge";
+import { toStopPatch, type WeatherJudge } from "./weather-judge";
 
 type Client = pg.PoolClient;
 
@@ -328,10 +328,16 @@ async function createSuggestion(
   const changes = input.changes.flatMap((change) => {
     const stop = input.stops.get(change.stopId);
     if (!stop) return [];
+    // 判断通道可能给简称（fallback）：落库前一律收成契约里的形状。
+    const after = toStopPatch(change.patch);
+    if (!Object.keys(after).length) return [];
     const before: Record<string, unknown> = {};
-    for (const key of Object.keys(change.patch))
-      before[key] = key in (stop as Record<string, unknown>) ? (stop as any)[key] : null;
-    return [{ stopId: change.stopId, before, after: change.patch, why: change.why }];
+    for (const key of Object.keys(after))
+      before[key] =
+        key === "detail"
+          ? ((stop.detail as Record<string, unknown> | undefined) ?? null)
+          : ((stop as Record<string, unknown>)[key] ?? null);
+    return [{ stopId: change.stopId, before, after, why: change.why }];
   });
   if (!changes.length) throw new ApiFailure("INVALID_INPUT", 400, "建议里没有能对上的停留点。");
   const ops = changes.map((change) => ({ op: "stop.update", id: change.stopId, patch: change.after }));

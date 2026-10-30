@@ -139,6 +139,22 @@ export function planOf(dossierId: string, plan: StoredPlan): ExplorePlan {
 /** 服务端维护、不能由 patch 改写的停留点字段。 */
 const SERVER_OWNED_STOP_KEYS = new Set(["id", "state", "source", "light", "revision"]);
 
+/** stop.update 真正允许改的字段（契约 §1 的 Stop）。写别的键会被明确拒掉。 */
+const PATCHABLE_STOP_KEYS = new Set([
+  "kind",
+  "name",
+  "geometry",
+  "entry",
+  "exit",
+  "day",
+  "window",
+  "reason",
+  "facing",
+  "focal",
+  "detail",
+  "refs",
+]);
+
 /** 改了就要用户同意的停留点字段（名称 / 类型 / 地点 / 日期 / 时段）。 */
 export const CONFIRMATION_SENSITIVE_STOP_KEYS = new Set([
   "name",
@@ -391,10 +407,20 @@ export function applyBatch(input: BatchInput): Batch {
       case "stop.update": {
         const stop = findStop(op.id);
         const patch: Partial<Stop> = {};
+        const rejected: string[] = [];
         for (const [key, value] of Object.entries(op.patch ?? {})) {
-          if (SERVER_OWNED_STOP_KEYS.has(key) || value === undefined) continue;
+          if (value === undefined) continue;
+          if (SERVER_OWNED_STOP_KEYS.has(key)) continue;
+          if (!PATCHABLE_STOP_KEYS.has(key)) {
+            rejected.push(key);
+            continue;
+          }
           (patch as Record<string, unknown>)[key] = value;
         }
+        if (rejected.length)
+          throw invalid(
+            `stop.update 改不了这些字段：${rejected.join("、")}。能改的是：${[...PATCHABLE_STOP_KEYS].join("、")}（雨天备选放在 detail.fallback）。`,
+          );
         const keys = changedKeys(patch);
         if (!keys.length) throw invalid("没有要改的停留点内容。");
         if (patch.geometry) assertGeometry(patch.kind ?? stop.kind, patch.geometry);

@@ -78,8 +78,10 @@ const judge: WeatherJudge = async (input) => {
           changes: [
             {
               stopId: input.stops[0].stopId,
+              // 判断通道用 fallback 这个简称，落库要变成 detail.fallback。
               patch: {
                 window: { start: `${DAY}T08:00:00+09:00`, end: `${DAY}T09:30:00+09:00` },
+                fallback: "改拍廊下遮蔽机位，雨大就顺延",
               },
               why: "傍晚降水概率高",
             },
@@ -268,6 +270,9 @@ describe("待执行计划的天气监测", () => {
     const after = await planOf();
     expect(after.plan.revision).toBe(before.plan.revision + 1);
     expect(after.plan.stops[0].window.start).toBe(`${DAY}T08:00:00+09:00`);
+    // 备选落在 detail 里，不会变成停留点的野字段。
+    expect(after.plan.stops[0].detail?.fallback).toBe("改拍廊下遮蔽机位，雨大就顺延");
+    expect((after.plan.stops[0] as Record<string, unknown>).fallback).toBeUndefined();
     expect((await suggestionsOf()).items[0].state).toBe("applied");
   });
 

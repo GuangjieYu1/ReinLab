@@ -37,8 +37,29 @@ export type WeatherJudge = (input: {
   stops: WeatherJudgeStop[];
 }) => Promise<{ judgement: WeatherJudgement; usage: WeatherJudgeUsage }>;
 
-/** 可以改的字段：只让模型动拍摄安排，不动服务端字段和别人的计划。 */
+/**
+ * 可以改的字段：只让模型动拍摄安排，不动服务端字段和别人的计划。
+ * `fallback` 是给模型的简称，落库时并进 `detail.fallback`（契约里备选在 detail 里）。
+ */
 export const JUDGE_PATCHABLE = new Set(["window", "day", "facing", "focal", "reason", "fallback"]);
+
+/**
+ * 把判断给出的 patch 收成 stop.update 能吃的形状：
+ * `fallback` 是简称，并进 `detail.fallback`；不认识的键丢掉。
+ * 放在这里是因为「建议」最终一定变成 stop.update，不能靠判断通道自觉。
+ */
+export function toStopPatch(patch: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (!JUDGE_PATCHABLE.has(key)) continue;
+    if (key === "fallback") {
+      out.detail = { ...((out.detail as object | undefined) ?? {}), fallback: value };
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
 
 const SYSTEM = [
   "你是这位摄影师的旅拍助手，判断新的预报会不会真的影响这次拍摄。",
@@ -46,6 +67,9 @@ const SYSTEM = [
   '{"material":true|false,"summary":"一句话说清影响","changes":[{"stopId":"停留点 id","patch":{"要改的字段":值},"why":"为什么"}]}',
   "能改的字段只有 window（{start,end} 带偏移的 ISO）、day、facing、focal、reason、fallback。",
   "没有明显影响就 material:false、changes:[]，不要为了体现存在感而报警。",
+  "但如果某一项已经跨过参考阈值（降水概率 60%、降水 0.5 mm/h、云量增 30 点且达 70%、阵风 10 m/s），通常就意味着要调整：",
+  "这时只有你能明确说出「这次拍摄完全不受这些条件影响」才给 material:false，并在 summary 里写出这个理由。",
+  "每个 point 里的 before 是**这个点上一次检查**的预报，after 是**刚拿到的新预报**：同一个点、同一段行程，不是两个地方。",
   "只用给你的数据里的天气，不编造没有的数值；拿不准就不改。",
 ].join("\n");
 
@@ -90,9 +114,7 @@ export function normalizeJudgement(raw: unknown, allowedStopIds: Set<string>): W
               ? (change.patch as Record<string, unknown>)
               : null;
           if (!patchInput) return null;
-          const patch: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(patchInput))
-            if (JUDGE_PATCHABLE.has(key)) patch[key] = value;
+          const patch = toStopPatch(patchInput);
           if (!Object.keys(patch).length) return null;
           return {
             stopId,
@@ -131,16 +153,21 @@ export function createWeatherJudge(options: {
     const target = new URL(options.baseUrl.replace(/\/+$/, "") + "/v1/messages");
     const body = {
       model: options.model,
-      max_tokens: options.maxTokens ?? 900,
+      // 这个模型会先想再答：900 太小，思考会把预算吃光、JSON 被截断，
+      // 结果被当成「没影响」——那是假阴性，不是真的没影响。
+      max_tokens: options.maxTokens ?? 2500,
       system: SYSTEM,
       messages: [
         {
           role: "user",
           content: JSON.stringify({
+            task:
+              "下面每个停留点的 before 是上一次检查的预报，after 是刚拿到的新预报（同一个点、同一段行程）。" +
+              "判断 after 会不会让这次拍摄需要调整：要调整就给出具体改动，不需要就 material:false。",
             destination: input.destination,
             timezone: input.timezone,
             revision: input.revision,
-            hint: THRESHOLD_HINT,
+            thresholdHint: THRESHOLD_HINT,
             stops: input.stops,
           }),
         },
@@ -190,8 +217,16 @@ export function createWeatherJudge(options: {
     const content = Array.isArray(payload?.content)
       ? payload.content.filter((block: any) => block?.type === "text").map((block: any) => block.text).join("")
       : "";
+    const parsed = extractJson(content);
+    // 拿不到可解析的结论（常见是被长度截断）不能当成「没影响」——那是假阴性。
+    // 抛出去让检查记 failed，用户和日志都能看到这次没判断成。
+    if (!parsed || typeof parsed !== "object")
+      throw Object.assign(
+        new Error("天气判断没有给出可解析的结论（可能被输出长度截断），这次不算「没变化」。"),
+        { usage: normalizedUsage },
+      );
     return {
-      judgement: normalizeJudgement(extractJson(content), new Set(input.stops.map((stop) => stop.stopId))),
+      judgement: normalizeJudgement(parsed, new Set(input.stops.map((stop) => stop.stopId))),
       usage: normalizedUsage,
     };
   };
