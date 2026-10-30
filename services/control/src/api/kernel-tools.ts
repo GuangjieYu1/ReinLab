@@ -65,12 +65,12 @@ async function dossierTool(
         "agent",
       );
     case "archive":
-      return setArchived(client, input.account, dossierId, true, "agent");
+      return setArchived(client, input.account, dossierId, true, "agent", input.dossier);
     case "unarchive":
-      return setArchived(client, input.account, dossierId, false, "agent");
+      return setArchived(client, input.account, dossierId, false, "agent", input.dossier);
     case "delete":
       // 只返回确认卡，不直接删。
-      return requestDelete(client, input.account, dossierId, "agent");
+      return requestDelete(client, input.account, dossierId, "agent", input.dossier);
     case "attach_course": {
       const courseId = String(a.courseId ?? "");
       if (!courseId) throw new ApiFailure("INVALID_INPUT", 400, "需要课程 id。");

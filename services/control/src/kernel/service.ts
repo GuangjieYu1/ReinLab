@@ -99,6 +99,15 @@ export class KernelService {
       // 只复用同一档的会话：精读和档案助手的工具配置不同，串用会让助手拿到
       // 精读的工具（模型改不了名，还以为自己在读论文）。
       const wantedMode = options.mode === "assist" ? "assist" : "read";
+      // 正式精读开始时，这份档案上还等着的澄清会话已经没有意义：一并收尾，
+      // 免得它一直停在 waiting（用户看到的「研究台残留」就是这类）。
+      if (wantedMode === "read")
+        await client.query(
+          `update run set state='cancelled', ended_at=coalesce(ended_at, now())
+            where account_id=$1 and dossier_id=$2 and state='waiting' and id<>$3
+              and mode='clarify'`,
+          [account, dossierId, runId],
+        );
       const existing = options.newSession
         ? undefined
         : (

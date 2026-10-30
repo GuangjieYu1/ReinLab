@@ -33,6 +33,20 @@ const conflict = () =>
 /** 卡片里只有给人看的短句；参数哈希留在账本里，不回给界面。 */
 /** 审批卡上「会发生什么」：说人话，不把能力名甩给用户。 */
 function describe(effects: any) {
+  // 档案的删除/归档确认卡：effects 是对象，直接说清影响。
+  if (typeof effects?.kind === "string" && effects.kind.startsWith("dossier.")) {
+    const impact = effects.impact ?? {};
+    const lines = [
+      effects.kind === "dossier.delete"
+        ? `删除《${effects.target?.title ?? "这份档案"}》后，列表、搜索和续上次都看不到它`
+        : `归档《${effects.target?.title ?? "这份档案"}》后，它从进行中移到已归档`,
+    ];
+    if (impact.activeRuns) lines.push(`会停止 ${impact.activeRuns} 个正在跑的任务`);
+    if (impact.pendingRequests) lines.push(`会关闭 ${impact.pendingRequests} 个待处理的请求`);
+    if (impact.artifacts) lines.push(`档案里的 ${impact.artifacts} 项成果将不再能从这里访问`);
+    if (impact.note) lines.push(impact.note);
+    return lines;
+  }
   // 审批行里的 effects 是数组（[{capability, argsHash}]），不是对象。
   const first = Array.isArray(effects) ? effects[0] : effects;
   const capability =
@@ -105,9 +119,11 @@ export function registerApprovalInbox(
                   a.decision_sent "sent",r.dossier_id "dossierId",d.title "dossierTitle",
                   d.bench "bench",r.role_id "roleId",r.state "runState"
              from approval a
-             join run r on r.account_id=a.account_id and r.id=a.run_id
-             join dossier d on d.account_id=r.account_id and d.id=r.dossier_id
-            where a.account_id=$1 and a.state=$2 and a.effect_key is not null
+             -- 档案的删除/归档确认卡没有 run，只有 dossier_id：也要进收件箱。
+             left join run r on r.account_id=a.account_id and r.id=a.run_id
+             join dossier d on d.account_id=a.account_id and d.id=coalesce(a.dossier_id,r.dossier_id)
+            where a.account_id=$1 and a.state=$2
+              and (a.effect_key is not null or a.dossier_id is not null)
             order by a.id limit 200`,
           [c.get("accountId"), state.data],
         )

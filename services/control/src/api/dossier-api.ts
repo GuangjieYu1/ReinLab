@@ -139,7 +139,13 @@ export function registerDossierApi(app: Hono<ApiEnv>, database: Database) {
     database.withAccount(c.get("accountId"), async (client) => {
       const input = await body(c);
       return c.json(
-        await requestDelete(client, c.get("accountId"), c.req.param("id"), viaOf(input.via)),
+        await requestDelete(
+          client,
+          c.get("accountId"),
+          c.req.param("id"),
+          viaOf(input.via),
+          c.req.param("id"),
+        ),
         202,
       );
     }),

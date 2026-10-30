@@ -50,6 +50,9 @@ function emit(account: string, bench: string, event: StreamEvent) {
   }
 }
 
+/** 操作提示里的主语：Agent 做的就是「助手把…」，用户做的就是「你把…」。 */
+const who = (via: Via) => (via === "agent" ? "助手" : "你");
+
 const title = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 200) : "");
 const intentOf = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 2000) : "");
 
@@ -423,12 +426,12 @@ export async function updateDossier(
     if (!next) throw new ApiFailure("INVALID_INPUT", 400, "标题不能为空。");
     params.push(next);
     sets.push(`title=$${params.length}`, `name_source='user'`);
-    noteText = `你把《${row.title}》改名为《${next}》`;
+    noteText = `${who(via)}把《${row.title}》改名为《${next}》`;
   }
   if (patch.intent !== undefined) {
     params.push(intentOf(patch.intent) || null);
     sets.push(`intent=$${params.length}`);
-    noteText = noteText ?? `你改了《${row.title}》的目标`;
+    noteText = noteText ?? `${who(via)}改了《${row.title}》的目标`;
   }
   if (patch.lifecycle !== undefined) {
     const next = String(patch.lifecycle);
@@ -436,7 +439,7 @@ export async function updateDossier(
       throw new ApiFailure("INVALID_INPUT", 400, "只能标成进行中或已完成。");
     params.push(next);
     sets.push(`lifecycle=$${params.length}`);
-    noteText = noteText ?? (next === "completed" ? `你把《${row.title}》标成已完成` : `你把《${row.title}》标回进行中`);
+    noteText = noteText ?? (next === "completed" ? `${who(via)}把《${row.title}》标成已完成` : `${who(via)}把《${row.title}》标回进行中`);
   }
   if (!sets.length) throw new ApiFailure("INVALID_INPUT", 400, "没有要改的内容。");
   sets.push("version=version+1", "last_activity_at=now()");
@@ -446,7 +449,7 @@ export async function updateDossier(
     actor: via === "agent" ? "agent" : "user",
     via,
     action: "rename",
-    text: noteText ?? `你改了《${row.title}》`,
+    text: noteText ?? `${who(via)}改了《${row.title}》`,
   });
   const detail = await getDossier(client, account, id);
   emit(account, row.bench, { type: "dossier.changed", id, version: detail.version, change: "rename" });
@@ -460,13 +463,16 @@ export async function setArchived(
   id: string,
   archived: boolean,
   via: Via,
+  origin?: string,
 ) {
   const row = await loadRow(client, account, id);
   if (!row) throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "找不到这份档案。");
   if (row.deletion !== "none") throw new ApiFailure("DOSSIER_DELETED", 410, "这份档案已删除。");
   const work = await workOf(client, account, id);
   if (archived && work.state !== "idle")
-    return { confirmation: await confirmationCard(client, account, row, "dossier.archive", via) };
+    return {
+      confirmation: await confirmationCard(client, account, row, "dossier.archive", via, origin),
+    };
   await client.query(
     `update dossier set lifecycle=$3,
         archived_at=case when $3='archived' then now() else null end,
@@ -550,7 +556,7 @@ export async function attachCourse(
     actor: "user",
     via: "page",
     action: "attach",
-    text: `你把课程《${courseTitle}》加进了《${row.title}》`,
+    text: `${who("page")}把课程《${courseTitle}》加进了《${row.title}》`,
   });
   emit(account, row.bench, { type: "dossier.changed", id, version: row.version + 1, change: "artifacts" });
   return artifactOf(created);
@@ -576,7 +582,7 @@ export async function detachArtifact(client: Client, account: string, id: string
     actor: "user",
     via: "page",
     action: "detach",
-    text: `你从《${row.title}》移除了材料《${found.title}》，该材料已不可读取`,
+    text: `${who("page")}从《${row.title}》移除了材料《${found.title}》，该材料已不可读取`,
   });
   emit(account, row.bench, { type: "dossier.changed", id, version: row.version + 1, change: "artifacts" });
 }
@@ -609,7 +615,7 @@ function activityOf(dossier: string, via: Via, action: string, text: string) {
     actor: via === "agent" ? "agent" : "user",
     via,
     action,
-    text: `${via === "agent" ? "Agent " : "你"}${text}`,
+    text: text,
   };
 }
 
@@ -647,7 +653,14 @@ async function note(
 }
 
 /** 删除确认卡：复用 approval，一张待确认卡只能有一张。 */
-async function confirmationCard(client: Client, account: string, row: any, kind: string, via: Via) {
+async function confirmationCard(
+  client: Client,
+  account: string,
+  row: any,
+  kind: string,
+  via: Via,
+  originDossier?: string,
+) {
   const impact = await deleteImpact(client, account, row.id);
   const existing = await one(
     client,
@@ -667,7 +680,13 @@ async function confirmationCard(client: Client, account: string, row: any, kind:
       account,
       row.id,
       kind === "dossier.delete" ? `确认删除《${row.title}》` : `确认归档《${row.title}》`,
-      JSON.stringify({ kind, target: { id: row.id, title: row.title, bench: row.bench }, impact, via }),
+      JSON.stringify({
+        kind,
+        target: { id: row.id, title: row.title, bench: row.bench },
+        impact,
+        via,
+        ...(originDossier ? { origin: { dossier: originDossier } } : {}),
+      }),
     ],
   );
   const card = confirmationOf(created.id, kind, row, impact, "pending");
@@ -706,11 +725,17 @@ async function deleteImpact(client: Client, account: string, id: string) {
   };
 }
 
-export async function requestDelete(client: Client, account: string, id: string, via: Via) {
+export async function requestDelete(
+  client: Client,
+  account: string,
+  id: string,
+  via: Via,
+  origin?: string,
+) {
   const row = await loadRow(client, account, id);
   if (!row) throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "找不到这份档案。");
   if (row.deletion !== "none") throw new ApiFailure("DOSSIER_DELETED", 410, "这份档案已删除。");
-  return { confirmation: await confirmationCard(client, account, row, "dossier.delete", via) };
+  return { confirmation: await confirmationCard(client, account, row, "dossier.delete", via, origin) };
 }
 
 /** 确认批准后真正执行：先 stop，再标记 deleted（复用第 2 项的取消流程）。 */
@@ -728,6 +753,8 @@ export async function applyConfirmation(
   if (!card) return null;
   const effects = card.effects ?? {};
   if (!effects.kind?.startsWith?.("dossier.")) return null;
+  const via: Via = effects.via === "agent" ? "agent" : "page";
+  const originDossier: string | undefined = effects.origin?.dossier;
   const row = await loadRow(client, account, card.dossier_id);
   if (!row) return null;
   if (!approved) {
@@ -763,8 +790,17 @@ export async function applyConfirmation(
       actor: "user",
       via: "page",
       action: "delete",
-      text: `你删除了《${row.title}》`,
+      text: `${who(via)}删除了《${row.title}》`,
     });
+    // 发起删除的那段对话要如实知道结果，否则它下一轮还会说「还在等你确认」。
+    if (originDossier && originDossier !== row.id)
+      await note(client, account, {
+        dossier: originDossier,
+        actor: "system",
+        via,
+        action: "delete",
+        text: `《${row.title}》已删除，不再出现在列表和搜索里`,
+      });
     emit(account, row.bench, {
       type: "dossier.deleted",
       id: row.id,
@@ -781,8 +817,16 @@ export async function applyConfirmation(
       actor: "user",
       via: "page",
       action: "archive",
-      text: `你归档了《${row.title}》`,
+      text: `${who(via)}归档了《${row.title}》`,
     });
+    if (originDossier && originDossier !== row.id)
+      await note(client, account, {
+        dossier: originDossier,
+        actor: "system",
+        via,
+        action: "archive",
+        text: `《${row.title}》已归档`,
+      });
     emit(account, row.bench, { type: "dossier.changed", id: row.id, version: row.version + 1, change: "archive" });
   }
   return { kind: effects.kind, dossierId: row.id };
