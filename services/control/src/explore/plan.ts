@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   AppliedOp,
+  Source,
   Basemap,
   CanvasObject,
   Conflict,
@@ -136,6 +137,52 @@ export function planOf(dossierId: string, plan: StoredPlan): ExplorePlan {
     conflicts: plan.document.conflicts,
     updatedAt: plan.updatedAt,
   };
+}
+
+/**
+ * 停留点 detail 归一化：契约里 rules 是 {text, source?}[]、guidance/palette 是字符串数组，
+ * 模型常写成单个字符串或纯字符串数组。这里统一收成契约形状，别让它在排版时才炸。
+ */
+export function normalizeStopDetail(input: unknown): Stop["detail"] | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const source = input as Record<string, unknown>;
+  const text = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const list = (value: unknown): string[] => {
+    if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+    if (!Array.isArray(value)) return [];
+    return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
+  };
+  const rules = (value: unknown): { text: string; source?: Source }[] => {
+    const items = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+    return items.flatMap((item) => {
+      if (typeof item === "string") return item.trim() ? [{ text: item.trim() }] : [];
+      if (item && typeof item === "object") {
+        const rule = item as { text?: unknown; source?: unknown };
+        const line = text(rule.text);
+        if (!line) return [];
+        const from = rule.source as Source | undefined;
+        return [from && typeof from === "object" && typeof from.name === "string" ? { text: line, source: from } : { text: line }];
+      }
+      return [];
+    });
+  };
+  const outfitInput = source.outfit && typeof source.outfit === "object" ? (source.outfit as Record<string, unknown>) : null;
+  const detail: NonNullable<Stop["detail"]> = {};
+  const composition = text(source.composition);
+  if (composition) detail.composition = composition;
+  const guidance = list(source.guidance);
+  if (guidance.length) detail.guidance = guidance;
+  if (outfitInput) {
+    const palette = list(outfitInput.palette);
+    const notes = text(outfitInput.notes);
+    if (palette.length || notes) detail.outfit = { ...(palette.length ? { palette } : {}), ...(notes ? { notes } : {}) };
+  }
+  const normalizedRules = rules(source.rules);
+  if (normalizedRules.length) detail.rules = normalizedRules;
+  const fallback = text(source.fallback);
+  if (fallback) detail.fallback = fallback;
+  return Object.keys(detail).length ? detail : undefined;
 }
 
 /** 服务端维护、不能由 patch 改写的停留点字段。 */
@@ -302,7 +349,7 @@ function normalizeStop(
     ...(typeof draft.reason === "string" ? { reason: draft.reason.slice(0, 600) } : {}),
     ...(Number.isFinite(draft.facing) ? { facing: draft.facing } : {}),
     ...(Array.isArray(draft.focal) ? { focal: draft.focal.filter((n) => Number.isFinite(n)) } : {}),
-    ...(draft.detail ? { detail: draft.detail } : {}),
+    ...(draft.detail ? { detail: normalizeStopDetail(draft.detail) } : {}),
   };
 }
 
@@ -425,6 +472,8 @@ export function applyBatch(input: BatchInput): Batch {
           );
         const keys = changedKeys(patch);
         if (!keys.length) throw invalid("没有要改的停留点内容。");
+        if (patch.detail !== undefined)
+          patch.detail = normalizeStopDetail(patch.detail) ?? undefined;
         if (patch.geometry) assertGeometry(patch.kind ?? stop.kind, patch.geometry);
         if ("window" in patch) assertWindow(patch.window ?? null);
         if (patch.day !== undefined && !dayLike(patch.day)) throw invalid("日期要写成 YYYY-MM-DD。");

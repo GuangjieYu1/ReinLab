@@ -323,4 +323,49 @@ describe("形状错了要说清怎么改", () => {
       /feel 要写成 \{refIds/,
     );
   });
+
+describe("停留点 detail 的写法", () => {
+  it("rules 写成字符串、guidance 写成字符串时，收成契约形状（不等到排版才炸）", () => {
+    const plan = planOfDocument();
+    const out = run(plan, [
+      {
+        op: "stop.add",
+        stop: {
+          kind: "spot",
+          name: "曲院风荷",
+          geometry: { type: "Point", coordinates: [120.14, 30.25] },
+          day: "2026-11-20",
+          detail: {
+            composition: "低机位贴水",
+            guidance: "日出前 20 分钟到场",
+            rules: "景区免费开放，禁止使用三脚架",
+            fallback: "雾太重改去苏堤",
+            outfit: { palette: "#f4f1ea", notes: "浅色和服" },
+          },
+        },
+      } as never,
+    ]);
+    const detail = out.plan.document.stops[0].detail!;
+    expect(detail.rules).toEqual([{ text: "景区免费开放，禁止使用三脚架" }]);
+    expect(detail.guidance).toEqual(["日出前 20 分钟到场"]);
+    expect(detail.outfit?.palette).toEqual(["#f4f1ea"]);
+    expect(detail.outfit?.notes).toBe("浅色和服");
+    // 已经是契约形状的不动
+    const out2 = run(planOfDocument(), [
+      {
+        op: "stop.add",
+        stop: {
+          kind: "spot",
+          name: "断桥",
+          geometry: { type: "Point", coordinates: [120.14, 30.25] },
+          day: "2026-11-20",
+          detail: { rules: [{ text: "禁止无人机", source: { name: "景区公告" } }] },
+        },
+      } as never,
+    ]);
+    expect(out2.plan.document.stops[0].detail!.rules).toEqual([
+      { text: "禁止无人机", source: { name: "景区公告" } },
+    ]);
+  });
+});
 });

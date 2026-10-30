@@ -225,7 +225,7 @@ export function apply(ctx, config) {
           "改当前这份旅拍计划。一次调用是一批，要么全生效要么都不生效。会改动已确认行程的动作需要用户同意：服务端会自动核对用户这句话——明确要求了就直接生效，没说清就出一张计划修改卡并返回 pending，这时别说已经改好。" +
           "注意：一次只做用户这句话真的要求的那几步。用户说「留下这三个点」不等于「确认整份计划」，别顺手把别的候选也转正或删除。" +
           "每个 op 的确切形状（只能用这些名字，别的名字会被拒）：\n" +
-          'stop.add {op:"stop.add", stop:{kind:"spot"|"area"|"waypoint", name, geometry:{type:"Point",coordinates:[经度,纬度]} 或 {type:"Polygon",coordinates:[[[经度,纬度],…]]}, day:"YYYY-MM-DD", window:{start:"2026-11-15T07:00:00+09:00",end:"…"} 或 null, reason?, facing?, focal?:[85], refs?:[], state?:"candidate"|"confirmed", detail?:{composition?,guidance?,outfit?,rules?,fallback?}}}\n' +
+          'stop.add {op:"stop.add", stop:{kind:"spot"|"area"|"waypoint", name, geometry:{type:"Point",coordinates:[经度,纬度]} 或 {type:"Polygon",coordinates:[[[经度,纬度],…]]}, day:"YYYY-MM-DD", window:{start:"2026-11-15T07:00:00+09:00",end:"…"} 或 null, reason?, facing?, focal?:[85], refs?:[], state?:"candidate"|"confirmed", detail?:{composition?:string, guidance?:string[], outfit?:{palette?:string[],notes?:string}, rules?:{text:string,source?:{name:string,url?:string}}[], fallback?:string}}}\n' +
           'stop.update {op:"stop.update", id, patch:{name?,geometry?,day?,window?,reason?,facing?,focal?,refs?,detail?}}\n' +
           'stop.remove {op:"stop.remove", id}\n' +
           'stop.confirm {op:"stop.confirm", ids:["停留点 id"]}\n' +

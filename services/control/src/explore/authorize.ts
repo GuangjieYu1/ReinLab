@@ -169,11 +169,17 @@ export async function verifyUserAuthorization(
   if (used.rowCount) return { ok: false, reason: "这句话已经用过一次授权了，这次再确认一下吧。" };
 
   const said = normalize(message.text);
+  // 「确认整份计划」在契约里就是「所有候选 → 已确认」：同一批里跟着来的
+  // stop.confirm 不必再逐个点名，否则用户明说了整份确认还要再点一次卡。
+  const confirmsWholePlan = input.ops.some(
+    (op) => op.op === "plan.confirm" && VERBS["plan.confirm"].some((verb) => said.includes(normalize(verb))),
+  );
   for (const op of input.ops) {
     const needed = requiredMatch(input.plan, op);
     if (!needed) continue;
     if (!needed.verbs.some((verb) => said.includes(normalize(verb))))
       return { ok: false, reason: "你这句话没有明确要求这项改动。" };
+    if (op.op === "stop.confirm" && confirmsWholePlan) continue;
     for (const group of needed.targets) {
       const names = group.filter(Boolean);
       if (!names.length) continue;

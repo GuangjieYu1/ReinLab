@@ -319,7 +319,7 @@ export async function buildBookPdf(input: BookInput): Promise<Uint8Array> {
         }
       }
 
-      if (stop.detail?.rules?.length)
+      if (Array.isArray(stop.detail?.rules) && stop.detail.rules.length)
         text(
           cursor,
           `规定：${stop.detail.rules.map((entry) => entry.text + (entry.source?.name ? `（${entry.source.name}）` : "")).join("；")}`,
