@@ -11,13 +11,23 @@ import type { ApiEnv } from "./context";
 import type { Database } from "../db/database";
 import { ApiFailure } from "./errors";
 import { OpsBody, SettingsBody, isIanaTimezone } from "../explore/schema";
-import { applyOps, accountTimezone, readPlan, saveTimezone, type OpsOutcome } from "../explore/service";
+import {
+  applyOps,
+  accountTimezone,
+  readPlan,
+  saveTimezone,
+  weatherView,
+  type OpsOutcome,
+} from "../explore/service";
+import type { WeatherTransport } from "../explore/weather";
 import { mapConfigFrom, type MapConfig } from "../explore/map-config";
 import { publishAccountEvent } from "../dossier/service";
 
 export type ExploreApiOptions = {
   /** 地图公开配置来源；缺省时按空配置（页面显示底图未配置）。 */
   mapConfig?: () => MapConfig;
+  /** 天气取数通道；缺省用真实 fetch，测试可注入。 */
+  weatherTransport?: WeatherTransport;
 };
 
 /** 批次生效后推给页面：页面本地修订 +1 时直接应用，否则重拉。 */
@@ -71,6 +81,18 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
     if (settled) publishOps(account, settled);
     return response;
   });
+
+  app.get("/v1/explore/plans/:dossierId/weather", (c) =>
+    database.withAccount(c.get("accountId"), async (client) =>
+      c.json(
+        await weatherView(client, c.get("accountId"), c.req.param("dossierId"), {
+          stopId: c.req.query("stopId") || undefined,
+          refresh: c.req.query("refresh") === "1",
+          transport: options.weatherTransport,
+        }),
+      ),
+    ),
+  );
 
   app.get("/v1/explore/map-config", (c) =>
     c.json((options.mapConfig ?? (() => mapConfigFrom({})))()),

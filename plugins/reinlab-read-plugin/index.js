@@ -248,6 +248,37 @@ export function apply(ctx, config) {
 
     register(
       defineTool({
+        name: "explore_weather",
+        description:
+          "读这份计划里停留点的逐时天气（Open-Meteo，真实预报）：云量 %、降水概率 %、降水量 mm/h、风速与阵风 m/s、温度 °C，按那个点自己的位置和当地时间给，跨午夜取完整时段。返回里带取数时间、来源，以及 state（ok / out_of_range / failed）；out_of_range 说明那一天还没进预报范围，约从 fromDate 起能查，这时不要编数据。",
+        parameters: {
+          stopId: { type: "string", description: "只看某个停留点；不传就看全部已确认停留点（还没有停留点时按目的地给）。" },
+          refresh: { type: "boolean", description: "true 时不复用 20 分钟内的旧快照，重新取一次。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "weather", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_sun",
+        description:
+          "算真实太阳时刻与方向：日出日落、正午、金色时刻（太阳高度 −4°～6°）、蓝调（−6°～−4°），以及停留点拍摄时段两端的太阳方位（真北 0° 顺时针）和高度角。方位与时刻都按停留点的位置和拍摄地点时区。注意这只是天文时段，不等于地形见光（山影要高程数据，本机还没接）。",
+        parameters: {
+          stopId: { type: "string", description: "只算某个停留点；不传就算全部停留点（没有停留点时按目的地算）。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "sun", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
         name: "explore_view",
         description:
           "把页面地图移到某个位置和缩放（用户手动拖过地图就会停止跟随，不会抢回来）。center 是 WGS84 [经度, 纬度]。",

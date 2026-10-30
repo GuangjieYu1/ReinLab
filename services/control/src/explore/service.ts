@@ -10,9 +10,12 @@ import type {
   AppliedOp,
   CanvasObject,
   ExplorePlan,
+  LngLat,
   Op,
   PendingChange,
   RefImage,
+  Source,
+  WeatherHour,
 } from "@reinlab/contracts";
 import { ApiFailure } from "../api/errors";
 import { canonical } from "../api/context";
@@ -28,6 +31,12 @@ import {
   type UndoCandidate,
 } from "./plan";
 import { consumeUserAuthorization, verifyUserAuthorization } from "./authorize";
+import {
+  fetchStopWeather,
+  weatherSource,
+  type StopWeatherResult,
+  type WeatherTransport,
+} from "./weather";
 
 type Client = pg.PoolClient;
 
@@ -383,4 +392,219 @@ function assertApprovedStillApplies(plan: StoredPlan, effects: any, ops: Op[]) {
       if (forRevision !== plan.revision) throw stale();
     }
   }
+}
+
+// ── 天气（06 §5.2、07 契约第 2 节） ─────────────────────────────
+
+/** 同一份快照的复用时长：短时间反复看不用重复取数。 */
+const WEATHER_TTL_MS = 20 * 60_000;
+
+export type WeatherBundle = {
+  state: "ok" | "out_of_range" | "failed";
+  /** 每个停留点带自己的状态：某一天还没进预报范围时，其他点照常给数。 */
+  byStop: {
+    stopId: string;
+    at: [number, number];
+    hours: WeatherHour[];
+    state: "ok" | "out_of_range" | "failed";
+    fromDate?: string;
+  }[];
+  destination: { at: [number, number]; hours: WeatherHour[] } | null;
+  fetchedAt: string | null;
+  source: Source;
+  /** 还没进入预报范围时，大约从哪天起可查（当地日期）。 */
+  fromDate?: string;
+  /** 还没有后台调度，如实给 null（第 3 批做 08/16/23 检查）。 */
+  nextCheckAt: string | null;
+  /** 取数失败或超范围时给人看的一句话。 */
+  reason?: string;
+};
+
+type WeatherTarget = {
+  key: string;
+  at: [number, number];
+  day: string;
+  window: { start: string; end: string } | null;
+};
+
+/** 一个停留点这段时间的签名：日期或时段变了，旧快照就不再适用。 */
+const weatherSignature = (target: WeatherTarget) =>
+  [target.day, target.window?.start ?? "", target.window?.end ?? ""].join("|");
+
+async function cachedWeather(
+  client: Client,
+  account: string,
+  dossier: string,
+  target: WeatherTarget,
+  options: { refresh?: boolean; transport?: WeatherTransport; now: Date; timezone: string },
+): Promise<{ result: StopWeatherResult; fresh: boolean }> {
+  const signature = weatherSignature(target);
+  const row = (
+    await client.query(
+      `select signature,state,hours,from_date,source,reason,fetched_at
+         from explore_weather where account_id=$1 and dossier_id=$2 and key=$3`,
+      [account, dossier, target.key],
+    )
+  ).rows[0];
+  const freshEnough =
+    row &&
+    row.signature === signature &&
+    row.fetched_at &&
+    options.now.getTime() - new Date(row.fetched_at).getTime() < WEATHER_TTL_MS;
+  if (freshEnough && !options.refresh)
+    return {
+      fresh: true,
+      result: {
+        state: row.state,
+        hours: row.hours ?? [],
+        ...(row.from_date ? { fromDate: row.from_date } : {}),
+        fetchedAt: new Date(row.fetched_at).toISOString(),
+        source: row.source ?? weatherSource(),
+        ...(row.reason ? { reason: row.reason } : {}),
+      },
+    };
+
+  const result = await fetchStopWeather({
+    at: target.at,
+    timezone: options.timezone,
+    window: target.window,
+    day: target.day,
+    transport: options.transport,
+    now: options.now,
+  });
+  await client.query(
+    `insert into explore_weather(account_id,dossier_id,key,at,signature,state,hours,from_date,source,reason,fetched_at,updated_at)
+     values($1,$2,$3,$4::jsonb,$5,$6,$7::jsonb,$8,$9::jsonb,$10,$11,now())
+     on conflict (account_id,dossier_id,key) do update set
+       at=excluded.at, signature=excluded.signature, state=excluded.state, hours=excluded.hours,
+       from_date=excluded.from_date, source=excluded.source, reason=excluded.reason,
+       fetched_at=excluded.fetched_at, updated_at=now()`,
+    [
+      account,
+      dossier,
+      target.key,
+      JSON.stringify(target.at),
+      signature,
+      result.state,
+      JSON.stringify(result.hours),
+      result.fromDate ?? null,
+      JSON.stringify(result.source),
+      result.reason ?? null,
+      result.fetchedAt,
+    ],
+  );
+  return { result, fresh: false };
+}
+
+const WORST: Record<WeatherBundle["state"], number> = { ok: 0, out_of_range: 1, failed: 2 };
+
+/**
+ * 一份计划的天气视图：默认看全部已确认停留点，也可以只看一个。
+ * 每个停留点按自己的位置和当地日期/时段取数；还没有停留点时按目的地给。
+ */
+export async function weatherView(
+  client: Client,
+  account: string,
+  dossier: string,
+  options: { stopId?: string; refresh?: boolean; transport?: WeatherTransport } = {},
+): Promise<WeatherBundle> {
+  const { plan } = await loadPlan(client, account, dossier);
+  const destination = plan.document.destination;
+  if (!destination)
+    throw new ApiFailure("DESTINATION_REQUIRED", 409, "先确定拍摄地点和时区，天气要按当地时间给。");
+  const stops = plan.document.stops;
+  const chosen = options.stopId
+    ? stops.filter((stop) => stop.id === options.stopId)
+    : stops.filter((stop) => stop.state === "confirmed");
+  if (options.stopId && !chosen.length)
+    throw new ApiFailure("STOP_NOT_FOUND", 404, "计划里没有这个停留点。");
+
+  const targets: WeatherTarget[] = chosen.length
+    ? chosen.map((stop) => ({
+        key: stop.id,
+        at: stopCenter(stop.geometry),
+        day: stop.day,
+        window: stop.window ?? null,
+      }))
+    : [
+        {
+          key: "destination",
+          at: destination.center,
+          day: plan.document.days[0] ?? new Date().toISOString().slice(0, 10),
+          window: null,
+        },
+      ];
+
+  const now = new Date();
+  const results = await Promise.all(
+    targets.map((target) =>
+      cachedWeather(client, account, dossier, target, {
+        refresh: options.refresh,
+        transport: options.transport,
+        now,
+        timezone: destination.timezone,
+      }),
+    ),
+  );
+
+  let state: WeatherBundle["state"] = "ok";
+  let fetchedAt: string | null = null;
+  let fromDate: string | undefined;
+  let reason: string | undefined;
+  let source: Source = weatherSource();
+  const byStop: WeatherBundle["byStop"] = [];
+  const destinationHours: { at: [number, number]; hours: WeatherHour[] }[] = [];
+  for (const [index, { result }] of results.entries()) {
+    const target = targets[index];
+    if (target.key === "destination") {
+      if (result.state === "ok") destinationHours.push({ at: target.at, hours: result.hours });
+    } else
+      byStop.push({
+        stopId: target.key,
+        at: target.at,
+        hours: result.hours,
+        state: result.state,
+        ...(result.fromDate ? { fromDate: result.fromDate } : {}),
+      });
+    if (!fromDate && result.fromDate) fromDate = result.fromDate;
+    if (!reason && result.reason) reason = result.reason;
+    if (result.fetchedAt && (!fetchedAt || result.fetchedAt > fetchedAt)) fetchedAt = result.fetchedAt;
+    if (result.state === "ok") source = result.source;
+  }
+  // 顶层状态说「这次整体能不能用」：拿到数据就是 ok（个别点超范围在各点自己的 state 里）；
+  // 一个数都没拿到时，才整体标 out_of_range / failed。
+  const gotData = results.some(({ result }) => result.state === "ok" && result.hours.length > 0);
+  if (!gotData) {
+    const worst = results.reduce(
+      (acc, { result }) => (WORST[result.state] > WORST[acc] ? result.state : acc),
+      "ok" as WeatherBundle["state"],
+    );
+    state = worst === "ok" ? "failed" : worst;
+    if (state === "failed" && !reason) reason = "这次没拿到任何停留点的天气。";
+  }
+
+  return {
+    state,
+    byStop,
+    destination: destinationHours[0] ?? null,
+    fetchedAt,
+    source,
+    ...(fromDate ? { fromDate } : {}),
+    nextCheckAt: null,
+    ...(reason ? { reason } : {}),
+  };
+}
+
+/** 停留点的代表位置：点用它自己，区域用重心（写清是区域中心，不当已确认站位）。 */
+export function stopCenter(geometry: { type: string; coordinates: unknown }): [number, number] {
+  if (geometry.type === "Point") return geometry.coordinates as [number, number];
+  return polygonCenter(geometry);
+}
+
+function polygonCenter(geometry: { coordinates: unknown }): [number, number] {
+  const ring = (geometry.coordinates as number[][][])?.[0] ?? [];
+  if (!ring.length) return [0, 0];
+  // 简单重心：区域通常很小，够用来取预报网格。
+  const sum = ring.reduce<[number, number]>((acc, point) => [acc[0] + point[0], acc[1] + point[1]], [0, 0]);
+  return [sum[0] / ring.length, sum[1] / ring.length];
 }

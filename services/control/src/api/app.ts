@@ -42,6 +42,8 @@ export async function createApp(options: {
   clarifyAuthorizationFile?: string;
   /** 地图公开配置（只含地图公开 key 与图层地址）。 */
   mapConfig?: () => MapConfig;
+  /** 天气取数通道；缺省用真实 fetch。 */
+  weatherTransport?: import("../explore/weather").WeatherTransport;
   realModelsEnabled?: boolean;
   testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
   testOnlyClarifyModelTransport?: (body: Buffer) => Promise<Response>;
@@ -124,7 +126,10 @@ export async function createApp(options: {
   registerApprovalInbox(app, database, options.kernel ? (id) => options.kernel!.isLive(id) : undefined);
   registerReports(app, database);
   registerDossierApi(app, database);
-  registerExploreApi(app, database, { mapConfig: options.mapConfig });
+  registerExploreApi(app, database, {
+    mapConfig: options.mapConfig,
+    weatherTransport: options.weatherTransport,
+  });
   app.post("/v1/approvals/:id/decide", async (c) => {
     let applied: OpsOutcome | null = null;
     const card = await decideInboxCard(

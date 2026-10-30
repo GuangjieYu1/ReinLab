@@ -5,7 +5,9 @@ import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
 import { paperHandle } from "../mcp/papers";
 import { announceDossierChanged, nameFromPaper } from "../dossier/service";
-import { applyOps, readPlan, type OpsOutcome } from "../explore/service";
+import { applyOps, loadPlan, readPlan, stopCenter, weatherView, type OpsOutcome } from "../explore/service";
+import { sunAtWindow, sunDay } from "../explore/sun";
+import { localDayOf } from "../explore/weather";
 import { OpsBody } from "../explore/schema";
 import type { Basemap, Op, Viewport } from "@reinlab/contracts";
 import { publishCamera, publishOps } from "./explore-api";
@@ -146,7 +148,7 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   // 课程台最小能力：提交一份学习计划并入档。计划确认与入档是同一次批准。
   courses: ["plan"],
   // 探索台的计划与画布：和页面调同一组服务函数，只是 via='agent'。
-  explore: ["get", "ops", "view", "undo"],
+  explore: ["get", "ops", "view", "undo", "weather", "sun"],
   // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
   dossiers: [
     "list",
@@ -774,6 +776,64 @@ async function exploreTool(
         runId: input.run,
         viewport,
         basemap,
+      },
+    };
+  }
+  if (input.tool === "weather") {
+    const view = await weatherView(client, input.account, input.dossier, {
+      stopId: typeof args.stopId === "string" ? args.stopId : undefined,
+      refresh: args.refresh === true,
+    });
+    return { status: 200, body: { result: view } };
+  }
+  if (input.tool === "sun") {
+    const { plan } = await loadPlan(client, input.account, input.dossier);
+    const destination = plan.document.destination;
+    if (!destination)
+      throw new ApiFailure("DESTINATION_REQUIRED", 409, "先确定拍摄地点和时区，太阳要按当地时间算。");
+    const wanted =
+      typeof args.stopId === "string"
+        ? plan.document.stops.filter((stop) => stop.id === args.stopId)
+        : plan.document.stops;
+    if (typeof args.stopId === "string" && !wanted.length)
+      throw new ApiFailure("STOP_NOT_FOUND", 404, "计划里没有这个停留点。");
+    // 没有行程日期时按当地今天算，别用服务器的 UTC 日期。
+    const today = localDayOf(new Date(), destination.timezone);
+    const targets = wanted.length
+      ? wanted.map((stop) => ({
+          stopId: stop.id,
+          name: stop.name,
+          at: stopCenter(stop.geometry),
+          day: stop.day,
+          window: stop.window ?? null,
+        }))
+      : [
+          {
+            stopId: "destination",
+            name: destination.name,
+            at: destination.center,
+            day: plan.document.days[0] ?? today,
+            window: null,
+          },
+        ];
+    return {
+      status: 200,
+      body: {
+        result: {
+          timezone: destination.timezone,
+          items: targets.map((target) => ({
+            stopId: target.stopId,
+            name: target.name,
+            day: target.day,
+            sun: sunDay(target.at, target.day, destination.timezone),
+            atWindow: sunAtWindow(target.at, target.window, destination.timezone),
+          })),
+          // 地形见光要高程数据（OpenTopography 的 key 还没配）：只给天文时段，不当成见光时段。
+          terrain: {
+            available: false,
+            reason: "地形见光是另一回事：本机还没配高程数据（OpenTopography），所以这里只有太阳的时刻和方向。",
+          },
+        },
       },
     };
   }

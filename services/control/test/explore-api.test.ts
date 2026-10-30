@@ -7,6 +7,7 @@ import { applyMigrations } from "../src/db/migrate";
 import { KernelAuth } from "../src/kernel/auth";
 import { subscribe } from "../src/dossier/service";
 import { mapConfigFrom } from "../src/explore/map-config";
+import type { WeatherTransport } from "../src/explore/weather";
 import type { AppliedOp } from "@reinlab/contracts";
 
 const admin = new pg.Pool({
@@ -30,6 +31,28 @@ let app: Awaited<ReturnType<typeof createApp>>;
 let cookieA = "";
 let cookieB = "";
 let tokenA = "";
+/** 天气取数通道：记录被调了几次，用来验证"同一份快照不重复取数"。 */
+const weatherCalls: string[] = [];
+const weatherTransport: WeatherTransport = async () => {
+  const start = new Date("2026-11-14T00:00:00Z").getTime();
+  const time = Array.from({ length: 96 }, (_, i) => Math.floor((start + i * 3600_000) / 1000));
+  weatherCalls.push(String(time.length));
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      hourly: {
+        time,
+        cloud_cover: time.map(() => 55),
+        precipitation_probability: time.map(() => 20),
+        precipitation: time.map(() => 0),
+        wind_speed_10m: time.map(() => 3.4),
+        wind_gusts_10m: time.map(() => 6.1),
+        temperature_2m: time.map(() => 11.2),
+      },
+    }),
+  };
+};
 
 const headers = (cookie = cookieA, key?: string) => ({
   Cookie: cookie,
@@ -103,6 +126,7 @@ beforeAll(async () => {
     pool,
     auth: { issuer: "http://127.0.0.1/reinlab/auth/v1", secret: randomBytes(48) },
     kernelTools: { auth, dispatch: async () => ({}) },
+    weatherTransport,
     mapConfig: () =>
       mapConfigFrom({
         MAP_PUBLIC_KEY: "public-key",
@@ -544,5 +568,115 @@ describe("探索台 Agent 工具", () => {
       body: JSON.stringify({ server: "explore", tool: "get", args: {} }),
     });
     expect([403, 404]).toContain(response.status);
+  });
+});
+
+describe("停留点天气与太阳", () => {
+  it("还没确定地点时，天气先要地点和时区", async () => {
+    const response = await app.request(`/v1/explore/plans/${dossierA}/weather`, {
+      headers: headers(cookieA),
+    });
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe("DESTINATION_REQUIRED");
+  });
+
+  it("确定地点后，按已确认停留点给逐时天气（真实单位，写明取数时间和来源）", async () => {
+    const plan = await readPlan();
+    const set = await ops({
+      baseRevision: plan.plan.revision,
+      ops: [
+        {
+          op: "plan.set",
+          patch: {
+            destination: { name: "京都 · 东山", center: [135.7681, 35.0116], timezone: "Asia/Tokyo" },
+            days: ["2026-11-15"],
+          },
+        },
+      ],
+    });
+    expect(set.status).toBe(200);
+    weatherCalls.length = 0;
+    const confirmed = (await readPlan()).plan.stops.filter((stop: any) => stop.state === "confirmed");
+    const body = await (await app.request(`/v1/explore/plans/${dossierA}/weather`, { headers: headers(cookieA) })).json();
+    expect(body.state).toBe("ok");
+    expect(body.byStop).toHaveLength(confirmed.length);
+    // 有的点在预报范围内、有的点改到了更远的日期：能取到数的点必须给齐单位。
+    const withHours = body.byStop.find((entry: any) => entry.hours.length > 0);
+    expect(withHours.state).toBe("ok");
+    expect(withHours.hours[0]).toMatchObject({ cloud: 55, precipProb: 20, precipMm: 0, wind: 3.4, gust: 6.1, temp: 11.2 });
+    expect(withHours.hours[0].at).toMatch(/\+09:00$/);
+    // 超范围的点不混进来充数，各自标清楚。
+    for (const entry of body.byStop)
+      if (entry.state === "out_of_range") {
+        expect(entry.hours).toEqual([]);
+        expect(entry.fromDate).toBeTruthy();
+      }
+    expect(body.fetchedAt).toBeTruthy();
+    expect(body.source.name).toBe("Open-Meteo");
+    // 还没有后台调度：如实给 null，不假装已经排上。
+    expect(body.nextCheckAt).toBeNull();
+  });
+
+  it("20 分钟内的同一份预报不重复取数；指定 stopId 只给那一个点", async () => {
+    weatherCalls.length = 0;
+    const plan = await readPlan();
+    const stopId = plan.plan.stops.find((stop: any) => stop.state === "confirmed").id;
+    const one = await (await app.request(`/v1/explore/plans/${dossierA}/weather?stopId=${stopId}`, { headers: headers(cookieA) })).json();
+    expect(one.byStop).toHaveLength(1);
+    expect(one.byStop[0].stopId).toBe(stopId);
+    await app.request(`/v1/explore/plans/${dossierA}/weather`, { headers: headers(cookieA) });
+    expect(weatherCalls).toEqual([]);
+  });
+
+  it("预报范围外明说哪天起可查，不画假数据；没有这个停留点就 404", async () => {
+    const plan = await readPlan();
+    const far = await ops({
+      baseRevision: plan.plan.revision,
+      ops: [
+        {
+          op: "stop.add",
+          stop: {
+            kind: "spot",
+            name: "下个月的河岸",
+            geometry: { type: "Point", coordinates: [135.77, 35.02] },
+            day: "2027-02-10",
+            state: "confirmed",
+          },
+        },
+      ],
+    });
+    expect(far.status).toBe(200);
+    const farStopId = (await readPlan()).plan.stops.find((stop: any) => stop.name === "下个月的河岸").id;
+    const body = await (
+      await app.request(`/v1/explore/plans/${dossierA}/weather?stopId=${farStopId}`, { headers: headers(cookieA) })
+    ).json();
+    expect(body.state).toBe("out_of_range");
+    expect(body.fromDate).toBe("2027-01-26");
+    expect(body.byStop[0]).toMatchObject({ stopId: farStopId, state: "out_of_range", hours: [] });
+    const missing = await app.request(`/v1/explore/plans/${dossierA}/weather?stopId=${randomUUID()}`, { headers: headers(cookieA) });
+    expect(missing.status).toBe(404);
+  });
+
+  it("助手能算真实太阳时刻与方向，并明说地形见光还没接", async () => {
+    const { status, body } = await tool("sun");
+    expect(status).toBe(200);
+    const item = body.result.items[0];
+    expect(body.result.timezone).toBe("Asia/Tokyo");
+    expect(item.sun.sunrise).toMatch(/^2026-\d{2}-\d{2}T0\d:\d{2}:\d{2}\+09:00$/);
+    expect(item.sun.golden.length).toBeGreaterThan(0);
+    expect(item.sun.golden[0].start).toMatch(/\+09:00$/);
+    const withWindow = body.result.items.find((entry: any) => entry.atWindow.start);
+    expect(withWindow.atWindow.start.azimuth).toBeGreaterThan(0);
+    // 没定时段的停留点不给太阳方位，也不编。
+    expect(body.result.items.some((entry: any) => entry.atWindow.start === null)).toBe(true);
+    expect(body.result.terrain.available).toBe(false);
+    expect(body.result.terrain.reason).toContain("高程");
+  });
+
+  it("助手读到的是同一份逐时天气", async () => {
+    const { status, body } = await tool("weather");
+    expect(status).toBe(200);
+    expect(body.result.byStop.length).toBeGreaterThan(0);
+    expect(body.result.source.name).toBe("Open-Meteo");
   });
 });
