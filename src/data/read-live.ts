@@ -179,17 +179,14 @@ export function createLiveReadAdapter(
       return;
     // 同一个动作同时来两条「待批准」（工具调用一条、轮询一条）时只留一条：
     // 界面上就是一张卡，不会出现两个「批准」按钮。
-    if (
-      event.type === "approval" &&
-      event.state === "pending" &&
-      snapshot.history.some(
-        (entry) =>
-          entry.type === "approval" &&
-          entry.action === event.action &&
-          entry.state === "pending",
-      )
-    )
-      return;
+    // 落定是追加一条新记录，不是改旧的：按每张卡最后一条记录判断它还在不在待批，
+    // 否则批过的卡会一直挡住之后同类的新卡。
+    if (event.type === "approval" && event.state === "pending") {
+      const last = new Map<string, ReadEvent>();
+      for (const entry of snapshot.history) if (entry.type === "approval") last.set(entry.id, entry);
+      if ([...last.values()].some((entry) => entry.type === "approval" && entry.action === event.action && entry.state === "pending"))
+        return;
+    }
     snapshot.history.push(event);
     for (const listener of subs) listener(event);
   };
@@ -605,10 +602,12 @@ export function createLiveReadAdapter(
               "不批准就停下，不会读、也不会编造内容",
             ]
           : [`操作：${String(capability)}`, "只处理这一次请求；参数变化后需要重新批准"]);
-      const download = told ? told.some((x) => x.includes("下载")) : capability !== "papers.register";
+      // 认卡优先用能力名；接口只给人话时，登记卡会提到「工作区」，下载卡不会。
+      const named = (card as { capability?: string }).capability ?? capability;
+      const download = named ? named !== "papers.register" : !(told ?? []).some((x) => x.includes("工作区"));
       shownCard = download
         ? { action: "papers.fetch", title: String(card.title ?? "下载论文全文"), stopped: "已停止 · 没有下载" }
-        : { action: String(capability ?? "入档"), title: String(card.title ?? "等你批准"), stopped: "已停止 · 没有入档" };
+        : { action: String(named ?? "papers.register"), title: String(card.title ?? "等你批准"), stopped: "已停止 · 没有入档" };
       emit({
         type: "approval",
         id: card.id,
@@ -1013,6 +1012,12 @@ export function createLiveReadAdapter(
         decision: approve ? "approve" : "reject",
         scope: "once",
       });
+      // 点了就落定：不等内核事件（批准后续接的那一轮不一定再发 approval.decided）。
+      emit({ type: "approval", id: approvalId, action: shownCard.action, title: shownCard.title, effects: [], risk: "write", state: approve ? "approved" : "rejected" });
+      if (shownPermissionId === approvalId) {
+        permissionCardShown = false;
+        shownPermissionId = undefined;
+      }
       if (!approve) {
         rejected = true;
         patchRun({ endReason: "rejected", message: shownCard.stopped });
