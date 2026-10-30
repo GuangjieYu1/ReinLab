@@ -94,9 +94,10 @@ function describe(effects: any) {
             `${stopFieldText(key)} ${valueText(change.before?.[key])} → ${valueText(change.after[key])}`,
         );
       const why = typeof change?.why === "string" && change.why ? `（${change.why}）` : "";
-      lines.push(`${String(change?.stopId ?? "").slice(0, 8)}：${parts.join("；")}${why}`);
+      const who = String(change?.stopName ?? "") || String(change?.stopId ?? "").slice(0, 8);
+      lines.push(`${who}：${parts.join("；")}${why}`);
     }
-    lines.push("不用就保持原安排，计划不会被改");
+    lines.push("不批准就不改计划，你现在看到的安排保持原样");
     return lines;
   }
   // 审批行里的 effects 是数组（[{capability, argsHash}]），不是对象。
@@ -170,7 +171,9 @@ const stopFieldText = (key: string): string =>
 function approvalCapability(effects: any): string | null {
   if (typeof effects?.kind === "string") return effects.kind;
   const first = Array.isArray(effects) ? effects[0] : effects;
-  return typeof first?.capability === "string" ? first.capability : null;
+  // kernel 卡用 capability；探索台的计划修改卡/天气建议卡用 kind。
+  if (typeof first?.capability === "string") return first.capability;
+  return typeof first?.kind === "string" ? first.kind : null;
 }
 function publicValue(v: any): JsonValue {
   if (Array.isArray(v)) return v.map(publicValue);
@@ -218,7 +221,10 @@ export function registerApprovalInbox(
       const rows = (
         await client.query(
           `select a.id,a.run_id "runId",a.kind,a.title,a.effects,a.risk,a.state,
-                  a.decision_sent "sent",r.dossier_id "dossierId",d.title "dossierTitle",
+                  a.decision_sent "sent",
+                  -- 没有 run 的卡（天气建议、删除/归档确认）也要指回那份档案
+                  coalesce(a.dossier_id,r.dossier_id) "dossierId",
+                  d.title "dossierTitle",
                   d.bench "bench",r.role_id "roleId",r.state "runState"
              from approval a
              -- 档案的删除/归档确认卡没有 run，只有 dossier_id：也要进收件箱。

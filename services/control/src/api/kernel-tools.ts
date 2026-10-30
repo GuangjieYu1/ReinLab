@@ -171,6 +171,7 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
     "places",
     "route",
     "light",
+    "pending",
   ],
   // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
   dossiers: [
@@ -838,6 +839,42 @@ async function exploreTool(
         [input.account, input.dossier, JSON.stringify(plan.document)],
       );
     return { status: 200, body: { result: { timezone, items: results } } };
+  }
+  if (input.tool === "pending") {
+    // 这份档案里等着用户点头的事：让助手能主动提醒，而不是让用户自己去收件箱翻。
+    const rows = (
+      await client.query(
+        `select id,kind,title,effects,run_id,created_at from approval
+          where account_id=$1 and dossier_id=$2 and state='pending'
+          order by created_at desc limit 20`,
+        [input.account, input.dossier],
+      )
+    ).rows;
+    return {
+      status: 200,
+      body: {
+        result: {
+          items: rows.map((row) => {
+            const effect = Array.isArray(row.effects) ? row.effects[0] : row.effects;
+            const kind = String(effect?.kind ?? "");
+            return {
+              approvalId: row.id,
+              type:
+                kind === "explore.weatherSuggestion"
+                  ? "weather_suggestion"
+                  : kind === "explore.planChange"
+                    ? "plan_change"
+                    : "approval",
+              title: String(row.title ?? ""),
+              ...(effect?.forRevision !== undefined ? { forRevision: effect.forRevision } : {}),
+              ...(effect?.summary ? { summary: effect.summary } : {}),
+              ...(Array.isArray(effect?.changes) ? { changes: effect.changes } : {}),
+              note: "要不要应用由用户决定；你说清它改了哪几处就行，别替他点。",
+            };
+          }),
+        },
+      },
+    };
   }
   if (input.tool === "places") {
     const current = await readPlan(client, input.account, input.dossier);

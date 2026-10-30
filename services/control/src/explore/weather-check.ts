@@ -337,7 +337,7 @@ async function createSuggestion(
         key === "detail"
           ? ((stop.detail as Record<string, unknown> | undefined) ?? null)
           : ((stop as Record<string, unknown>)[key] ?? null);
-    return [{ stopId: change.stopId, before, after, why: change.why }];
+    return [{ stopId: change.stopId, stopName: stop.name, before, after, why: change.why }];
   });
   if (!changes.length) throw new ApiFailure("INVALID_INPUT", 400, "建议里没有能对上的停留点。");
   const ops = changes.map((change) => ({ op: "stop.update", id: change.stopId, patch: change.after }));

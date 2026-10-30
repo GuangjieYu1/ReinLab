@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { createApp } from "../src/api/app";
 import { applyMigrations } from "../src/db/migrate";
@@ -10,6 +10,7 @@ import { createWeatherScheduler } from "../src/explore/schedule";
 import { runWeatherCheck } from "../src/explore/weather-check";
 import { localDayOf, shiftDay, type WeatherTransport } from "../src/explore/weather";
 import type { WeatherJudge } from "../src/explore/weather-judge";
+import { KernelAuth } from "../src/kernel/auth";
 
 /**
  * 用「今天 +2 天」当拍摄日：预报窗口是按真实今天算的，写死日期迟早会掉出窗口。
@@ -32,7 +33,22 @@ const A = randomUUID();
 const B = randomUUID();
 const dossier = randomUUID();
 const draftDossier = randomUUID();
+const kernelAuth = new KernelAuth(generateKeyPairSync("ed25519").privateKey);
+/** 读待办不需要真实运行记录，但令牌里要有合法的 run 标识。 */
+const toolRun = randomUUID();
 let app: Awaited<ReturnType<typeof createApp>>;
+/** 走真实的 /kernel/tool 网关（助手看到的和页面同一组服务函数）。 */
+const tool = async (name: string, args: Record<string, unknown> = {}) => {
+  const response = await app.request("/kernel/tool", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": kernelAuth.issue({ account: A, dossier, run: toolRun }, Math.floor(Date.now() / 1000)),
+    },
+    body: JSON.stringify({ server: "explore", tool: name, args }),
+  });
+  return { status: response.status, body: await response.json().catch(() => ({})) };
+};
 let cookieA = "";
 let cookieB = "";
 
@@ -153,7 +169,7 @@ beforeAll(async () => {
   app = await createApp({
     pool,
     auth: { issuer: "http://127.0.0.1/reinlab/auth/v1", secret: randomBytes(48) },
-    kernelTools: { auth: { verify: () => ({}) } as any, dispatch: async () => ({}) },
+    kernelTools: { auth: kernelAuth, dispatch: async () => ({}) },
     weatherTransport,
     weatherJudge: judge,
   });
@@ -254,6 +270,30 @@ describe("待执行计划的天气监测", () => {
     expect(usage.model).toBe("deepseek-v4-flash");
     // 后台判断没有运行记录。
     expect(usage.run_id).toBeNull();
+  });
+
+  it("收件箱能看到这张卡，并且指回这份档案（没有 run 的卡也要带 dossierId）", async () => {
+    const inbox = await (await app.request("/v1/approvals?state=pending", { headers: headers() })).json();
+    const card = (inbox.items as any[]).find((item) => item.source?.dossierId === dossier);
+    expect(card).toBeTruthy();
+    expect(card.capability).toBe("explore.weatherSuggestion");
+    expect(card.title).toContain("降水");
+    // 卡片说明要写清会改哪几处、不批准就不动计划。
+    const lines = card.effects as string[];
+    expect(lines.join(" ")).toContain("不批准就不改计划");
+    // 卡片用停留点名字，不是 id 前缀。
+    expect(lines.join(" ")).toContain("水路阁");
+  });
+
+  it("助手能读到待办并说清是哪条", async () => {
+    const { status, body } = await tool("pending");
+    expect(status).toBe(200);
+    const items = body.result.items as any[];
+    expect(items).toHaveLength(1);
+    expect(items[0].type).toBe("weather_suggestion");
+    expect(items[0].forRevision).toBeGreaterThan(0);
+    expect(items[0].title).toContain("降水");
+    expect(Array.isArray(items[0].changes)).toBe(true);
   });
 
   it("应用建议：批准才改计划，改完状态变已应用", async () => {
