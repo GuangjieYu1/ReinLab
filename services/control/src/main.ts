@@ -133,11 +133,17 @@ const kernel = new KernelService({
     },
   },
 });
+// 服务凭据只从受保护的本地文件读进进程内存（不进环境变量、argv、日志、浏览器）。
+// 天气判断、地点搜索、步行路线都从这里取，不落到 runtime.env。
+const localSecrets: Readonly<Record<string, string>> = (() => {
+  try {
+    return readRuntimeConfiguration(path.join(homedir(), ".config/reinlab/local.env"));
+  } catch {
+    return Object.freeze({});
+  }
+})();
 // 天气判断用的模型通道：和内核同一条 Anthropic 兼容入口，宿主自己带 key 调。
-const localSecrets = realModels
-  ? readRuntimeConfiguration(path.join(homedir(), ".config/reinlab/local.env"))
-  : undefined;
-const providerKey = localSecrets?.DEEPSEEK_API_KEY;
+const providerKey = localSecrets.DEEPSEEK_API_KEY;
 if (realModels && (!providerKey || /[\r\n]/.test(providerKey)))
   throw Error("LOCAL_MODEL_KEY_UNAVAILABLE");
 const weatherJudge = providerKey
@@ -151,8 +157,8 @@ const weatherJudge = providerKey
 
 // 地点搜索与步行路线：国内高德、海外 ORS。密钥只在进程里，不发给浏览器。
 configureGeoProviders({
-  amapKey: config.AMAP_KEY ?? null,
-  orsKey: config.ORS_KEY ?? null,
+  amapKey: localSecrets.AMAP_KEY ?? null,
+  orsKey: localSecrets.ORS_KEY ?? null,
   ...(config.ORS_BASE_URL ? { orsBaseUrl: config.ORS_BASE_URL } : {}),
 });
 

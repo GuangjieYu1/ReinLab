@@ -181,13 +181,16 @@ export async function walkingRoute(input: {
       destination: `${destination[0]},${destination[1]}`,
     });
     try {
-      const response = await transportOf()(`${AMAP_BASE}/v4/direction/walking?${params.toString()}`);
+      // 用 v3 步行导航：v4 接口对当前这类 Web 服务 key 返回 SERVICE_NOT_AVAILABLE（实测）。
+      const response = await transportOf()(`${AMAP_BASE}/v3/direction/walking?${params.toString()}`);
       const body = await response.json().catch(() => ({}));
-      const path = body?.data?.paths?.[0];
-      if (!response.ok || !path)
+      const path = body?.route?.paths?.[0];
+      if (!response.ok || String(body?.status ?? "") !== "1" || !path)
         return {
           state: "unavailable",
-          reason: `高德没给出步行路线（${String(body?.info ?? response.status).slice(0, 60)}）。`,
+          reason: `高德没给出步行路线（${String(
+            body?.info ?? body?.errmsg ?? body?.errcode ?? response.status,
+          ).slice(0, 60)}）。`,
           source: { name: "高德" },
         };
       const steps = Array.isArray(path.steps) ? path.steps : [];

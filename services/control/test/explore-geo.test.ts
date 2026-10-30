@@ -67,8 +67,11 @@ describe("地点搜索与步行路线", () => {
           status: "1",
           pois: [{ name: "白川桥", address: "某某路", location: `${gcj[0]},${gcj[1]}` }],
         },
-        "https://restapi.amap.com/v4/direction/walking": {
-          data: {
+        // 高德 v3 步行导航的真实形状（v4 对 Web 服务 key 返回 SERVICE_NOT_AVAILABLE）
+        "https://restapi.amap.com/v3/direction/walking": {
+          status: "1",
+          info: "ok",
+          route: {
             paths: [
               {
                 distance: "1234",
