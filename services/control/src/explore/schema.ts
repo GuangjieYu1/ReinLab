@@ -76,7 +76,8 @@ export const OpInput = z.discriminatedUnion("op", [
 
 export const OpsBody = z
   .object({
-    baseRevision: z.number().int().positive().optional(),
+    // -1 是页面「不管修订」的写法（拖动视野时用）；负值不做冲突判断。
+    baseRevision: z.number().int().optional(),
     ops: z.array(OpInput).min(1).max(200),
     authorization: z.object({ messageId: z.string().min(1).max(200) }).strict().optional(),
   })

@@ -58,22 +58,27 @@ function describe(effects: any) {
     if (impact.note) lines.push(impact.note);
     return lines;
   }
-  // 探索台的计划修改卡：说清会改哪几个停留点、不批准就不动计划。
+  // 探索台的计划修改卡：说清会改哪几个停留点，并把前后值写出来。
   const planChange = (Array.isArray(effects) ? effects[0] : effects) as any;
   if (planChange?.kind === "explore.planChange") {
     const lines = [String(planChange.summary ?? "按刚才说的改一下计划")];
     const changes = Array.isArray(planChange.changes) ? planChange.changes : [];
     for (const change of changes.slice(0, 6)) {
       const name = String(change?.after?.name ?? change?.before?.name ?? "这项");
-      if (!change?.after) lines.push(`删掉「${name}」`);
-      else if (!change?.before) lines.push(`加上「${name}」`);
+      if (!change?.after) {
+        const before = change?.before ?? {};
+        const when = [before.day, before.window ? windowText(before.window) : ""].filter(Boolean).join(" ");
+        lines.push(`删掉「${name}」${when ? `（${when}）` : ""}`);
+      } else if (!change?.before) lines.push(`加上「${name}」`);
       else if (change.after.state === "confirmed" && change.before.state === "candidate")
-        lines.push(`把「${name}」定下来`);
+        lines.push(`把「${name}」定下来（候选 → 已确认）`);
       else {
-        const fields = Object.keys(change.after).filter(
-          (key) => !["state", "name", "kind"].includes(key),
-        );
-        lines.push(`改「${name}」的${fields.join("、") || "安排"}`);
+        const parts: string[] = [];
+        for (const key of Object.keys(change.after)) {
+          if (["state", "name", "kind"].includes(key)) continue;
+          parts.push(`${stopFieldText(key)} ${valueText(change.before?.[key])} → ${valueText(change.after[key])}`);
+        }
+        lines.push(`改「${name}」：${parts.join("；") || "安排有调整"}`);
       }
     }
     lines.push("不批准就不改计划，你现在看到的安排保持原样");
@@ -112,6 +117,40 @@ function describe(effects: any) {
     "只处理这一次；内容变化后会重新问一次",
   ];
 }
+const clock = (iso: string) => /T(\d{2}:\d{2})/.exec(iso)?.[1] ?? iso;
+const windowText = (window: any) =>
+  typeof window?.start === "string" && typeof window?.end === "string"
+    ? `${clock(window.start)}–${clock(window.end)}`
+    : "时段";
+const valueText = (value: unknown): string => {
+  if (value === null || value === undefined) return "未定";
+  if (typeof value === "string") return value.length > 30 ? value.slice(0, 30) + "…" : value;
+  if (Array.isArray(value)) return value.join("、");
+  if (typeof value === "object") {
+    const row = value as any;
+    if (typeof row.start === "string" && typeof row.end === "string") return windowText(row);
+    if (row.type === "Point") return "坐标";
+    if (row.coordinates) return "位置";
+    return "内容";
+  }
+  return String(value);
+};
+const stopFieldText = (key: string): string =>
+  ({
+    window: "时段",
+    day: "日期",
+    name: "名称",
+    kind: "类型",
+    entry: "入口",
+    exit: "出口",
+    facing: "朝向",
+    focal: "焦段",
+    reason: "理由",
+    refs: "参考图",
+    detail: "细节",
+    geometry: "位置",
+  })[key] ?? key;
+
 /** 卡片能力名：kernel 卡取 effects[0].capability，档案确认卡取 effects.kind。 */
 function approvalCapability(effects: any): string | null {
   if (typeof effects?.kind === "string") return effects.kind;

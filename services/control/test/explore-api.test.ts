@@ -106,7 +106,6 @@ beforeAll(async () => {
     mapConfig: () =>
       mapConfigFrom({
         MAP_PUBLIC_KEY: "public-key",
-        MAP_VECTOR_STYLE: "https://tiles.example/style.json",
         MAP_SATELLITE_TILEJSON: "https://tiles.example/satellite.json",
         MAP_CONTOURS_TILEJSON: "https://tiles.example/contours.json",
       }),
@@ -211,6 +210,21 @@ describe("探索台页面接口", () => {
     expect(after.basemap).toBe("satellite");
   });
 
+  it("拖动视野时页面传 baseRevision:-1（不关心修订）也能存下最后视野", async () => {
+    const response = await ops({
+      baseRevision: -1,
+      ops: [
+        {
+          op: "view.save",
+          viewport: { center: [135.79, 35.02], zoom: 16, bearing: 0, pitch: 0 },
+          basemap: "vector",
+        },
+      ],
+    });
+    expect(response.status).toBe(200);
+    expect((await readPlan()).lastViewport.zoom).toBe(16);
+  });
+
   it("确认整份计划要先有时区；设好之后进入待执行，所有停留点转正", async () => {
     const plan = await readPlan();
     const missing = await ops({ baseRevision: plan.plan.revision, ops: [{ op: "plan.confirm" }] });
@@ -252,18 +266,19 @@ describe("探索台页面接口", () => {
     expect(after.plan.stops[0].source).toBe("user");
   });
 
-  it("地图公开配置只给地图 key；缺配置时如实列缺项", async () => {
+  it("地图公开配置：矢量源默认 OpenFreeMap（免 key），卫星/等高线缺配置就置空并列缺项", async () => {
     const configured = await (await app.request("/v1/explore/map-config", { headers: headers(cookieA) })).json();
     expect(configured.publicKey).toBe("public-key");
-    expect(configured.satellite.attribution).toContain("OpenStreetMap");
+    expect(configured.satellite.tilejson).toBe("https://tiles.example/satellite.json");
+    expect(configured.contours.tilejson).toBe("https://tiles.example/contours.json");
+    expect(configured.vector.tilejson).toContain("openfreemap.org");
+    // 缺配置时不编造地址：卫星和等高线为 null，并列明缺哪几项。
     const empty = mapConfigFrom({});
     expect(empty.publicKey).toBeNull();
-    expect(empty.missing).toEqual([
-      "MAP_PUBLIC_KEY",
-      "MAP_VECTOR_STYLE",
-      "MAP_SATELLITE_TILEJSON",
-      "MAP_CONTOURS_TILEJSON",
-    ]);
+    expect(empty.satellite).toBeNull();
+    expect(empty.contours).toBeNull();
+    expect(empty.vector.tilejson).toContain("openfreemap.org");
+    expect(empty.missing).toEqual(["MAP_SATELLITE_TILEJSON", "MAP_CONTOURS_TILEJSON", "MAP_PUBLIC_KEY"]);
   });
 });
 

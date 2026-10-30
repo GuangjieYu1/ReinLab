@@ -146,7 +146,10 @@ export async function applyOps(
   const { plan, bench } = await loadPlan(client, account, dossier, { lock: true });
   const ops = request.ops as Op[];
 
-  if (request.baseRevision !== undefined && request.baseRevision !== plan.revision)
+  // 负数 = 页面表示「不关心修订」（只存视野时）；其余按乐观并发校验。
+  const declaredRevision =
+    request.baseRevision !== undefined && request.baseRevision >= 0 ? request.baseRevision : undefined;
+  if (declaredRevision !== undefined && declaredRevision !== plan.revision)
     throw new ApiFailure(
       "REVISION_CONFLICT",
       409,
