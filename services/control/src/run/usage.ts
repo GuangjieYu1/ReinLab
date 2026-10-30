@@ -1,10 +1,15 @@
 import type pg from "pg";
 import { ApiFailure } from "../api/errors";
 
+/** 用途：计划编排 / 读图 / 天气判断 / 天气调整。后台调用没有 run。 */
+export type UsagePurpose = "planning" | "vision" | "weather_judge" | "weather_adjust";
+
 export type UsageRecord = {
   account: string;
   dossier: string;
-  run: string;
+  /** 后台检查这类调用没有运行记录。 */
+  run: string | null;
+  purpose?: UsagePurpose | null;
   provider: string;
   model: string;
   known: boolean;
@@ -37,8 +42,8 @@ export async function recordUsage(
       );
   }
   const result = await client.query(
-    `insert into usage_record(id,account_id,dossier_id,run_id,provider,model,known,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,cost_cny)
-     values(gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    `insert into usage_record(id,account_id,dossier_id,run_id,provider,model,known,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,cost_cny,purpose)
+     values(gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      returning id,known`,
     [
       usage.account,
@@ -53,6 +58,7 @@ export async function recordUsage(
       usage.known ? (usage.cacheWriteTokens ?? null) : null,
       usage.known ? (usage.reasoningTokens ?? null) : null,
       usage.known ? (usage.costCny ?? null) : null,
+      usage.purpose ?? null,
     ],
   );
   return { id: result.rows[0].id, known: result.rows[0].known };

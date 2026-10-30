@@ -31,6 +31,7 @@ import {
   type UndoCandidate,
 } from "./plan";
 import { consumeUserAuthorization, verifyUserAuthorization } from "./authorize";
+import { nextCheckAt } from "./schedule";
 import {
   fetchStopWeather,
   weatherSource,
@@ -190,7 +191,7 @@ export async function applyOps(
     // 审批卡批准的是当时那个修订：计划已经变了就不套用，免得覆盖用户后来的修改。
     const card = (
       await client.query(
-        "select effects,consumed_at,state from approval where id=$1 and account_id=$2",
+        "select effects,consumed_at,state,effect_key from approval where id=$1 and account_id=$2",
         [request.approved.approvalId, account],
       )
     ).rows[0];
@@ -200,12 +201,16 @@ export async function applyOps(
     // 契约：批准后在当前最新修订上执行；只有目标本身变了才作废。
     // 改一个停留点的时段，不该因为别处加了一个点就整张卡失效。
     assertApprovedStillApplies(plan, effectsOf, ops);
-    const consumed = await consumeApproval(client, {
-      approvalId: request.approved.approvalId,
-      effectKey: effectKeyOf(CAPABILITY, opsHash(ops)),
-    });
-    if (!consumed)
-      throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这张卡已经用过了，重新发起一次。");
+    // 有 effect_key 的卡（Agent 计划修改卡）按一次性键消费；
+    // 天气建议卡没有键，靠「pending → approved」的状态转换保证只应用一次。
+    if (card.effect_key) {
+      const consumed = await consumeApproval(client, {
+        approvalId: request.approved.approvalId,
+        effectKey: effectKeyOf(CAPABILITY, opsHash(ops)),
+      });
+      if (!consumed)
+        throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这张卡已经用过了，重新发起一次。");
+    }
   }
 
   return commitBatch(client, account, dossier, bench, request, plan);
@@ -278,8 +283,13 @@ async function commitBatch(
   });
 
   if (batch.business) {
+    // 待执行才监测天气：确认整份计划时排下一次检查（账户时区 08/16/23），
+    // 结束/取消就把日程撤掉。
+    const accountZone = batch.plan.state === "ready" ? await accountTimezone(client, account) : null;
+    const scheduled = accountZone ? nextCheckAt(accountZone, new Date()) : null;
     await client.query(
-      `update explore_plan set revision=$3, state=$4, document=$5::jsonb, updated_at=now()
+      `update explore_plan set revision=$3, state=$4, document=$5::jsonb, updated_at=now(),
+              next_check_at=$6
         where account_id=$1 and dossier_id=$2`,
       [
         account,
@@ -287,6 +297,7 @@ async function commitBatch(
         batch.plan.revision,
         batch.plan.state,
         JSON.stringify(batch.plan.document),
+        scheduled,
       ],
     );
     const seqs: string[] = [];

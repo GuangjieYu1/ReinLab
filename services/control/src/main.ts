@@ -19,6 +19,10 @@ import { registerMessagesProxy } from "./model/messages-proxy";
 import { recordUsage } from "./run/usage";
 import { readRuntimeConfiguration } from "./configuration";
 import { mapConfigFrom } from "./explore/map-config";
+import { createWeatherJudge } from "./explore/weather-judge";
+import { createWeatherScheduler } from "./explore/schedule";
+import { runWeatherCheck } from "./explore/weather-check";
+import { publishAccountEvent } from "./dossier/service";
 
 // dsh will not boot inside Electron. The local stack entry sets
 // REINLAB_LOCAL_STACK=1 so this fails fast with a readable reason, while tests
@@ -103,6 +107,22 @@ const kernel = new KernelService({
     },
   },
 });
+// 天气判断用的模型通道：和内核同一条 Anthropic 兼容入口，宿主自己带 key 调。
+const localSecrets = realModels
+  ? readRuntimeConfiguration(path.join(homedir(), ".config/reinlab/local.env"))
+  : undefined;
+const providerKey = localSecrets?.DEEPSEEK_API_KEY;
+if (realModels && (!providerKey || /[\r\n]/.test(providerKey)))
+  throw Error("LOCAL_MODEL_KEY_UNAVAILABLE");
+const weatherJudge = providerKey
+  ? createWeatherJudge({
+      baseUrl: "https://api.deepseek.com/anthropic",
+      apiKey: providerKey,
+      model: config.REINLAB_WEATHER_JUDGE_MODEL ?? config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
+      provider: "deepseek-official",
+    })
+  : undefined;
+
 const app = await createApp({
   pool,
   session: config.SUPABASE_ANON_KEY
@@ -116,6 +136,7 @@ const app = await createApp({
   mapConfig: () => mapConfigFrom(config),
   kernel,
   kernelTools: { auth: kernelAuth, dispatch: kernelDispatch },
+  weatherJudge,
   realModelsEnabled: realModels,
   auth: {
     issuer: config.SUPABASE_URL.replace(/\/$/, "") + "/auth/v1",
@@ -124,14 +145,9 @@ const app = await createApp({
       : undefined,
   },
 });
-if (realModels) {
+if (realModels && providerKey) {
   // The kernel's model egress: run token in, host-held key out. One usage row
   // per provider request; nothing else writes this request's usage.
-  const providerKey = readRuntimeConfiguration(
-    path.join(homedir(), ".config/reinlab/local.env"),
-  ).DEEPSEEK_API_KEY;
-  if (!providerKey || /[\r\n]/.test(providerKey))
-    throw Error("LOCAL_MODEL_KEY_UNAVAILABLE");
   registerMessagesProxy(app, {
     auth: kernelAuth,
     forward: (request: Request) => fetch(request, { redirect: "error" }),
@@ -201,6 +217,22 @@ const server = serve(
       );
   },
 );
+// 待执行计划的天气监测：账户时区 08/16/23，服务停过就补一次。
+// 只在真实模式开——它要真实取预报、真实调判断模型（用量记到那份计划上）。
+const weatherScheduler =
+  realModels && weatherJudge
+    ? createWeatherScheduler({
+        db: database,
+        log: (event) => console.log(JSON.stringify(event)),
+        runCheck: async (account, dossier, when) => {
+          const outcome = await database.withAccount(account, (client) =>
+            runWeatherCheck(client, account, dossier, { judge: weatherJudge, now: when }),
+          );
+          publishAccountEvent(account, "exploration", outcome.event);
+        },
+      })
+    : undefined;
+
 let stopping = false;
 const shutdown = () => {
   if (stopping) return;
@@ -224,6 +256,7 @@ const shutdown = () => {
       await closed;
     } finally {
       clearTimeout(force);
+      weatherScheduler?.stop();
       await pool.end();
     }
   })().catch(() => {

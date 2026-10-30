@@ -84,6 +84,21 @@ function describe(effects: any) {
     lines.push("不批准就不改计划，你现在看到的安排保持原样");
     return lines;
   }
+  // 天气调整建议：具体到哪个停留点、改什么、前后各是什么，并说明不应用就不改计划。
+  if (planChange?.kind === "explore.weatherSuggestion") {
+    const lines = [String(planChange.summary ?? "天气有变化，建议调整")];
+    for (const change of (Array.isArray(planChange.changes) ? planChange.changes : []).slice(0, 6)) {
+      const parts = Object.keys(change?.after ?? {})
+        .map(
+          (key) =>
+            `${stopFieldText(key)} ${valueText(change.before?.[key])} → ${valueText(change.after[key])}`,
+        );
+      const why = typeof change?.why === "string" && change.why ? `（${change.why}）` : "";
+      lines.push(`${String(change?.stopId ?? "").slice(0, 8)}：${parts.join("；")}${why}`);
+    }
+    lines.push("不用就保持原安排，计划不会被改");
+    return lines;
+  }
   // 审批行里的 effects 是数组（[{capability, argsHash}]），不是对象。
   const first = Array.isArray(effects) ? effects[0] : effects;
   const capability =
@@ -383,6 +398,37 @@ export async function decideInboxCard(
             row.run_id,
             `用户已批准这次计划修改（审批 ${row.id}），已经生效。不要重复提交同一批改动，用一两句话说明改了什么。`,
           );
+        return { status: 200, body: { state: "approved", revision: outcome.revision } } as any;
+      } catch (error) {
+        if (error instanceof ApiFailure && STALE_PLAN_CODES.has(error.code)) {
+          await client.query(
+            "update approval set state='expired', decided_at=now() where account_id=$1 and id=$2",
+            [account, id.data],
+          );
+          return { status: 200, body: { state: "stale", reason: error.message } } as any;
+        }
+        throw error;
+      }
+    }
+    // 天气调整建议：批准就在当时最新的计划上应用那几处改动；不批准就保留原安排。
+    if (effectKind === "explore.weatherSuggestion") {
+      const effects = effectOf as any;
+      const approved = input.decision === "approve";
+      const marked = await client.query(
+        `update approval set state=$3, decided_at=now(), decided_scope='once'
+          where account_id=$1 and id=$2 and state='pending'`,
+        [account, id.data, approved ? "approved" : "rejected"],
+      );
+      if (!marked.rowCount) throw conflict();
+      if (!approved) return { status: 200, body: { state: "rejected" } } as any;
+      try {
+        const outcome = await applyOps(client, account, String(effects.dossierId), {
+          ops: Array.isArray(effects.ops) ? effects.ops : [],
+          actor: "agent",
+          run: row.run_id ?? null,
+          approved: { approvalId: id.data },
+        });
+        onApplied?.(outcome);
         return { status: 200, body: { state: "approved", revision: outcome.revision } } as any;
       } catch (error) {
         if (error instanceof ApiFailure && STALE_PLAN_CODES.has(error.code)) {

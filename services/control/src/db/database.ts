@@ -38,6 +38,13 @@ export class Database {
   ): Promise<T> {
     return this.transaction(accountId, work, false);
   }
+  /**
+   * 不带账户上下文的系统事务：只给调度这类跨账户枚举用。
+   * RLS 下普通表一律看不到行（app.account_id 未设置），只有 definer 函数可用。
+   */
+  withSystem<T>(work: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+    return this.transaction(null, work, false);
+  }
   withAccountSnapshot<T>(
     accountId: string,
     work: (client: pg.PoolClient) => Promise<T>,
@@ -45,11 +52,12 @@ export class Database {
     return this.transaction(accountId, work, true);
   }
   private async transaction<T>(
-    accountId: string,
+    accountId: string | null,
     work: (client: pg.PoolClient) => Promise<T>,
     snapshot: boolean,
   ): Promise<T> {
     if (
+      accountId !== null &&
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         accountId,
       )
@@ -73,9 +81,10 @@ export class Database {
             ? "begin isolation level repeatable read read only"
             : "begin",
         );
-        await client.query("select set_config('app.account_id',$1,true)", [
-          accountId,
-        ]);
+        if (accountId !== null)
+          await client.query("select set_config('app.account_id',$1,true)", [
+            accountId,
+          ]);
         workStarted = true;
         const value = await work(client);
         await client.query("commit");

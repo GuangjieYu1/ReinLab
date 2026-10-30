@@ -44,6 +44,8 @@ export async function createApp(options: {
   mapConfig?: () => MapConfig;
   /** 天气取数通道；缺省用真实 fetch。 */
   weatherTransport?: import("../explore/weather").WeatherTransport;
+  /** 天气判断的模型通道；没有就只记录数据变化、不下结论。 */
+  weatherJudge?: import("../explore/weather-judge").WeatherJudge;
   realModelsEnabled?: boolean;
   testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
   testOnlyClarifyModelTransport?: (body: Buffer) => Promise<Response>;
@@ -129,6 +131,7 @@ export async function createApp(options: {
   registerExploreApi(app, database, {
     mapConfig: options.mapConfig,
     weatherTransport: options.weatherTransport,
+    weatherJudge: options.weatherJudge,
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
     let applied: OpsOutcome | null = null;
