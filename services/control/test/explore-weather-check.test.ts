@@ -8,8 +8,14 @@ import { Database } from "../src/db/database";
 import { subscribe } from "../src/dossier/service";
 import { createWeatherScheduler } from "../src/explore/schedule";
 import { runWeatherCheck } from "../src/explore/weather-check";
-import type { WeatherTransport } from "../src/explore/weather";
+import { localDayOf, shiftDay, type WeatherTransport } from "../src/explore/weather";
 import type { WeatherJudge } from "../src/explore/weather-judge";
+
+/**
+ * 用「今天 +2 天」当拍摄日：预报窗口是按真实今天算的，写死日期迟早会掉出窗口。
+ */
+const DAY = shiftDay(localDayOf(new Date(), "Asia/Tokyo"), 2);
+const WINDOW = { start: `${DAY}T16:10:00+09:00`, end: `${DAY}T17:40:00+09:00` };
 import type { AppliedOp } from "@reinlab/contracts";
 
 const admin = new pg.Pool({
@@ -37,8 +43,11 @@ let transportCalls = 0;
 const weatherTransport: WeatherTransport = async () => {
   transportCalls += 1;
   if (offline) throw new Error("ENOTFOUND api.open-meteo.com");
-  const start = Date.UTC(2026, 10, 14, 0, 0, 0);
-  const time = Array.from({ length: 72 }, (_, i) => Math.floor((start + i * 3600_000) / 1000));
+  // 从「今天（UTC）前一天」起给 20 天，足够覆盖 +2 天的拍摄日。
+  const todayUtc = localDayOf(new Date(), "UTC");
+  const [y, m, d] = shiftDay(todayUtc, -1).split("-").map(Number);
+  const start = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const time = Array.from({ length: 20 * 24 }, (_, i) => Math.floor((start + i * 3600_000) / 1000));
   return {
     ok: true,
     status: 200,
@@ -70,7 +79,7 @@ const judge: WeatherJudge = async (input) => {
             {
               stopId: input.stops[0].stopId,
               patch: {
-                window: { start: "2026-11-15T08:00:00+09:00", end: "2026-11-15T09:30:00+09:00" },
+                window: { start: `${DAY}T08:00:00+09:00`, end: `${DAY}T09:30:00+09:00` },
               },
               why: "傍晚降水概率高",
             },
@@ -169,7 +178,7 @@ describe("待执行计划的天气监测", () => {
           op: "plan.set",
           patch: {
             destination: { name: "京都 · 东山", center: [135.7681, 35.0116], timezone: "Asia/Tokyo" },
-            days: ["2026-11-15"],
+            days: [DAY],
           },
         },
         {
@@ -178,8 +187,8 @@ describe("待执行计划的天气监测", () => {
             kind: "spot",
             name: "水路阁",
             geometry: { type: "Point", coordinates: [135.7944, 35.0111] },
-            day: "2026-11-15",
-            window: { start: "2026-11-15T16:10:00+09:00", end: "2026-11-15T17:40:00+09:00" },
+            day: DAY,
+            window: WINDOW,
             state: "confirmed",
           },
         },
@@ -258,7 +267,7 @@ describe("待执行计划的天气监测", () => {
     expect((await decided.json()).state).toBe("approved");
     const after = await planOf();
     expect(after.plan.revision).toBe(before.plan.revision + 1);
-    expect(after.plan.stops[0].window.start).toBe("2026-11-15T08:00:00+09:00");
+    expect(after.plan.stops[0].window.start).toBe(`${DAY}T08:00:00+09:00`);
     expect((await suggestionsOf()).items[0].state).toBe("applied");
   });
 
@@ -330,7 +339,7 @@ describe("待执行计划的天气监测", () => {
     const stopId = plan.plan.stops[0].id;
     await ops(dossier, {
       baseRevision: plan.plan.revision,
-      ops: [{ op: "stop.update", id: stopId, patch: { day: "2027-02-10", window: null } }],
+      ops: [{ op: "stop.update", id: stopId, patch: { day: shiftDay(DAY, 120), window: null } }],
     });
     const body = await (await check()).json();
     expect(body.state).toBe("out_of_range");

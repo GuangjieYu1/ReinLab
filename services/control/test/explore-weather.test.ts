@@ -97,6 +97,34 @@ describe("停留点逐时天气", () => {
     expect(seen).toEqual([]);
   });
 
+  it("窗口边界按服务商的 UTC 口径算：差一天就不要白跑一次请求", async () => {
+    // 现在是 10-30（UTC），预报窗到 11-14；11-15 的拍摄请求必然被拒。
+    const seen: string[] = [];
+    const atBoundary = await fetchStopWeather({
+      at: KYOTO,
+      timezone: "Asia/Tokyo",
+      window: { start: "2026-11-15T07:10:00+09:00", end: "2026-11-15T07:50:00+09:00" },
+      day: "2026-11-15",
+      transport: transportOf(payload("2026-11-14T00:00:00Z", 48), seen),
+      now: new Date("2026-10-30T18:00:00Z"),
+    });
+    expect(atBoundary.state).toBe("out_of_range");
+    expect(atBoundary.fromDate).toBe("2026-10-31");
+    expect(seen).toEqual([]);
+
+    // 到了 10-31（UTC），同一天就在窗口里了，正常取数。
+    const inRange = await fetchStopWeather({
+      at: KYOTO,
+      timezone: "Asia/Tokyo",
+      window: { start: "2026-11-15T07:10:00+09:00", end: "2026-11-15T07:50:00+09:00" },
+      day: "2026-11-15",
+      transport: transportOf(payload("2026-11-14T00:00:00Z", 48)),
+      now: new Date("2026-10-31T01:00:00Z"),
+    });
+    expect(inRange.state).toBe("ok");
+    expect(inRange.hours.length).toBeGreaterThan(0);
+  });
+
   it("服务端说超出允许范围也算 out_of_range，不说成没变化", async () => {
     const result = await fetchStopWeather({
       at: KYOTO,

@@ -924,7 +924,6 @@ async function exploreTool(
           result: {
             state: "generating",
             jobId: prepared.artifactId,
-            version: prepared.version,
             variant,
             revision,
           },

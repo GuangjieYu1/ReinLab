@@ -238,7 +238,6 @@ describe("地图快照与两版计划书", () => {
     const response = await requestBook("brief", revision);
     expect(response.status).toBe(202);
     const created = await response.json();
-    expect(created.version).toBe(1);
     const event = await waiting;
     expect(event.state).toBe("done");
     expect(event.artifactId).toBe(created.jobId);
@@ -271,8 +270,9 @@ describe("地图快照与两版计划书", () => {
     const response = await requestBook("full", revision);
     expect(response.status).toBe(202);
     const created = await response.json();
-    expect(created.version).toBe(2);
-    expect((await waiting).state).toBe("done");
+    const finished = await waiting;
+    expect(finished.state).toBe("done");
+    expect(finished.title).toBe("详细 · 第 1 版");
     const file = await app.request(`/v1/explore/plans/${dossier}/books/${created.jobId}/file`, {
       headers: headers(),
     });
@@ -314,12 +314,17 @@ describe("地图快照与两版计划书", () => {
     const response = await requestBook("brief", after.plan.revision);
     expect(response.status).toBe(202);
     const created = await response.json();
-    expect(created.version).toBe(3);
-    expect((await waiting).state).toBe("done");
+    const finished = await waiting;
+    expect(finished.title).toBe("精简 · 第 2 版");
     const books = (
       await (await app.request(`/v1/dossiers/${dossier}/artifacts?kind=file`, { headers: headers() })).json()
     ).items;
-    expect(books.map((item: any) => item.title).sort()).toEqual(["精简 · 第 1 版", "精简 · 第 3 版", "详细 · 第 2 版"]);
+    // 版本按类型各数一份：精简第 1、第 2，详细第 1。
+    expect(books.map((item: any) => item.title).sort()).toEqual([
+      "精简 · 第 1 版",
+      "精简 · 第 2 版",
+      "详细 · 第 1 版",
+    ]);
   });
 });
 
@@ -363,6 +368,7 @@ describe("助手发起生成计划书", () => {
     expect(body.result.state).toBe("generating");
     const event = await waiting;
     expect(event.state).toBe("done");
+    expect(event.title).toBe("详细 · 第 2 版");
     const file = await app.request(`/v1/explore/plans/${dossier}/books/${body.result.jobId}/file`, {
       headers: headers(),
     });

@@ -131,10 +131,12 @@ export async function fetchStopWeather(input: {
     ? new Date(new Date(input.window.end).getTime() + 2 * 3600_000)
     : instantOfLocal(input.day, "23:00", input.timezone);
 
-  const todayLocal = localDayOf(now, input.timezone);
   const targetLocal = localDayOf(from, input.timezone);
-  const horizon = shiftDay(todayLocal, FORECAST_DAYS - 1);
-  if (targetLocal > horizon) {
+  // Open-Meteo 的可预报窗口按它自己的「今天」起算 16 天，用 UTC 日期对齐，
+  // 否则我们本地算「还在范围内」、它那边已经超窗，白白多一次请求。
+  const todayUtc = localDayOf(now, "UTC");
+  const horizon = shiftDay(todayUtc, FORECAST_DAYS - 1);
+  if (localDayOf(to, "UTC") > horizon) {
     // 还没进入预报范围：说清大概哪天起能查，不拿气候均值当当天预报。
     const fromDate = shiftDay(targetLocal, -(FORECAST_DAYS - 1));
     return {

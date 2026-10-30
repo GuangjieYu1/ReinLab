@@ -78,7 +78,6 @@ export async function saveSnapshot(
 
 export type BookPlan = {
   artifactId: string;
-  version: number;
   variant: BookVariant;
   revision: number;
 };
@@ -111,17 +110,8 @@ export async function prepareBook(
       keys: missing,
       revision: input.revision,
     });
-  const version =
-    Number(
-      (
-        await client.query(
-          `select count(*)::int n from dossier_artifact
-            where account_id=$1 and dossier_id=$2 and kind='file' and title like '%· 第 %版'`,
-          [input.account, input.dossier],
-        )
-      ).rows[0]?.n ?? 0,
-    ) + 1;
-  return { artifactId: randomUUID(), version, variant: input.variant, revision: input.revision };
+  // 版本号在真正落成果时按「同一类型已有几份」算（并发生成两版也不会撞号）。
+  return { artifactId: randomUUID(), variant: input.variant, revision: input.revision };
 }
 
 const clock = (iso: string): string => {
@@ -212,6 +202,25 @@ export async function generateBook(
     const day = material.plan.document.days[0];
     const sun = destination && day ? sunDay(destination.center, day, destination.timezone) : null;
 
+    // 先定版本号（同类型第几份），排版页脚和成果标题用同一个数。
+    const variantLabel = input.plan.variant === "brief" ? "精简" : "详细";
+    const version = await db.withAccount(input.account, async (client) => {
+      await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [
+        "explore-book:" + input.dossier,
+      ]);
+      return (
+        Number(
+          (
+            await client.query(
+              `select count(*)::int n from dossier_artifact
+                where account_id=$1 and dossier_id=$2 and kind='file' and title like $3`,
+              [input.account, input.dossier, variantLabel + " · 第 %版"],
+            )
+          ).rows[0]?.n ?? 0,
+        ) + 1
+      );
+    });
+
     const bytes = await buildBookPdf({
       dossierTitle: material.title,
       plan: material.plan,
@@ -223,12 +232,12 @@ export async function generateBook(
       sun,
       fontBytes,
       generatedAt: new Date(),
-      version: input.plan.version,
+      version,
     });
 
     await storage.saveBook({ dossier: input.dossier, artifactId: input.plan.artifactId, bytes: Buffer.from(bytes) });
 
-    const title = `${input.plan.variant === "brief" ? "精简" : "详细"} · 第 ${input.plan.version} 版`;
+    const title = `${variantLabel} · 第 ${version} 版`;
     await db.withAccount(input.account, async (client) => {
       await client.query(
         `insert into dossier_artifact(id,account_id,dossier_id,kind,title,status,open)
@@ -275,6 +284,7 @@ export async function generateBook(
       jobId: input.plan.artifactId,
       state: "done",
       artifactId: input.plan.artifactId,
+      title,
       url: `/v1/explore/plans/${input.dossier}/books/${input.plan.artifactId}/file`,
     });
   } catch (error) {

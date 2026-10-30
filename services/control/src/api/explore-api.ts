@@ -331,7 +331,7 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
         variant: input.variant,
         revision: input.revision,
       });
-      return { status: 202, body: { jobId: started.artifactId, version: started.version } };
+      return { status: 202, body: { jobId: started.artifactId } };
     });
     if (started)
       void generateBook(

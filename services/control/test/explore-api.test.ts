@@ -7,7 +7,7 @@ import { applyMigrations } from "../src/db/migrate";
 import { KernelAuth } from "../src/kernel/auth";
 import { subscribe } from "../src/dossier/service";
 import { mapConfigFrom } from "../src/explore/map-config";
-import type { WeatherTransport } from "../src/explore/weather";
+import { localDayOf, shiftDay, type WeatherTransport } from "../src/explore/weather";
 import type { AppliedOp } from "@reinlab/contracts";
 
 const admin = new pg.Pool({
@@ -31,11 +31,15 @@ let app: Awaited<ReturnType<typeof createApp>>;
 let cookieA = "";
 let cookieB = "";
 let tokenA = "";
+/** 拍摄日取「今天 +2 天」：预报窗按真实今天算，写死日期会掉出窗口。 */
+const DAY = shiftDay(localDayOf(new Date(), "Asia/Tokyo"), 2);
+
 /** 天气取数通道：记录被调了几次，用来验证"同一份快照不重复取数"。 */
 const weatherCalls: string[] = [];
 const weatherTransport: WeatherTransport = async () => {
-  const start = new Date("2026-11-14T00:00:00Z").getTime();
-  const time = Array.from({ length: 96 }, (_, i) => Math.floor((start + i * 3600_000) / 1000));
+  const [y, m, d] = shiftDay(localDayOf(new Date(), "UTC"), -1).split("-").map(Number);
+  const start = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const time = Array.from({ length: 20 * 24 }, (_, i) => Math.floor((start + i * 3600_000) / 1000));
   weatherCalls.push(String(time.length));
   return {
     ok: true,
@@ -589,12 +593,24 @@ describe("停留点天气与太阳", () => {
           op: "plan.set",
           patch: {
             destination: { name: "京都 · 东山", center: [135.7681, 35.0116], timezone: "Asia/Tokyo" },
-            days: ["2026-11-15"],
+            days: [DAY],
           },
         },
       ],
     });
     expect(set.status).toBe(200);
+    // 这条用例前面几步把停留点写在了固定日期上：把它们挪到今天的 +2 天，
+    // 否则按现在的预报窗口会全部超范围（那是别的话题，这里要验的是取数和单位）。
+    const forWeather = await readPlan();
+    const moved = await ops({
+      baseRevision: forWeather.plan.revision,
+      ops: forWeather.plan.stops.map((stop: any) => ({
+        op: "stop.update",
+        id: stop.id,
+        patch: { day: DAY, window: { start: `${DAY}T16:10:00+09:00`, end: `${DAY}T17:40:00+09:00` } },
+      })),
+    });
+    expect(moved.status).toBe(200);
     weatherCalls.length = 0;
     const confirmed = (await readPlan()).plan.stops.filter((stop: any) => stop.state === "confirmed");
     const body = await (await app.request(`/v1/explore/plans/${dossierA}/weather`, { headers: headers(cookieA) })).json();
