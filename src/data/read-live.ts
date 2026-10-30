@@ -135,6 +135,24 @@ export function createLiveReadAdapter(
     snapshot.paper = merged;
     emit({ type: "paper", paper: merged });
   };
+  /** 结果里没带标题（比如只读了页）：按档案里登记的论文补标题，档案名也重读一次（入档会自动改名）。 */
+  const hydrateTitle = async (assetId: string) => {
+    if (!dossier) return;
+    try {
+      const [arts, d] = await Promise.all([
+        ports.api(`/v1/dossiers/${dossier}/artifacts`) as Promise<{ items?: { id: string; kind: string; title: string }[] }>,
+        ports.api(`/v1/dossiers/${dossier}`) as Promise<{ title?: string; nameSource?: string }>,
+      ]);
+      const hit = arts?.items?.find((x) => x.kind === "paper" && x.id === assetId) ?? arts?.items?.find((x) => x.kind === "paper");
+      if (d?.title) snapshot.dossier = { ...snapshot.dossier, title: d.title };
+      // 成果里没有这篇时：档案名是按论文自动起的，就用它（就是这篇的标题）。
+      const named = hit?.title ?? (d?.nameSource === "paper" ? d.title : undefined);
+      if (paperView?.id === assetId && named) paperView = { ...paperView, title: named };
+      emitPaper();
+    } catch {
+      /* 拿不到就保持原样 */
+    }
+  };
   /** 论文视图：下载成功后带着标题/作者，读到页后带上按页的原文段落。 */
   const updatePaper = (result: Record<string, any>) => {
     const assetId = String(result.assetId ?? "");
@@ -154,6 +172,7 @@ export function createLiveReadAdapter(
       };
       sections.clear();
       emitPaper();
+      if (result.title == null) void hydrateTitle(assetId);
     }
     if (Array.isArray(result.pages)) {
       for (const page of result.pages) {

@@ -34,9 +34,11 @@ const RUN_TEXT: Record<RunView['state'], string> = { idle: '未开始', estimati
 const active = (r: RunView) => r.state === 'queued' || r.state === 'running' || r.state === 'waiting';
 const money = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `¥${v < 0.1 ? v.toFixed(3) : v.toFixed(2)}`);
 
-export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch, adapter: given, resume, onPosition, onNewDossier }: {
+export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch, adapter: given, resume, onPosition, onNewDossier, dossier }: {
   file: number; reduced: boolean; chrome: BenchChrome; modeSwitch: ReactNode; onDispatch: (to: 'swarm' | 'auto', text: string) => void; adapter?: ReadAdapter;
   resume?: ResumePoint | null; onPosition?: (p: ResumePoint) => void; onNewDossier?: (kind: 'reading' | 'topic') => Promise<void>;
+  /** 工作台头部的那份档案：名字靠推送实时更新（入档自动改名后这里跟着变）。 */
+  dossier?: { title: string } | null;
 }) {
   const adapter = useMemo(() => given ?? mockReadAdapter({ reduced }), [given, reduced]);
   const { state, reload, error: loadError, retry } = useRead(adapter);
@@ -125,7 +127,7 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
   ];
 
   const sections: ExplorerSection[] = [
-    { id: 'dossier', title: '档案', body: <div className="rd-xp-dossier"><b>{state.dossier.title}</b><small>{RUN_TEXT[run.state]} · {money(run.spentCny)} / ¥{run.budgetCny}</small>{newReading && <button className="rd-new" onClick={() => void newReading()}>＋ 新建精读</button>}</div> },
+    { id: 'dossier', title: '档案', body: <div className="rd-xp-dossier"><b>{(dossier?.title ?? state.dossier.title)}</b><small>{RUN_TEXT[run.state]} · {money(run.spentCny)} / ¥{run.budgetCny}</small>{newReading && <button className="rd-new" onClick={() => void newReading()}>＋ 新建精读</button>}</div> },
     ...(paper ? [
       { id: 'paper', title: paper.title, grow: true, body: <Tree nodes={paper.sections.map(s => ({ name: s.title, path: s.id, ext: '§', meta: <span className="rd-xp-meta">{s.no}</span> }))} active={focus[0]} onOpen={id => { setFace('explain'); cite([id]); }} /> },
       { id: 'meta', title: '信息', body: <div className="dv-xp-list"><div><b>{paper.authors}</b><small>{paper.venue}</small></div>{paper.code && <div><b>代码</b><small>{paper.code} · 有</small></div>}<div><b>全文</b><small>{paper.access === 'full' ? `可读 · ${paper.license ?? '开放获取'}` : '只有摘要 · 结论都待核'}</small></div></div> },
@@ -133,15 +135,15 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
     ...(findings.length ? [{ id: 'findings', title: '发现', count: findings.length, body: <div className="dv-xp-list">{findings.map(f => <div key={f.id}><b>#{f.n} {f.text.slice(0, 24)}…</b><small>{CONF[f.confidence]} · {STATUS[f.status]}</small></div>)}</div> }] : []),
     ...(state.anims.length ? [{ id: 'figs', title: '动画', count: state.anims.length, body: <Tree nodes={ANIMS.filter(a => state.anims.includes(a.id)).map(a => ({ name: a.title, path: a.id, ext: '▶', meta: <span className="rd-xp-meta">{paper?.sections.find(s => s.id === a.ref)?.no}</span> }))} active={face === 'lab' ? anim : undefined} onOpen={id => openAnim(id as Anim)} /> }] : []),
   ];
-  const dock = <AgentDock name="精读助手" target={paper ? `${paper.title} · ${paper.venue}` : state.dossier.title} plan={{ stages: ['解析', '动画', '复现', '检验'], current: ['explain', 'lab', 'repro', 'check'].indexOf(face) }}
+  const dock = <AgentDock name="精读助手" target={paper ? `${paper.title} · ${paper.venue}` : (dossier?.title ?? state.dossier.title)} plan={{ stages: ['解析', '动画', '复现', '检验'], current: ['explain', 'lab', 'repro', 'check'].indexOf(face) }}
     loop={active(run) ? { stages: ['检索', '读原文', '写讲解', '出题'], current: !paper ? 0 : !layers.length ? 1 : !quizzes.length ? 2 : 3 } : null}
     suggestions={suggestions} events={events} busy={asking || run.state === 'estimating'} onSend={talk} placeholder={paper ? '哪里没懂？例如：为什么要除以根号 d' : '想读哪篇？说得模糊也行，例如：讲智能体边推理边行动的那篇'} />;
 
   return <BenchFrame code="RSCH" section="002" file={file} reduced={reduced} chrome={chrome} face={face} onFace={id => setFace(id as Face)}
     faces={[{ id: 'explain', label: '解析', en: 'EXPLAIN' }, { id: 'lab', label: '动画', en: 'LAB' }, { id: 'repro', label: '复现', en: 'REPRODUCE', badge: ran === 'done' ? 3 : 0 }, { id: 'check', label: '检验', en: 'CHECK', badge: okCount }]}
     strip={<>READ <i>·</i> {paper?.venue ?? '新档案'} <i>·</i> 理解 {okCount}/{quizzes.length}</>} tools={modeSwitch}
-    shutterLines={f => [`> open dossier · ${state.dossier.title.toLowerCase()}`, `> face · ${f.en.toLowerCase()}`, '> ready']}
-    status={<><span><i className="en-sq" />精读</span><span>{paper?.title ?? state.dossier.title}</span><span>解析 {Math.min(depth, layers.length)}/{layers.length || 5} 层</span><span>理解 {okCount}/{quizzes.length}</span><span>{RUN_TEXT[run.state]} · {money(run.spentCny)}{run.unknownCost ? ' + 未知' : ''}</span>{!paper && <span>澄清 {money(run.clarifySpentCny ?? 0)} / ¥{run.clarifyCapCny ?? 0.5}</span>}<span>{adapter.kind === 'mock' ? '示例数据 · 不连接模型' : '真实数据'}</span></>}>
+    shutterLines={f => [`> open dossier · ${(dossier?.title ?? state.dossier.title).toLowerCase()}`, `> face · ${f.en.toLowerCase()}`, '> ready']}
+    status={<><span><i className="en-sq" />精读</span><span>{paper?.title ?? (dossier?.title ?? state.dossier.title)}</span><span>解析 {Math.min(depth, layers.length)}/{layers.length || 5} 层</span><span>理解 {okCount}/{quizzes.length}</span><span>{RUN_TEXT[run.state]} · {money(run.spentCny)}{run.unknownCost ? ' + 未知' : ''}</span>{!paper && <span>澄清 {money(run.clarifySpentCny ?? 0)} / ¥{run.clarifyCapCny ?? 0.5}</span>}<span>{adapter.kind === 'mock' ? '示例数据 · 不连接模型' : '真实数据'}</span></>}>
     <XpHost sections={sections} title={paper?.venue ?? '新档案'}>
       <section className="rd-center" data-wb-panel>
         {(run.state !== 'idle' && paper) && <RunBar run={run} onStop={() => void adapter.cancel()} pending={pending.length} />}
