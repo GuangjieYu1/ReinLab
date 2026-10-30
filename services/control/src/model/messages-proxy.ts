@@ -13,6 +13,8 @@ export type RecordedUsage = {
   account: string;
   dossier: string;
   run: string;
+  /** 这一请求的用途：带图就是读图，否则按计划编排。 */
+  purpose?: "planning" | "vision" | "weather_judge" | "weather_adjust" | null;
   provider: string;
   model: string;
   known: boolean;
@@ -116,6 +118,8 @@ export function registerMessagesProxy(
       return c.json({ error: "MESSAGES_BODY_INVALID" }, 400);
     }
     const model = typeof parsed.model === "string" ? parsed.model : "";
+    // 请求里带图片内容块 → 这一笔算「读图」，和纯文本编排分开记。
+    const purpose = /"type"\s*:\s*"image"/.test(body) ? ("vision" as const) : ("planning" as const);
     const target = new URL(dependencies.providerBaseUrl.replace(/\/+$/, "") + "/v1/messages");
     const upstream = new Request(target, {
       method: "POST",
@@ -137,7 +141,7 @@ export function registerMessagesProxy(
     if (!streamed) {
       const text = await response.text();
       const usage = extractUsage(text);
-      await recordUsage(dependencies, claims, model, usage);
+      await recordUsage(dependencies, claims, model, usage, purpose);
       return new Response(text, { status: response.status, headers });
     }
     // Relays frames as they arrive and captures usage from the same bytes.
@@ -150,7 +154,7 @@ export function registerMessagesProxy(
       },
       async flush() {
         captured += decoder.decode();
-        await recordUsage(dependencies, claims, model, extractUsage(captured));
+        await recordUsage(dependencies, claims, model, extractUsage(captured), purpose);
       },
     });
     return new Response(response.body.pipeThrough(transform), {
@@ -165,11 +169,13 @@ async function recordUsage(
   claims: { account: string; dossier: string; run: string },
   model: string,
   usage: NormalizedUsage | undefined,
+  purpose: "planning" | "vision" | null = null,
 ) {
   await dependencies.record({
     account: claims.account,
     dossier: claims.dossier,
     run: claims.run,
+    purpose,
     provider: dependencies.provider ?? "deepseek-official",
     model,
     known: usage !== undefined,

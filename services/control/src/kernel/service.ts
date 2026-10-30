@@ -46,6 +46,12 @@ export type KernelLayout = {
 
 export type KernelDependencies = {
   db: Database;
+  /** 把这一轮的参考图读成可发送的图片块；没配就只发文字。 */
+  loadRefImages?: (input: {
+    account: string;
+    dossier: string;
+    refIds: string[];
+  }) => Promise<{ data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" }[]>;
   auth: KernelAuth;
   layout: KernelLayout;
   factory: HarnessFactory;
@@ -148,6 +154,10 @@ export class KernelService {
       return {
         dossierId,
         sessionId,
+        // 这一轮随消息带来的参考图：只在第一轮带（追补那轮不重复烧图）。
+        refIds: Array.isArray(input.refIds)
+          ? input.refIds.filter((id): id is string => typeof id === "string")
+          : [],
         message: prompt,
         resume: Boolean(existing),
         mode:
@@ -228,6 +238,24 @@ export class KernelService {
       await this.failBeforeRun(account, prepared.dossierId, prepared.sessionId, runId);
       throw error;
     }
+
+    // 参考图在事务外读文件、编码，再随这一轮送进去。
+    const images =
+      prepared.refIds.length && this.dependencies.loadRefImages
+        ? await this.dependencies.loadRefImages({
+            account,
+            dossier: prepared.dossierId,
+            refIds: prepared.refIds,
+          }).catch((error) => {
+            console.error(
+              JSON.stringify({
+                code: "EXPLORE_REFS_UNREADABLE",
+                detail: String((error as Error)?.message ?? error).slice(0, 160),
+              }),
+            );
+            return [];
+          })
+        : [];
 
     const handle = executeRun(
       {
@@ -354,7 +382,7 @@ export class KernelService {
         // 页面上（纲领第 9 条）。结果照实记录在事件里，不伪装成人说的话。
         release: plan.release,
       },
-      { plan, prompt: prepared.message, resume: prepared.resume, token },
+      { plan, prompt: prepared.message, resume: prepared.resume, token, ...(images.length ? { images } : {}) },
     );
     this.handles.set(runId, handle);
     void handle.done.catch(() => {}).finally(() => this.handles.delete(runId));

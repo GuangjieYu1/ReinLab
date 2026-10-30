@@ -1,11 +1,13 @@
 import type { HarnessFactory, HarnessLike } from "./session";
-import { runTurn, type HarnessEvent, type TurnOutcome } from "./session";
+import { promptWithImages, runTurn, type HarnessEvent, type TurnOutcome } from "./session";
 import { cancelRun, type CancelState } from "./cancel";
 import type { LaunchPlan } from "./launch";
 
 export type RunRequest = {
   plan: LaunchPlan;
   prompt: string;
+  /** 这一轮附带的参考图（已编码）；只在第一轮带，追补那轮不带。 */
+  images?: { data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" }[];
   resume: boolean;
   token: string;
 };
@@ -62,7 +64,7 @@ export function executeRun(
     try {
       let outcome = await runTurn({
         plan: request.plan,
-        prompt: request.prompt,
+        prompt: promptWithImages(request.prompt, request.images ?? []),
         resume: request.resume,
         factory: dependencies.factory,
         onEvent: (event) => dependencies.onEvent(event),

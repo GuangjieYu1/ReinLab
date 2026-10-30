@@ -57,6 +57,8 @@ const pool = new pg.Pool({
 const database = new Database(pool);
 const kernelHome =
   config.REINLAB_KERNEL_HOME ?? path.join(homedir(), ".local/state/reinlab/kernel");
+// 参考图、地图快照、计划书 PDF 都存在档案自己的目录下。
+const exploreStorage = localExploreStorage(kernelHome);
 const kernelAuth = await ensureKernelAuth(
   config.REINLAB_KERNEL_SIGNING_KEY_FILE ??
     path.join(homedir(), ".config/reinlab/mcp/kernel.pem"),
@@ -72,6 +74,27 @@ const kernelDispatch = createKernelDispatch({
 });
 const kernel = new KernelService({
   db: database,
+  // 一轮最多带 4 张图：够说清感觉，也不至于把上下文撑爆。
+  loadRefImages: async ({ account, dossier, refIds }) => {
+    const rows = (
+      await database.withAccountSnapshot(account, (client) =>
+        client.query(
+          "select id,image_path,mime from explore_ref where account_id=$1 and dossier_id=$2 and id = any($3::uuid[]) and removed_at is null",
+          [account, dossier, refIds.slice(0, 4)],
+        ),
+      )
+    ).rows;
+    const images: { data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" }[] = [];
+    for (const row of rows) {
+      if (!row.image_path) continue;
+      const file = await exploreStorage.readRef({ dossier, path: String(row.image_path) });
+      if (!file) continue;
+      const mime = String(row.mime ?? file.mime);
+      if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mime)) continue;
+      images.push({ data: file.bytes.toString("base64"), mimeType: mime as "image/png" });
+    }
+    return images;
+  },
   auth: kernelAuth,
   factory: createHarnessFactory(),
   model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
@@ -133,7 +156,6 @@ configureGeoProviders({
   ...(config.ORS_BASE_URL ? { orsBaseUrl: config.ORS_BASE_URL } : {}),
 });
 
-const exploreStorage = localExploreStorage(kernelHome);
 const pdfFontFile = config.REINLAB_PDF_FONT_FILE;
 /** 助手要求生成计划书时用它点火：和页面按钮走同一套排版与存放。 */
 const bookEngine = (account: string, dossier: string, plan: import("./explore/book-job").BookPlan) => {

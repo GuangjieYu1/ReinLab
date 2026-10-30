@@ -266,6 +266,19 @@ export async function materializeLaunch(
       "  config:",
       "    personaPrefix: >-",
       ...PERSONA[plan.mode].map((line) => "      " + line),
+      // 探索台会随消息带参考图：把当前模型在目录里声明成「能收图」。
+      // DSH 的模型目录对没声明的模型默认按纯文本处理（会把图片换成一行占位符），
+      // 这里只声明这一个模型，不动别的模式。
+      ...(plan.mode === "explore"
+        ? [
+            "- id: llm-deepseek",
+            "  config:",
+            "    models:",
+            "      - id: " + JSON.stringify(plan.options.model),
+            "        name: " + JSON.stringify(plan.options.model),
+            "        inputModalities: [text, image]",
+          ]
+        : []),
       "- id: web",
       "  config:",
       "    searchProvider: deepseek-search-api",

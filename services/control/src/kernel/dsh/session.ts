@@ -10,9 +10,14 @@ export type TurnResult = {
   events: HarnessEvent[];
   finalResponse: string;
 };
+/** 一轮里可以带的内容：文字，或「文字 + 已编码图片」（SDK 原样发送）。 */
+export type PromptImage = { data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" };
+export type PromptBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: PromptImage["mimeType"] };
+export type PromptInput = string | PromptBlock[];
+
 export type HarnessSessionHandle = {
   run: (
-    text: string,
+    input: PromptInput,
     options: { onNotification?: (notification: HarnessNotification) => void },
   ) => Promise<TurnResult>;
 };
@@ -59,7 +64,7 @@ const failedReason = (reason: unknown): { code: string; detail?: string } | null
  */
 export async function runTurn(input: {
   plan: LaunchPlan;
-  prompt: string;
+  prompt: PromptInput;
   resume: boolean;
   factory: HarnessFactory;
   onEvent: (event: HarnessEvent) => void | Promise<void>;
@@ -113,4 +118,16 @@ export async function runTurn(input: {
   } finally {
     await harness.close().catch(() => {});
   }
+}
+
+/**
+ * 一轮的输入：先放用户这句话，再附上这次的参考图。
+ * 图片字节已经在控制面读好并编码，这里只负责排好顺序。
+ */
+export function promptWithImages(text: string, images: PromptImage[] = []): PromptInput {
+  if (!images.length) return text;
+  return [
+    { type: "text" as const, text },
+    ...images.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })),
+  ];
 }
