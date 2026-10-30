@@ -75,7 +75,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   useEffect(() => { if (stop?.window) setT(Math.round((dateToLocal(stop.window.start, day, tz) + dateToLocal(stop.window.end, day, tz)) / 2)); }, [sel]); // eslint-disable-line react-hooks/exhaustive-deps
   // 已确认停留点变了，天气也要按新位置重取
   // 目的地、日期、停留点（含候选）变了都重取：一开始没目的地时取到的是失败
-  const stopKey = `${plan?.destination?.name ?? ''}|${plan?.days.join() ?? ''}|${plan?.stops.map(s => s.id + s.state + s.day).join() ?? ''}`;
+  const stopKey = `${plan?.state}|${plan?.destination?.name ?? ''}|${plan?.days.join() ?? ''}|${plan?.stops.map(s => s.id + s.state + s.day).join() ?? ''}`;
   useEffect(() => { if (plan) void loadWeather(); }, [stopKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 天气 / 计划书 / 快照请求事件
