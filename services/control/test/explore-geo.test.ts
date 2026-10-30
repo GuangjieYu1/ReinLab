@@ -52,7 +52,7 @@ describe("地点搜索与步行路线", () => {
   it("没配服务就说缺哪一项，不偷偷换来源", async () => {
     configureGeoProviders({ amapKey: null, orsKey: null });
     await expect(searchPlaces({ q: "白川", timezone: "Asia/Shanghai" })).rejects.toThrowError(/AMAP_KEY/);
-    await expect(searchPlaces({ q: "Gion", timezone: "Asia/Tokyo" })).rejects.toThrowError(/ORS_KEY/);
+    await expect(searchPlaces({ q: "Gion", timezone: "Asia/Tokyo" })).rejects.toThrowError(/第一版不做/);
     const walk = await walkingRoute({ from: BEIJING, to: [116.4, 39.91], timezone: "Asia/Shanghai" });
     expect(walk.state).toBe("unavailable");
     expect(walk.state === "unavailable" && walk.reason).toContain("AMAP_KEY");
@@ -257,6 +257,22 @@ describe("页面接口：地点搜索与同批次重算路线", () => {
     expect((legs[0] as Record<string, unknown>).reason).toContain("超时");
   });
 
+  it("没有地点上下文时先要地点，不猜国内/海外", async () => {
+    configureGeoProviders({ amapKey: null, orsKey: null });
+    const response = await app.request(`/v1/explore/places?q=${encodeURIComponent("雷峰塔")}`, { headers: headers() });
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.code).toBe("PLACES_NEED_LOCATION");
+    expect(body.message).toContain("拍摄地点或地图中心");
+    // 带上国内坐标就按高德（这里没配 key，所以要的是"缺 AMAP_KEY"，不是"海外不做"）。
+    const withNear = await app.request(
+      `/v1/explore/places?q=${encodeURIComponent("雷峰塔")}&near=120.14,30.25`,
+      { headers: headers() },
+    );
+    const withNearBody = await withNear.json();
+    expect(withNearBody).toMatchObject({ provider: "amap", missing: ["AMAP_KEY"] });
+  });
+
   it("没配置地点服务时，搜索框照实说缺哪项（结构化给出缺的键，页面不用猜）", async () => {
     configureGeoProviders({ amapKey: null, orsKey: null });
     const response = await app.request(`/v1/explore/places?q=白川&provider=amap`, { headers: headers() });
@@ -265,8 +281,11 @@ describe("页面接口：地点搜索与同批次重算路线", () => {
     expect(body.code).toBe("PLACES_NOT_CONFIGURED");
     expect(body).toMatchObject({ provider: "amap", missing: ["AMAP_KEY"] });
     expect(body.message).toContain("高德");
+    // 海外 v1 不做（openrouteservice 本机连不上），回复要说清是"不做"而不是"没配"。
     const overseas = await app.request(`/v1/explore/places?q=Gion&provider=ors`, { headers: headers() });
-    expect(await overseas.json()).toMatchObject({ provider: "ors", missing: ["ORS_KEY"] });
+    const overseasBody = await overseas.json();
+    expect(overseasBody).toMatchObject({ provider: "ors", outOfScope: true });
+    expect(overseasBody.message).toContain("第一版不做");
   });
 
   it("配好之后返回真实来源的地点", async () => {
@@ -374,7 +393,7 @@ describe("页面接口：地点搜索与同批次重算路线", () => {
     expect(response.status).toBe(200);
     const after = await planOf();
     expect(after.plan.routes.every((leg: any) => leg.geometry === null)).toBe(true);
-    expect(after.plan.routes[0]?.reason ?? "").toContain("ORS_KEY");
+    expect(after.plan.routes[0]?.reason ?? "").toContain("第一版不做");
     expect(after.plan.conflicts).toEqual([]);
   });
 });

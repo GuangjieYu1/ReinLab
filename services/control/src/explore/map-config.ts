@@ -17,6 +17,10 @@ export type MapConfig = {
   publicKey: string | null;
   /** 还没配的项，页面据此说明底图为什么不可用。 */
   missing: string[];
+  /** 第一版实际提供的底图（用户 2026-10-31 定：卫星与等高线 v1 不做）。 */
+  basemaps: { vector: boolean; satellite: boolean; contours: boolean };
+  /** 属于「v1 不做」而不是「配置缺失」的底图：页面据此隐藏按钮，别写"未配置"。 */
+  outOfScope: string[];
 };
 
 const clean = (value: string | undefined): string | null => {
@@ -32,11 +36,16 @@ export function mapConfigFrom(source: MapConfigSource): MapConfig {
   const publicKey = clean(source.MAP_PUBLIC_KEY);
   const satelliteTilejson = clean(source.MAP_SATELLITE_TILEJSON);
   const contoursTilejson = clean(source.MAP_CONTOURS_TILEJSON);
+  // missing 只列「必需但没配」的项。v1 只做矢量底图 + 高德，
+  // 卫星/等高线属于范围外（见 outOfScope），公开 key 也不是必需，所以这里为空。
   const missing: string[] = [];
-  if (!satelliteTilejson) missing.push("MAP_SATELLITE_TILEJSON");
-  if (!contoursTilejson) missing.push("MAP_CONTOURS_TILEJSON");
-  if (!publicKey) missing.push("MAP_PUBLIC_KEY");
+  // 没配的卫星/等高线属于 v1 范围外（用户已定），不是待配置项。
+  const outOfScope: string[] = [];
+  if (!satelliteTilejson) outOfScope.push("satellite");
+  if (!contoursTilejson) outOfScope.push("contours");
   return {
+    basemaps: { vector: true, satellite: Boolean(satelliteTilejson), contours: Boolean(contoursTilejson) },
+    outOfScope,
     vector: {
       tilejson: clean(source.MAP_VECTOR_TILEJSON) ?? OPENFREEMAP_TILEJSON,
       glyphs: clean(source.MAP_VECTOR_GLYPHS) ?? OPENFREEMAP_GLYPHS,

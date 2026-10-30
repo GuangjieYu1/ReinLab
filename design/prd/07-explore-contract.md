@@ -160,7 +160,7 @@ type PlanUsage = {
 | `GET /v1/explore/plans/:dossierId/suggestions` | `{ items: WeatherSuggestion[] }` |
 | `GET /v1/explore/plans/:dossierId/usage` | `PlanUsage` |
 | `GET /v1/explore/places?q=&near=lng,lat` | `{ items: { name: string; address?: string; at: LngLat; source: Source }[] }`（页面搜索框用） |
-| `GET /v1/explore/map-config` | `{ vector: { tilejson: string; glyphs: string; attribution: string }; satellite: { tilejson: string; attribution: string } \| null; contours: { tilejson: string } \| null; publicKey: string \| null }`。`vector` 是 OpenMapTiles 结构的矢量瓦片源（OpenFreeMap），样式由前端按莱茵语言自己画；`glyphs` 是字体地址模板。地图公开 key 按 PRD 2.2 只给地图 |
+| `GET /v1/explore/map-config` | `{ vector: { tilejson: string; glyphs: string; attribution: string }; satellite: { tilejson: string; attribution: string } \| null; contours: { tilejson: string } \| null; publicKey: string \| null; basemaps: { vector: boolean; satellite: boolean; contours: boolean }; outOfScope: string[]; missing: string[] }`（**v1 决定（2026-10-31，用户）**：卫星与等高线不做，`basemaps` 说实际可用、`outOfScope` 说 v1 不做——页面据此隐藏按钮，不要显示成"未配置"；v1 下 `missing` 为 `[]`（没有必需却缺失的配置））。`vector` 是 OpenMapTiles 结构的矢量瓦片源（OpenFreeMap），样式由前端按莱茵语言自己画；`glyphs` 是字体地址模板。地图公开 key 按 PRD 2.2 只给地图 |
 | `GET /v1/profiles?type=model\|gear` | `{ items: Profile[] }` |
 | `GET /v1/account/settings` | `{ timezone: string \| null }` |
 

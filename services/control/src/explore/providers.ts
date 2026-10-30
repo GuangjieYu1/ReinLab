@@ -71,6 +71,14 @@ export async function searchPlaces(input: {
 }): Promise<PlaceHit[]> {
   const q = input.q.trim();
   if (!q) return [];
+  // 没有任何地点上下文时别猜来源：国内还是海外取决于目的地/地图中心。
+  // 否则一句「雷峰塔」会被说成"海外不做"，等于答错题。
+  if (!input.provider && !input.near && !input.timezone)
+    throw new ApiFailure(
+      "PLACES_NEED_LOCATION",
+      409,
+      "先确定拍摄地点或地图中心，才知道用国内还是海外的地点来源。",
+    );
   const kind = providerFor(input);
   const limit = Math.min(Math.max(input.limit ?? 8, 1), 20);
 
@@ -113,8 +121,9 @@ export async function searchPlaces(input: {
     throw new ApiFailure(
       "PLACES_NOT_CONFIGURED",
       503,
-      "海外地点搜索要配 openrouteservice key（ORS_KEY），现在没有配。",
-      { provider: "ors", missing: ["ORS_KEY"] },
+      // 用户 2026-10-31 定：openrouteservice 在本机不可达，海外地点/路线 v1 不做。
+      "海外地点/路线第一版不做（openrouteservice 在本机连不上）；国内用高德。",
+      { provider: "ors", missing: ["ORS_KEY"], outOfScope: true },
     );
   const params = new URLSearchParams({ api_key: current.orsKey, text: q, size: String(limit) });
   if (input.near) params.set("focus.point.lat", String(input.near[1])), params.set("focus.point.lon", String(input.near[0]));
@@ -216,8 +225,9 @@ export async function walkingRoute(input: {
   if (!current.orsKey)
     return {
       state: "unavailable",
-      reason: "没配 openrouteservice key（ORS_KEY），步行路线没取。",
-      source: { name: "openrouteservice（未配置）" },
+      // 海外路线 v1 不做（用户 2026-10-31 定）：本机连不上 openrouteservice。
+      reason: "海外步行路线第一版不做（openrouteservice 在本机连不上）；国内用高德。",
+      source: { name: "openrouteservice（v1 不做）" },
     };
   try {
     const response = await transportOf()(

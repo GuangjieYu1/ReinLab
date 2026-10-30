@@ -306,7 +306,13 @@ describe("探索台页面接口", () => {
     expect(empty.satellite).toBeNull();
     expect(empty.contours).toBeNull();
     expect(empty.vector.tilejson).toContain("openfreemap.org");
-    expect(empty.missing).toEqual(["MAP_SATELLITE_TILEJSON", "MAP_CONTOURS_TILEJSON", "MAP_PUBLIC_KEY"]);
+    // missing 只列「必需但没配」：v1 不需要卫星/等高线/公开 key，所以为空。
+    expect(empty.missing).toEqual([]);
+    // v1 范围决定：卫星/等高线不做，页面按 basemaps/outOfScope 隐藏按钮，不写成"未配置"。
+    expect(empty.basemaps).toEqual({ vector: true, satellite: false, contours: false });
+    expect(empty.outOfScope).toEqual(["satellite", "contours"]);
+    expect(configured.basemaps).toEqual({ vector: true, satellite: true, contours: true });
+    expect(configured.outOfScope).toEqual([]);
   });
 });
 
