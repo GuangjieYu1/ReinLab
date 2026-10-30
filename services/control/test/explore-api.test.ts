@@ -726,4 +726,36 @@ describe("停留点天气与太阳", () => {
     expect(body.result.byStop.length).toBeGreaterThan(0);
     expect(body.result.source.name).toBe("Open-Meteo");
   });
+
+  it("路线重算挂在触发它的停留点动作上，不挂在画布动作上", async () => {
+    const plan = await readPlan();
+    const created = await ops({
+      baseRevision: plan.plan.revision,
+      ops: [
+        {
+          op: "stop.add",
+          stop: {
+            kind: "spot",
+            name: "路线挂载点",
+            geometry: { type: "Point", coordinates: [135.7681, 35.0116] },
+            day: "2026-11-20",
+            state: "confirmed",
+          },
+        },
+        // 同一批里最后一条是画布动作：路线不能挂到它身上。
+        {
+          op: "canvas.add",
+          object: {
+            kind: "note",
+            geometry: { type: "Point", coordinates: [135.7681, 35.0116] },
+            text: "同一批里的备注",
+          },
+        },
+      ],
+    });
+    expect(created.status).toBe(200);
+    const body = await created.json();
+    const withRoutes = body.applied.filter((entry: any) => "routes" in (entry.result ?? {}));
+    expect(withRoutes.map((entry: any) => entry.op)).toEqual(["stop.add"]);
+  });
 });

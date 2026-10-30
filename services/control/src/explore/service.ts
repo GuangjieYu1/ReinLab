@@ -317,9 +317,13 @@ async function commitBatch(
     const legs = await walkLegs(confirmed, { timezone });
     batch.plan.document.routes = legs;
     batch.plan.document.conflicts = conflictsOf(confirmed, legs);
-    const last = batch.applied[batch.applied.length - 1];
-    if (last)
-      last.result = { ...last.result, routes: legs, conflicts: batch.plan.document.conflicts };
+    // 附带在真正引起重算的那条动作上（页面按它更新路线）。
+    // 一批里末尾可能是画布/视野动作，挂到那里会让页面以为画布改动了路线。
+    const carrier = [...batch.applied]
+      .reverse()
+      .find((entry) => entry.op.startsWith("stop.") || entry.op.startsWith("plan."));
+    if (carrier)
+      carrier.result = { ...carrier.result, routes: legs, conflicts: batch.plan.document.conflicts };
   }
 
   // 地形见光是服务端派生字段：这次动过的停留点重算一次，写回计划（不额外加修订）。
