@@ -10,13 +10,13 @@ export type SessionKey = {
 /** Register the dossier's kernel session the first time it is used. */
 export async function ensureSession(
   client: pg.PoolClient,
-  key: SessionKey & { homePath: string },
+  key: SessionKey & { homePath: string; mode?: string },
 ): Promise<void> {
   await client.query(
-    `insert into dsh_session(account_id,dossier_id,session_id,home_path)
-     values($1,$2,$3,$4)
+    `insert into dsh_session(account_id,dossier_id,session_id,home_path,mode)
+     values($1,$2,$3,$4,$5)
      on conflict (account_id,dossier_id,session_id) do update set updated_at=now()`,
-    [key.account, key.dossier, key.sessionId, key.homePath],
+    [key.account, key.dossier, key.sessionId, key.homePath, key.mode ?? "read"],
   );
 }
 

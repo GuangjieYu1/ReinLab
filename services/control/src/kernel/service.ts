@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ApiFailure } from "../api/errors";
 import { ensureAccountContainer } from "./container-lifecycle";
-import { withDossierContext } from "../dossier/deliver";
+import { splitInjected, withDossierContext } from "../dossier/deliver";
 import type { Database } from "../db/database";
 import type { KernelAuth } from "./auth";
 import { launchPlan, materializeLaunch, type LaunchIo } from "./dsh/launch";
@@ -96,12 +96,17 @@ export class KernelService {
         (typeof input.query === "string" && input.query.trim() !== ""
           ? input.query
           : "请开始这段精读。");
+      // 只复用同一档的会话：精读和档案助手的工具配置不同，串用会让助手拿到
+      // 精读的工具（模型改不了名，还以为自己在读论文）。
+      const wantedMode = options.mode === "assist" ? "assist" : "read";
       const existing = options.newSession
         ? undefined
         : (
             await client.query(
-              "select session_id from dsh_session where account_id=$1 and dossier_id=$2 order by created_at desc limit 1",
-              [account, dossierId],
+              `select session_id from dsh_session
+                where account_id=$1 and dossier_id=$2 and mode=$3
+                order by created_at desc limit 1`,
+              [account, dossierId, wantedMode],
             )
           ).rows[0];
       const sessionId = existing?.session_id ?? "ds-" + randomUUID();
@@ -109,6 +114,7 @@ export class KernelService {
         account,
         dossier: dossierId,
         sessionId,
+        mode: wantedMode,
         homePath: layout.home + "/dsh-home",
       });
       const leased = await leaseSession(client, { account, dossier: dossierId, sessionId, run: runId });
@@ -209,20 +215,23 @@ export class KernelService {
       {
         factory: this.dependencies.factory,
         onEvent: async (event) => {
-          await db.withAccount(account, (client) =>
-            client.query(
-              `insert into event(account_id,dossier_id,run_id,role_id,kind,action,payload,dedupe_key)
-               values($1,$2,$3,'research-read','dsh',$4,$5,$6)`,
-              [
-                account,
-                prepared.dossierId,
-                runId,
-                event.type,
-                JSON.stringify(event.data ?? {}),
-                `dsh:${runId}:${randomUUID()}`,
-              ],
-            ),
-          );
+          // 「档案变动：…」是系统替这一轮加的上下文：记录和显示上单独成一条，
+          // 不和用户自己说的话混在同一个气泡里。
+          for (const payload of splitInjected(event))
+            await db.withAccount(account, (client) =>
+              client.query(
+                `insert into event(account_id,dossier_id,run_id,role_id,kind,action,payload,dedupe_key)
+                 values($1,$2,$3,'research-read','dsh',$4,$5,$6)`,
+                [
+                  account,
+                  prepared.dossierId,
+                  runId,
+                  payload.type,
+                  JSON.stringify(payload.data ?? {}),
+                  `dsh:${runId}:${randomUUID()}`,
+                ],
+              ),
+            );
         },
         onSession: async (sessionId, resumed) => {
           if (resumed && sessionId === prepared.sessionId) return;

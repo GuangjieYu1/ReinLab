@@ -27,6 +27,8 @@ export async function withDossierContext(
     await client.query(
       `select seq, payload->>'text' text from event
         where account_id=$1 and dossier_id=$2 and kind='user_op' and seq > $3
+          and action in ('create','rename','edit_intent','complete','archive',
+                         'unarchive','delete','attach','detach')
         order by seq limit 50`,
       [input.account, input.dossier, cursor],
     )
@@ -42,4 +44,29 @@ export async function withDossierContext(
     .join("；");
   if (!facts) return input.prompt;
   return `${HEAD}${facts}。\n\n${input.prompt}`;
+}
+
+/**
+ * 把「档案变动：…」从这一轮的 user/message 里拆出来，单独成一条。
+ * 模型看到的仍是同一条 prompt（就是它自己发的这一轮），这里只影响记录与显示。
+ */
+export function splitInjected(event: { type: string; data?: unknown }): { type: string; data?: unknown }[] {
+  if (event.type !== "user/message") return [event];
+  const data = (event.data ?? {}) as Record<string, any>;
+  const content = Array.isArray(data.content) ? data.content : [];
+  const first = content[0];
+  const text = typeof first?.text === "string" ? first.text : "";
+  if (!text.startsWith(HEAD)) return [event];
+  const cut = text.indexOf("\n\n");
+  if (cut < 0) return [event];
+  const notes = text.slice(0, cut).trim();
+  const rest = text.slice(cut + 2);
+  const make = (body: string) => ({
+    type: "user/message",
+    data: { ...data, content: [{ ...first, text: body }] },
+  });
+  const out: { type: string; data?: unknown }[] = [];
+  if (notes) out.push(make(notes));
+  if (rest.trim()) out.push(make(rest));
+  return out.length ? out : [event];
 }

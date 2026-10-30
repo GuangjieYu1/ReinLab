@@ -84,7 +84,7 @@ export function registerKernelRuns(
         throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "档案不存在。");
       const rows = (
         await client.query(
-          `select id,state,created_at,ended_at from run
+          `select id,mode,state,created_at,ended_at from run
            where dossier_id=$1 and account_id=$2 and role_id<>'research-clarify'
            order by created_at desc limit 20`,
           [id, c.get("accountId")],
@@ -93,6 +93,7 @@ export function registerKernelRuns(
       return c.json({
         runs: rows.map((row) => ({
           id: row.id,
+          mode: row.mode,
           state: row.state,
           createdAt: row.created_at,
           endedAt: row.ended_at,
