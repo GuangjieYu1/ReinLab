@@ -245,6 +245,19 @@ describe("页面接口：地点搜索与同批次重算路线", () => {
     await admin.end();
   });
 
+  it("两点相隔几十公里：直接说步行不现实，不调服务也不编路线", async () => {
+    configureGeoProviders({ amapKey: "test-key", orsKey: null });
+    const stops = [
+      { id: "far1", kind: "spot", name: "海拉尔", geometry: { type: "Point", coordinates: [119.77, 49.21] }, day: "2026-11-26", state: "confirmed" },
+      { id: "far2", kind: "spot", name: "满洲里", geometry: { type: "Point", coordinates: [117.38, 49.6] }, day: "2026-11-26", state: "confirmed" },
+    ] as never;
+    const legs = walkLegs ? await walkLegs(stops, { timezone: "Asia/Shanghai" }) : [];
+    expect(legs).toHaveLength(1);
+    expect(legs[0].geometry).toBeNull();
+    expect(String((legs[0] as Record<string, unknown>).reason)).toContain("步行不现实");
+    expect(String((legs[0] as Record<string, unknown>).reason)).toContain("公里");
+  });
+
   it("取路线超预算：如实标「这次取路线超时」，不干等也不说成没有路", async () => {
     configureGeoProviders({ amapKey: "test-key", orsKey: null });
     const stops = [

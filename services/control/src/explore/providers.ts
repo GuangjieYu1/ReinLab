@@ -287,6 +287,22 @@ export async function walkLegs(
   for (let index = 0; index < ordered.length - 1; index += 1) {
     const from = ordered[index];
     const to = ordered[index + 1];
+    // 步行合理范围：直线超过 3 公里就不算步行路线，照实说明，别拿服务硬凑一条。
+    const straight = Math.round(haversineM(stopPoint(from), stopPoint(to)));
+    if (straight > WALKING_REALISTIC_M) {
+      legs.push({
+        from: from.id,
+        to: to.id,
+        geometry: null,
+        distanceM: null,
+        durationS: null,
+        source: { name: "未取" },
+        ...({
+          reason: `两点直线约 ${(straight / 1000).toFixed(1)} 公里，步行不现实（第一版只算步行）。`,
+        } as Record<string, unknown>),
+      } as RouteLeg);
+      continue;
+    }
     // 这一批的取数有总预算：路线和地形都在计划行被锁住时算，别让慢接口把页面卡死。
     if (options.deadline !== undefined && Date.now() > options.deadline) {
       legs.push({
@@ -329,6 +345,20 @@ export async function walkLegs(
     );
   }
   return legs;
+}
+
+/** 步行路线只在合理范围内取：超过这个直线距离就不当作步行安排。 */
+export const WALKING_REALISTIC_M = 3000;
+
+function haversineM(a: [number, number], b: [number, number]): number {
+  const R = 6_371_000;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b[1] - a[1]);
+  const dLng = toRad(b[0] - a[0]);
+  const lat1 = toRad(a[1]);
+  const lat2 = toRad(b[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
 /** 把时刻写成拍摄地点当地钟点（用时段自己的偏移，不受服务器时区影响）。 */

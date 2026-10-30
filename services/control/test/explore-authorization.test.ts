@@ -211,4 +211,68 @@ describe("确认整份计划的授权语义", () => {
     expect(body.pending?.ops?.length).toBeGreaterThan(0);
     expect((await planOf()).plan.state).toBe("draft");
   });
+
+  it("用户说「候选都留下」：等同整份确认，直接生效不出卡", async () => {
+    const fresh = randomUUID();
+    await admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path) values($1::uuid,$2,'exploration','都留下',$3)",
+      [fresh, A, "/data/dossiers/" + fresh],
+    );
+    const planOf = async () => (await app.request(`/v1/explore/plans/${fresh}`, { headers: headers() })).json();
+    const write = async (body: unknown) =>
+      app.request(`/v1/explore/plans/${fresh}/ops`, {
+        method: "POST",
+        headers: headers(randomUUID()),
+        body: JSON.stringify(body),
+      });
+    const seed = await planOf();
+    await write({
+      baseRevision: seed.plan.revision,
+      ops: [
+        {
+          op: "plan.set",
+          patch: {
+            destination: { name: "上海", center: [121.4905, 31.2415], timezone: "Asia/Shanghai" },
+            days: ["2026-11-28"],
+          },
+        },
+        {
+          op: "stop.add",
+          stop: {
+            kind: "spot",
+            name: "外滩",
+            geometry: { type: "Point", coordinates: [121.4905, 31.2415] },
+            day: "2026-11-28",
+            window: { start: "2026-11-28T06:00:00+08:00", end: "2026-11-28T07:00:00+08:00" },
+          },
+        },
+      ],
+    });
+    await admin.query(
+      `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+       values($1,$2,null,'dsh','user/message',$3,$4)`,
+      [
+        A,
+        fresh,
+        JSON.stringify({ id: `msg-${randomUUID()}`, content: [{ type: "text", text: "候选都留下吧。" }] }),
+        randomUUID(),
+      ],
+    );
+    const call = await app.request("/kernel/tool", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": auth.issue({ account: A, dossier: fresh, run }, Math.floor(Date.now() / 1000)),
+      },
+      body: JSON.stringify({
+        server: "explore",
+        tool: "ops",
+        args: { ops: [{ op: "stop.confirm", ids: [(await planOf()).plan.stops[0].id] }, { op: "plan.confirm" }] },
+      }),
+    });
+    expect(call.status, JSON.stringify(await call.clone().json())).toBe(200);
+    const after = await planOf();
+    expect(after.plan.state).toBe("ready");
+    expect(after.plan.stops.every((stop: any) => stop.state === "confirmed")).toBe(true);
+  });
 });

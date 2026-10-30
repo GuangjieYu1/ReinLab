@@ -287,7 +287,8 @@ export function apply(ctx, config) {
       defineTool({
         name: "explore_places",
         description:
-          "查真实地点（页面搜索框同一条路）：国内走高德、海外走 openrouteservice，返回名称、地址、坐标和来源。查不到或没配服务会照实说明，不要自己编地名或坐标。",
+          "查真实地点（页面搜索框同一条路）：国内走高德，返回名称、地址、坐标和来源。查不到或没配服务会照实说明，不要自己编地名或坐标。" +
+          "前提是知道在哪一带：先定目的地（plan.set 带 destination.timezone）或传 near；两样都没有会被拒（要求先定地点）。海外地点第一版不做。",
         parameters: {
           q: { type: "string", required: true, description: "地点名或关键词。" },
           near: { type: "array", items: { type: "number" }, description: "可选：附近 [经度, 纬度]，用来排序和挑服务商。" },
