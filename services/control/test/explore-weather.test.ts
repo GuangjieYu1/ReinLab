@@ -210,6 +210,35 @@ describe("天气判断通道", () => {
     ).rejects.toThrowError(/可解析/);
   });
 
+  it("发出去的内容写清 before/after 是同一点的新旧预报，并带参考阈值", async () => {
+    const { createWeatherJudge } = await import("../src/explore/weather-judge");
+    let sent = "";
+    const judge = createWeatherJudge({
+      baseUrl: "https://provider.example/anthropic",
+      apiKey: "test",
+      model: "deepseek-v4-flash",
+      transport: (async (request: Request) => {
+        sent = await request.text();
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              content: [{ type: "text", text: JSON.stringify({ material: false, summary: "没变化", changes: [] }) }],
+              usage: { input_tokens: 10, output_tokens: 5 },
+            }),
+        };
+      }) as never,
+    });
+    await judge({ timezone: "Asia/Tokyo", destination: "京都", revision: 1, stops: [] });
+    expect(sent).toContain("before 是上一次检查的预报");
+    expect(sent).toContain("after 是刚拿到的新预报");
+    expect(sent).toContain("thresholdHint");
+    expect(sent).toContain("60");
+    // 预算要够这个模型先想再答，否则 JSON 会被截断成「没影响」。
+    expect(JSON.parse(sent).max_tokens).toBeGreaterThanOrEqual(2000);
+  });
+
   it("正常 JSON 就按它给的结论走", async () => {
     const { createWeatherJudge } = await import("../src/explore/weather-judge");
     const judge = createWeatherJudge({
