@@ -34,6 +34,7 @@ import {
 import { consumeUserAuthorization, verifyUserAuthorization } from "./authorize";
 import { nextCheckAt } from "./schedule";
 import { conflictsOf, walkLegs } from "./providers";
+import { computeStopLight } from "./terrain";
 import { profileSnapshots as snapshotsFor } from "./profiles";
 import { listRefs } from "./refs";
 import {
@@ -319,6 +320,32 @@ async function commitBatch(
     const last = batch.applied[batch.applied.length - 1];
     if (last)
       last.result = { ...last.result, routes: legs, conflicts: batch.plan.document.conflicts };
+  }
+
+  // 地形见光是服务端派生字段：这次动过的停留点重算一次，写回计划（不额外加修订）。
+  const touchedStopIds = new Set(
+    batch.applied.flatMap((entry) => {
+      const result = (entry.result ?? {}) as Record<string, any>;
+      const ids: string[] = [];
+      if (result.stop?.id) ids.push(String(result.stop.id));
+      if (Array.isArray(result.stops)) for (const stop of result.stops) if (stop?.id) ids.push(String(stop.id));
+      return ids;
+    }),
+  );
+  const timezone = batch.plan.document.destination?.timezone;
+  if (batch.business && timezone && touchedStopIds.size) {
+    let computed = 0;
+    for (const stop of batch.plan.document.stops) {
+      if (!touchedStopIds.has(stop.id) || computed >= 8) continue;
+      computed += 1;
+      const result = await computeStopLight({
+        at: stopCenter(stop.geometry),
+        timezone,
+        day: stop.day,
+      });
+      // 取不到就保持原样（未知），不默认无遮挡。
+      if (result.light.horizon) stop.light = result.light;
+    }
   }
 
   if (batch.business) {

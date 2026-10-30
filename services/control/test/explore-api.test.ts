@@ -673,7 +673,7 @@ describe("停留点天气与太阳", () => {
     expect(missing.status).toBe(404);
   });
 
-  it("助手能算真实太阳时刻与方向，并明说地形见光还没接", async () => {
+  it("助手能算真实太阳时刻与方向，并说清地形见光是另一回事", async () => {
     const { status, body } = await tool("sun");
     expect(status).toBe(200);
     const item = body.result.items[0];
@@ -685,8 +685,10 @@ describe("停留点天气与太阳", () => {
     expect(withWindow.atWindow.start.azimuth).toBeGreaterThan(0);
     // 没定时段的停留点不给太阳方位，也不编。
     expect(body.result.items.some((entry: any) => entry.atWindow.start === null)).toBe(true);
+    // 地形见光是单独的字段：还没算就 null，并说明是从高程估的山影。
     expect(body.result.terrain.available).toBe(false);
-    expect(body.result.terrain.reason).toContain("高程");
+    expect(body.result.terrain.note).toContain("90 米");
+    expect(body.result.terrain.stops.every((entry: any) => entry.lit === null)).toBe(true);
   });
 
   it("助手读到的是同一份逐时天气", async () => {

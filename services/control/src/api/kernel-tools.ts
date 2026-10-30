@@ -9,6 +9,7 @@ import { applyOps, loadPlan, readPlan, stopCenter, weatherView, type OpsOutcome 
 import { createProfile, deleteProfile, listProfiles, updateProfile } from "../explore/profiles";
 import { addWebRef, fetchWebRef, listRefs, type ExploreStorage, type WeatherLikeTransport } from "../explore/refs";
 import { searchPlaces, stopPoint, walkingRoute } from "../explore/providers";
+import { computeStopLight } from "../explore/terrain";
 import { planUsage } from "../explore/usage";
 import { prepareBook, type BookPlan } from "../explore/book-job";
 import { userSaidClearly } from "../explore/authorize";
@@ -169,6 +170,7 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
     "ref_add",
     "places",
     "route",
+    "light",
   ],
   // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
   dossiers: [
@@ -805,6 +807,38 @@ async function exploreTool(
 ): Promise<{ status: number; body: Record<string, unknown>; publish?: ExploreSettlement }> {
   const args = input.args ?? {};
 
+  if (input.tool === "light") {
+    const { plan } = await loadPlan(client, input.account, input.dossier);
+    const timezone = plan.document.destination?.timezone;
+    if (!timezone)
+      throw new ApiFailure("DESTINATION_REQUIRED", 409, "先确定拍摄地点和时区，地形见光按当地日照算。");
+    const wanted = plan.document.stops.filter(
+      (stop) => (typeof args.stopId === "string" ? stop.id === args.stopId : true),
+    );
+    if (!wanted.length) throw new ApiFailure("STOP_NOT_FOUND", 404, "计划里没有这个停留点。");
+    const results: Record<string, unknown>[] = [];
+    for (const stop of wanted.slice(0, 4)) {
+      const computed = await computeStopLight({
+        at: stopCenter(stop.geometry),
+        timezone,
+        day: stop.day,
+      });
+      if (computed.light.horizon) stop.light = computed.light;
+      results.push({
+        stopId: stop.id,
+        name: stop.name,
+        day: stop.day,
+        light: computed.light,
+        ...(computed.reason ? { reason: computed.reason } : {}),
+      });
+    }
+    if (results.some((entry) => entry.light && (entry.light as any).horizon))
+      await client.query(
+        "update explore_plan set document=$3::jsonb where account_id=$1 and dossier_id=$2",
+        [input.account, input.dossier, JSON.stringify(plan.document)],
+      );
+    return { status: 200, body: { result: { timezone, items: results } } };
+  }
   if (input.tool === "places") {
     const current = await readPlan(client, input.account, input.dossier);
     const timezone = current.plan.destination?.timezone ?? null;
@@ -1076,11 +1110,19 @@ async function exploreTool(
             sun: sunDay(target.at, target.day, destination.timezone),
             atWindow: sunAtWindow(target.at, target.window, destination.timezone),
           })),
-          // 地形见光要高程数据（OpenTopography 的 key 还没配）：只给天文时段，不当成见光时段。
-          terrain: {
-            available: false,
-            reason: "地形见光是另一回事：本机还没配高程数据（OpenTopography），所以这里只有太阳的时刻和方向。",
-          },
+          // 地形见光是另一回事：有就算给你，没有就如实说「未知」。
+          terrain: wanted.length
+            ? {
+                available: wanted.some((stop) => Boolean(stop.light?.lit)),
+                stops: wanted.map((stop) => ({
+                  stopId: stop.id,
+                  name: stop.name,
+                  lit: stop.light?.lit ?? null,
+                  basis: stop.light?.basis ?? null,
+                })),
+                note: "见光时段是从周围真实高程估的山影，约 90 米地表模型：建筑和树木分不出来；没有数据就是未知。",
+              }
+            : { available: false, note: "还没有停留点，没有地形可算。" },
         },
       },
     };

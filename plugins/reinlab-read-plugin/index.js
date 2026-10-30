@@ -248,6 +248,19 @@ export function apply(ctx, config) {
 
     register(
       defineTool({
+        name: "explore_light",
+        description:
+          "算某个停留点的山体遮挡：取周围真实高程（Copernicus GLO-90，约 90 米）估地平线曲线和「山后见光」时段，并写回这份计划（页面与计划书直接读）。取不到高程就返回未知和原因——别默认没遮挡，也别把天文日出当成能拍到光。不传 stopId 就依次算前几个停留点。",
+        parameters: { stopId: { type: "string", description: "只算这个停留点。" } },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "light", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
         name: "explore_places",
         description:
           "查真实地点（页面搜索框同一条路）：国内走高德、海外走 openrouteservice，返回名称、地址、坐标和来源。查不到或没配服务会照实说明，不要自己编地名或坐标。",
@@ -400,7 +413,7 @@ export function apply(ctx, config) {
       defineTool({
         name: "explore_sun",
         description:
-          "算真实太阳时刻与方向：日出日落、正午、金色时刻（太阳高度 −4°～6°）、蓝调（−6°～−4°），以及停留点拍摄时段两端的太阳方位（真北 0° 顺时针）和高度角。方位与时刻都按停留点的位置和拍摄地点时区。注意这只是天文时段，不等于地形见光（山影要高程数据，本机还没接）。",
+          "算真实太阳时刻与方向：日出日落、正午、金色时刻（太阳高度 −4°～6°）、蓝调（−6°～−4°），停留点拍摄时段两端的太阳方位（真北 0° 顺时针）与高度角；有地形数据时连同每个点的山后见光时段一起给。方位和时刻按停留点位置与拍摄地点时区。",
         parameters: {
           stopId: { type: "string", description: "只算某个停留点；不传就算全部停留点（没有停留点时按目的地算）。" },
         },
