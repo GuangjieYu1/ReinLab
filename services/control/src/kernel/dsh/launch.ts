@@ -122,6 +122,14 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
   };
   const inContainer = input.container;
   // 容器内 run 目录：账户根被挂到 container.home，runs 相对位置不变。
+  // assist 是「只带档案工具的最小会话」：用禁用基础开发工具的补丁；
+  // 研究台仍按当前 transport 的补丁（容器模式基础工具全开）。
+  const basePatch =
+    input.mode === "assist"
+      ? input.bundler.restrictPatch
+      : inContainer
+        ? inContainer.restrictPatch
+        : input.bundler.restrictPatch;
   const containerPaths: LaunchPaths | undefined = inContainer
     ? {
         runDir: `${inContainer.home}/runs/${run}`,
@@ -139,7 +147,7 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
     cwd: inContainer
       ? `${inContainer.workspace}/${dossier}`
       : `${home}/accounts/${account}/dossiers/${dossier}`,
-    patches: [inContainer ? inContainer.restrictPatch : input.bundler.restrictPatch, (containerPaths ?? paths).patchFile],
+    patches: [basePatch, (containerPaths ?? paths).patchFile],
     provider: "deepseek-official",
     model,
     maxTokens: input.maxTokens,

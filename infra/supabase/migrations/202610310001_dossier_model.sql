@@ -11,6 +11,11 @@ alter table dossier
   add column if not exists last_activity_at timestamptz not null default now(),
   add column if not exists progress text;
 
+alter table dossier drop constraint if exists dossier_kind_check;
+alter table dossier drop constraint if exists dossier_name_source_check;
+alter table dossier drop constraint if exists dossier_lifecycle_check;
+alter table dossier drop constraint if exists dossier_deletion_check;
+
 alter table dossier
   add constraint dossier_kind_check check (kind in ('reading','topic','workspace','learning')),
   add constraint dossier_name_source_check check (name_source in ('user','paper','intent','placeholder')),
