@@ -1164,12 +1164,17 @@ async function exploreTool(
       },
     };
   }
-  const authorization =
-    typeof args.authorization === "string"
-      ? { messageId: args.authorization }
-      : args.authorization && typeof args.authorization === "object"
-        ? args.authorization
-        : undefined;
+  // 授权引用只认真正的消息 id。模型常把「用户原话」整段塞进来——那不是 id，
+  // 当成没给，让服务端按这一轮的真实用户消息自己去核对。
+  const uuidLike = (value: unknown): value is string =>
+    typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  const authorization = uuidLike(args.authorization)
+    ? { messageId: args.authorization }
+    : args.authorization &&
+        typeof args.authorization === "object" &&
+        uuidLike((args.authorization as { messageId?: unknown }).messageId)
+      ? { messageId: (args.authorization as { messageId: string }).messageId }
+      : undefined;
   const parsed = OpsBody.safeParse({
     ...(typeof args.baseRevision === "number" ? { baseRevision: args.baseRevision } : {}),
     ops: input.tool === "undo" ? [{ op: "canvas.undo" }] : Array.isArray(args.ops) ? args.ops : [],

@@ -318,6 +318,35 @@ describe("探索台 Agent 工具", () => {
     expect(body.result.stopIds).toHaveLength(1);
   });
 
+  it("模型把「用户原话」当授权塞进来时不算授权：回落到这一轮真实消息去核对", async () => {
+    const plan = await readPlan();
+    const candidate = plan.plan.stops.find((stop: any) => stop.state === "candidate");
+    if (!candidate) return; // 这个文件里没有候选点时跳过（不影响其它用例）
+    // 这句用户消息确实点名要求留下这个候选点。
+    await admin.query(
+      `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+       values($1,$2,$3,'dsh','user/message',$4,$5)`,
+      [
+        A,
+        dossierA,
+        runId,
+        JSON.stringify({
+          id: "msg-prose-auth",
+          content: [{ type: "text", text: `把${candidate.name}留下，就这个点。` }],
+        }),
+        "test-msg-prose-auth",
+      ],
+    );
+    const response = await tool("ops", {
+      ops: [{ op: "stop.confirm", ids: [candidate.id] }],
+      // 模型常见的写法：把原话贴进来当「授权」
+      authorization: `user said: 把${candidate.name}留下，就这个点。`,
+    });
+    expect(response.status).toBe(200);
+    const confirmed = (await readPlan()).plan.stops.find((stop: any) => stop.id === candidate.id);
+    expect(confirmed.state).toBe("confirmed");
+  });
+
   it("助手要删已确认停留点、用户没说 → 出一张计划修改卡，计划不动", async () => {
     const before = await readPlan();
     const stopId = before.plan.stops[0].id;
