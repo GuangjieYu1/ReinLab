@@ -223,7 +223,7 @@ function Start({ run, adapter, pending, onNew }: { run: RunView; adapter: ReadAd
         <h2>开始读</h2>
         <p><i className="rd-pulse" aria-hidden="true" /><span><b>{run.step ?? RUN_TEXT[run.state]}</b><small>《{c?.title ?? run.query}》· 预算 ¥{run.budgetCny} · 已花 {money(run.spentCny)}</small></span></p>
         {pending.map(a => <div key={a.id} className="rd-start-ap"><b>等你批准：{a.title}</b><ul>{a.effects.map(x => <li key={x}>{x}</li>)}</ul>
-          <div><button className="rh-btn" onClick={() => void adapter.decide(a.id, false)}>不下载</button><button className="rd-go" onClick={() => void adapter.decide(a.id, true)}>批准</button></div></div>)}
+          <div><button className="rh-btn" onClick={() => void adapter.decide(a.id, false)}>{a.action === 'papers.fetch' ? '不下载' : '不入档'}</button><button className="rd-go" onClick={() => void adapter.decide(a.id, true)}>批准</button></div></div>)}
         <button className="rh-btn" onClick={() => void adapter.cancel()}>停止</button>
       </div>}
       {(run.state === 'done' || run.state === 'cancelled' || run.state === 'failed') && <div className="rd-start-run">

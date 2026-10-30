@@ -107,6 +107,8 @@ export function createLiveReadAdapter(
     fetchCardShown = false,
     permissionCardShown = false,
     shownPermissionId: string | undefined = undefined,
+    // 当前这张审批卡的样子：落定 / 过期时沿用，不把「登记」卡改写成「下载」卡。
+    shownCard = { action: "papers.fetch", title: "下载论文全文", stopped: "已停止 · 没有下载" },
     timer: ReturnType<typeof setInterval> | undefined,
     endReason: RunView["endReason"],
     failureMessage: string | undefined;
@@ -169,6 +171,12 @@ export function createLiveReadAdapter(
   };
 
   const emit = (event: ReadEvent) => {
+    // 同一条档案变动会来两次（操作记录一条、下一轮投递给模型的一条）：只显示一行。
+    if (
+      event.type === "note" &&
+      snapshot.history.some((entry) => entry.type === "note" && entry.text === event.text)
+    )
+      return;
     // 同一个动作同时来两条「待批准」（工具调用一条、轮询一条）时只留一条：
     // 界面上就是一张卡，不会出现两个「批准」按钮。
     if (
@@ -293,6 +301,7 @@ export function createLiveReadAdapter(
           permissionCardShown = true;
           shownPermissionId = callId;
           expired = false;
+          shownCard = { action: "papers.fetch", title: "下载论文全文", stopped: "已停止 · 没有下载" };
           emit({
             type: "approval",
             id: callId,
@@ -369,15 +378,15 @@ export function createLiveReadAdapter(
           emit({
             type: "approval",
             id: decidedId,
-            action: "papers.fetch",
-            title: "下载论文全文",
+            action: shownCard.action,
+            title: shownCard.title,
             effects: [],
             risk: "write",
             state: decision === "approve" ? "approved" : "rejected",
           });
           if (decision === "reject") {
             rejected = true;
-            patchRun({ endReason: "rejected", message: "已停止 · 没有下载" });
+            patchRun({ endReason: "rejected", message: shownCard.stopped });
           }
         }
         return;
@@ -393,8 +402,8 @@ export function createLiveReadAdapter(
         emit({
           type: "approval",
           id: expiredId,
-          action: "papers.fetch",
-          title: "下载论文全文",
+          action: shownCard.action,
+          title: shownCard.title,
           effects: [],
           risk: "write",
           state: "expired",
@@ -580,23 +589,31 @@ export function createLiveReadAdapter(
       localPhase = undefined;
       patchRun({ state: "running" });
       const effectsOf = (card as any).effects;
-      // 后端给的是数组；按能力名认卡，不再依赖某一版标题文案。
+      // 收件箱接口给的是说人话的几行（不再带能力名）：有就照用，不套「下载」的文案。
+      const told =
+        Array.isArray(effectsOf) && effectsOf.length > 0 && effectsOf.every((x: unknown) => typeof x === "string")
+          ? (effectsOf as string[])
+          : undefined;
       const capability = Array.isArray(effectsOf)
         ? effectsOf[0]?.capability
         : effectsOf?.capability;
-      const effects =
-        capability === "papers.fetch" || !capability
+      const effects = told ??
+        (capability === "papers.fetch" || !capability
           ? [
               "只读你选定的这一篇：下载全文并写入当前档案",
               "只写 papers/ 下的这一个文件，可以撤销",
               "不批准就停下，不会读、也不会编造内容",
             ]
-          : [`操作：${String(capability)}`, "只处理这一次请求；参数变化后需要重新批准"];
+          : [`操作：${String(capability)}`, "只处理这一次请求；参数变化后需要重新批准"]);
+      const download = told ? told.some((x) => x.includes("下载")) : capability !== "papers.register";
+      shownCard = download
+        ? { action: "papers.fetch", title: String(card.title ?? "下载论文全文"), stopped: "已停止 · 没有下载" }
+        : { action: String(capability ?? "入档"), title: String(card.title ?? "等你批准"), stopped: "已停止 · 没有入档" };
       emit({
         type: "approval",
         id: card.id,
-        action: "papers.fetch",
-        title: String(card.title ?? "等你批准"),
+        action: shownCard.action,
+        title: shownCard.title,
         effects,
         risk: card.risk === "danger" ? "danger" : card.risk === "read" ? "read" : "write",
         state: "pending",
@@ -639,7 +656,7 @@ export function createLiveReadAdapter(
       unknownCost: !known,
       ...(state === "done"
         ? rejected
-          ? { endReason: "rejected" as const, message: "已停止 · 没有下载" }
+          ? { endReason: "rejected" as const, message: shownCard.stopped }
           : expired
           ? { endReason: endReason ?? ("completed" as const), message: "审批已过期，可以重新开始" }
           : {
@@ -812,7 +829,10 @@ export function createLiveReadAdapter(
           apply(event);
           if (snapshot.history.length === before) {
             const history = toHistory(event);
-            if (history) snapshot.history.push(history);
+            const repeated =
+              history?.type === "note" &&
+              snapshot.history.some((entry) => entry.type === "note" && entry.text === history.text);
+            if (history && !repeated) snapshot.history.push(history);
           }
         }
         const status = (await ports.api(`/v1/kernel/runs/${runId}`)) as {
@@ -982,7 +1002,7 @@ export function createLiveReadAdapter(
           // 已经不在待办里：按当前结果收尾，不重复提交
           if (!approve) {
             rejected = true;
-            patchRun({ endReason: "rejected", message: "已停止 · 没有下载" });
+            patchRun({ endReason: "rejected", message: shownCard.stopped });
           }
           return;
         }
@@ -995,7 +1015,7 @@ export function createLiveReadAdapter(
       });
       if (!approve) {
         rejected = true;
-        patchRun({ endReason: "rejected", message: "已停止 · 没有下载" });
+        patchRun({ endReason: "rejected", message: shownCard.stopped });
       }
     },
     async pick(pickId, candidateId) {
@@ -1035,8 +1055,9 @@ export function createLiveReadAdapter(
         text: `好，读《${candidate?.title ?? ""}》。可以按这篇的长度预估费用了。`,
       });
     },
-    async ask() {
-      throw Error("追问未接入。");
+    async ask(text) {
+      // 追问：在同一份档案的会话里接着起一轮，讲解和论文都留在页面上。
+      await startRun(text);
     },
     async grade() {
       throw Error("评分未接入。");
