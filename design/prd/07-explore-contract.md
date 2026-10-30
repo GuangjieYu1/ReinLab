@@ -53,8 +53,8 @@ type Stop = {
   name: string;
   geometry: GeoJSON.Point | GeoJSON.Polygon;      // area 用 Polygon；spot / waypoint 用 Point
   entry?: LngLat; exit?: LngLat;                  // area 可选
-  day: string;                                    // 当地日期
-  window: { start: string; end: string } | null;  // 计划拍摄时段（带偏移）；未定为 null
+  day: string;                                    // 开拍那一刻的当地日期（跨午夜也取开拍日）
+  window: { start: string; end: string } | null;  // 完整起止时间（带偏移，可以跨午夜）；未定为 null
   reason?: string;                                // 候选理由（一句话）
   facing?: number;                                // 拍摄朝向，真北 0° 顺时针
   focal?: number[];                               // 推荐焦段（只在用户已有器材内）
@@ -115,10 +115,16 @@ type FeelCard = {
 };
 
 // ── 天气 ──────────────────────────────────────────
+// 单位固定，页面和模型一致：云量 %、降水概率 %、降水量 mm/h、风速与阵风 m/s、温度 °C
 type WeatherHour = { at: string; cloud: number | null; precipProb: number | null; precipMm: number | null; wind: number | null; gust: number | null; temp: number | null };
+type StopWeather = {
+  stopId: string; at: LngLat;                     // 取预报用的位置（area 取中心，写明）
+  hours: WeatherHour[];                           // 覆盖该停留点完整时段（跨午夜不截断），前后各多给 2 小时
+};
 type WeatherView = {
   state: 'ok' | 'out_of_range' | 'failed';        // out_of_range = 日期还不在预报范围内
-  hours: WeatherHour[];                           // 按停留点所在位置 / 当地时间
+  byStop: StopWeather[];                          // 按停留点分组；同一天不同地点各自一组
+  destination: { at: LngLat; hours: WeatherHour[] } | null;   // 还没有停留点时，按目的地给全天
   fetchedAt: string | null; source: Source;
   nextCheckAt: string | null;                     // 下一次后台检查（账户时区 08/16/23）
 };
@@ -150,7 +156,7 @@ type PlanUsage = {
 | 路由 | 返回 |
 |---|---|
 | `GET /v1/explore/plans/:dossierId` | `{ plan: ExplorePlan, canvas: CanvasObject[], refs: RefImage[], lastViewport: Viewport \| null, basemap: Basemap }` |
-| `GET /v1/explore/plans/:dossierId/weather?day=` | `WeatherView` |
+| `GET /v1/explore/plans/:dossierId/weather?stopId=` | `WeatherView`；不带 `stopId` 返回全部已确认停留点 |
 | `GET /v1/explore/plans/:dossierId/suggestions` | `{ items: WeatherSuggestion[] }` |
 | `GET /v1/explore/plans/:dossierId/usage` | `PlanUsage` |
 | `GET /v1/explore/places?q=&near=lng,lat` | `{ items: { name: string; address?: string; at: LngLat; source: Source }[] }`（页面搜索框用） |
@@ -158,7 +164,12 @@ type PlanUsage = {
 | `GET /v1/profiles?type=model\|gear` | `{ items: Profile[] }` |
 | `GET /v1/account/settings` | `{ timezone: string \| null }` |
 
-太阳位置和金色 / 蓝调时段由**前端用 SunCalc 现算**（拖时间线要流畅，不能每帧请求）；服务端只给它算不了的部分：`StopLight` 里的地平线曲线和见光时段。两边用同一套约定：方位为真北 0° 顺时针；金色时刻为太阳高度 −4°～6°，蓝调为 −6°～−4°。
+太阳：**前端用 SunCalc 现算，负责页面上的即时展示**（拖时间线要流畅，不能每帧请求）；**服务端也用 SunCalc 算一份**，给 Agent 工具、后台天气判断和 PDF 用。两边同一个库、同一套约定，结果应一致：
+
+- 方位：真北 0°，顺时针，单位度；高度角单位度。
+- 时刻：按停留点的经纬度和拍摄地点 IANA 时区；输出带偏移的 ISO 时间。
+- 金色时刻：太阳高度 −4°～6°；蓝调：−6°～−4°；日出 / 日落按 SunCalc 默认（上缘接触地平线）。
+- 地形：服务端另给 `StopLight`（地平线曲线、见光时段）。前端判断某时刻是否见光：太阳高度 > 该方位地平线仰角。
 
 ## 3. 写接口：页面和 Agent 用同一组动作
 
@@ -166,9 +177,20 @@ type PlanUsage = {
 
 ```
 POST /v1/explore/plans/:dossierId/ops
-{ baseRevision: number, ops: Op[] }
-→ 200 { revision, applied: AppliedOp[] }          // AppliedOp = Op + { opId, actor, summary }
-→ 409 { code: 'REVISION_CONFLICT', current: ExplorePlan }   // 页面拿最新状态重放用户意图或提示
+{ baseRevision: number, ops: Op[], authorization?: { messageId: string } }   // authorization 只有 Agent 会带
+→ 200 { revision, applied: AppliedOp[], pending: PendingChange | null }
+→ 409 { code: 'REVISION_CONFLICT', revision }
+```
+
+```ts
+type AppliedOp = Op & { opId: string; actor: 'agent' | 'user'; summary: string };   // summary 是右侧操作记录那一行
+type PendingChange = {                       // 需要用户批准、尚未生效的修改
+  approvalId: string;                        // 复用地基第 2 项的审批（收件箱、对话里同一张卡）
+  ops: Op[];                                 // 批准后会执行的修改
+  summary: string;
+  changes: { stopId: string; before: Partial<Stop> | null; after: Partial<Stop> | null }[];   // 前后对照
+  forRevision: number;
+};
 ```
 
 ```ts
@@ -188,14 +210,34 @@ type Op =
   | { op: 'canvas.add'; object: Omit<CanvasObject, 'id' | 'author' | 'createdAt'> }
   | { op: 'canvas.update'; id: string; patch: Partial<CanvasObject> }
   | { op: 'canvas.remove'; id: string }
-  | { op: 'canvas.undo' }                                     // 撤回本人最近一次画布改动，服务端生成反向动作
+  | { op: 'canvas.undo' }                                     // 撤回最近一笔画布改动（规则见下），服务端生成反向动作
   // 视野（只记最后视野，不进 revision）
   | { op: 'view.save'; viewport: Viewport; basemap: Basemap };
 ```
 
-- 页面点击就是授权：用户在页面上点"留下 / 不要 / 确认整份 / 删除"，直接执行，不再弹审批（PRD 7）。
-- Agent 自己要把候选改成已确认、改动已确认停留点的地点 / 日期 / 时段，或删除已确认停留点时，服务端不直接执行，而是生成一张**计划修改卡**（复用地基第 2 项的审批），内容为具体前后对照。用户在对话里批准一次即生效；如果用户刚才明确说了"就这么改"，Agent 带上这句话的消息 id 作为授权，直接执行，不再出卡。是否算"明确要求"由服务端按授权记录判断，不由前端判断。
-- 路线由服务端在已确认停留点变化后重算，结果写进 `plan.routes`，页面不自己连线。
+**批量与修订**
+
+- 一次请求里的 ops 是**一个原子批次**：要么全部生效，要么全部不生效。全部生效时修订号 **+1**（一批只加一次），推一条 `explore.op`。
+- 批次里只要有一项需要用户批准，**整批都不执行**，返回 `applied: []` 和一个 `pending`，修订号不变。批准后服务端在当时的最新修订上执行；如果目标已经变了（比如那个停留点已被删除），审批卡显示"已不适用"，不执行。待批的修改**绝不**出现在 `applied` 里，也不推 `explore.op`。
+- `view.save` 只记最后视野，不加修订、不推事件。
+- 页面收到 `explore.op`：`revision === 本地修订 + 1` 就按顺序应用 `applied`；否则重取 `GET /plans/:id`。
+- **409**：页面先重取最新状态，再看用户刚才的操作是否还成立（比如要"留下"的候选还在、还是候选）。成立就带新的 `baseRevision` 重发一次；不成立就提示"计划刚被改过"，不自动覆盖。
+
+**授权（服务端判断，前端只显示结果）**
+
+- 页面发来的 op（会话是用户本人）：点击即授权，直接执行，`pending` 永远为空。
+- Agent 发来的 op：普通编辑（候选、草图、补充构图和引导词等）直接执行。会改变已确认内容的（候选 → 已确认、改已确认停留点的地点 / 日期 / 时段、删除已确认停留点、改计划状态）需要授权：
+  - 带了 `authorization.messageId`：服务端从同账户、同档案的真实用户消息或已批准的审批里取出这条授权，核对它**指向的目标、操作和修改范围**与本批次一致，一致才直接执行；只核对"消息存在、是用户说的"不算。
+  - 没带或对不上：返回 `pending`，出一张计划修改卡。
+- 服务端维护的字段（`id`、`source`、`revision`、`state`）不能通过 `stop.update` 的 `patch` 改写；状态只能经 `stop.confirm` / `plan.confirm` 等动作改变。`stop.add` 里带 `state: 'confirmed'` 同样按上面的授权规则判断。
+
+**路线**：已确认停留点变化后，服务端在同一批次里重算步行路线并写进 `plan.routes`，页面不自己连线。
+
+**撤回**
+
+- 用户的 `canvas.undo`：撤回最近一笔画布改动，**不论是谁画的**（包括 Agent 的涂鸦）。
+- Agent 的 `canvas.undo`：只撤回 Agent 自己的画布改动。
+- 撤回只影响画布对象，不连带撤销停留点和路线；服务端把实际执行的反向动作记成一条 `AppliedOp`（summary 如"撤回：圈出白川附近街区"）。
 
 其他写接口：
 
@@ -206,7 +248,8 @@ type Op =
 | `POST /v1/profiles` / `PATCH /v1/profiles/:id` / `DELETE /v1/profiles/:id` | 模特、器材增改删（`PATCH` 带 `baseRevision`） |
 | `PUT /v1/account/settings` `{ timezone }` | 账户时区 |
 | `POST /v1/approvals/:id/decide`（已有） | 天气调整"应用"= approve，"不用"= reject |
-| `POST /v1/explore/plans/:dossierId/books`（multipart：`variant: 'brief' \| 'full'`、`revision`、`maps[]` 地图快照 PNG） | 生成 PDF → `202 { jobId }`；完成后作为档案成果出现，并推 `explore.book` |
+| `POST /v1/explore/plans/:dossierId/snapshots`（multipart：`file` PNG + `key: 'overview' \| <stopId>` + `revision` + `basemap: 'vector'` + `attribution`） | 上传地图快照，按（修订, key）保存；同一修订同一 key 重传则覆盖 |
+| `POST /v1/explore/plans/:dossierId/books` `{ variant: 'brief' \| 'full', revision }` | 生成 PDF → `202 { jobId }`；完成后作为档案成果出现，并推 `explore.book`。缺本修订所需快照 → `409 { code: 'NEEDS_MAP_SNAPSHOTS', keys }` |
 
 ## 4. 事件（沿用 `/v1/stream`）
 
@@ -216,6 +259,7 @@ type Op =
 | `explore.camera` | `{ dossierId, runId, viewport, basemap? }` | Agent 移动视野。**跟随**时用 ≥600 ms 的平滑动画飞过去；用户手动拖过地图就进入**不跟随**，地图角落出现"跟随助手"按钮，点了再回到跟随。这个事件不存档，刷新后不重放 |
 | `explore.weather` | `{ dossierId, checkedAt, state, suggestionId? }` | 刷新天气条；有建议就在计划上挂提示 |
 | `explore.book` | `{ dossierId, jobId, state: 'done' \| 'failed', artifactId?, message? }` | 计划书按钮从"生成中"变成"打开"，或照实显示失败原因 |
+| `explore.snapshots_needed` | `{ dossierId, revision, keys: string[] }` | 页面开着且停在这份档案：在后台用矢量底图逐个导出 `keys` 对应的快照并上传（不打断用户当前视野，用离屏地图），传完服务端继续生成 |
 | `dossier.changed`（已有） | | 头部名字、成果数刷新 |
 
 Agent 的操作要**逐条实时**推送，不能等这一轮回答结束再一次性出现（PRD 4.3）。服务端每执行一个工具动作就推一条 `explore.op` 或 `explore.camera`。
@@ -243,8 +287,10 @@ Agent 的操作要**逐条实时**推送，不能等这一轮回答结束再一�
 
 - **网页**：就在计划面的"计划书"视图里（现有 `view: 'doc'`），分"精简 / 详细"两个标签，手机宽度下单栏。页面上的"打印"按钮直接调用浏览器打印（打印样式为 A4）。
 - **PDF**：由 DSH 自己生成（用户决定，不走 Playwright 渲染网页）。前端不参与排版，只做两件事：
-  1. 点"生成 PDF"时，页面用当前地图（矢量底图，不用卫星）导出地图快照 PNG：精简版一张全程路线图；详细版加上每个停留点一张局部图。随请求上传（第 3 节 `books`）。
+  1. 提供地图快照（矢量底图，不用卫星）：`overview` 一张全程路线图（两版都用），详细版另加每个已确认停留点一张局部图（key 为 stopId）。每张都标明修订号、底图和地图来源署名。
   2. 等 `explore.book` 事件，完成后显示"打开"。
+- **用户在页面上点"生成 PDF"**：页面先导出并上传本修订缺少的快照，再调 `books`。
+- **Agent 发起生成**（用户在对话里说"出一份计划书"）：服务端先查本修订的快照是否齐全。齐全就直接生成；不齐全就推 `explore.snapshots_needed`，打开着的页面补传后继续。页面没开，工具如实返回"需要打开这份计划的页面补齐地图"，Agent 照实告诉用户，**不假称已生成**。不为此新建浏览器自动化。
 - 生成好的 PDF 作为档案成果（`kind: 'file'`），标题写明"精简 / 详细 · 第 N 版"。计划后来改了，旧 PDF 不动。
 
 ### 7.1 PDF 格式规范（交给 DSH）
@@ -272,17 +318,17 @@ Agent 的操作要**逐条实时**推送，不能等这一轮回答结束再一�
 
 计划面"···"菜单里的"本计划用量"：按用途列调用数和输入 / 输出 token，按模型分项，Search/Fetch 单独列次数。未知的写"未知 n 次"，不记 0（PRD 10）。
 
-## 9. Claude 对 PRD 的几点意见（argue）
+## 9. 和 PRD 对齐的结果（2026-10-31，Codex 已确认）
 
-1. **太阳由前端算，山影由服务端算**（第 2 节）：时间线要能随手拖，太阳每帧都要重算，放服务端会卡。只把高程采样这类重计算放服务端。两边约定写死在本契约里。
+1. **太阳前后端各算一份**（第 2 节）：前端负责即时展示，服务端给 Agent、后台和 PDF，同一个库、同一套约定。
 2. **账户时区不做设置页**（第 6 节）：PRD 说"未设置时应由用户设置"。我建议放在第一次"确认整份计划"的确认卡里，默认浏览器时区，可以改。少一个页面，且正好在需要它的时刻出现。
-3. **"明确要求不重复审批"由服务端判断**（第 3 节）：前端分不清用户哪句话算明确授权。由 Agent 带上授权消息 id、服务端校验，前端只负责显示审批卡或操作记录。
+3. **"明确要求不重复审批"由服务端判断**（第 3 节）：Agent 带上授权消息 id，服务端核对目标、操作和范围；前端只显示结果。
 4. **网上找到的参考图存一份副本**（用户已同意）：小红书、Instagram 的外链大多防盗链，页面和 PDF 都会显示不出来。入档时由服务端存一份副本供显示，同时保留原网页、作者和平台；副本只在本人档案内显示。拿不到图就只显示来源卡。
 5. **PDF 由 DSH 自己生成**（用户决定）：不用 Playwright 渲染网页，也就不需要打印会话。前端只上传地图快照，格式按 7.1。
 6. **现场和回顾两个面在 live 模式置灰**，不显示京都示例（PRD 1 已要求"不以示例冒充"）。
 
-## 10. 留给 DSH 的问题
+## 10. 已定的小问题
 
-- 停留点 `window` 跨越当地午夜（夜景、星空）时，`day` 取开拍那天，可以吗？
-- `canvas.undo` 是否只撤回本人（用户）的改动？我倾向是，Agent 的草图由用户直接删除。
-- 地图公开 key 由 `map-config` 下发，还是作为前端构建变量？我倾向 `map-config`，方便换 key 不用重新构建。
+- 跨午夜的停留点：`day` 取开拍地点的当地日期，`window` 保留完整起止时间，天气取完整时段。
+- 撤回：用户可撤回最近一笔画布改动（包括 Agent 的）；Agent 自主撤回只限自己的。
+- 地图公开 key：由 `map-config` 下发，服务商端限制来源，不扩大到其他密钥。
