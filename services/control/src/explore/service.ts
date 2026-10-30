@@ -152,6 +152,14 @@ async function undoCandidates(client: Client, account: string, dossier: string):
  * Agent 的受保护动作先核对授权：用户这句话明确要求了就执行；否则出计划修改卡，
  * 整批不执行、修订不变、不推 explore.op。
  */
+/**
+ * 同一批次里「路线 + 地形」这类外网取数的总预算。
+ * 它们发生在计划行被 FOR UPDATE 锁住的时候：单个接口有自己的超时（10–12 秒），
+ * 但 4 段路线 + 8 个点地形叠起来能把锁占到一分钟以上，页面会像卡死。
+ * 超预算的就如实标成未知/超时，下次再补。
+ */
+const ENRICHMENT_BUDGET_MS = 8_000;
+
 export async function applyOps(
   client: Client,
   account: string,
@@ -300,6 +308,7 @@ async function commitBatch(
       }))
         resolvedProfiles.set(snapshot.profileId, snapshot);
   }
+  const enrichmentDeadline = Date.now() + ENRICHMENT_BUDGET_MS;
   const batch = applyBatch({
     plan,
     ops: request.ops as Op[],
@@ -315,7 +324,7 @@ async function commitBatch(
   if (batch.business && touched) {
     const confirmed = batch.plan.document.stops.filter((stop) => stop.state === "confirmed");
     const timezone = batch.plan.document.destination?.timezone ?? null;
-    const legs = await walkLegs(confirmed, { timezone });
+    const legs = await walkLegs(confirmed, { timezone, deadline: enrichmentDeadline });
     batch.plan.document.routes = legs;
     batch.plan.document.conflicts = conflictsOf(confirmed, legs);
     // 附带在真正引起重算的那条动作上（页面按它更新路线）。
@@ -342,6 +351,8 @@ async function commitBatch(
     let computed = 0;
     for (const stop of batch.plan.document.stops) {
       if (!touchedStopIds.has(stop.id) || computed >= 8) continue;
+      // 同一批的取数总预算（见 ENRICHMENT_BUDGET_MS）：超了就保持未知，不干等。
+      if (Date.now() > enrichmentDeadline) break;
       computed += 1;
       const result = await computeStopLight({
         at: stopCenter(stop.geometry),

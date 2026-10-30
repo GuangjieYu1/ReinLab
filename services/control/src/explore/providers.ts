@@ -267,7 +267,7 @@ export function stopPoint(stop: Stop): LngLat {
  */
 export async function walkLegs(
   stops: Stop[],
-  options: { timezone?: string | null; provider?: string } = {},
+  options: { timezone?: string | null; provider?: string; deadline?: number } = {},
 ): Promise<RouteLeg[]> {
   const ordered = [...stops].sort((a, b) => {
     if (a.day !== b.day) return a.day.localeCompare(b.day);
@@ -277,6 +277,19 @@ export async function walkLegs(
   for (let index = 0; index < ordered.length - 1; index += 1) {
     const from = ordered[index];
     const to = ordered[index + 1];
+    // 这一批的取数有总预算：路线和地形都在计划行被锁住时算，别让慢接口把页面卡死。
+    if (options.deadline !== undefined && Date.now() > options.deadline) {
+      legs.push({
+        from: from.id,
+        to: to.id,
+        geometry: null,
+        distanceM: null,
+        durationS: null,
+        source: { name: "未取" },
+        ...({ reason: "这次取路线超时，先按未知处理；稍后重试。" } as Record<string, unknown>),
+      } as RouteLeg);
+      continue;
+    }
     const walk = await walkingRoute({
       from: stopPoint(from),
       to: stopPoint(to),

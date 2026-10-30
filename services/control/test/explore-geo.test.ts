@@ -10,6 +10,7 @@ import {
   configureGeoProviders,
   providerFor,
   searchPlaces,
+  walkLegs,
   walkingRoute,
   type GeoTransport,
 } from "../src/explore/providers";
@@ -242,6 +243,18 @@ describe("页面接口：地点搜索与同批次重算路线", () => {
   afterAll(async () => {
     await pool.end();
     await admin.end();
+  });
+
+  it("取路线超预算：如实标「这次取路线超时」，不干等也不说成没有路", async () => {
+    configureGeoProviders({ amapKey: "test-key", orsKey: null });
+    const stops = [
+      { id: "s1", kind: "spot", name: "A", geometry: { type: "Point", coordinates: [120.14, 30.25] }, day: "2026-11-12", state: "confirmed" },
+      { id: "s2", kind: "spot", name: "B", geometry: { type: "Point", coordinates: [120.15, 30.26] }, day: "2026-11-12", state: "confirmed" },
+    ] as never;
+    const legs = await walkLegs(stops, { timezone: "Asia/Shanghai", deadline: Date.now() - 1 });
+    expect(legs).toHaveLength(1);
+    expect(legs[0].geometry).toBeNull();
+    expect((legs[0] as Record<string, unknown>).reason).toContain("超时");
   });
 
   it("没配置地点服务时，搜索框照实说缺哪项（结构化给出缺的键，页面不用猜）", async () => {
