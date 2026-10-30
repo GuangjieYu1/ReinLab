@@ -222,16 +222,26 @@ export function apply(ctx, config) {
       defineTool({
         name: "explore_ops",
         description:
-          "改当前这份旅拍计划：加/改/删停留点、确认停留点、改计划的地点日期拍法、确认整份计划、记感觉、加改删画布草图、撤回最近一笔画布改动。一次调用是一批，要么全生效要么都不生效。" +
-          "会改动已确认行程的动作（候选转正、改已确认点的地点日期时段、删已确认点、改计划状态）需要用户同意：用户这句话明确要求了就直接生效；没说清服务端会出一张计划修改卡，返回 pending 表示还在等，这时别说已经改好。" +
-          "停留点几何用 GeoJSON（spot/waypoint 用 Point，area 用 Polygon），坐标是 WGS84 [经度, 纬度]，day 是当地日期 YYYY-MM-DD，window 是带偏移的 ISO 起止时间。新建停留点的 id 由服务端分配。",
+          "改当前这份旅拍计划。一次调用是一批，要么全生效要么都不生效。会改动已确认行程的动作需要用户同意：用户这句话明确要求了就直接生效，没说清服务端会出一张计划修改卡并返回 pending，这时别说已经改好。" +
+          "每个 op 的确切形状（只能用这些名字，别的名字会被拒）：\n" +
+          'stop.add {op:"stop.add", stop:{kind:"spot"|"area"|"waypoint", name, geometry:{type:"Point",coordinates:[经度,纬度]} 或 {type:"Polygon",coordinates:[[[经度,纬度],…]]}, day:"YYYY-MM-DD", window:{start:"2026-11-15T07:00:00+09:00",end:"…"} 或 null, reason?, facing?, focal?:[85], refs?:[], state?:"candidate"|"confirmed", detail?:{composition?,guidance?,outfit?,rules?,fallback?}}}\n' +
+          'stop.update {op:"stop.update", id, patch:{name?,geometry?,day?,window?,reason?,facing?,focal?,refs?,detail?}}\n' +
+          'stop.remove {op:"stop.remove", id}\n' +
+          'stop.confirm {op:"stop.confirm", ids:["停留点 id"]}\n' +
+          'plan.set {op:"plan.set", patch:{destination?:{name, center:[经度,纬度], timezone:"Asia/Tokyo"}, days?:["2026-11-15"], kinds?:["portrait"|"landscape"|"travel"|"street"]}}（拍法用英文枚举，不是「人像」）\n' +
+          'plan.confirm {op:"plan.confirm"}  plan.finish {op:"plan.finish"}  plan.cancel {op:"plan.cancel"}\n' +
+          'plan.select {op:"plan.select", people?:[], gear?:[], refresh?:true}\n' +
+          'feel.set {op:"feel.set", feel:{refIds:[], observations:[{aspect:"light"|"tone"|"composition"|"pose"|"other", text}], guesses:[{aspect:"time"|"focal", text}]}}\n' +
+          'canvas.add {op:"canvas.add", object:{kind:"marker"|"arrow"|"line"|"freehand"|"area"|"note", geometry:{…GeoJSON}, text?, links?:{stopId?,refId?,place?}}}\n' +
+          'canvas.update {op:"canvas.update", id, patch:{geometry?,text?,links?}}  canvas.remove {op:"canvas.remove", id}  canvas.undo {op:"canvas.undo"}\n' +
+          'view.save {op:"view.save", viewport:{center:[经度,纬度],zoom,bearing,pitch}, basemap:"vector"|"satellite"}\n' +
+          "坐标一律 WGS84 [经度, 纬度]；时间是带偏移的 ISO；日期是当地 YYYY-MM-DD；新建停留点/草图的 id 由服务端分配，不要自己编。",
         parameters: {
           ops: {
             type: "array",
             required: true,
             items: { type: "object", additionalProperties: true },
-            description:
-              '动作数组，例如 [{"op":"stop.add","stop":{"kind":"spot","name":"白川旁的石桥","geometry":{"type":"Point","coordinates":[135.78,35.01]},"day":"2026-11-15","window":{"start":"2026-11-15T07:10:00+09:00","end":"2026-11-15T07:50:00+09:00"},"reason":"清晨逆光"}}]。',
+            description: '按上面形状给的 op 数组。',
           },
           baseRevision: { type: "number", description: "可选：你读到的修订号，带上可以避免覆盖别人的修改。" },
           authorization: { type: "string", description: "可选：用户明确要求这次改动时，他那句话的消息 id。" },
@@ -242,184 +252,6 @@ export function apply(ctx, config) {
           if (first.error) return first.error;
           if (!first.pending) return first.result;
           return { ...waiting("这批计划修改", first.approvalId), pending: first.pendingChange };
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_light",
-        description:
-          "算某个停留点的山体遮挡：取周围真实高程（Copernicus GLO-90，约 90 米）估地平线曲线和「山后见光」时段，并写回这份计划（页面与计划书直接读）。取不到高程就返回未知和原因——别默认没遮挡，也别把天文日出当成能拍到光。不传 stopId 就依次算前几个停留点。",
-        parameters: { stopId: { type: "string", description: "只算这个停留点。" } },
-        output,
-        async execute(args) {
-          return unwrap(await call("explore", "light", args));
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_places",
-        description:
-          "查真实地点（页面搜索框同一条路）：国内走高德、海外走 openrouteservice，返回名称、地址、坐标和来源。查不到或没配服务会照实说明，不要自己编地名或坐标。",
-        parameters: {
-          q: { type: "string", required: true, description: "地点名或关键词。" },
-          near: { type: "array", items: { type: "number" }, description: "可选：附近 [经度, 纬度]，用来排序和挑服务商。" },
-          provider: { type: "string", description: "可选：amap | ors（不说就按目的地时区挑）。" },
-        },
-        output,
-        async execute(args) {
-          return unwrap(await call("explore", "places", args));
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_route",
-        description:
-          "两个停留点（或两组坐标）之间的真实步行路线与用时。给 fromStopId/toStopId 用计划里的点；也可以直接给 from/to 的 [经度, 纬度]。拿不到就返回 unavailable 和原因，别拿直线距离当步行路线。",
-        parameters: {
-          fromStopId: { type: "string", description: "起点停留点 id。" },
-          toStopId: { type: "string", description: "终点停留点 id。" },
-          from: { type: "array", items: { type: "number" }, description: "起点 [经度, 纬度]（不用停留点时）。" },
-          to: { type: "array", items: { type: "number" }, description: "终点 [经度, 纬度]。" },
-        },
-        output,
-        async execute(args) {
-          return unwrap(await call("explore", "route", args));
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_profiles",
-        description:
-          "读这个账户里的模特和器材（只读你确认过的内容）。给用户推荐时只用这里已有的机身和镜头，不要假设他有什么。",
-        parameters: { type: { type: "string", description: "model | gear；不传就都给。" } },
-        output,
-        async execute(args) {
-          return unwrap(await call("explore", "profiles", args));
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_profile_write",
-        description:
-          "新增/修改/删除账户里的模特或器材。只能写用户自己说过的内容：他的原话里要同时点到「这条资料」和「记住/加上/改成/删掉」。没得到明确要求时服务端会退回 needs_user_confirmation——那就先在对话里问一句，别自己编。",
-        parameters: {
-          action: { type: "string", description: "add | update | delete。" },
-          type: { type: "string", description: "model | gear。" },
-          id: { type: "string", description: "改或删的时候用；也可以用 name 对上。" },
-          name: { type: "string", description: "称呼或器材名，要跟用户说的一致。" },
-          height: { type: "number", description: "模特身高（cm），用户说过才填。" },
-          style: { type: "string" },
-          experience: { type: "string" },
-          wardrobe: { type: "string" },
-          notes: { type: "string" },
-          kind: { type: "string", description: "器材：body | lens。" },
-          focal: { type: "array", items: { type: "number" }, description: "镜头焦段范围，比如 [85, 85]。" },
-          aperture: { type: "number", description: "最大光圈，比如 1.8。" },
-        },
-        output,
-        async execute(args) {
-          const out = await call("explore", "profile_write", args);
-          if (out.error) return out.error;
-          return out.result;
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_ref_add",
-        description:
-          "把网上找到的参考图收进这份档案：服务端抄一份副本（页面和计划书都能稳定显示），同时保留原网页、作者、平台和出处时间。可以直接给图片地址，也可以给带图的网页（会读页面的分享图）。拿不到图时只记来源并告诉你原因，这时照实跟用户说「只有链接」，不要拿别的图顶替。kind：same-spot = 该机位实拍，style = 风格参考，别把风格参考说成实拍。",
-        parameters: {
-          url: { type: "string", required: true, description: "图片地址或带图的网页地址（http/https）。" },
-          kind: { type: "string", description: "same-spot | style。" },
-          stopId: { type: "string", description: "关联到哪个停留点（可选）。" },
-          author: { type: "string", description: "作者，知道才填。" },
-          platform: { type: "string", description: "平台，比如 小红书 / Instagram / Flickr。" },
-          takenAt: { type: "string", description: "拍摄或发布的时间，知道才填。" },
-        },
-        output,
-        async execute(args) {
-          return unwrap(await call("explore", "ref_add", args));
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_book",
-        description:
-          "生成两版计划书之一：brief 是一页精简版，full 是总览加每个停留点一页。用户说「出一份计划书 / 打印一份」就用它，生成后自动入档，不用再问要不要挂载。只用同一计划修订的地图快照：素材不齐会返回 needs_map_snapshot 并请用户打开计划页面点一次生成，这时不要假称已经生成。",
-        parameters: { variant: { type: "string", description: "brief | full。" } },
-        output,
-        async execute(args) {
-          return unwrap(await call("explore", "book", args));
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_refs",
-        description:
-          "读这份档案里的参考图（用户上传的、以及从网上入档的）。image 为 null 表示没拿到图，只有来源，这时照实说「只有链接」，不要拿别的图顶替。",
-        parameters: {},
-        output,
-        async execute() {
-          return unwrap(await call("explore", "refs", {}));
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_usage",
-        description: "看这份计划已经用掉的模型调用与 token（按用途、按模型、Search/Fetch 次数）。未知的用量是未知，不是 0。",
-        parameters: {},
-        output,
-        async execute() {
-          return unwrap(await call("explore", "usage", {}));
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_weather",
-        description:
-          "读这份计划里停留点的逐时天气（Open-Meteo，真实预报）：云量 %、降水概率 %、降水量 mm/h、风速与阵风 m/s、温度 °C，按那个点自己的位置和当地时间给，跨午夜取完整时段。返回里带取数时间、来源，以及 state（ok / out_of_range / failed）；out_of_range 说明那一天还没进预报范围，约从 fromDate 起能查，这时不要编数据。",
-        parameters: {
-          stopId: { type: "string", description: "只看某个停留点；不传就看全部已确认停留点（还没有停留点时按目的地给）。" },
-          refresh: { type: "boolean", description: "true 时不复用 20 分钟内的旧快照，重新取一次。" },
-        },
-        output,
-        async execute(args) {
-          return unwrap(await call("explore", "weather", args));
-        },
-      }),
-    );
-
-    register(
-      defineTool({
-        name: "explore_sun",
-        description:
-          "算真实太阳时刻与方向：日出日落、正午、金色时刻（太阳高度 −4°～6°）、蓝调（−6°～−4°），停留点拍摄时段两端的太阳方位（真北 0° 顺时针）与高度角；有地形数据时连同每个点的山后见光时段一起给。方位和时刻按停留点位置与拍摄地点时区。",
-        parameters: {
-          stopId: { type: "string", description: "只算某个停留点；不传就算全部停留点（没有停留点时按目的地算）。" },
-        },
-        output,
-        async execute(args) {
-          return unwrap(await call("explore", "sun", args));
         },
       }),
     );

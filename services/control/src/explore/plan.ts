@@ -162,6 +162,25 @@ const isoWithOffset = (value: unknown): value is string =>
 
 const invalid = (message: string) => new ApiFailure("INVALID_INPUT", 400, message);
 
+/** 合法动作名：报错时一并给出来，模型不用猜也不用翻源码。 */
+export const OP_NAMES = [
+  "stop.add",
+  "stop.update",
+  "stop.remove",
+  "stop.confirm",
+  "plan.set",
+  "plan.confirm",
+  "plan.finish",
+  "plan.cancel",
+  "plan.select",
+  "feel.set",
+  "canvas.add",
+  "canvas.update",
+  "canvas.remove",
+  "canvas.undo",
+  "view.save",
+] as const;
+
 /** 结束或取消：只有还在草稿 / 待执行的计划能走这一步。 */
 function assertCanEnd(current: PlanState, next: PlanState) {
   if (current === "finished" || current === "cancelled")
@@ -441,6 +460,10 @@ export function applyBatch(input: BatchInput): Batch {
         if (patch.destination !== undefined) {
           const destination = patch.destination;
           if (destination !== null) {
+            if (typeof destination === "string")
+              throw invalid(
+                "plan.set 的 destination 要写成 {name, center:[经度,纬度], timezone}，不能只给地名。",
+              );
             if (!destination?.name?.trim()) throw invalid("地点要有名字。");
             if (!Array.isArray(destination.center) || destination.center.length !== 2)
               throw invalid("地点要有中心坐标。");
@@ -543,6 +566,10 @@ export function applyBatch(input: BatchInput): Batch {
       }
       case "feel.set": {
         const feel = op.feel;
+        if (typeof feel === "string")
+          throw invalid(
+            "feel.set 的 feel 要写成 {refIds:[], observations:[{aspect, text}], guesses:[{aspect, text}]}，不能只给一句话。",
+          );
         if (!feel || !Array.isArray(feel.observations)) throw invalid("想要的感觉要有观察内容。");
         document.feel = feel;
         business = true;
@@ -598,7 +625,9 @@ export function applyBatch(input: BatchInput): Batch {
         break;
       }
       default:
-        throw invalid("没有这个动作。");
+        throw invalid(
+          `没有这个动作（${String((op as { op?: unknown }).op ?? "")}）。可用动作：${OP_NAMES.join("、")}。`,
+        );
     }
   }
 

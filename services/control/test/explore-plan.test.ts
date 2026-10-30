@@ -296,3 +296,20 @@ describe("探索台计划引擎", () => {
     expect(batch.applied[0].summary).toContain("85mm F1.8");
   });
 });
+
+describe("形状错了要说清怎么改", () => {
+  it("不认识的动作名会把可用动作列出来", () => {
+    expect(() => run(planOfDocument(), [{ op: "plan.update" } as never])).toThrowError(
+      /可用动作：stop\.add、stop\.update/,
+    );
+  });
+
+  it("plan.set 只给地名、feel.set 只给一句话时，说清该写成什么", () => {
+    expect(() =>
+      run(planOfDocument(), [{ op: "plan.set", patch: { destination: "京都" } } as never]),
+    ).toThrowError(/destination 要写成 \{name, center/);
+    expect(() => run(planOfDocument(), [{ op: "feel.set", feel: "秋天上午" } as never])).toThrowError(
+      /feel 要写成 \{refIds/,
+    );
+  });
+});
