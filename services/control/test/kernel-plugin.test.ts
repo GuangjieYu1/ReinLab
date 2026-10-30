@@ -37,7 +37,7 @@ describe("reading plugin", () => {
   });
 
   it("exposes only reading tools, with no general writer, shell or subagent", () => {
-    const surface = ["card_finding", "card_layer", "clarify_question", "course_plan", "dossier_archive", "dossier_attach_course", "dossier_create", "dossier_delete", "dossier_detach", "dossier_get", "dossier_list", "dossier_unarchive", "dossier_update", "papers_fetch", "papers_pages", "papers_search"].sort();
+    const surface = ["card_finding", "card_layer", "clarify_question", "course_plan", "dossier_archive", "dossier_attach_course", "dossier_create", "dossier_delete", "dossier_detach", "dossier_get", "dossier_list", "dossier_unarchive", "dossier_update", "papers_fetch", "papers_pages", "papers_register", "papers_search"].sort();
     expect(mount(vi.fn(), "read").registered.map((d) => d.name).sort()).toEqual(surface);
     for (const name of ["files.write", "bash", "web_search"]) {
       expect(mount(vi.fn(), "read").registered.map((d) => d.name)).not.toContain(name);

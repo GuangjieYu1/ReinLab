@@ -59,6 +59,8 @@ const kernelDispatch = createKernelDispatch({
   cacheRoot: path.join(homedir(), ".local/state/reinlab/papers"),
   deposit: kernelAccount.deposit,
   cardDeposit: kernelAccount.cardDeposit,
+  // 工作区登记论文要用它定位当前档案的工作区目录。
+  kernelHome,
 });
 const kernel = new KernelService({
   db: database,

@@ -17,6 +17,45 @@ import {
   updateDossier,
 } from "../dossier/service";
 
+/**
+ * 两种入口（远程 fetch / 工作区 register）共用的「论文入档成功」处理：
+ * 按第 6 节补名、写一条真实操作记录、更新档案最近活动。
+ */
+async function afterPaperRegistered(
+  client: pg.PoolClient,
+  call: KernelToolCall,
+  result: Record<string, unknown>,
+) {
+  const renamed = await nameFromPaper(client, call.account, call.dossier).catch(() => null);
+  const title =
+    String(
+      (result?.viewMetadata as any)?.title ?? (result?.title as string) ?? renamed ?? "",
+    ).slice(0, 120) || "这篇论文";
+  await client.query(
+    "update dossier set last_activity_at=now(), version=version+1 where account_id=$1 and id=$2",
+    [call.account, call.dossier],
+  );
+  await client.query(
+    `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+     values($1,$2,$3,'user_op','attach',$4,$5) on conflict do nothing`,
+    [
+      call.account,
+      call.dossier,
+      call.run,
+      JSON.stringify({
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        dossierId: call.dossier,
+        actor: "agent",
+        via: "agent",
+        action: "attach",
+        text: `助手把《${title}》正式入档`,
+      }),
+      "paper-registered:" + String(result?.assetId ?? randomUUID()),
+    ],
+  );
+}
+
 /** 第 7 节：把档案工具映射到服务函数。结果里带 open，Agent 坞据此渲染可点卡片。 */
 async function dossierTool(
   client: any,
@@ -96,7 +135,7 @@ import {
 
 /** Reading tools the kernel may call. Nothing else is forwarded. */
 export const KERNEL_TOOLS: Record<string, string[]> = {
-  papers: ["search", "fetch", "pages"],
+  papers: ["search", "fetch", "pages", "register"],
   cards: ["card.layer", "card.finding", "clarify.question"],
   // 课程台最小能力：提交一份学习计划并入档。计划确认与入档是同一次批准。
   courses: ["plan"],
@@ -118,7 +157,7 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
 const MAX_TOOL_CALLS = 40;
 
 /** Actions that need the user's one-shot approval before they run. */
-const APPROVAL_REQUIRED = new Set(["papers.fetch"]);
+const APPROVAL_REQUIRED = new Set(["papers.fetch", "papers.register"]);
 
 /** Tools that are really a question to the user, not a business write. */
 const ASKS_THE_USER = new Set(["cards.clarify.question"]);
@@ -271,6 +310,71 @@ export function registerKernelTools(
           });
           return c.json({ result });
         }
+        // 工作区登记：先只读文件、算摘要，交给用户批一次；批准后按同一份内容入档。
+        if (capability === "papers.register") {
+          const prepared = (await dependencies.dispatch({
+            ...call,
+            args: { ...args, __phase: "prepare" },
+          })) as Record<string, any>;
+          if (prepared?.existing)
+            return c.json({ result: { ...prepared.existing, reused: true } });
+          const effectKey = effectKeyOf(capability, argsHash(call));
+          const commit = async () => {
+            const result = (await dependencies.dispatch({
+              ...call,
+              args: { ...args, __phase: "commit", __digest: prepared.digest },
+            })) as Record<string, unknown>;
+            await afterPaperRegistered(client, call, {
+              ...(result ?? {}),
+              ...(prepared.metadata ?? {}),
+            });
+            return result;
+          };
+          if (typeof body.approvalId === "string") {
+            if (!(await consumeApproval(client, { approvalId: body.approvalId, effectKey })))
+              throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这次入档没有可用的批准，请重新发起。");
+            return c.json({ result: await commit() });
+          }
+          const approved = (
+            await client.query(
+              `select id from approval
+                where account_id=$1 and run_id=$2 and effect_key=$3
+                  and state='approved' and consumed_at is null
+                order by created_at desc limit 1`,
+              [call.account, call.run, effectKey],
+            )
+          ).rows[0];
+          if (!approved) {
+            const title = String(prepared?.metadata?.title ?? args.title ?? "这篇论文");
+            const card = await requestApproval(client, {
+              account: call.account,
+              dossier: call.dossier,
+              run: call.run,
+              capability,
+              argsHash: argsHash(call),
+              title: `把《${title}》正式入档`,
+              effects: [
+                {
+                  capability,
+                  argsHash: argsHash(call),
+                  // 批准绑定的是这份内容：摘要写进卡里，之后文件换了就不认。
+                  sha256: prepared?.digest,
+                  title,
+                  path: prepared?.path,
+                },
+              ],
+              risk: "write",
+            });
+            await client.query(
+              "update dsh_session set lease_run_id=null where lease_run_id=$1",
+              [call.run],
+            );
+            return c.json({ state: "pending", approvalId: card.id }, 409);
+          }
+          if (!(await consumeApproval(client, { approvalId: approved.id, effectKey })))
+            throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这次入档没有可用的批准，请重新发起。");
+          return c.json({ result: await commit() });
+        }
         // 课程计划：还没批准就交出一张确认卡（卡上就是计划本身），
         // 批准后同一次动作把计划写进档案。不再另外索要入档审批。
         if (capability === PLAN_CAPABILITY) {
@@ -379,6 +483,8 @@ export function registerKernelTools(
                   "update approval set decision_receipt=$2 where id=$1 and decision_receipt is null",
                   [card.id, JSON.stringify(result)],
                 );
+                if (capability === "papers.fetch")
+                  await afterPaperRegistered(client, call, result as Record<string, unknown>);
                 return c.json({ result });
               }
             }

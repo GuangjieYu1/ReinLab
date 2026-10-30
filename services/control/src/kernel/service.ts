@@ -289,6 +289,31 @@ export class KernelService {
                where id=$1 and state not in ('completed','failed','cancelled','interrupted')`,
               [runId, next],
             );
+            // 如果这张卡在轮次收尾前就已经被批准了（用户点得快），没人接着跑：
+            // 这里补一次续接，批准过的事不会因为时序丢掉。
+            if (next === "waiting") {
+              const approved = (
+                await client.query(
+                  `select id from approval
+                    where account_id=$1 and run_id=$2 and state='approved' and consumed_at is null
+                    limit 1`,
+                  [account, runId],
+                )
+              ).rows[0];
+              if (approved)
+                // 这一段还占着会话租约：等租约真正让出之后再续，别被 SESSION_BUSY 挡掉。
+                setTimeout(() => {
+                  void this.resumeAfterAnswer(account, runId, "继续").catch((error) =>
+                    console.error(
+                      JSON.stringify({
+                        code: "KERNEL_RESUME_AFTER_APPROVAL_FAILED",
+                        run: runId,
+                        detail: String((error as Error)?.message ?? error).slice(0, 160),
+                      }),
+                    ),
+                  );
+                }, 1500);
+            }
             // 任务结束了，它名下的待批卡也就没有意义：一并关掉并写明原因，
             // 免得收件箱里一直挂着点不动的旧卡。
             if (next !== "waiting") {

@@ -1,6 +1,14 @@
+import path from "node:path";
+import { homedir } from "node:os";
 import type { Database } from "../db/database";
 import { loadCapabilityCatalog, type CapabilityCatalog } from "../mcp/registry";
 import { paperHandlers, type PaperDeposit } from "../mcp/papers";
+import {
+  commitRegistration,
+  existingByDigest,
+  prepareRegistration,
+  type WorkspaceRoots,
+} from "../mcp/register";
 import type { CardDeposit, CapabilityHandler } from "../mcp/handler";
 import { kernelCardHandlers } from "./cards";
 import { ApiFailure } from "../api/errors";
@@ -18,6 +26,8 @@ export type DispatchDependencies = {
   cardHandlers?: (db: Database, deposit: CardDeposit) => Record<string, unknown>;
   /** Transport override for tests; production uses the pinned HTTP client. */
   http?: Parameters<typeof paperHandlers>[3];
+  /** 宿主上的内核根：用来定位当前档案的工作区（工作区登记论文要用）。 */
+  kernelHome?: string;
   catalog?: CapabilityCatalog;
 };
 
@@ -87,6 +97,9 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
     }
     if (call.server === "papers") {
       const { catalog: current, handlers: table } = await paper();
+      // 工作区登记走自己的两段式流程，不是既有远程 handler。
+      if (call.tool === "register")
+        return registerPaper(dependencies, contextFor(current), call);
       const handler = table[`papers.${call.tool}`];
       if (!handler) throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "该论文工具尚未接入。");
       // 读页的 assetId 也可能是 arXiv / OpenAlex 号：本轮已下载过就换成资产 id，
@@ -100,6 +113,51 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
       return result;
     }
     throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "该工具尚未接入。");
+  };
+}
+
+/**
+ * 工作区登记：两段式。`__phase=prepare` 只读文件、算摘要、整理元数据（供审批绑定内容）；
+ * `__phase=commit` 在批准之后重新校验摘要并正式入档。
+ */
+async function registerPaper(
+  dependencies: DispatchDependencies,
+  context: AuthorizedCapability,
+  call: KernelToolCall,
+): Promise<unknown> {
+  const roots = workspaceRoots(dependencies, call);
+  const phase = (call.args as any)?.__phase;
+  if (phase === "commit") {
+    const prepared = await prepareRegistration(call.args as any, roots);
+    return dependencies.db.withAccount(call.account, (client) =>
+      commitRegistration(client, { deposit: dependencies.deposit, context }, {
+        account: call.account,
+        dossier: call.dossier,
+        run: call.run,
+        prepared,
+        expectedDigest: String((call.args as any).__digest ?? prepared.digest),
+      }),
+    );
+  }
+  const prepared = await prepareRegistration(call.args as any, roots);
+  const existing = await dependencies.db.withAccount(call.account, (client) =>
+    existingByDigest(client, call.account, call.dossier, prepared.digest),
+  );
+  return {
+    phase: "prepare",
+    digest: prepared.digest,
+    existing,
+    metadata: prepared.metadata,
+    path: prepared.absolute,
+  };
+}
+
+/** 当前档案的工作区：宿主机目录 + 容器里看到的同一目录。 */
+function workspaceRoots(dependencies: DispatchDependencies, call: KernelToolCall): WorkspaceRoots {
+  const base = dependencies.kernelHome ?? path.join(homedir(), ".local/state/reinlab/kernel");
+  return {
+    host: path.join(base, "accounts", call.account, "dossiers", call.dossier),
+    container: "/opt/reinlab-account/dossiers/" + call.dossier,
   };
 }
 

@@ -126,6 +126,30 @@ export function apply(ctx, config) {
     );
 
 
+  if (config.mode === "read")
+    register(
+      defineTool({
+        name: "papers_register",
+        description:
+          "把当前档案工作区里已经有的 PDF 登记为本档案论文，入档需要用户批准一次。怎么拿到文件的不管；账户和档案由会话决定，不用填。",
+        parameters: {
+          path: { type: "string", required: true, description: "工作区里的 PDF 路径，绝对路径或相对工作区根。" },
+          title: { type: "string", required: true, description: "论文标题；不确定就照实问用户，不要编。" },
+          authors: { type: "string", description: "已知作者，可留空。" },
+          doi: { type: "string", description: "已知 DOI 或 arXiv 号，没有就留空。" },
+          source: { type: "string", description: "已知来源 URL，没有就留空。" },
+        },
+        output,
+        timeoutMs: 660_000,
+        async execute(args) {
+          const first = await call("papers", "register", args);
+          if (first.error) return first.error;
+          if (!first.pending) return first.result;
+          return waiting("这篇论文正式入档", first.approvalId);
+        },
+    }),
+  );
+
   register(
     defineTool({
       name: "papers_pages",
