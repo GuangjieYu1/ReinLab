@@ -243,11 +243,16 @@ export function registerKernelTools(
 
     try {
       return await dependencies.db.withAccount(claims.account, async (client) => {
-        // 单轮工具调用上限：模型自己决定用哪个工具，但不能无限打下去。
+        // 单轮工具调用上限：按「当前这一轮」计数。审批后续接是同一个 run 的新 dsh_turn，
+        // 要从它开始重新计，否则批准过的动作会被上一轮用掉的次数挡住。
         const used = Number(
           (
             await client.query(
-              "select count(*)::int n from event where run_id=$1 and action='tool/call'",
+              `select count(*)::int n from event e
+                where e.run_id=$1 and e.action='tool/call'
+                  and e.at >= coalesce(
+                    (select max(t.started_at) from dsh_turn t where t.run_id=$1),
+                    '-infinity'::timestamptz)`,
               [claims.run],
             )
           ).rows[0]?.n ?? 0,

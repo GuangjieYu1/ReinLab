@@ -130,7 +130,7 @@ async function registerPaper(
   if (phase === "commit") {
     const prepared = await prepareRegistration(call.args as any, roots);
     return dependencies.db.withAccount(call.account, (client) =>
-      commitRegistration(client, { deposit: dependencies.deposit, context }, {
+      commitRegistration(client, { deposit: dependencies.deposit, context, cacheRoot: dependencies.cacheRoot }, {
         account: call.account,
         dossier: call.dossier,
         run: call.run,

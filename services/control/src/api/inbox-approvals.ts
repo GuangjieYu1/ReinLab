@@ -80,6 +80,12 @@ function describe(effects: any) {
     "只处理这一次；内容变化后会重新问一次",
   ];
 }
+/** 卡片能力名：kernel 卡取 effects[0].capability，档案确认卡取 effects.kind。 */
+function approvalCapability(effects: any): string | null {
+  if (typeof effects?.kind === "string") return effects.kind;
+  const first = Array.isArray(effects) ? effects[0] : effects;
+  return typeof first?.capability === "string" ? first.capability : null;
+}
 function publicValue(v: any): JsonValue {
   if (Array.isArray(v)) return v.map(publicValue);
   if (v && typeof v === "object")
@@ -143,6 +149,8 @@ export function registerApprovalInbox(
           id: row.id,
           runId: row.runId,
           kind: row.kind,
+          // 卡片类型直接给：前端不用从说明文字里猜。档案确认卡是 dossier.* 的 kind。
+          capability: approvalCapability(row.effects),
           title: scrub(String(row.title).slice(0, 300)),
           effects: scrub(describe(row.effects) as JsonValue),
           risk: row.risk,

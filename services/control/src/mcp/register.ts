@@ -5,7 +5,9 @@
  * 这里只负责「确认它是这个档案里的一份真实 PDF，然后按正式入档处理」。
  */
 import { createHash } from "node:crypto";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, realpath, rename, rm } from "node:fs/promises";
+import { constants } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type pg from "pg";
 import { ApiFailure } from "../api/errors";
@@ -135,12 +137,40 @@ export async function existingByDigest(
 }
 
 /**
+ * 把 PDF 放进 papers.pages 读取的缓存目录（<cacheRoot>/<sha>.pdf）。
+ * 与 papers.fetch 同样的规则：0700 目录、原子写入、已有且摘要一致就复用。
+ */
+export async function cachePdf(cacheRoot: string, bytes: Buffer, digest: string) {
+  await mkdir(cacheRoot, { recursive: true, mode: 0o700 });
+  const file = path.join(cacheRoot, digest + ".pdf");
+  try {
+    const existing = await readFile(file);
+    if (sha(existing) === digest) return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const temporary = path.join(cacheRoot, "." + randomUUID() + ".pending");
+  try {
+    const h = await open(temporary, "wx", 0o600);
+    try {
+      await h.writeFile(bytes);
+      await h.sync();
+    } finally {
+      await h.close();
+    }
+    await rename(temporary, file);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+/**
  * 正式入档：写文件 + 资产记录。已存在同摘要资产时直接返回，不重复建。
  * 内容在批准之后被换掉会在这里被摘要比对挡住。
  */
 export async function commitRegistration(
   client: pg.PoolClient,
-  deps: { deposit: PaperDeposit; context: any },
+  deps: { deposit: PaperDeposit; context: any; cacheRoot: string },
   input: {
     account: string;
     dossier: string;
@@ -160,6 +190,9 @@ export async function commitRegistration(
     );
   const existing = await existingByDigest(client, account, dossier, expectedDigest);
   if (existing) return { ...existing, reused: true };
+  // papers.pages 从缓存目录读原文：不写这一份，入档后也读不到页（ENOENT）。
+  if (prepared.metadata.parseError === null)
+    await cachePdf(deps.cacheRoot, prepared.bytes, expectedDigest);
 
   const assetId = crypto.randomUUID();
   const metadata = {

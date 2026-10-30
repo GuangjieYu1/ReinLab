@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -98,16 +98,20 @@ describe("papers.register 工作区登记", () => {
 
   it("批准后正式入档，同内容再登记直接复用，不再建资产", async () => {
     const deposit = async () => undefined;
+    const cacheRoot = path.join(home, "papers-cache");
     const prepared = await prepareRegistration({ path: "paper.pdf", title: "Registered Paper" }, roots());
     const first = await db.withAccount(account, (client) =>
-      commitRegistration(client, { deposit, context: {} }, {
+      commitRegistration(client, { deposit, context: {}, cacheRoot }, {
         account, dossier, run, prepared, expectedDigest: prepared.digest,
       }),
     );
     expect(first.reused).toBe(false);
     expect(first.status).toBe("full_text");
+    // papers.pages 从 <cacheRoot>/<sha>.pdf 读原文：入档后这个文件必须在，内容一致。
+    const cached = await readFile(path.join(cacheRoot, prepared.digest + ".pdf"));
+    expect(cached.equals(PDF)).toBe(true);
     const second = await db.withAccount(account, (client) =>
-      commitRegistration(client, { deposit, context: {} }, {
+      commitRegistration(client, { deposit, context: {}, cacheRoot }, {
         account, dossier, run, prepared, expectedDigest: prepared.digest,
       }),
     );
@@ -127,7 +131,7 @@ describe("papers.register 工作区登记", () => {
     await writeFile(path.join(roots().host, "paper.pdf"), Buffer.concat([PDF, Buffer.from("\n% tail\n")]));
     await expect(
       db.withAccount(account, (client) =>
-        commitRegistration(client, { deposit, context: {} }, {
+        commitRegistration(client, { deposit, context: {}, cacheRoot: path.join(home, "papers-cache") }, {
           account, dossier, run, prepared, expectedDigest: prepared.digest,
         }),
       ),
