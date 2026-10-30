@@ -130,3 +130,52 @@ describe("dsh launch plan", () => {
     expect(plan.options.cwd).toContain("/state/kernel/accounts/");
   });
 });
+
+describe("探索台运行补丁", () => {
+  const explore = (run: string) =>
+    launchPlan({
+      ...base,
+      run,
+      dossier: "20000000-0000-4000-8000-000000000010",
+      sessionId: "ses_explore",
+      mode: "explore",
+    });
+
+  it("声明模型能收图，并让运行时自己重试格式错误（不伪造用户消息）", async () => {
+    const writes = new Map<string, string>();
+    const plan = explore("30000000-0000-4000-8000-000000000010");
+    await materializeLaunch(plan, "tok", {
+      write: async (file: string, body: string) => void writes.set(file, body),
+      remove: async () => {},
+      mkdir: async () => {},
+    });
+    const patch = writes.get(plan.paths.patchFile) ?? "";
+    expect(patch).toContain("inputModalities: [text, image]");
+    expect(patch).toContain("retryPolicy:");
+    // 模型偶尔吐非法工具 JSON：交给运行时的重试策略，而不是我们注入一句「请重发」。
+    expect(patch).toContain("MALFORMED_RESPONSE");
+    expect(patch).toMatch(/maxRetries: \d+/);
+    // 探索台的说话方式与底线
+    expect(patch).toContain("旅拍规划搭档");
+    expect(patch).not.toContain("研究精读助手");
+  });
+
+  it("精读模式不受影响：不加探索台那段配置", async () => {
+    const writes = new Map<string, string>();
+    const plan = launchPlan({
+      ...base,
+      run: "30000000-0000-4000-8000-000000000011",
+      dossier: "20000000-0000-4000-8000-000000000011",
+      sessionId: "ses_read",
+      mode: "read",
+    });
+    await materializeLaunch(plan, "tok", {
+      write: async (file: string, body: string) => void writes.set(file, body),
+      remove: async () => {},
+      mkdir: async () => {},
+    });
+    const patch = writes.get(plan.paths.patchFile) ?? "";
+    expect(patch).not.toContain("inputModalities");
+    expect(patch).not.toContain("retryPolicy");
+  });
+});

@@ -277,6 +277,18 @@ export async function materializeLaunch(
             "      - id: " + JSON.stringify(plan.options.model),
             "        name: " + JSON.stringify(plan.options.model),
             "        inputModalities: [text, image]",
+            // 模型偶尔把工具参数写成非法 JSON（MALFORMED_RESPONSE）。这是运行时可重试的：
+            // 由 DSH 自己重发同一条请求，不用我们伪造一句「请重发」冒充用户说话。
+            "    retryPolicy:",
+            "      mode: normal",
+            "      maxRetries: 2",
+            "      retryableCodes:",
+            "        - EMPTY_RESPONSE",
+            "        - RATE_LIMIT",
+            "        - SERVER",
+            "        - TIMEOUT",
+            "        - TRANSPORT",
+            "        - MALFORMED_RESPONSE",
           ]
         : []),
       "- id: web",
