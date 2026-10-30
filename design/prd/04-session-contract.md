@@ -51,3 +51,9 @@
 ## 6. S5 的验法
 
 会话表里存 `last_used_at`（空闲起点）和 `created_at`（绝对起点）。验收时 Claude 直接在本地库里把这两个时间往前改，再在页面上访问，不需要额外脚本或开发接口。DSH 用单元测试覆盖时钟逻辑。
+
+## 7. 服务端实现（DSH 记，供验收参考）
+
+- 会话表 `browser_session`：`account_id`、`token_hash`（Cookie 标识的 SHA-256，库里不存明文）、`created_at`（绝对期限起点）、`last_used_at`（空闲起点）、`revoked_at`。空闲 30 天、绝对 90 天由这两个时间算出，只有登录、`GET /auth/session`、`POST /auth/touch` 会写 `last_used_at`。
+- `/v1/*`（含 `/v1/stream`）只认 `rl_session` Cookie；不带 Cookie 或带上旧 `Authorization: Bearer` 一律 401 `NO_SESSION`。写操作要求 `Origin` 同源且带 `X-ReinLab-CSRF: 1`。Agent 运行认证（`/kernel/*` 的运行令牌）不受影响。
+- S5 验法：`update browser_session set last_used_at = now() - interval '31 days'` 或 `set created_at = now() - interval '91 days'`，再在页面访问即要求重新登录；把两个时间改回现在，同一 Cookie 又能用。

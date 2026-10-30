@@ -45,17 +45,3 @@ it("an old in-flight load cannot replace a newer account cache", async () => {
   await expect(adapter.evidence("event:17")).rejects.toThrow(); expect(api).not.toHaveBeenCalled();
   await adapter.evidence("event:18"); expect(api).toHaveBeenCalledTimes(1);
 });
-
-it("a pending login for B immediately stops API requests carrying A credentials", async () => {
-  vi.resetModules(); let logins = 0, finish!: (r: Response) => void; const observed: Array<string | null> = [];
-  const session = (label: string) => ({ accountId: label, accessToken: "synthetic-" + label, refreshToken: "synthetic-refresh-" + label, expiresIn: 3600 });
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
-    if (url.endsWith("/auth/login")) return ++logins === 1 ? Response.json(session("a")) : new Promise<Response>(resolve => { finish = resolve; });
-    observed.push(new Headers(init.headers).get("authorization")); return Response.json({ ok: true });
-  }));
-  try {
-    const live = await import("../../../src/data/research-live"); await live.login("a@example.invalid", "synthetic password");
-    const next = live.login("b@example.invalid", "synthetic password"); await expect(live.api("/v1/me")).rejects.toThrow(); expect(observed.length).toBe(0);
-    finish(Response.json(session("b"))); await next; await live.api("/v1/me"); expect(observed.length === 1 && observed[0] === "Bearer synthetic-b").toBe(true);
-  } finally { vi.unstubAllGlobals(); }
-});

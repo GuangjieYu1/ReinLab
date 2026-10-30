@@ -1,5 +1,5 @@
 import pg from "pg";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { Database } from "../src/db/database";
 import { applyMigrations } from "../src/db/migrate";
@@ -50,6 +50,15 @@ export async function kernelFixture(options?: { chosenPaperId?: string }) {
       ),
     ],
   );
+  /** 浏览器会话（第 5 项）：直接建一条会话行，返回请求要带的 Cookie。 */
+  const sessionCookie = async () => {
+    const token = randomBytes(32).toString("base64url");
+    await admin.query("select reinlab_session_open($1,$2)", [
+      account,
+      createHash("sha256").update(token).digest("hex"),
+    ]);
+    return "rl_session=" + token;
+  };
   const catalog: CapabilityCatalog = await loadCapabilityCatalog();
   const context = {
     claims: { account, dossier, run, role: "research-read" },
@@ -65,6 +74,7 @@ export async function kernelFixture(options?: { chosenPaperId?: string }) {
     run,
     catalog,
     context,
+    sessionCookie,
     async close() {
       await pool.end();
       await admin.end();

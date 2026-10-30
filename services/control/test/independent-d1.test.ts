@@ -1,8 +1,7 @@
 import { EventEmitter } from 'node:events';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import pg from 'pg';
-import { SignJWT } from 'jose';
 import { describe, expect, it, vi } from 'vitest';
 import { Database } from '../src/db/database';
 import { createApp } from '../src/api/app';
@@ -168,11 +167,15 @@ describe('D-1 独立恢复边界', () => {
       await applyMigrations(admin, path.resolve('infra/supabase/migrations'));
       await admin.query('insert into account(id,display_name) values($1,$2),($3,$4)', [a, 'independent A', b, 'independent B']);
       const app = await createApp({ pool: wrappedPool, auth: { issuer, secret } });
-      async function request(sub: string, forgedAccount: string) {
-        const token = await new SignJWT({ role: 'authenticated', account_id: forgedAccount }).setProtectedHeader({ alg: 'HS256' }).setSubject(sub).setIssuer(issuer).setAudience('authenticated').setIssuedAt().setExpirationTime('1h').sign(secret);
-        return app.request('/v1/me', { headers: { Authorization: `Bearer ${token}` } });
+      // 浏览器会话（第 5 项）：用真实会话行换 Cookie，不再有可伪造的 Bearer 主体。
+      async function sessionCookie(sub: string) {
+        const token = randomBytes(32).toString('base64url');
+        await admin.query('select reinlab_session_open($1,$2)', [sub, createHash('sha256').update(token).digest('hex')]);
+        return 'rl_session=' + token;
       }
-      const recovered = await request(a, b);
+      const cookieA = await sessionCookie(a), cookieB = await sessionCookie(b);
+      const request = (cookie: string) => app.request('/v1/me', { headers: { Cookie: cookie } });
+      const recovered = await request(cookieA);
       expect(recovered.status).toBe(200);
       expect((await recovered.json()).id).toBe(a);
       // 账户存在性中间件借用两次（含恢复），/me 路由再借用一次。
@@ -184,12 +187,13 @@ describe('D-1 独立恢复边界', () => {
         expect(rows).toEqual([{ id: a }]);
         expect((await client.query('select id from account where id=$1', [b])).rowCount).toBe(0);
       });
-      const other = await request(b, a);
+      const other = await request(cookieB);
       expect(other.status).toBe(200);
       expect((await other.json()).id).toBe(b);
       expect((await appPool.query('select id from account')).rowCount).toBe(0);
     } finally {
       await appPool.end();
+      await admin.query('delete from browser_session where account_id=any($1::uuid[])', [[a, b]]);
       await admin.query('delete from account where id=any($1::uuid[])', [[a, b]]);
       await admin.end();
     }

@@ -1,8 +1,7 @@
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { SignJWT } from 'jose';
 import { spawn } from 'node:child_process';
 import { AccountProfile, Dossier, DossierDetail } from '@reinlab/contracts';
 import { createApp } from '../src/api/app';
@@ -17,22 +16,31 @@ const admin=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL??'postgr
 const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL_APP??'postgres://reinlab_app@127.0.0.1:55432/reinlab_test',max:4});
 const secret=randomBytes(48),issuer='http://127.0.0.1/reinlab/auth/v1',A=randomUUID(),B=randomUUID();
 let app: Awaited<ReturnType<typeof createApp>>,ta:string,tb:string;
-async function token(sub=A,changes:Record<string,unknown>={},key:Uint8Array=secret){return new SignJWT({role:'authenticated',...changes}).setProtectedHeader({alg:'HS256',typ:'JWT'}).setSubject(sub).setIssuer(issuer).setAudience('authenticated').setIssuedAt().setExpirationTime('1h').sign(key);}
-function headers(jwt=ta,key?:string){return {'Authorization':`Bearer ${jwt}`,'Content-Type':'application/json',...(key?{'Idempotency-Key':key}:{})};}
-async function create(title:string,jwt=ta,key=randomUUID()){return app.request('/v1/dossiers',{method:'POST',headers:headers(jwt,key),body:JSON.stringify({title})});}
-beforeAll(async()=>{await applyMigrations(admin,path.resolve('infra/supabase/migrations'));await admin.query('insert into account(id,display_name) values($1,\'A\'),($2,\'B\')',[A,B]);ta=await token();tb=await token(B);app=await createApp({pool,auth:{issuer,secret}});},30000);
+/** 直接建一条浏览器会话（地基第 5 项）：登录流程本身由 session-api.test.ts 覆盖。 */
+async function issueSession(account:string){
+  const token=randomBytes(32).toString('base64url');
+  await admin.query('select reinlab_session_open($1,$2)',[account,createHash('sha256').update(token).digest('hex')]);
+  return 'rl_session='+token;
+}
+function headers(cookie=ta,key?:string){return {Cookie:cookie,Origin:'http://localhost','X-ReinLab-CSRF':'1','Content-Type':'application/json',...(key?{'Idempotency-Key':key}:{})};}
+async function create(title:string,cookie=ta,key=randomUUID()){return app.request('/v1/dossiers',{method:'POST',headers:headers(cookie,key),body:JSON.stringify({title})});}
+beforeAll(async()=>{await applyMigrations(admin,path.resolve('infra/supabase/migrations'));await admin.query('insert into account(id,display_name) values($1,\'A\'),($2,\'B\')',[A,B]);ta=await issueSession(A);tb=await issueSession(B);app=await createApp({pool,auth:{issuer,secret}});},30000);
 afterAll(async()=>{await pool.end();await admin.end();});
 describe('控制面 API',()=>{
-  it('缺JWT被拒且错误中文可读',async()=>{const r=await app.request('/v1/me');expect(r.status).toBe(401);const b=await r.json();expect(b.code).toBe('AUTH_REQUIRED');expect(b.message).toMatch(/[\u4e00-\u9fff]/);});
+  it('没有会话 Cookie 时 401 NO_SESSION，错误中文可读',async()=>{const r=await app.request('/v1/me');expect(r.status).toBe(401);const b=await r.json();expect(b.code).toBe('NO_SESSION');expect(b.message).toMatch(/[\u4e00-\u9fff]/);});
+  it('业务请求不顺延空闲期限：只有恢复会话才更新 last_used_at',async()=>{
+    const cookie=await issueSession(A),hash=createHash('sha256').update(cookie.slice('rl_session='.length)).digest('hex');
+    const lastUsed=async()=>new Date((await admin.query('select last_used_at from browser_session where token_hash=$1',[hash])).rows[0].last_used_at).getTime();
+    const before=await lastUsed();
+    expect((await app.request('/v1/me',{headers:{Cookie:cookie}})).status).toBe(200);
+    expect((await app.request('/v1/dossiers',{headers:{Cookie:cookie}})).status).toBe(200);
+    expect(await lastUsed()).toBe(before);
+    await new Promise(resolve=>setTimeout(resolve,10));
+    expect((await app.request('/auth/session',{headers:{Cookie:cookie}})).status).toBe(200);
+    expect(await lastUsed()).toBeGreaterThan(before);
+  });
   it('账户响应符合共享契约',async()=>expect(AccountProfile.safeParse(await(await app.request('/v1/me',{headers:headers()})).json()).success).toBe(true));
-  it('已验签但未注册账户不可写入',async()=>{const r=await create('未注册',await token(randomUUID()));expect(r.status).toBe(404);expect((await r.json()).code).toBe('ACCOUNT_NOT_READY');});
-  it('无效JWT格式和无效账户subject被拒',async()=>{expect((await app.request('/v1/me',{headers:{Authorization:'Basic nope'}})).status).toBe(401);expect((await app.request('/v1/me',{headers:headers(await token('not-a-uuid'))})).status).toBe(401);});
   it('JWT配置缺失或弱密钥拒绝启动',async()=>{await expect(createApp({pool,auth:{issuer:'',secret}})).rejects.toThrow('AUTH_CONFIG_INVALID');await expect(createApp({pool,auth:{issuer,secret:new Uint8Array(4)}})).rejects.toThrow('AUTH_CONFIG_INVALID');});
-  it('错签名被拒',async()=>expect((await app.request('/v1/me',{headers:headers(await token(A,{},randomBytes(48)))})).status).toBe(401));
-  it('拒绝过期JWT',async()=>{const jwt=await new SignJWT({role:'authenticated'}).setProtectedHeader({alg:'HS256'}).setSubject(A).setIssuer(issuer).setAudience('authenticated').setIssuedAt(1).setExpirationTime(2).sign(secret);expect((await app.request('/v1/me',{headers:headers(jwt)})).status).toBe(401);});
-  it.each([{role:'service_role'},{role:'anon'},{role:''}])('拒绝非用户角色 %#',async claims=>expect((await app.request('/v1/me',{headers:headers(await token(A,claims))})).status).toBe(401));
-  it('仅sub确定账户',async()=>{const r=await app.request('/v1/me',{headers:headers(await token(A,{account_id:B,user_metadata:{account_id:B}}))});expect(r.status).toBe(200);expect((await r.json()).id).toBe(A);});
-  it('错误issuer/audience拒绝',async()=>{for(const [iss,aud]of[[issuer+'/other','authenticated'],[issuer,'other']]){const jwt=await new SignJWT({role:'authenticated'}).setProtectedHeader({alg:'HS256'}).setSubject(A).setIssuer(iss).setAudience(aud).setIssuedAt().setExpirationTime('1h').sign(secret);expect((await app.request('/v1/me',{headers:headers(jwt)})).status).toBe(401);}});
   it('禁止管理员连接启动应用',async()=>{await expect(createApp({pool:admin,auth:{issuer,secret}})).rejects.toThrow('UNSAFE_DATABASE_ROLE');});
   it.each(['INHERIT','NOINHERIT'])('拒绝经成员关系取得owner权限 %s',async inheritance=>{
     const suffix=randomUUID().replaceAll('-',''),owner='guard_owner_'+suffix,derived='guard_app_'+suffix,table='guard_table_'+suffix,client=await admin.connect();
@@ -97,12 +105,13 @@ describe('控制面 API',()=>{
   it('Node22真实HTTP入口验签与优雅退出',async()=>{
     const envSecret=randomBytes(48).toString('base64url'),applicationName='reinlab_native_'+randomUUID().replaceAll('-','');
     const dbUrl=new URL(process.env.TEST_DATABASE_URL_APP??'postgres://reinlab_app@127.0.0.1:55432/reinlab_test');dbUrl.searchParams.set('application_name',applicationName);
-    const jwt=await token(A,{},new TextEncoder().encode(envSecret));
+    // 真实进程用同一份数据库：先写一条会话，再拿 Cookie 走真实 HTTP 入口。
+    const cookie=await issueSession(A),token=cookie.slice('rl_session='.length);
     const privateRoot=await realpath(await mkdtemp(path.join(tmpdir(),'reinlab-control-config-'))),configFile=path.join(privateRoot,'runtime.env');
     await writePrivateEnv(configFile,{PORT:'0',DATABASE_URL_APP:dbUrl.toString(),SUPABASE_URL:issuer.replace(/\/auth\/v1$/,''),SUPABASE_JWT_SECRET:envSecret,REINLAB_MCP_SIGNING_KEY_FILE:path.join(privateRoot,'mcp','signing.pem')});
     const child=spawn(process.execPath,['--import','tsx','--import','./services/control/test/fixtures/config-environment-audit.ts','services/control/src/main.ts'],{env:{PATH:process.env.PATH,HOME:process.env.HOME,NODE_ENV:'test',REINLAB_RUNTIME_CONFIG_FILE:configFile},stdio:['ignore','pipe','pipe']});
     let stderr='',phase='startup';
-    const sanitizeStderr=(text:string)=>String(scrub(text.split(envSecret).join('[REDACTED]').split(jwt).join('[REDACTED]').split(dbUrl.toString()).join('[REDACTED_DB]')));
+    const sanitizeStderr=(text:string)=>String(scrub(text.split(envSecret).join('[REDACTED]').split(token).join('[REDACTED]').split(dbUrl.toString()).join('[REDACTED_DB]')));
     child.stderr.on('data',chunk=>{stderr=(stderr+String(chunk)).slice(-24000);});
     try {
       const port=await new Promise<number>((resolve,reject)=>{
@@ -111,12 +120,12 @@ describe('控制面 API',()=>{
         child.stdout.on('data',chunk=>{for(const line of String(chunk).trim().split('\n')){try{const value=JSON.parse(line);if(value.code==='CONTROL_READY'){clearTimeout(timer);resolve(value.port);}}catch{}}});
       });
       phase='initial-request';
-      const r=await fetch(`http://127.0.0.1:${port}/v1/me`,{headers:headers(jwt)});
+      const r=await fetch(`http://127.0.0.1:${port}/v1/me`,{headers:{Cookie:cookie}});
       expect(r.status).toBe(200);expect((await r.json()).id).toBe(A);
       const terminated=await admin.query("select pg_terminate_backend(pid) stopped from pg_stat_activity where application_name=$1 and usename='reinlab_app' and state='idle'",[applicationName]);
       expect(terminated.rowCount).toBeGreaterThan(0);expect(terminated.rows.every(row=>row.stopped)).toBe(true);
       phase='immediate-idle-recovery';
-      const recovered=await fetch(`http://127.0.0.1:${port}/v1/me`,{headers:headers(jwt)});expect(recovered.status).toBe(200);expect((await recovered.json()).id).toBe(A);
+      const recovered=await fetch(`http://127.0.0.1:${port}/v1/me`,{headers:{Cookie:cookie}});expect(recovered.status).toBe(200);expect((await recovered.json()).id).toBe(A);
     } catch(error) {
       console.error(JSON.stringify({code:'CONTROL_NATIVE_TEST_FAILED',phase,stderr:sanitizeStderr(stderr).slice(-12000),exitCode:child.exitCode,signal:child.signalCode}));
       throw error;

@@ -1,4 +1,9 @@
 import { registerSession, type SessionPort } from "./session";
+import {
+  BrowserSessions,
+  assertSameOriginWrite,
+  requireAccount,
+} from "./browser-session";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
@@ -50,7 +55,10 @@ export async function createApp(options: {
     );
   const database = new Database(options.pool);
   await database.assertSafeRole();
-  const verify = createVerifier(options.auth);
+  // 浏览器不再用 Bearer 认身份（越权入口整个去掉）。这里仍校验 JWT 配置：
+  // 半套配置直接拒绝启动，不让它以「反正不用」的名义留在运行态。
+  createVerifier(options.auth);
+  const sessions = new BrowserSessions(options.pool);
   const app = new Hono<ApiEnv>();
   app.use("*", secureHeaders());
   app.use(
@@ -62,7 +70,10 @@ export async function createApp(options: {
     }),
   );
   app.use("/v1/*", async (c, next) => {
-    c.set("accountId", await verify(c.req.header("Authorization")));
+    // 全部业务接口（含 SSE）只认 HttpOnly 会话 Cookie；写操作另校验同源 + 防伪造头。
+    c.set("accountId", await requireAccount(c, sessions));
+    if (c.req.method !== "GET" && c.req.method !== "HEAD")
+      assertSameOriginWrite(c);
     const exists = await database.withAccount(c.get("accountId"), (client) =>
       client.query("select id from account where id=$1", [c.get("accountId")]),
     );
@@ -79,7 +90,7 @@ export async function createApp(options: {
   app.use("/internal/*", () => {
     throw new ApiFailure("SCOPE_DENIED", 403, "账户容器调用尚未通过验证。");
   });
-  if (options.session) registerSession(app, options.session);
+  registerSession(app, { identity: options.session, sessions });
   app.get("/health", (c) => c.json({ status: "ok" }));
   app.get("/v1/me", async (c) =>
     database.withAccount(c.get("accountId"), async (client) => {

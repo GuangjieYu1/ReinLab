@@ -1,6 +1,5 @@
 import { it, expect } from "vitest";
 import { randomUUID, randomBytes } from "node:crypto";
-import { SignJWT } from "jose";
 import { kernelFixture } from "./kernel-fixture";
 import { createApp } from "../src/api/app";
 import { requestApproval } from "../src/run/approval";
@@ -11,19 +10,14 @@ it("收件箱只显示一张下载审批，决定后内核卡片变为 approved 
     const secret = randomBytes(48),
       issuer = "https://kernel-inbox.fixture/auth/v1";
     const app = await createApp({ pool: f.pool, auth: { issuer, secret } });
-    const token = await new SignJWT({ role: "authenticated" })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuer(issuer)
-      .setAudience("authenticated")
-      .setSubject(f.account)
-      .setIssuedAt()
-      .setExpirationTime("1h")
-      .sign(secret);
+    const cookie = await f.sessionCookie();
     const request = (path: string, body?: unknown, key = randomUUID()) =>
       app.request(path, {
         method: body === undefined ? "GET" : "POST",
         headers: {
-          authorization: "Bearer " + token,
+          Cookie: cookie,
+          Origin: new URL(path, "http://localhost").origin,
+          "X-ReinLab-CSRF": "1",
           "content-type": "application/json",
           "Idempotency-Key": key,
         },

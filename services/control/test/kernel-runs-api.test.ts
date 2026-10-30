@@ -4,7 +4,6 @@ import { mkdtempSync } from "node:fs";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SignJWT } from "jose";
 import { kernelFixture } from "./kernel-fixture";
 import { createApp } from "../src/api/app";
 import { KernelAuth } from "../src/kernel/auth";
@@ -61,19 +60,14 @@ it("建立精读运行、读到已完成状态与内核事件，并可取消", a
       },
     });
     const app = await createApp({ pool: f.pool, auth: { issuer, secret }, kernel });
-    const token = await new SignJWT({ role: "authenticated" })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuer(issuer)
-      .setAudience("authenticated")
-      .setSubject(f.account)
-      .setIssuedAt()
-      .setExpirationTime("1h")
-      .sign(secret);
+    const cookie = await f.sessionCookie();
     const request = (path: string, body?: unknown) =>
       app.request(path, {
         method: body === undefined ? "GET" : "POST",
         headers: {
-          authorization: "Bearer " + token,
+          Cookie: cookie,
+          Origin: new URL(path, "http://localhost").origin,
+          "X-ReinLab-CSRF": "1",
           "content-type": "application/json",
           "Idempotency-Key": crypto.randomUUID(),
         },

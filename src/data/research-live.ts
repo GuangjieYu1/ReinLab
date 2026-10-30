@@ -98,6 +98,8 @@ async function finishLock() {
 }
 if (liveBackend && typeof window !== "undefined") {
   window.addEventListener("online", () => { void finishLock(); if (state === "offline") void restoreSession(); });
+  // 本地栈重启这类短暂断开：每 5 秒自己再试，不用人点「重试」
+  window.setInterval(() => { if (state === "offline") void restoreSession(); if (lockPending) void finishLock(); }, 5000);
   channel?.addEventListener("message", (e: MessageEvent) => {
     if (e.data?.type === "locked" && state !== "signedOut") become("signedOut");
     if (e.data?.type === "login" && state !== "active") { state = "restoring"; void restoreSession(); }

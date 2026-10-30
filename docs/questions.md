@@ -346,4 +346,4 @@ Q-099旧场景补充（2026-10-26）：恢复混沌原先经公开API新建档�
 
 澄清512 token改动发布为research@1.2.1，保留1.2.0原始清单与提示词以满足已有档案的版本冻结；账户A的四条旧澄清已按授权关闭，未定价用量保留未知及预算占用，新建精读使用新版本。
 
-papers_register 登记抽不出文本的扫描版 PDF 会在入档时 500：commitRegistration 写 status='parse_failed'，但 paper_asset_status_check 仍只允许 full_text/abstract_only（202610270003 只放开了许可校验）。修法是一行迁移放开该状态，papers.pages 已按非 full_text 返回 abstract_only，不涉及引用校验；本批未改，待确认。
+papers_register 登记抽不出文本的扫描版 PDF 会在入档时 500：commitRegistration 写 status='parse_failed'，但 paper_asset_status_check 仍只允许 full_text/abstract_only（202610270003 只放开了许可校验）。已由迁移 202611010001 放开该状态（仍按非 full_text 回 abstract_only，不涉及引用校验）。

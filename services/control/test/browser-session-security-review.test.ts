@@ -1,66 +1,52 @@
-import { it, expect, vi } from "vitest";
-const session = (accountId: string, label: string, expiresIn = 1) => ({ accountId, accessToken: "synthetic-access-" + label, refreshToken: "synthetic-refresh-" + label, expiresIn });
+import { expect, it, vi } from "vitest";
 
-it("logout cannot be undone by an earlier in-flight refresh", async () => {
+/**
+ * 浏览器会话（地基第 5 项）：页面里只有 HttpOnly Cookie，任何请求都不再带
+ * Authorization；写请求带防伪造头；401 按 code 退回登录。
+ */
+const session = (accountId: string) => ({ accountId, displayName: "synthetic", idleExpiresAt: "2026-12-01T00:00:00Z", absoluteExpiresAt: "2027-01-30T00:00:00Z" });
+
+it("登录后业务请求只带 Cookie，不带 Authorization；写请求带防伪造头", async () => {
   vi.resetModules();
-  let release!: (value: Response) => void, started!: () => void;
-  const refreshStarted = new Promise<void>(resolve => { started = resolve; });
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-    if (url.endsWith("/auth/login")) return Response.json(session("account-a", "a"));
-    if (url.endsWith("/auth/refresh")) { started(); return new Promise<Response>(resolve => { release = resolve; }); }
+  const seen: Array<{ url: string; auth: string | null; csrf: string | null }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
+    if (url.endsWith("/auth/login")) return Response.json(session("account-a"));
+    const headers = new Headers(init.headers);
+    seen.push({ url, auth: headers.get("authorization"), csrf: headers.get("X-ReinLab-CSRF") });
     return Response.json({ ok: true });
   }));
   try {
     const live = await import("../../../src/data/research-live");
     await live.login("a@example.invalid", "synthetic password");
-    const pending = live.api("/v1/me").catch(() => undefined);
-    await refreshStarted; live.logout(); release(Response.json(session("account-a", "a-refreshed", 3600))); await pending;
-    expect(live.loggedIn()).toBe(false);
-  } finally { vi.unstubAllGlobals(); }
-});
-
-it.each([true,false])("an earlier account refresh outcome (%s) cannot replace or clear a subsequent login", async successful => {
-  vi.resetModules();
-  let release!: (value: Response) => void, started!: () => void, loginCount = 0;
-  const auth: unknown[] = [], refreshStarted = new Promise<void>(resolve => { started = resolve; });
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
-    if (url.endsWith("/auth/login")) return Response.json(++loginCount === 1 ? session("account-a", "a") : session("account-b", "b", 3600));
-    if (url.endsWith("/auth/refresh")) { started(); return new Promise<Response>(resolve => { release = resolve; }); }
-    auth.push(new Headers(init.headers).get("authorization")); return Response.json({ ok: true });
-  }));
-  try {
-    const live = await import("../../../src/data/research-live");
-    await live.login("a@example.invalid", "synthetic password");
-    const pending = live.api("/v1/me").catch(() => undefined); await refreshStarted;
-    await live.login("b@example.invalid", "synthetic password"); release(Response.json(session("account-a", "a-refreshed", 3600), { status: successful ? 200 : 401 })); await pending;
     await live.api("/v1/me");
-    expect(auth.at(-1) === "Bearer synthetic-access-b").toBe(true);
+    await live.api("/v1/dossiers", { title: "x" });
+    expect(seen.map((r) => r.auth)).toEqual([null, null]);
+    // 读请求不需要防伪造头；写请求必须带。
+    expect(seen[0].csrf).toBeNull();
+    expect(seen[1].csrf).toBe("1");
   } finally { vi.unstubAllGlobals(); }
 });
 
-it("same-intent idempotency survives refresh and an ambiguous HTTP response", async () => {
-  vi.resetModules(); const keys: Array<string | null> = [];
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
-    if (url.endsWith("/auth/login")) return Response.json(session("account-a", "a"));
-    if (url.endsWith("/auth/refresh")) return Response.json(session("account-a", "a-refreshed", 3600));
-    keys.push(new Headers(init.headers).get("idempotency-key"));
-    if (keys.length === 1) throw Error("SYNTHETIC_REPLY_LOST");
-    return Response.json({ ok: true });
+it("读取 SSE 也用 Cookie：不带 Authorization，401 时清空登录态", async () => {
+  vi.resetModules();
+  let finish!: (r: Response) => void, streamInit: RequestInit | undefined;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
+    if (url.endsWith("/auth/login")) return Response.json(session("account-a"));
+    streamInit = init;
+    return new Promise<Response>((resolve) => { finish = resolve; });
   }));
   try {
     const live = await import("../../../src/data/research-live");
     await live.login("a@example.invalid", "synthetic password");
-    await live.decide("approval", "synthetic-id", { decision: "approve", scope: "once" }).catch(() => undefined);
-    await live.decide("approval", "synthetic-id", { decision: "approve", scope: "once" });
-    expect(keys.length === 2 && keys[0] !== null && keys[0] === keys[1]).toBe(true);
+    const pending = live.readEventStream("/v1/stream?bench=research", new AbortController().signal, 0);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const headers = new Headers(streamInit!.headers);
+    expect(headers.get("authorization")).toBeNull();
+    expect(headers.get("Last-Event-ID")).toBe("0");
+    expect(streamInit).toMatchObject({ credentials: "same-origin", cache: "no-store", redirect: "error" });
+    finish(Response.json({ code: "SESSION_EXPIRED" }, { status: 401 }));
+    await expect(pending).rejects.toThrow();
+    expect(live.loggedIn()).toBe(false);
+    expect(live.sessionState()).toBe("expired");
   } finally { vi.unstubAllGlobals(); }
-});
-it('read SSE keeps authentication in headers and cancels a previous-account response',async()=>{
- vi.resetModules();let finish!:(r:Response)=>void;const cancel=vi.fn();let streamInit:RequestInit|undefined;
- vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit)=>{if(url.endsWith('/auth/login'))return Response.json(session('account-a','a',3600));expect(url).toBe('/backend/v1/dossiers/fixture/events?view=read&after=7');streamInit=init;return new Promise<Response>(r=>finish=r);}));
- try{const live=await import('../../../src/data/research-live');await live.login('a@example.invalid','synthetic password');const abort=new AbortController();const pending=live.readEventStream('/v1/dossiers/fixture/events?view=read&after=7',abort.signal,7);await vi.waitFor(()=>expect(finish).toBeTypeOf('function'));const headers=new Headers(streamInit!.headers);expect(headers.get('authorization')).toBe('Bearer synthetic-access-a');expect(headers.get('Last-Event-ID')).toBe('7');expect(streamInit).toMatchObject({credentials:'omit',cache:'no-store',redirect:'error'});live.logout();finish(new Response(new ReadableStream({cancel})));await expect(pending).rejects.toThrow();expect(cancel).toHaveBeenCalledTimes(1);expect(live.loggedIn()).toBe(false);}finally{vi.unstubAllGlobals();}
-});
-it('read SSE 401 cancels the response and clears the memory session',async()=>{
- vi.resetModules();const cancel=vi.fn();vi.stubGlobal('fetch',vi.fn(async(url:string)=>url.endsWith('/auth/login')?Response.json(session('account-a','a',3600)):new Response(new ReadableStream({cancel}),{status:401})));
- try{const live=await import('../../../src/data/research-live');await live.login('a@example.invalid','synthetic password');await expect(live.readEventStream('/v1/dossiers/fixture/events?view=read',new AbortController().signal,0)).rejects.toThrow();expect(cancel).toHaveBeenCalledTimes(1);expect(live.loggedIn()).toBe(false);}finally{vi.unstubAllGlobals();}
 });
