@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import BenchFrame from '../../BenchFrame';
 import AgentDock, { type DockEvent } from '../../AgentDock';
 import Explorer, { type ExplorerSection, type ExplorerViewDef } from '../../engineering/Explorer';
+import { RichBlocks } from '../../richText';
 import type { BenchProps } from '../../WorkbenchStudio';
 import type { Basemap, LngLat, PendingChange, PlanUsage, Profile, Stop, Viewport, WeatherSuggestion, WeatherView } from '../../../../../packages/contracts/src/explore';
-import { ExploreError, type ChatItem, type ExploreAdapter, type MapConfig } from './adapter';
+import { ExploreError, type ChatItem, type ExploreAdapter, type MapConfig, type Place } from './adapter';
 import { useExplore } from './state';
 import LiveMap from './LiveMap';
 import LiveDayLine from './LiveDayLine';
@@ -28,6 +29,7 @@ const VIEWS: ExplorerViewDef[] = [
   { id: 'profiles', label: '资料', icon: <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5" /><path d="M5 20c1-4 4-6 7-6s6 2 7 6" /></svg> },
 ];
 const browserTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+const FIELD: Record<string, string> = { name: '名称', kind: '类型', geometry: '位置', day: '日期', window: '时段', reason: '理由', facing: '朝向', focal: '焦段', detail: '细节', refs: '参考' };
 
 export default function LiveExplore({ file, reduced, chrome, dossier, adapter }: BenchProps & { adapter: ExploreAdapter }) {
   const x = useExplore(adapter);
@@ -54,6 +56,10 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const [tzAsk, setTzAsk] = useState<string | null>(null);
   const [xpOpen, setXpOpen] = useState(true), [xpView, setXpView] = useState('plan');
   const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState<Place[] | null>(null);
+  const [focus, setFocus] = useState<{ at: LngLat; n: number } | null>(null);
+  const lastView = useRef<Viewport | null>(null);
   const plan = x.snap?.plan;
   const tz = plan?.destination?.timezone ?? browserTz();
   const day = plan?.days[dayIdx] ?? plan?.days[0] ?? new Date().toISOString().slice(0, 10);
@@ -68,7 +74,8 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   // 选中停留点时把播放头移到它的时段中间
   useEffect(() => { if (stop?.window) setT(Math.round((dateToLocal(stop.window.start, day, tz) + dateToLocal(stop.window.end, day, tz)) / 2)); }, [sel]); // eslint-disable-line react-hooks/exhaustive-deps
   // 已确认停留点变了，天气也要按新位置重取
-  const stopKey = plan?.stops.filter(s => s.state === 'confirmed').map(s => s.id + s.day).join() ?? '';
+  // 目的地、日期、停留点（含候选）变了都重取：一开始没目的地时取到的是失败
+  const stopKey = `${plan?.destination?.name ?? ''}|${plan?.days.join() ?? ''}|${plan?.stops.map(s => s.id + s.state + s.day).join() ?? ''}`;
   useEffect(() => { if (plan) void loadWeather(); }, [stopKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 天气 / 计划书 / 快照请求事件
@@ -99,6 +106,13 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     }
   };
 
+  // 地点搜索：带上地图中心（服务端要按附近找；国内走高德）
+  const search = async () => {
+    if (!q.trim()) return;
+    const near = lastView.current?.center ?? plan?.destination?.center;
+    try { setFound(await adapter.places(q.trim(), near)); }
+    catch (e) { setFound(null); setErr(e instanceof Error ? e.message : '没搜到'); }
+  };
   // —— 页面动作（点击即授权）——
   const keep = (id: string) => void x.run([{ op: 'stop.confirm', ids: [id] }], s => s.plan.stops.some(st => st.id === id && st.state === 'candidate'));
   const drop = (id: string) => void x.run([{ op: 'stop.remove', id }], s => s.plan.stops.some(st => st.id === id));
@@ -132,11 +146,20 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     } catch (e) { setPdf({ variant: v, state: 'failed', text: e instanceof Error ? e.message : '没生成' }); }
   };
 
+  const lastUser = [...chat].reverse().find((c): c is Extract<ChatItem, { kind: 'user' }> => c.kind === 'user')?.text;
   // —— 对话 + 操作记录：按出现先后排在一起 ——
   const order = useRef(new Map<string, number>()), seq = useRef(0);
   const seen = (id: string) => { if (!order.current.has(id)) order.current.set(id, seq.current++); return order.current.get(id)!; };
   const approvalOf = (c: PendingChange): DockEvent => ({ id: `ap:${c.approvalId}`, kind: 'approval', action: '修改计划', title: c.summary, risk: 'write', state: 'pending',
-    effects: c.changes.map(ch => { const name = plan?.stops.find(s => s.id === ch.stopId)?.name ?? ch.stopId; return ch.after === null ? `删除「${name}」` : ch.before === null ? `新增「${name}」` : `改「${name}」：${Object.keys(ch.after).join('、')}`; }),
+    effects: c.changes.map(ch => {
+      const name = (ch as { stopName?: string }).stopName ?? plan?.stops.find(s => s.id === ch.stopId)?.name ?? (ch.after as Partial<Stop> | null)?.name ?? ch.stopId;
+      if (ch.after === null) return `删除「${name}」`;
+      if (ch.before === null) return `新增「${name}」`;
+      // 只列真正变了的：状态从候选到已确认写成「确认」
+      const keys = Object.keys(ch.after).filter(k => JSON.stringify((ch.before as Record<string, unknown>)[k]) !== JSON.stringify((ch.after as Record<string, unknown>)[k]));
+      const parts = keys.map(k => k === 'state' ? ((ch.after as Partial<Stop>).state === 'confirmed' ? '确认' : '改为候选') : FIELD[k] ?? k);
+      return parts.length ? `${parts.includes('确认') && parts.length === 1 ? '确认' : '改'}「${name}」${parts.length === 1 && parts[0] === '确认' ? '' : '：' + parts.join('、')}` : `「${name}」没有变化`;
+    }),
     onApprove: () => void decide(c.approvalId, true), onReject: () => void decide(c.approvalId, false) });
   const events: DockEvent[] = useMemo(() => {
     if (!plan) return [];
@@ -144,8 +167,9 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     for (const c of chat) {
       const n = seen(`c:${c.id}`);
       if (c.kind === 'user') out.push([n, { id: c.id, kind: 'user', text: c.text, at: '' }]);
-      else if (c.kind === 'agent') out.push([n, { id: c.id, kind: 'agent', text: c.text, at: '' }]);
+      else if (c.kind === 'agent') out.push([n, { id: c.id, kind: 'agent', text: <RichBlocks text={c.text} />, at: '' }]);
       else if (c.kind === 'note') out.push([n, { id: c.id, kind: 'note', text: c.text, at: '' }]);
+      else if (c.kind === 'malformed') out.push([n, { id: c.id, kind: 'card', body: <div className="exl-malformed"><span>这一轮助手的工具参数没写对，什么都没改。</span>{lastUser && <button className="rh-btn" disabled={busy} onClick={() => send(lastUser)}>重试</button>}</div> }]);
       else if (c.kind === 'tool') { if (c.name) out.push([n, { id: c.id, kind: 'tool', action: c.name, label: c.label, state: c.state }]); }
       else if (c.kind === 'pending') out.push([n, approvalOf(c.change)]);
       else if (c.kind === 'refs') out.push([n, { id: c.id, kind: 'card', body: <div className="exl-refs is-chat">{x.snap!.refs.filter(r => c.refIds.includes(r.id)).map(r => <RefTile key={r.id} r={r} />)}</div> }]);
@@ -156,7 +180,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     for (const l of x.log) out.push([seen(`l:${l.id}`), { id: `l:${l.id}`, kind: 'note', text: `${l.actor === 'agent' ? '助手' : '你'} · ${l.text}`, at: '' }]);
     for (const p of x.pending) out.push([seen(`p:${p.approvalId}`), approvalOf(p)]);
     return out.sort((a, b) => a[0] - b[0]).map(e => e[1]);
-  }, [chat, x.log, x.pending, plan]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chat, x.log, x.pending, plan, busy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!x.snap || !plan) return <BenchFrame code="EXPL" section="006" file={file} reduced={reduced} chrome={chrome} face="plan" onFace={() => {}} faces={[{ id: 'plan', label: '计划', en: 'PLAN' }]} strip={<>读取中</>} status={<span>读取中</span>} shutterLines={() => ['> open plan', '> ready']}>
     <div className="de"><p>{x.error ?? '正在读取计划…'}</p>{x.error && <button className="rh-btn" onClick={() => void x.reload()}>重试</button>}</div>
@@ -167,7 +191,8 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const candidates = plan.stops.filter(s => s.state === 'candidate');
   const at = stop ? center(stop) : plan.destination?.center;
   const dl = at ? dayLight(day, tz, at[0], at[1]) : null;
-  const rainy = weather?.byStop.flatMap(g => g.hours).filter(h => (h.precipProb ?? 0) >= 40) ?? [];
+  const wxHours = weather ? (weather.byStop.length ? weather.byStop.flatMap(g => g.hours) : weather.destination?.hours ?? []) : [];
+  const rainy = wxHours.filter(h => (h.precipProb ?? 0) >= 40 && h.at.slice(0, 10) === day);
   const hasPeople = plan.people.length > 0 || plan.kinds.includes('portrait');
   const pendingSug = sugs.filter(s => s.state === 'pending');
   const stateText = { draft: '草拟', ready: '待执行', finished: '已结束', cancelled: '已取消' }[plan.state];
@@ -214,9 +239,13 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     <LiveMap cfg={cfg} plan={plan} canvas={x.snap.canvas} basemap={basemap} selected={sel} onSelect={id => { setSel(id); setPop(null); }}
       day={day} tz={tz} minutes={t} horizonAlt={(id, az) => horizonAt(plan.stops.find(s => s.id === id)?.light?.horizon, az)} initialView={x.snap.lastViewport} camera={x.camera}
       following={following} onFollow={setFollowing} onBasemap={b => setBasemap(b)}
-      onView={(v: Viewport) => adapter.saveView(v, basemap)} onMapClick={(at, s) => setPop({ at, x: s.x, y: s.y })} />
+      focus={focus} onView={(v: Viewport) => { lastView.current = v; adapter.saveView(v, basemap); }} onMapClick={(at, s) => setPop({ at, x: s.x, y: s.y })} />
     <div className="exl-maptools">
-      <div className="ex-seg"><button aria-pressed={basemap === 'vector'} onClick={() => setBasemap('vector')}>矢量</button><button aria-pressed={basemap === 'satellite'} disabled={!cfg.satellite} title={cfg.satellite ? '历史影像，不是实时' : '卫星图没有配置'} onClick={() => setBasemap('satellite')}>卫星</button></div>
+      {cfg.satellite && cfg.basemaps?.satellite !== false && <div className="ex-seg"><button aria-pressed={basemap === 'vector'} onClick={() => setBasemap('vector')}>矢量</button><button aria-pressed={basemap === 'satellite'} title="历史影像，不是实时" onClick={() => setBasemap('satellite')}>卫星</button></div>}
+      <form className="exl-search" onSubmit={e => { e.preventDefault(); void search(); }}>
+        <input value={q} onChange={e => { setQ(e.target.value); if (!e.target.value) setFound(null); }} placeholder="搜地点" aria-label="搜地点" />
+        {found && <ul>{found.length === 0 ? <li className="dm-empty">没找到</li> : found.map((f, i) => <li key={i}><button type="button" onClick={() => { setFocus(v => ({ at: f.at, n: (v?.n ?? 0) + 1 })); setFound(null); }}><b>{f.name}</b><small>{f.address ?? ''} · {f.source.name}</small></button></li>)}</ul>}
+      </form>
       {!following && <button className="rh-btn is-solid" onClick={() => setFollowing(true)}>跟随助手</button>}
       {x.snap.canvas.length > 0 && <button className="rh-btn" title="撤回最近一笔画布改动（包括助手画的）" onClick={() => void x.run([{ op: 'canvas.undo' }])}>撤回草图</button>}
     </div>
@@ -233,7 +262,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const banners: ReactNode = <div className="exl-banners">
     {pendingSug.map(s => <div key={s.id} className="exl-sug">
       <b>天气变了：{s.summary}</b>
-      <ul>{s.changes.map(c => { const n = plan.stops.find(x => x.id === c.stopId)?.name ?? c.stopId; return <li key={c.stopId}><b>{n}</b>：{c.why}<small>{Object.keys(c.after).map(k => `${k} ${JSON.stringify((c.before as Record<string, unknown>)[k] ?? '—')} → ${JSON.stringify((c.after as Record<string, unknown>)[k])}`).join('；')}</small></li>; })}</ul>
+      <ul>{s.changes.map(c => { const n = c.stopName ?? plan.stops.find(x => x.id === c.stopId)?.name ?? c.stopId; return <li key={c.stopId}><b>{n}</b>：{c.why}<small>{Object.keys(c.after).map(k => `${k} ${JSON.stringify((c.before as Record<string, unknown>)[k] ?? '—')} → ${JSON.stringify((c.after as Record<string, unknown>)[k])}`).join('；')}</small></li>; })}</ul>
       <div><button className="rh-btn is-solid" onClick={() => void decide(s.id, true)}>应用</button><button className="rh-btn" onClick={() => void decide(s.id, false)}>不用</button></div>
     </div>)}
     {x.notice && <p className="dm-msg exl-notice" role="status">{x.notice}<button className="dm-link" onClick={() => x.setNotice(null)}>知道了</button></p>}

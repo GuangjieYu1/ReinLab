@@ -69,6 +69,7 @@ type Props = {
   basemap: Basemap; selected: string | null; onSelect: (id: string) => void;
   day: string; tz: string; minutes: number; horizonAlt: (stopId: string, az: number) => number | null;
   initialView: Viewport | null; camera: { viewport: Viewport; basemap?: Basemap; n: number } | null;
+  focus?: { at: LngLat; n: number } | null;   // 页面要求飞到某处（搜索结果）：飞完在那里弹出操作
   following: boolean; onFollow: (v: boolean) => void; onBasemap: (b: Basemap) => void;
   onView: (v: Viewport) => void; onMapClick: (at: LngLat, screen: { x: number; y: number }) => void;
 };
@@ -102,6 +103,8 @@ export default function LiveMap(p: Props) {
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
     map.on('style.load', () => { addOverlays(map); ready.current = true; refresh(); });
+    // 一加载就报一次视野：页面搜地点要用地图中心
+    map.once('load', () => { const c = map.getCenter(); latest.current.onView({ center: [c.lng, c.lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() }); });
     map.on('zoomend', refresh);
     // 用户自己动了地图：不再跟随助手（助手的视野变化没有 originalEvent）
     map.on('movestart', e => { if ((e as { originalEvent?: unknown }).originalEvent) latest.current.onFollow(false); });
@@ -125,6 +128,17 @@ export default function LiveMap(p: Props) {
 
   useEffect(refresh, [p.plan, p.canvas, p.selected, p.minutes, p.day, p.tz]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 计划第一次有了停留点 / 刚定了目的地：跟随状态下飞过去对准（助手没发视野事件时也不至于停在全国图）
+  const had = useRef({ stops: p.plan.stops.length, dest: p.plan.destination?.name ?? null });
+  useEffect(() => {
+    const map = mapRef.current; if (!map) return;
+    const prev = had.current, dest = p.plan.destination?.name ?? null;
+    had.current = { stops: p.plan.stops.length, dest };
+    if (!p.following) return;
+    if (prev.stops === 0 && p.plan.stops.length > 0) { const b = planBounds(p.plan); if (b) map.fitBounds(b, { padding: 90, maxZoom: 16, duration: 900 }); }
+    else if (!prev.dest && dest && p.plan.stops.length === 0 && p.plan.destination) map.flyTo({ center: p.plan.destination.center, zoom: 12, duration: 900 });
+  }, [p.plan.stops.length, p.plan.destination?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 选中的停留点落在右侧卡片底下或画面外：把它挪到左边可见处（卡片约 300px 宽）
   useEffect(() => {
     const map = mapRef.current, st = p.plan.stops.find(s => s.id === p.selected);
@@ -141,6 +155,13 @@ export default function LiveMap(p: Props) {
     if (!p.following) return;
     map.easeTo({ center: c.viewport.center, zoom: c.viewport.zoom, bearing: c.viewport.bearing, pitch: c.viewport.pitch, duration: 800 });
   }, [p.camera?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 搜索结果：飞过去，到了在那个位置弹出「问助手 / 加笔记」
+  useEffect(() => {
+    const map = mapRef.current, f = p.focus; if (!map || !f) return;
+    map.flyTo({ center: f.at, zoom: Math.max(map.getZoom(), 15.5), duration: 900 });
+    map.once('moveend', () => { const pt = map.project(f.at); latest.current.onMapClick(f.at, { x: pt.x, y: pt.y }); });
+  }, [p.focus?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div className="exl-map" ref={box} />;
 }

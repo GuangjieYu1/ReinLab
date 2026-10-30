@@ -57,7 +57,9 @@ export function createClient(config, fetchImpl = fetch) {
         pending: false,
         error: {
           code: String(body.code ?? body.error ?? `KERNEL_TOOL_HTTP_${response.status}`),
-          message: String(body.message ?? body.error ?? `工具返回 ${response.status}`),
+          // 服务端说明的原因原样带回（比如要用户先确认），模型才知道下一步该问谁
+          message: String(body.message ?? body.reason ?? body.error ?? `工具返回 ${response.status}`),
+          ...(body.state ? { state: body.state } : {}),
           status: response.status,
         },
       };

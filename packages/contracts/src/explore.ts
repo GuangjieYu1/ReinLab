@@ -110,6 +110,8 @@ export type WeatherHour = { at: string; cloud: number | null; precipProb: number
 export type StopWeather = {
   stopId: string; at: LngLat;                     // 取预报用的位置（area 取中心，写明）
   hours: WeatherHour[];                           // 覆盖该停留点完整时段（跨午夜不截断），前后各多给 2 小时
+  state?: 'ok' | 'out_of_range' | 'failed';       // 这个停留点自己的状态（不同日期可能不同）
+  fromDate?: string;                              // out_of_range 时：预计哪天起能查到
 };
 export type WeatherView = {
   state: 'ok' | 'out_of_range' | 'failed';        // out_of_range = 日期还不在预报范围内
@@ -122,7 +124,7 @@ export type WeatherSuggestion = {
   id: string;                                     // 同时是收件箱审批 id
   forRevision: number;
   summary: string;
-  changes: { stopId: string; before: Partial<Stop>; after: Partial<Stop>; why: string }[];
+  changes: { stopId: string; stopName?: string; before: Partial<Stop>; after: Partial<Stop>; why: string }[];
   state: 'pending' | 'applied' | 'dismissed' | 'stale';   // stale = 计划已被改过，不再适用
 };
 

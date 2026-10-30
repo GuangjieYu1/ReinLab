@@ -40,6 +40,7 @@ export function mapExploreEvent(e: KernelEvent): ChatItem[] {
       if (Array.isArray(r?.refIds) && r.refIds.length) out.push({ id: `${id}:r`, kind: 'refs', refIds: r.refIds.map(String) });
       return out;
     }
+    case 'run/malformed-tool-json': return [{ id: `m${e.seq}`, kind: 'malformed' }];
     default: return [];
   }
 }

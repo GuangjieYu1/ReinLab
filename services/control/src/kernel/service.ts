@@ -399,7 +399,12 @@ export class KernelService {
     prompt: string,
   ): Promise<{ started: boolean }> {
     try {
-      await this.submit(account, runId, { prompt });
+      // 续接要沿用这次运行原来的档位：不带 mode 会落到精读档，换了会话也换了工具
+      // （探索规划批准后续接，助手拿到的是精读工具、看不到计划）。
+      const mode = await this.dependencies.db.withAccount(account, async (client) =>
+        (await client.query("select mode from run where id=$1 and account_id=$2", [runId, account])).rows[0]?.mode as string | undefined,
+      );
+      await this.submit(account, runId, { prompt, ...(mode === "explore" || mode === "assist" ? { mode } : {}) });
       return { started: true };
     } catch (error) {
       // 会话还被占着或这一段已经收尾：如实留给用户，不静默假装续上。

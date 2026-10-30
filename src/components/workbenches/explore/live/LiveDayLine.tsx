@@ -58,7 +58,8 @@ export default function LiveDayLine({ plan, day, tz, selected, onSelect, t, onT,
         {!at && <em className="exl-dl-empty">先定目的地，才能算光线</em>}
       </div>
       <div className="dl-wx">
-        {weather?.state === 'out_of_range' ? <em className="exl-dl-empty">还没进入预报范围，进入后自动拉取</em>
+        {(group as { state?: string } | null)?.state === 'out_of_range' || (!group && weather?.state === 'out_of_range') ? <em className="exl-dl-empty">还没进入预报范围{(group as { fromDate?: string } | null)?.fromDate ? `，约 ${(group as { fromDate?: string }).fromDate} 起可查` : ''}，进入后自动拉取</em>
+          : !at ? <em className="exl-dl-empty">先定目的地，才能查天气</em>
           : weather?.state === 'failed' ? <em className="exl-dl-empty">这次没取到天气，后台会再试</em>
           : hours.length === 0 ? <em className="exl-dl-empty">{weather ? '这个时段没有预报数据' : '天气读取中…'}</em>
           : hours.map(({ w, m }) => <span key={w.at} style={{ left: X(m), width: W(60) }} data-rain={(w.precipProb ?? 0) >= 40 || undefined}

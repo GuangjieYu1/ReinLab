@@ -16,6 +16,8 @@ export type MapConfig = {
   satellite: { tilejson: string; attribution: string } | null;
   contours: { tilejson: string } | null;
   publicKey: string | null;
+  basemaps?: { vector: boolean; satellite: boolean; contours: boolean };
+  outOfScope?: string[];                                      // 第一版不做的（卫星、等高线）：页面直接不显示
 };
 
 /** 服务端推来的探索事件（契约第 4 节）。 */
@@ -34,7 +36,9 @@ export type ChatItem =
   | { id: string; kind: 'stops'; stopIds: string[] }
   | { id: string; kind: 'pending'; change: PendingChange }
   | { id: string; kind: 'refs'; refIds: string[] }
-  | { id: string; kind: 'note'; text: string };
+  | { id: string; kind: 'note'; text: string }
+  /** 模型这一轮吐了非法的工具参数，什么都没发生：显示一行提示 + 重试（重发同一句）。 */
+  | { id: string; kind: 'malformed' };
 
 export type ChatSession = {
   load(): Promise<void>;
