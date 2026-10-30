@@ -62,6 +62,22 @@ const readable = (error: unknown) => {
   return message;
 };
 
+/** 出处显示：优先来源站点（域名），没有来源就用 DOI；都没有返回 null，保持「来源未知」。 */
+export function provenanceLabel(p?: { source?: string | null; doi?: string | null } | null): string | null {
+  const source = String(p?.source ?? "").trim();
+  if (source) {
+    try {
+      return new URL(source).hostname.replace(/^www\./, "");
+    } catch {
+      /* 不是网址就照实显示原文 */
+    }
+    if (/^https?:\/\//i.test(source)) return null;
+    return source.slice(0, 120);
+  }
+  const doi = String(p?.doi ?? "").trim();
+  return doi ? "DOI " + doi : null;
+}
+
 const empty = (message?: string): ReadSnapshot => ({
   dossier: { id: "", title: "新的精读" },
   paper: null,
@@ -135,12 +151,14 @@ export function createLiveReadAdapter(
     snapshot.paper = merged;
     emit({ type: "paper", paper: merged });
   };
-  /** 结果里没带标题（比如只读了页）：按档案里登记的论文补标题，档案名也重读一次（入档会自动改名）。 */
+  /** 结果里没带标题（比如只读了页）：按档案里登记的论文补标题和出处，档案名也重读一次（入档会自动改名）。 */
   const hydrateTitle = async (assetId: string) => {
     if (!dossier) return;
     try {
       const [arts, d] = await Promise.all([
-        ports.api(`/v1/dossiers/${dossier}/artifacts`) as Promise<{ items?: { id: string; kind: string; title: string }[] }>,
+        ports.api(`/v1/dossiers/${dossier}/artifacts`) as Promise<{
+          items?: { id: string; kind: string; title: string; provenance?: { source: string | null; doi: string | null } }[];
+        }>,
         ports.api(`/v1/dossiers/${dossier}`) as Promise<{ title?: string; nameSource?: string }>,
       ]);
       const hit = arts?.items?.find((x) => x.kind === "paper" && x.id === assetId) ?? arts?.items?.find((x) => x.kind === "paper");
@@ -148,6 +166,10 @@ export function createLiveReadAdapter(
       // 成果里没有这篇时：档案名是按论文自动起的，就用它（就是这篇的标题）。
       const named = hit?.title ?? (d?.nameSource === "paper" ? d.title : undefined);
       if (paperView?.id === assetId && named) paperView = { ...paperView, title: named };
+      // 工作区登记的论文没有会场信息：出处用成果里的来源站点或 DOI，照实显示。
+      const from = provenanceLabel(hit?.provenance);
+      if (paperView?.id === assetId && from && (!paperView.venue || paperView.venue === "来源未知"))
+        paperView = { ...paperView, venue: from };
       emitPaper();
     } catch {
       /* 拿不到就保持原样 */
@@ -172,7 +194,7 @@ export function createLiveReadAdapter(
       };
       sections.clear();
       emitPaper();
-      if (result.title == null) void hydrateTitle(assetId);
+      if (result.title == null || result.venue == null) void hydrateTitle(assetId);
     }
     if (Array.isArray(result.pages)) {
       for (const page of result.pages) {

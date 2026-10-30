@@ -55,12 +55,15 @@ export type Dossier = DossierSummary & {
 };
 
 export type ArtifactKind = 'paper' | 'layer' | 'finding' | 'quiz' | 'course_plan' | 'course' | 'file';
+/** 论文出处：来源地址和 DOI 都可能没有，照实留 null，不编造。 */
+export type Provenance = { source: string | null; doi: string | null };
 export type Artifact = {
   id: string; dossierId: string; kind: ArtifactKind;
   title: string; runId: string | null;   // 导入的可以没有来源任务
   version: number; createdAt: string;
   status: 'available' | 'missing';       // 文件/课程不可访问时 missing，照实说，不填示例
   open: OpenTarget;
+  provenance?: Provenance;               // 只有 paper 带：阅读区显示出处用
 };
 
 /** 打开入口：前端据此路由，不拼 URL。 */

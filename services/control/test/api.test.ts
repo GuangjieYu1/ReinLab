@@ -54,6 +54,26 @@ describe('控制面 API',()=>{
   it('同键JSON字段顺序和默认值归一化',async()=>{const key=randomUUID();const first=await(await create('归一化',ta,key)).json();const second=await app.request('/v1/dossiers',{method:'POST',headers:headers(ta,key),body:'{"bench":"research","title":"归一化"}'});expect(await second.json()).toEqual(first);});
   it('有效档案与详情符合共享契约',async()=>{const d=await(await create('契约档案')).json();expect(Dossier.safeParse(d).success).toBe(true);const detail=await(await app.request('/v1/dossiers/'+d.id,{headers:headers()})).json();// 第 4 项契约（§2）起，详情返回的就是 Dossier 本身。
  expect(Dossier.safeParse(detail).success).toBe(true);});
+  it('成果列表包含论文、讲解层、发现卡和课程，论文带出处',async()=>{
+    const d=await(await create('成果档案')).json(),runId=randomUUID(),assetId=randomUUID();
+    await admin.query(`insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input) values($1,$2,$3,'research-read','read',$4,'running',1,'{}')`,[runId,A,d.id,randomUUID()]);
+    await admin.query(`insert into paper_asset(id,account_id,dossier_id,run_id,paper_id,source,license,status,is_open_access,sha256,path,abstract,view_metadata)
+      values($1,$2,$3,$4,'arxiv:2302.04761','https://arxiv.org/pdf/2302.04761',null,'full_text',true,$5,'papers/x.pdf','','{"title":"Toolformer","doi":"10.1000/xyz"}')`,
+      [assetId,A,d.id,runId,'a'.repeat(64)]);
+    for(const [cardId,cardType,card] of [['c-layer','layer',{title:'第 1 层：动机'}],['c-find','finding',{text:'发现：这一步可以省掉'}]])
+      await admin.query(`insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key) values($1,$2,$3,'card','card_created',$4,$5)`,
+        [A,d.id,runId,JSON.stringify({cardId,cardType,card}),'test-card:'+cardId]);
+    await admin.query(`insert into dossier_artifact(account_id,dossier_id,kind,title) values($1,$2,'course','课程 A')`,[A,d.id]);
+    const items=(await(await app.request(`/v1/dossiers/${d.id}/artifacts`,{headers:headers()})).json()).items;
+    expect(items.map((x:any)=>x.kind).sort()).toEqual(['course','finding','layer','paper']);
+    const paper=items.find((x:any)=>x.kind==='paper');
+    expect(paper.title).toBe('Toolformer');
+    expect(paper.provenance).toEqual({source:'https://arxiv.org/pdf/2302.04761',doi:'10.1000/xyz'});
+    expect(paper.open).toMatchObject({to:'dossier',dossierId:d.id});
+    expect(items.find((x:any)=>x.kind==='layer').title).toBe('第 1 层：动机');
+    const only=(await(await app.request(`/v1/dossiers/${d.id}/artifacts?kind=paper`,{headers:headers()})).json()).items;
+    expect(only.map((x:any)=>x.kind)).toEqual(['paper']);
+  });
   it.each(['invalid','------------------------------------'])('畸形档案ID返回404 %s',async id=>expect((await app.request('/v1/dossiers/'+id,{headers:headers()})).status).toBe(404));
   it('正文超限拒绝',async()=>expect((await app.request('/v1/dossiers',{method:'POST',headers:headers(ta,randomUUID()),body:JSON.stringify({title:'x'.repeat(1024*1024)})})).status).toBe(413));
   it.each([' ','a'.repeat(201),'é'])('拒绝畸形幂等键 %#',async key=>expect((await create('键校验',ta,key)).status).toBe(400));

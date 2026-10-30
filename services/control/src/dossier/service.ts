@@ -506,23 +506,59 @@ export async function setArchived(
   return detail;
 }
 
+/**
+ * 档案成果：关联的课程/文件走 `dossier_artifact`，入档论文走 `paper_asset`，
+ * 讲解层和发现卡走既有的 `card_created` 事件。三处合起来才是契约里的 Artifact[]。
+ */
 export async function listArtifacts(client: Client, account: string, id: string, kind?: string) {
   const row = await loadRow(client, account, id);
   if (!row) throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "找不到这份档案。");
-  const params: unknown[] = [account, id];
-  let where = "account_id=$1 and dossier_id=$2 and removed_at is null";
-  if (kind) {
-    params.push(kind);
-    where += ` and kind=$${params.length}`;
-  }
+  const wanted = typeof kind === "string" && kind.trim() !== "" ? kind.trim() : null;
   const rows = (
     await client.query(
-      `select id,kind,title,run_id,version,status,open,created_at from dossier_artifact
-        where ${where} order by created_at desc`,
-      params as any[],
+      `select * from (
+         select a.id::text "id", a.kind, a.title, a.run_id "runId", a.version, a.status, a.open,
+                a.created_at "createdAt", null::text "source", null::text "doi"
+           from dossier_artifact a
+          where a.account_id=$1 and a.dossier_id=$2 and a.removed_at is null
+         union all
+         -- 入档的论文：标题用登记时的元数据，出处带来源地址或 DOI。
+         select p.id::text,
+                'paper',
+                coalesce(nullif(p.view_metadata->>'title',''), nullif(p.paper_id,''), '这篇论文'),
+                p.run_id, 1,
+                case when p.status in ('full_text','abstract_only') then 'available' else 'missing' end,
+                case when p.status in ('full_text','abstract_only')
+                     then jsonb_build_object('to','dossier','dossierId',$2::text,
+                            'resume',jsonb_build_object('face','explain','anchor','paper:'||p.id::text))
+                     else jsonb_build_object('to','none','reason','这份 PDF 抽不出文本（可能是扫描件），读不到正文。')
+                end,
+                p.created_at, p.source, nullif(p.view_metadata->>'doi','')
+           from paper_asset p
+          where p.account_id=$1 and p.dossier_id=$2
+         union all
+         -- 讲解层/发现卡：写入时的 card_created 事件就是成果本身。
+         select coalesce(e.payload->>'cardId', e.seq::text),
+                e.payload->>'cardType',
+                case when e.payload->>'cardType'='layer'
+                     then coalesce(nullif(e.payload#>>'{card,title}',''), '讲解层')
+                     else left(coalesce(nullif(e.payload#>>'{card,text}',''), '发现卡'), 120)
+                end,
+                e.run_id, 1, 'available',
+                jsonb_build_object('to','dossier','dossierId',$2::text,
+                  'resume',jsonb_build_object('face','explain',
+                     'anchor',coalesce(e.payload->>'cardId', e.seq::text))),
+                e.at, null, null
+           from event e
+          where e.account_id=$1 and e.dossier_id=$2 and e.action='card_created'
+            and e.payload->>'cardType' in ('layer','finding')
+       ) t
+       where ($3::text is null or t.kind=$3)
+       order by t."createdAt" desc`,
+      [account, id, wanted] as any[],
     )
   ).rows;
-  return { items: rows.map(artifactOf) };
+  return { items: rows.map((r) => artifactOf({ ...r, dossier_id: id })) };
 }
 
 function artifactOf(row: any) {
@@ -531,11 +567,15 @@ function artifactOf(row: any) {
     dossierId: row.dossier_id ?? null,
     kind: row.kind,
     title: row.title,
-    runId: row.run_id ?? null,
+    runId: row.run_id ?? row.runId ?? null,
     version: row.version,
-    createdAt: stamp(row.created_at),
+    createdAt: stamp(row.created_at ?? row.createdAt),
     status: row.status,
     open: row.open ?? { to: "none", reason: "没有可用的打开方式" },
+    // 论文的出处：来源地址和 DOI，两者都可能没有（工作区登记的论文通常只有来源）。
+    ...(row.kind === "paper"
+      ? { provenance: { source: row.source ?? null, doi: row.doi ?? null } }
+      : {}),
   };
 }
 
