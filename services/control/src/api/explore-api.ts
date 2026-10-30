@@ -123,15 +123,17 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
   });
 
   app.get("/v1/explore/plans/:dossierId/weather", (c) =>
-    database.withAccount(c.get("accountId"), async (client) =>
-      c.json(
-        await weatherView(client, c.get("accountId"), c.req.param("dossierId"), {
+    database.withAccount(c.get("accountId"), async (client) => {
+      const dossier = c.req.param("dossierId");
+      // 天气视图自己会读计划行；下次检查时刻也由它带上（页面显示「下次 08:00 自动看天气」）。
+      return c.json(
+        await weatherView(client, c.get("accountId"), dossier, {
           stopId: c.req.query("stopId") || undefined,
           refresh: c.req.query("refresh") === "1",
           transport: options.weatherTransport,
         }),
-      ),
-    ),
+      );
+    }),
   );
 
   app.get("/v1/explore/plans/:dossierId/suggestions", (c) =>

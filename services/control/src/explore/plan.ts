@@ -45,6 +45,8 @@ export type StoredPlan = {
   state: PlanState;
   document: PlanDocument;
   updatedAt: string;
+  /** 下次自动看天气的时刻（存在计划行上，页面据此显示「下次 08:00 自动看天气」）。 */
+  nextCheckAt?: string | null;
 };
 
 /** 可撤回的画布动作（来自操作记录，按 seq 倒序交给引擎）。 */

@@ -97,7 +97,7 @@ export async function loadPlan(
   );
   const row = (
     await client.query(
-      `select revision,state,document,updated_at from explore_plan
+      `select revision,state,document,updated_at,next_check_at from explore_plan
         where account_id=$1 and dossier_id=$2 ${options.lock ? "for update" : ""}`,
       [account, dossier],
     )
@@ -108,6 +108,7 @@ export async function loadPlan(
       state: row.state,
       document: documentOf(row.document),
       updatedAt: new Date(row.updated_at).toISOString(),
+      nextCheckAt: row.next_check_at ? new Date(row.next_check_at).toISOString() : null,
     },
     bench: dossierRow.bench,
   };
@@ -587,7 +588,16 @@ export async function weatherView(
   client: Client,
   account: string,
   dossier: string,
-  options: { stopId?: string; refresh?: boolean; transport?: WeatherTransport } = {},
+  options: {
+    stopId?: string;
+    refresh?: boolean;
+    transport?: WeatherTransport;
+    /**
+     * 页面要显示「下次自动看天气」的时刻。天气视图自己不算这个：
+     * 调度时刻存在计划行上（next_check_at），由调用方读出来传进来。
+     */
+    nextCheckAt?: string | null;
+  } = {},
 ): Promise<WeatherBundle> {
   const { plan } = await loadPlan(client, account, dossier);
   const destination = plan.document.destination;
@@ -671,7 +681,8 @@ export async function weatherView(
     fetchedAt,
     source,
     ...(fromDate ? { fromDate } : {}),
-    nextCheckAt: null,
+    // 下次自动检查的时刻来自计划行（页面显示「下次 08:00 自动看天气」），不是这里算的。
+    nextCheckAt: plan.nextCheckAt ?? null,
     ...(reason ? { reason } : {}),
   };
 }

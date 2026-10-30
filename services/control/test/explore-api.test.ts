@@ -658,8 +658,17 @@ describe("停留点天气与太阳", () => {
       }
     expect(body.fetchedAt).toBeTruthy();
     expect(body.source.name).toBe("Open-Meteo");
-    // 还没有后台调度：如实给 null，不假装已经排上。
-    expect(body.nextCheckAt).toBeNull();
+    // 计划在待执行：调度已经排上，页面据此显示「下次 08:00 自动看天气」。
+    // 时刻按账户时区落在 08/16/23 点。
+    const planState = (await readPlan()).plan.state;
+    if (planState === "ready") {
+      expect(typeof body.nextCheckAt).toBe("string");
+      expect(new Date(body.nextCheckAt).getTime()).toBeGreaterThan(Date.now());
+      expect(body.nextCheckAt).toMatch(/T(08|16|23):00:00/);
+    } else {
+      // 没进待执行就不排：如实给 null。
+      expect(body.nextCheckAt).toBeNull();
+    }
   });
 
   it("20 分钟内的同一份预报不重复取数；指定 stopId 只给那一个点", async () => {
