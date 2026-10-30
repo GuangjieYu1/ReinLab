@@ -13,8 +13,10 @@ const Create = z
     query: z.string().min(1).max(4000),
     chosenPaperId: z.string().max(200).optional(),
     newSession: z.boolean().optional(),
-    // 非研究台的最小侧边会话：只带档案工具，不读论文。
-    mode: z.enum(["assist"]).optional(),
+    // assist = 非研究台的最小侧边会话；explore = 探索台的旅拍规划会话。
+    mode: z.enum(["assist", "explore"]).optional(),
+    /** 这一轮随消息带上的参考图（探索台）。 */
+    refIds: z.array(z.string().min(1).max(200)).max(20).optional(),
   })
   .strict();
 
@@ -35,7 +37,9 @@ export function registerKernelRuns(
   app.post("/v1/kernel/runs", async (c) => {
     const account = c.get("accountId");
     let created: string | undefined;
-    let lastInput: { newSession?: boolean; mode?: "assist" } | undefined;
+    let lastInput:
+      | { newSession?: boolean; mode?: "assist" | "explore" }
+      | undefined;
     const response = await mutate(c, dependencies.db, Create, async (client, input) => {
       const dossier = (
         await client.query(
@@ -44,9 +48,12 @@ export function registerKernelRuns(
         )
       ).rows[0];
       if (!dossier) throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "档案不存在。");
-      // 研究台跑精读；其它台的最小侧边会话（assist）只做档案操作。
-      if (dossier.bench !== "research" && input.mode !== "assist")
+      // 研究台跑精读；探索台跑旅拍规划；其它台的最小侧边会话（assist）只做档案操作。
+      const mode = input.mode === "explore" ? "explore" : input.mode === "assist" ? "assist" : "read";
+      if (mode === "read" && dossier.bench !== "research")
         throw new ApiFailure("BENCH_UNSUPPORTED", 400, "只有研究档案可以精读。");
+      if (mode === "explore" && dossier.bench !== "exploration")
+        throw new ApiFailure("BENCH_UNSUPPORTED", 400, "只有探索档案能开旅拍规划会话。");
       lastInput = input;
       const runId = randomUUID();
       await client.query(
@@ -56,12 +63,13 @@ export function registerKernelRuns(
           runId,
           account,
           input.dossierId,
-          input.mode === "assist" ? "bench-assist" : "research-read",
-          input.mode === "assist" ? "assist" : "read",
+          input.mode === "assist" ? "bench-assist" : input.mode === "explore" ? "bench-explore" : "research-read",
+          mode,
           randomUUID(),
           JSON.stringify({
             query: input.query,
             ...(input.chosenPaperId ? { chosenPaperId: input.chosenPaperId } : {}),
+            ...(input.refIds ? { refIds: input.refIds } : {}),
           }),
         ],
       );
@@ -71,7 +79,11 @@ export function registerKernelRuns(
     // The kernel starts after the run row commits; it opens its own transaction.
     if (!created) return response;
     const started = await dependencies.kernel.submit(account, created, {
-      ...(lastInput?.mode === "assist" ? { mode: "assist" as const } : {}),
+      ...(lastInput?.mode === "assist"
+        ? { mode: "assist" as const }
+        : lastInput?.mode === "explore"
+          ? { mode: "explore" as const }
+          : {}),
       newSession: lastInput?.newSession === true,
     });
     return c.json({ id: created, sessionId: started.sessionId, resume: started.resume }, 201);

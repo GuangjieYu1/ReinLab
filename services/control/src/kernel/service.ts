@@ -76,7 +76,7 @@ export class KernelService {
   async submit(
     account: string,
     runId: string,
-    options: { newSession?: boolean; prompt?: string; mode?: "assist" } = {},
+    options: { newSession?: boolean; prompt?: string; mode?: "assist" | "explore" } = {},
   ): Promise<{ runId: string; sessionId: string; resume: boolean }> {
     const { db, layout } = this.dependencies;
     const prepared = await db.withAccount(account, async (client) => {
@@ -98,7 +98,9 @@ export class KernelService {
           : "请开始这段精读。");
       // 只复用同一档的会话：精读和档案助手的工具配置不同，串用会让助手拿到
       // 精读的工具（模型改不了名，还以为自己在读论文）。
-      const wantedMode = options.mode === "assist" ? "assist" : "read";
+      // 三档会话的工具体不同，不能串用：精读 / 档案助手 / 探索规划。
+      const wantedMode =
+        options.mode === "assist" ? "assist" : options.mode === "explore" ? "explore" : "read";
       // 正式精读开始时，这份档案上还等着的澄清会话已经没有意义：一并收尾，
       // 免得它一直停在 waiting（用户看到的「研究台残留」就是这类）。
       if (wantedMode === "read")
@@ -148,7 +150,14 @@ export class KernelService {
         sessionId,
         message: prompt,
         resume: Boolean(existing),
-        mode: options.mode === "assist" ? "assist" : chosenPaper ? "read" : "clarify",
+        mode:
+          options.mode === "assist"
+            ? "assist"
+            : options.mode === "explore"
+              ? "explore"
+              : chosenPaper
+                ? "read"
+                : "clarify",
       };
     });
 
@@ -161,7 +170,7 @@ export class KernelService {
       model: this.dependencies.model,
       maxTokens: this.dependencies.maxTokens,
       home: layout.home,
-      mode: prepared.mode as "clarify" | "read" | "assist",
+      mode: prepared.mode as "clarify" | "read" | "assist" | "explore",
       bundler: {
         shimModule: layout.shimModule,
         shimContainerModule: layout.shimContainerModule,

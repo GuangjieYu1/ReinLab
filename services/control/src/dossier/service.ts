@@ -55,6 +55,11 @@ export async function announceDossierChanged(
   emit(account, row.bench, { type: "dossier.changed", id: dossier, version: row.version, change });
 }
 
+/** 其它业务（探索台的计划与画布）把变化推给同一份档案的页面。 */
+export function publishAccountEvent(account: string, bench: string, event: StreamEvent) {
+  emit(account, bench, event);
+}
+
 function emit(account: string, bench: string, event: StreamEvent) {
   for (const push of subscribers.get(account + ":" + bench) ?? []) {
     try {

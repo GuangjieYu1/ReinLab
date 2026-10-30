@@ -49,7 +49,8 @@ export function createClient(config, fetchImpl = fetch) {
     }));
     const body = await response.json().catch(() => ({}));
     if (response.status === 409 && body.state === "pending")
-      return { pending: true, approvalId: body.approvalId };
+      // pending 一并带回去：对话里要按它渲染计划修改卡，而不是按消息文字猜。
+      return { pending: true, approvalId: body.approvalId, pendingChange: body.pending ?? null };
     if (!response.ok)
       // 错误码和原因原样交给模型：换源、改参数还是问用户，由它自己决定。
       return {
@@ -201,6 +202,83 @@ export function apply(ctx, config) {
       },
     }),
   );
+
+  // 探索台（EXPL）：计划与画布。和页面调同一组服务函数，账户和档案由会话决定。
+  if (config.mode === "explore") {
+    register(
+      defineTool({
+        name: "explore_get",
+        description:
+          "读当前这份旅拍计划：计划正文、停留点、步行路线、画布草图、最后视野。改计划之前先看一眼当前状态。",
+        parameters: {},
+        output,
+        async execute() {
+          return unwrap(await call("explore", "get", {}));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_ops",
+        description:
+          "改当前这份旅拍计划：加/改/删停留点、确认停留点、改计划的地点日期拍法、确认整份计划、记感觉、加改删画布草图、撤回最近一笔画布改动。一次调用是一批，要么全生效要么都不生效。" +
+          "会改动已确认行程的动作（候选转正、改已确认点的地点日期时段、删已确认点、改计划状态）需要用户同意：用户这句话明确要求了就直接生效；没说清服务端会出一张计划修改卡，返回 pending 表示还在等，这时别说已经改好。" +
+          "停留点几何用 GeoJSON（spot/waypoint 用 Point，area 用 Polygon），坐标是 WGS84 [经度, 纬度]，day 是当地日期 YYYY-MM-DD，window 是带偏移的 ISO 起止时间。新建停留点的 id 由服务端分配。",
+        parameters: {
+          ops: {
+            type: "array",
+            required: true,
+            items: { type: "object", additionalProperties: true },
+            description:
+              '动作数组，例如 [{"op":"stop.add","stop":{"kind":"spot","name":"白川旁的石桥","geometry":{"type":"Point","coordinates":[135.78,35.01]},"day":"2026-11-15","window":{"start":"2026-11-15T07:10:00+09:00","end":"2026-11-15T07:50:00+09:00"},"reason":"清晨逆光"}}]。',
+          },
+          baseRevision: { type: "number", description: "可选：你读到的修订号，带上可以避免覆盖别人的修改。" },
+          authorization: { type: "string", description: "可选：用户明确要求这次改动时，他那句话的消息 id。" },
+        },
+        output,
+        async execute(args) {
+          const first = await call("explore", "ops", args);
+          if (first.error) return first.error;
+          if (!first.pending) return first.result;
+          return { ...waiting("这批计划修改", first.approvalId), pending: first.pendingChange };
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_view",
+        description:
+          "把页面地图移到某个位置和缩放（用户手动拖过地图就会停止跟随，不会抢回来）。center 是 WGS84 [经度, 纬度]。",
+        parameters: {
+          viewport: {
+            type: "object",
+            required: true,
+            additionalProperties: true,
+            description: '{"center":[135.78,35.01],"zoom":14,"bearing":0,"pitch":0}',
+          },
+          basemap: { type: "string", description: "vector | satellite。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "view", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_undo",
+        description: "撤回你自己最近一笔画布改动（只动画布，不动正式停留点和路线）。",
+        parameters: {},
+        output,
+        async execute() {
+          return unwrap(await call("explore", "undo", {}));
+        },
+      }),
+    );
+  }
 
   // 第 7 节：档案工具。七个台的最小侧边会话都靠这组工具；和页面调同一组服务函数。
   const dossierTool = (name, description, parameters) =>

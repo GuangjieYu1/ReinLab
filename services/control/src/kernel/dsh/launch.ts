@@ -29,7 +29,7 @@ export type LaunchInput = {
   /** Root of the per-account volume inside the account container. */
   home?: string;
   /** Which tool surface this turn gets: clarify only searches/asks, read only reads. */
-  mode?: "clarify" | "read" | "assist";
+  mode?: "clarify" | "read" | "assist" | "explore";
   /**
    * 容器模式：给了这套路径，就让 dsh 跑在账户容器里，plan 里所有交给 dsh 的
    * 路径都换成容器内路径；`paths` 仍是宿主路径，控制面照旧在宿主读写。
@@ -61,7 +61,7 @@ export type LaunchPaths = {
 
 export type LaunchPlan = {
   bundler: LaunchBundler;
-  mode: "clarify" | "read" | "assist";
+  mode: "clarify" | "read" | "assist" | "explore";
   account: string;
   dossier: string;
   run: string;
@@ -174,7 +174,14 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
   };
   return {
     bundler: input.bundler,
-    mode: input.mode === "read" ? "read" : "clarify",
+    mode:
+      input.mode === "read"
+        ? "read"
+        : input.mode === "assist"
+          ? "assist"
+          : input.mode === "explore"
+            ? "explore"
+            : "clarify",
     account,
     dossier,
     run,
@@ -191,6 +198,34 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
     release: async () => {},
   };
 }
+
+/**
+ * 每个模式的说话方式与底线。只写身份和底线，不写操作步骤：
+ * 用什么工具、先做哪一步，由模型自己按当时情况决定。
+ */
+const RESEARCH_PERSONA = [
+  "你是 ReinLab 的研究精读助手，用中文说人话，不要把内部工具名丢给用户。",
+  "底线：1) 下载全文、写文件，要先得到用户批准；",
+  "2) 不编造论文、作者和页码；",
+  "3) 候选论文由用户来选，不替用户选。",
+];
+
+const PERSONA: Record<LaunchPlan["mode"], string[]> = {
+  read: RESEARCH_PERSONA,
+  // 澄清阶段也是研究流程的一部分，沿用同一套底线。
+  clarify: RESEARCH_PERSONA,
+  assist: [
+    "你是 ReinLab 的档案助手，用中文说人话，不要把内部工具名丢给用户。",
+    "底线：1) 不编造档案里没有的内容；",
+    "2) 删除、归档这类动作要先得到用户同意。",
+  ],
+  explore: [
+    "你是这位摄影师的旅拍规划搭档：一边聊，一边把计划落到真实地图上。",
+    "底线：1) 地点、规定、参考图、天气只写真实查到的；查不到或没配置就说不知道，不编。",
+    "2) 已经确认的行程要改，先让用户同意；用户这句话明确要求的，直接做，不要再问一遍。",
+    "3) 模特和器材只用账户里已有的，不替用户假设他有什么。",
+  ],
+};
 
 /**
  * Write the run-scoped credential and patch files, then bind `release` to remove
@@ -230,10 +265,7 @@ export async function materializeLaunch(
       "- id: system-prompt",
       "  config:",
       "    personaPrefix: >-",
-      "      你是 ReinLab 的研究精读助手，用中文说人话，不要把内部工具名丢给用户。",
-      "      底线：1) 下载全文、写文件，要先得到用户批准；",
-      "      2) 不编造论文、作者和页码；",
-      "      3) 候选论文由用户来选，不替用户选。",
+      ...PERSONA[plan.mode].map((line) => "      " + line),
       "- id: web",
       "  config:",
       "    searchProvider: deepseek-search-api",

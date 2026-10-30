@@ -5,6 +5,10 @@ import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
 import { paperHandle } from "../mcp/papers";
 import { announceDossierChanged, nameFromPaper } from "../dossier/service";
+import { applyOps, readPlan, type OpsOutcome } from "../explore/service";
+import { OpsBody } from "../explore/schema";
+import type { Basemap, Op, Viewport } from "@reinlab/contracts";
+import { publishCamera, publishOps } from "./explore-api";
 import {
   attachCourse,
   createDossier,
@@ -141,6 +145,8 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   cards: ["card.layer", "card.finding", "clarify.question"],
   // 课程台最小能力：提交一份学习计划并入档。计划确认与入档是同一次批准。
   courses: ["plan"],
+  // 探索台的计划与画布：和页面调同一组服务函数，只是 via='agent'。
+  explore: ["get", "ops", "view", "undo"],
   // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
   dossiers: [
     "list",
@@ -242,7 +248,9 @@ export function registerKernelTools(
     const capability = `${body.server}.${body.tool}`;
 
     try {
-      return await dependencies.db.withAccount(claims.account, async (client) => {
+      // 事务提交之后再推事件：页面不能先看到还没生效的东西。
+      let settled: ExploreSettlement | null = null;
+      const response = await dependencies.db.withAccount(claims.account, async (client) => {
         // 单轮工具调用上限：按「当前这一轮」计数。审批后续接是同一个 run 的新 dsh_turn，
         // 要从它开始重新计，否则批准过的动作会被上一轮用掉的次数挡住。
         const used = Number(
@@ -306,6 +314,18 @@ export function registerKernelTools(
             call.run,
           ]);
           return c.json({ state: "pending", approvalId: card.id }, 409);
+        }
+        // 探索台：读计划、改计划与画布、移视野、撤回自己的涂鸦。
+        if (body.server === "explore") {
+          const settledNow = await exploreTool(client, {
+            account: call.account,
+            dossier: call.dossier,
+            run: call.run,
+            tool: String(body.tool),
+            args,
+          });
+          if (settledNow.publish) settled = settledNow.publish;
+          return c.json(settledNow.body, settledNow.status as any);
         }
         // 第 7 节：档案工具。和页面同一组服务函数，删除只返回确认卡。
         if (body.server === "dossiers") {
@@ -573,6 +593,8 @@ export function registerKernelTools(
           );
         return c.json({ result });
       });
+      if (settled) publishSettled(claims.account, settled);
+      return response;
     } catch (error) {
       // 工具失败必须带错误码和一句原因，模型与日志才有据可查。
       if (error instanceof ApiFailure)
@@ -696,4 +718,119 @@ async function existingPaperAsset(
     )
   ).rows[0];
   return row ? { ...row, reused: true } : null;
+}
+
+/** 探索台工具：和页面同一组服务函数，只是 actor='agent'。 */
+type ExploreSettlement =
+  | { kind: "ops"; outcome: OpsOutcome }
+  | {
+      kind: "camera";
+      bench: string;
+      dossierId: string;
+      runId: string;
+      viewport: Viewport;
+      basemap: Basemap;
+    };
+
+function publishSettled(account: string, settled: ExploreSettlement) {
+  if (settled.kind === "ops") publishOps(account, settled.outcome);
+  else
+    publishCamera(account, settled.bench, {
+      dossierId: settled.dossierId,
+      runId: settled.runId,
+      viewport: settled.viewport,
+      basemap: settled.basemap,
+    });
+}
+
+async function exploreTool(
+  client: pg.PoolClient,
+  input: { account: string; dossier: string; run: string; tool: string; args: Record<string, unknown> },
+): Promise<{ status: number; body: Record<string, unknown>; publish?: ExploreSettlement }> {
+  const args = input.args ?? {};
+  if (input.tool === "get") {
+    const bundle = await readPlan(client, input.account, input.dossier);
+    // 对话里的候选卡按 id 显示，模型不必背名称。
+    return {
+      status: 200,
+      body: { result: { ...bundle, stopIds: bundle.plan.stops.map((stop) => stop.id) } },
+    };
+  }
+  if (input.tool === "view") {
+    const viewport = args.viewport as Viewport;
+    const basemap: Basemap = args.basemap === "satellite" ? "satellite" : "vector";
+    const outcome = await applyOps(client, input.account, input.dossier, {
+      ops: [{ op: "view.save", viewport, basemap }],
+      actor: "agent",
+      run: input.run,
+    });
+    return {
+      status: 200,
+      body: { result: { saved: true, viewport, basemap } },
+      publish: {
+        kind: "camera",
+        bench: outcome.bench,
+        dossierId: input.dossier,
+        runId: input.run,
+        viewport,
+        basemap,
+      },
+    };
+  }
+  const authorization =
+    typeof args.authorization === "string"
+      ? { messageId: args.authorization }
+      : args.authorization && typeof args.authorization === "object"
+        ? args.authorization
+        : undefined;
+  const parsed = OpsBody.safeParse({
+    ...(typeof args.baseRevision === "number" ? { baseRevision: args.baseRevision } : {}),
+    ops: input.tool === "undo" ? [{ op: "canvas.undo" }] : Array.isArray(args.ops) ? args.ops : [],
+    ...(authorization ? { authorization } : {}),
+  });
+  if (!parsed.success)
+    throw new ApiFailure("INVALID_INPUT", 400, "这批动作的格式不对：检查 op 名称和必填字段。");
+  const outcome = await applyOps(client, input.account, input.dossier, {
+    baseRevision: parsed.data.baseRevision,
+    ops: parsed.data.ops as Op[],
+    actor: "agent",
+    run: input.run,
+    authorization: parsed.data.authorization,
+  });
+  if (outcome.pending)
+    // 还没生效：只交出待批的修改，不说已经改好了。
+    return {
+      status: 409,
+      body: {
+        state: "pending",
+        approvalId: outcome.pending.approvalId,
+        pending: outcome.pending,
+        revision: outcome.revision,
+      },
+    };
+  const stopIds = [
+    ...new Set(
+      outcome.applied.flatMap((entry) => {
+        const result = (entry.result ?? {}) as Record<string, any>;
+        const ids: string[] = [];
+        if (result.stop?.id) ids.push(String(result.stop.id));
+        if (Array.isArray(result.stops))
+          for (const stop of result.stops) if (stop?.id) ids.push(String(stop.id));
+        return ids;
+      }),
+    ),
+  ];
+  return {
+    status: 200,
+    body: {
+      result: {
+        revision: outcome.revision,
+        state: outcome.plan.state,
+        applied: outcome.applied,
+        pending: null,
+        stopIds,
+      },
+    },
+    publish: outcome.applied.length ? { kind: "ops", outcome } : undefined,
+  };
 }

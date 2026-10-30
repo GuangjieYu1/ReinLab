@@ -8,6 +8,7 @@ import { appendEvent, scrub } from "../ledger";
 import { mutate, canonical, type ApiEnv, type ApiContext } from "./context";
 import { ApiFailure, denied } from "./errors";
 import { applyConfirmation } from "../dossier/service";
+import { applyOps, type OpsOutcome } from "../explore/service";
 
 const Decision = z
   .object({
@@ -24,6 +25,16 @@ const capabilityLabel: Record<string, string> = {
   "cards.card.quiz": "写入检查题",
   "cards.card.finding": "记录发现",
 };
+/** 计划已经变了，这张卡不再适用（不改计划，也不报成功）。 */
+const STALE_PLAN_CODES = new Set([
+  "PLAN_STALE",
+  "STOP_NOT_FOUND",
+  "CANVAS_NOT_FOUND",
+  "PLAN_STATE",
+  "PLAN_EMPTY",
+  // 确认整份计划还差账户时区：卡上给不出时区就作废，让用户在页面上确认一次。
+  "TIMEZONE_REQUIRED",
+]);
 const conflict = () =>
   new ApiFailure(
     "APPROVAL_CONFLICT",
@@ -45,6 +56,27 @@ function describe(effects: any) {
     if (impact.pendingRequests) lines.push(`会关闭 ${impact.pendingRequests} 个待处理的请求`);
     if (impact.artifacts) lines.push(`档案里的 ${impact.artifacts} 项成果将不再能从这里访问`);
     if (impact.note) lines.push(impact.note);
+    return lines;
+  }
+  // 探索台的计划修改卡：说清会改哪几个停留点、不批准就不动计划。
+  const planChange = (Array.isArray(effects) ? effects[0] : effects) as any;
+  if (planChange?.kind === "explore.planChange") {
+    const lines = [String(planChange.summary ?? "按刚才说的改一下计划")];
+    const changes = Array.isArray(planChange.changes) ? planChange.changes : [];
+    for (const change of changes.slice(0, 6)) {
+      const name = String(change?.after?.name ?? change?.before?.name ?? "这项");
+      if (!change?.after) lines.push(`删掉「${name}」`);
+      else if (!change?.before) lines.push(`加上「${name}」`);
+      else if (change.after.state === "confirmed" && change.before.state === "candidate")
+        lines.push(`把「${name}」定下来`);
+      else {
+        const fields = Object.keys(change.after).filter(
+          (key) => !["state", "name", "kind"].includes(key),
+        );
+        lines.push(`改「${name}」的${fields.join("、") || "安排"}`);
+      }
+    }
+    lines.push("不批准就不改计划，你现在看到的安排保持原样");
     return lines;
   }
   // 审批行里的 effects 是数组（[{capability, argsHash}]），不是对象。
@@ -244,6 +276,8 @@ export async function decideInboxCard(
   c: ApiContext,
   db: Database,
   resume?: (account: string, runId: string, prompt: string) => void,
+  /** 事务提交后由调用方推事件：页面看到已生效的那一批。 */
+  onApplied?: (outcome: OpsOutcome) => void,
 ): Promise<Response | null> {
   const id = z.string().uuid().safeParse(c.req.param("id"));
   if (!id.success) throw denied();
@@ -262,7 +296,9 @@ export async function decideInboxCard(
     ).rows[0];
     if (!row) throw denied();
     // 档案确认卡（删除 / 归档活跃档案）走这里：一次决定即生效，和页面同一张卡。
-    const effectKind = (row.effects as any)?.kind;
+    // kernel 卡的 effects 是数组，档案确认卡是对象：两种都认。
+    const effectOf = Array.isArray(row.effects) ? row.effects[0] : row.effects;
+    const effectKind = (effectOf as any)?.kind;
     if (typeof effectKind === "string" && effectKind.startsWith("dossier.")) {
       const approved = input.decision === "approve";
       await client.query(
@@ -274,6 +310,51 @@ export async function decideInboxCard(
         status: 200,
         body: { state: approved ? "approved" : "rejected" },
       } as any;
+    }
+    // 探索台的计划修改卡：批准就在当时最新的计划上执行那一批 ops；
+    // 计划在这张卡之后改过，就不套用（显示「已不适用」），绝不覆盖用户后来的修改。
+    if (effectKind === "explore.planChange") {
+      const approved = input.decision === "approve";
+      if (!approved) {
+        await client.query(
+          "update approval set state='rejected', decided_at=now() where account_id=$1 and id=$2",
+          [account, id.data],
+        );
+        return { status: 200, body: { state: "rejected" } } as any;
+      }
+      const effects = effectOf as any;
+      // 先把决定落成 approved：执行那一批时按这张卡一次性消费。
+      const marked = await client.query(
+        `update approval set state='approved', decided_at=now(), decided_scope='once'
+          where account_id=$1 and id=$2 and state='pending'`,
+        [account, id.data],
+      );
+      if (!marked.rowCount) throw conflict();
+      try {
+        const outcome = await applyOps(client, account, String(effects.dossierId), {
+          ops: Array.isArray(effects.ops) ? effects.ops : [],
+          actor: "agent",
+          run: row.run_id,
+          approved: { approvalId: id.data },
+        });
+        onApplied?.(outcome);
+        if (row.run_state === "waiting")
+          resume?.(
+            account,
+            row.run_id,
+            `用户已批准这次计划修改（审批 ${row.id}），已经生效。不要重复提交同一批改动，用一两句话说明改了什么。`,
+          );
+        return { status: 200, body: { state: "approved", revision: outcome.revision } } as any;
+      } catch (error) {
+        if (error instanceof ApiFailure && STALE_PLAN_CODES.has(error.code)) {
+          await client.query(
+            "update approval set state='expired', decided_at=now() where account_id=$1 and id=$2",
+            [account, id.data],
+          );
+          return { status: 200, body: { state: "stale", reason: error.message } } as any;
+        }
+        throw error;
+      }
     }
     // 一次决定落在同一个请求上：同参数重复提交返回同一回执，不同参数报冲突。
     const hash = createHash("sha256").update(canonical(input)).digest("hex"),

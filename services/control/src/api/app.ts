@@ -22,6 +22,9 @@ import { ApiFailure, denied } from "./errors";
 import { registerKernelRuns } from "./kernel-runs";
 import { registerApprovalInbox, registerReports, decideInboxCard } from "./inbox-approvals";
 import { registerDossierApi } from "./dossier-api";
+import { publishOps, registerExploreApi } from "./explore-api";
+import type { OpsOutcome } from "../explore/service";
+import type { MapConfig } from "../explore/map-config";
 import { registerKernelTools, type KernelToolCall } from "./kernel-tools";
 import { pricingFromEnvironment, type PricingService } from "../budget/pricing";
 import { monthlyBudgetSnapshot, currentPeriod } from "../budget";
@@ -37,6 +40,8 @@ export async function createApp(options: {
     dispatch: (call: KernelToolCall) => Promise<unknown>;
   };
   clarifyAuthorizationFile?: string;
+  /** 地图公开配置（只含地图公开 key 与图层地址）。 */
+  mapConfig?: () => MapConfig;
   realModelsEnabled?: boolean;
   testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
   testOnlyClarifyModelTransport?: (body: Buffer) => Promise<Response>;
@@ -119,11 +124,22 @@ export async function createApp(options: {
   registerApprovalInbox(app, database, options.kernel ? (id) => options.kernel!.isLive(id) : undefined);
   registerReports(app, database);
   registerDossierApi(app, database);
+  registerExploreApi(app, database, { mapConfig: options.mapConfig });
   app.post("/v1/approvals/:id/decide", async (c) => {
-    const card = await decideInboxCard(c, database, (account, runId, prompt) => {
-      // 回答之后接着跑同一段任务；失败不影响这次决定本身。
-      void options.kernel?.resumeAfterAnswer(account, runId, prompt).catch(() => {});
-    });
+    let applied: OpsOutcome | null = null;
+    const card = await decideInboxCard(
+      c,
+      database,
+      (account, runId, prompt) => {
+        // 回答之后接着跑同一段任务；失败不影响这次决定本身。
+        void options.kernel?.resumeAfterAnswer(account, runId, prompt).catch(() => {});
+      },
+      // 计划修改卡批准后，事务提交完再推给页面。
+      (outcome) => {
+        applied = outcome;
+      },
+    );
+    if (applied) publishOps(c.get("accountId"), applied);
     if (card) return card;
     throw denied();
   });

@@ -18,6 +18,7 @@ import { registerWebToolsProxy } from "./model/web-tools-proxy";
 import { registerMessagesProxy } from "./model/messages-proxy";
 import { recordUsage } from "./run/usage";
 import { readRuntimeConfiguration } from "./configuration";
+import { mapConfigFrom } from "./explore/map-config";
 
 // dsh will not boot inside Electron. The local stack entry sets
 // REINLAB_LOCAL_STACK=1 so this fails fast with a readable reason, while tests
@@ -111,6 +112,8 @@ const app = await createApp({
           : undefined }
     : undefined,
   pricing: pricingFromEnvironment(config),
+  // 只下发地图公开 key 与图层地址；其余服务凭据不出进程。
+  mapConfig: () => mapConfigFrom(config),
   kernel,
   kernelTools: { auth: kernelAuth, dispatch: kernelDispatch },
   realModelsEnabled: realModels,
