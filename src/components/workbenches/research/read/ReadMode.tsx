@@ -34,9 +34,9 @@ const RUN_TEXT: Record<RunView['state'], string> = { idle: '未开始', estimati
 const active = (r: RunView) => r.state === 'queued' || r.state === 'running' || r.state === 'waiting';
 const money = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `¥${v < 0.1 ? v.toFixed(3) : v.toFixed(2)}`);
 
-export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch, adapter: given, resume, onPosition }: {
+export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch, adapter: given, resume, onPosition, onNewDossier }: {
   file: number; reduced: boolean; chrome: BenchChrome; modeSwitch: ReactNode; onDispatch: (to: 'swarm' | 'auto', text: string) => void; adapter?: ReadAdapter;
-  resume?: ResumePoint | null; onPosition?: (p: ResumePoint) => void;
+  resume?: ResumePoint | null; onPosition?: (p: ResumePoint) => void; onNewDossier?: (kind: 'reading' | 'topic') => Promise<void>;
 }) {
   const adapter = useMemo(() => given ?? mockReadAdapter({ reduced }), [given, reduced]);
   const { state, reload, error: loadError, retry } = useRead(adapter);
@@ -93,7 +93,8 @@ export default function ReadMode({ file, reduced, chrome, modeSwitch, onDispatch
     if (ran === 'running') return;
     setRan('running'); window.setTimeout(() => setRan('done'), reduced ? 60 : 2600);
   };
-  const newReading = adapter.newReading ? async () => { await adapter.newReading!(); seenLayers.current = 0; seenLog.current = 0; setUnderstood({}); setFocus([]); setFace('explain'); setDepth(3); await reload(); } : undefined;
+  // 真实模式：新建精读 = 新建一份 reading 档案并切过去（外壳负责），适配器随档案重建；示例模式沿用适配器自己的新建
+  const newReading = onNewDossier ? async () => { await onNewDossier('reading'); } : adapter.newReading ? async () => { await adapter.newReading!(); seenLayers.current = 0; seenLog.current = 0; setUnderstood({}); setFocus([]); setFace('explain'); setDepth(3); await reload(); } : undefined;
 
   const logEvents: (DockEvent | null)[] = state.log.map((e: ReadEvent): DockEvent | null => {
     if (e.type === 'user') return { id: e.id, kind: 'user', text: e.text, at: at(e.id) };

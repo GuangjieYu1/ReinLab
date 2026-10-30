@@ -849,7 +849,9 @@ export function createLiveReadAdapter(
       // 也违反「一次只批一次下载」的观看路径。
       const running = snapshot.run.state === "running" || snapshot.run.state === "estimating" || snapshot.run.state === "confirm";
       if (!runId || !running) {
-        dossier = undefined;
+        // 档案模型（地基第 4 项）：页面打开的是哪份档案，对话就在哪份里，不另建档案。
+        // 只有没指定档案时（旧调用方式）才沿用「每段新对话一个新档案」。
+        if (!initialDossier) dossier = undefined;
         await startRun(text);
         return;
       }

@@ -1,6 +1,6 @@
 // 非研究台的侧边会话（档案助手）：POST /v1/kernel/runs { dossierId, query, mode:'assist' }，
 // 事件沿用精读的内核事件流。这一档只有档案工具。
-import type { OpenTarget } from '../../packages/contracts/src/dossier';
+import type { Confirmation, OpenTarget } from '../../packages/contracts/src/dossier';
 import { api } from './research-live';
 
 type KernelEvent = { seq: number; action: string; payload: Record<string, any> };
@@ -10,7 +10,8 @@ export type AssistItem =
   | { id: string; kind: 'agent'; text: string }
   | { id: string; kind: 'note'; text: string }
   | { id: string; kind: 'tool'; name: string; state: 'running' | 'done' | 'failed'; label: string }
-  | { id: string; kind: 'open'; title: string; open: OpenTarget };
+  | { id: string; kind: 'open'; title: string; open: OpenTarget }
+  | { id: string; kind: 'confirm'; confirmation: Confirmation };
 
 const TOOL_LABEL: Record<string, string> = {
   dossier_list: '查档案', dossier_get: '读档案', dossier_create: '新建档案', dossier_update: '修改档案',
@@ -54,7 +55,11 @@ export function mapAssist(e: KernelEvent): AssistItem[] {
       const raw = textOf(d.message);
       let parsed: unknown = null; try { parsed = JSON.parse(raw); } catch { /* 不是 JSON 就只更新状态 */ }
       const failed = !!d.error || !!d.message?.isError || (parsed as any)?.error;
-      return [{ id, kind: 'tool', name: '', state: failed ? 'failed' : 'done', label: '' }, ...opensIn(parsed).map((o, i) => ({ id: `${id}:o${i}`, kind: 'open' as const, ...o }))];
+      const conf = (parsed as any)?.confirmation as Confirmation | undefined;
+      return [{ id, kind: 'tool', name: '', state: failed ? 'failed' : 'done', label: '' },
+        // 删除 / 归档的确认卡：在对话里也显示同一张（同一个 id），点了和在收件箱、弹窗里点一样
+        ...(conf?.id ? [{ id: `${id}:c`, kind: 'confirm' as const, confirmation: conf }] : []),
+        ...(conf ? [] : opensIn(parsed).map((o, i) => ({ id: `${id}:o${i}`, kind: 'open' as const, ...o })))];
     }
     default: return [];
   }

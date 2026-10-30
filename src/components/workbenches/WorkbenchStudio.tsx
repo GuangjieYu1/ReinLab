@@ -30,7 +30,7 @@ const NativeCourse = lazy(() => import('../classroom/native/NativeCourse'));
 /** 外壳交给工作台的三样东西：返回 Files、工作台标识（转场的落点）、档案切换。工作台把它们放进自己的头部。 */
 export interface BenchChrome { back: ReactNode; logo: ReactNode; file: ReactNode }
 /** file：示例内容的序号（mock 档案沿用原来的 4 份示例）；dossier：当前真实档案；resume / onPosition：续上次的工作面与位置。 */
-export interface BenchProps { file: number; reduced: boolean; chrome: BenchChrome; dossier?: Dossier | null; resume?: ResumePoint | null; onPosition?: (p: ResumePoint) => void }
+export interface BenchProps { file: number; reduced: boolean; chrome: BenchChrome; dossier?: Dossier | null; resume?: ResumePoint | null; onPosition?: (p: ResumePoint) => void; onNewDossier?: (kind: 'reading' | 'topic') => Promise<void> }
 
 const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** 已迁到新设计、自己画头部的工作台；其余暂用一条细条承载外壳的三样东西。 */
@@ -58,7 +58,8 @@ export default function WorkbenchStudio() {
   const [dossier, setDossier] = useState<Dossier | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'none' | 'deleted'>('loading');
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
-  const switchTo = useCallback((id: string) => { setPlace(p => ({ ...p, dossierId: id, file: demoIndex(id, 0) })); setMenu(false); }, []);
+  // 切档案时先清掉旧档案再打开新的：工作台不能带着上一份档案的数据重新挂载（精读适配器按档案 id 建）
+  const switchTo = useCallback((id: string) => { setDossier(null); setStatus('loading'); setPlace(p => ({ ...p, dossierId: id, file: demoIndex(id, 0) })); setMenu(false); }, []);
 
   // 从入口的空槽进来（new=1）：用户点了「继续工作」就是明确要新建，建一份空档案。
   const wantsNew = useRef(new URLSearchParams(window.location.search).get('new') === '1');
@@ -96,6 +97,7 @@ export default function WorkbenchStudio() {
     if (e.type === 'dossier.changed' && e.id === dossierId) void dossiers().get(e.id).then(setDossier, () => {});
     if (e.type === 'dossier.deleted' && e.id === dossierId) { setDossier(null); setStatus('deleted'); }
     if (e.type === 'confirmation.created' && e.confirmation.target.id === dossierId) setConfirm(e.confirmation);
+    if (e.type === 'confirmation.decided') setConfirm(c => (c && c.id === e.confirmation.id ? null : c));
     if (e.type === 'confirmation.created' || e.type === 'confirmation.decided') window.dispatchEvent(new Event(INBOX_REFRESH));
   }), [bench, dossierId]);
   const onPosition = useCallback((p: ResumePoint) => { if (dossierId) void dossiers().savePosition(dossierId, p).catch(() => {}); }, [dossierId]);
@@ -103,7 +105,8 @@ export default function WorkbenchStudio() {
     setMenu(false);
     if (a.open.to === 'dossier') { if (a.open.dossierId !== dossierId) switchTo(a.open.dossierId); if (a.open.resume) onPosition(a.open.resume); }
     else if (a.open.to === 'course') {
-      if (bench !== 'curriculum' || a.dossierId !== dossierId) navigate(`${window.location.pathname}?preview=workbench&studio=curriculum&dossier=${encodeURIComponent(a.dossierId)}&course=${encodeURIComponent(a.open.courseId)}&from=entry`);
+      const owner = a.dossierId || dossierId; // 服务端成果里没带 dossierId 时就是当前档案
+      if (bench !== 'curriculum' || owner !== dossierId) navigate(`${window.location.pathname}?preview=workbench&studio=curriculum&dossier=${encodeURIComponent(owner ?? '')}&course=${encodeURIComponent(a.open.courseId)}&from=entry`);
       else { setCourse(a.open.courseId); const url = new URL(window.location.href); url.searchParams.set('course', a.open.courseId); window.history.replaceState(null, '', url.pathname + url.search); }
     }
   };
@@ -162,7 +165,7 @@ export default function WorkbenchStudio() {
     </header>}
     <div className="wb-body" key={`${bench}:${dossierId ?? file}`}>
       {status === 'ready' && dossier && !isDemoBench(CODES[bench])
-        ? <Bench file={file} reduced={reduced} chrome={chrome} dossier={dossier} resume={dossier.resume} onPosition={onPosition} />
+        ? <Bench file={file} reduced={reduced} chrome={chrome} dossier={dossier} resume={dossier.resume} onPosition={onPosition} onNewDossier={dossiers().kind === 'live' ? async kind => { const d = await dossiers().create({ bench, kind }); switchTo(d.id); } : undefined} />
         : <ShellFrame chrome={chrome} title={info.title}>
             {status === 'loading' ? null
               : status === 'ready' && dossier ? <div className="wb-assist">
