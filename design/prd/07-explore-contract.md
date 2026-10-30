@@ -160,7 +160,7 @@ type PlanUsage = {
 | `GET /v1/explore/plans/:dossierId/suggestions` | `{ items: WeatherSuggestion[] }` |
 | `GET /v1/explore/plans/:dossierId/usage` | `PlanUsage` |
 | `GET /v1/explore/places?q=&near=lng,lat` | `{ items: { name: string; address?: string; at: LngLat; source: Source }[] }`（页面搜索框用） |
-| `GET /v1/explore/map-config` | `{ vectorStyle: string; satellite: { tilejson: string; attribution: string }; contours: { tilejson: string }; publicKey: string }`（地图公开 key，按 PRD 2.2 只给地图） |
+| `GET /v1/explore/map-config` | `{ vector: { tilejson: string; glyphs: string; attribution: string }; satellite: { tilejson: string; attribution: string } \| null; contours: { tilejson: string } \| null; publicKey: string \| null }`。`vector` 是 OpenMapTiles 结构的矢量瓦片源（OpenFreeMap），样式由前端按莱茵语言自己画；`glyphs` 是字体地址模板。地图公开 key 按 PRD 2.2 只给地图 |
 | `GET /v1/profiles?type=model\|gear` | `{ items: Profile[] }` |
 | `GET /v1/account/settings` | `{ timezone: string \| null }` |
 
@@ -229,7 +229,7 @@ type Op =
 
 - 一次请求里的 ops 是**一个原子批次**：要么全部生效，要么全部不生效。全部生效时修订号 **+1**（一批只加一次），推一条 `explore.op`。
 - 批次里只要有一项需要用户批准，**整批都不执行**，返回 `applied: []` 和一个 `pending`，修订号不变。批准后服务端在当时的最新修订上执行；如果目标已经变了（比如那个停留点已被删除），审批卡显示"已不适用"，不执行。待批的修改**绝不**出现在 `applied` 里，也不推 `explore.op`。
-- `view.save` 只记最后视野，不加修订、不推事件。
+- `view.save` 只记最后视野，不加修订、不推事件。只含 `view.save` 的请求**不校验 `baseRevision`**（页面传 `-1`），拖地图不会因为别人刚改了计划而失败。
 - 页面收到 `explore.op`：`revision === 本地修订 + 1` 就按顺序应用 `applied`；否则重取 `GET /plans/:id`。
 - **409**：页面先重取最新状态，再看用户刚才的操作是否还成立（比如要"留下"的候选还在、还是候选）。成立就带新的 `baseRevision` 重发一次；不成立就提示"计划刚被改过"，不自动覆盖。
 

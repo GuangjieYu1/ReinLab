@@ -10,7 +10,7 @@ import EngineeringBench from './engineering/EngineeringBench';
 import CreativeBench from './creative/CreativeStudio';
 import AutomationBench from './automation/AutomationStudio';
 import DataBench from './data/DataStudio';
-import ExplorationBench from './explore/ExploreStudio';
+import ExplorationBench from '../../data/ExploreStudioData';
 import CourseStudio from './course/CourseStudio';
 import './workbench-shell.css';
 import InboxHost, { INBOX_REFRESH } from '../inbox/InboxHost';

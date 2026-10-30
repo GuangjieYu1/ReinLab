@@ -155,6 +155,18 @@ export async function request(method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE
   return value;
 }
 
+/** 上传文件（multipart）：带 Cookie 和防伪造头，不设 content-type（浏览器自己带 boundary）。错误同 request。 */
+export async function upload(path: string, form: FormData) {
+  if (state !== "active") throw Error("请先登录。");
+  const expected = generation;
+  const r = await authFetch(path, { method: "POST", headers: { "X-ReinLab-CSRF": "1", "Idempotency-Key": crypto.randomUUID() }, body: form });
+  if (expected !== generation) throw Error("会话已变化，请重试。");
+  const value = await r.json().catch(() => null);
+  if (r.status === 401) { become(stateOf(value?.code)); throw Object.assign(Error("登录已过期，请重新登录。"), { status: 401 }); }
+  if (!r.ok) throw Object.assign(Error(value?.message ?? "上传没有完成，请重试。"), { status: r.status, code: value?.code ?? "HTTP_" + r.status, detail: value });
+  return value;
+}
+
 export async function inbox() {
   // promotion 表随旧内核退役一起删掉了（202610280001_retire_openscience）；
   // 服务端不再有这个入口时，收件箱照常只列当前内核的审批，不因为一个 404 整块失败。
