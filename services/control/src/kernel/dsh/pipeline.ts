@@ -87,6 +87,14 @@ export function executeRun(
             message: "模型有一次工具参数不是合法 JSON；这一次工具调用作罢，本轮按完成收尾。",
           }),
         );
+        // 如实留一条业务记录：这一轮为什么没写下去，页面和以后回看都能看见。
+        await dependencies.onEvent({
+          type: "run/malformed-tool-json",
+          data: {
+            code: "MALFORMED_RESPONSE",
+            message: "这一轮模型有一次工具参数不是合法 JSON，那次调用没有执行；可以再让它试一次。",
+          },
+        });
         outcome = { ...outcome, state: "completed", errorCode: null, errorDetail: undefined };
       }
       if (outcome.state === "completed" && !cancelRequested && dependencies.followUp) {
