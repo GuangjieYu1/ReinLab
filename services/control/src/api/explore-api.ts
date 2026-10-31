@@ -7,12 +7,14 @@
 import { Hono } from "hono";
 import type { Op } from "@reinlab/contracts";
 import { mutate } from "./context";
-import type { ApiEnv } from "./context";
+import type { ApiContext, ApiEnv } from "./context";
 import type { Database } from "../db/database";
 import { ApiFailure } from "./errors";
 import { z } from "zod";
 import {
   OpsBody,
+  OfflinePackBody,
+  FieldEventsBody,
   ProfileBody,
   ProfilePatchBody,
   SettingsBody,
@@ -56,6 +58,19 @@ import {
 } from "../explore/book-job";
 import { mapConfigFrom, type MapConfig } from "../explore/map-config";
 import { publishAccountEvent } from "../dossier/service";
+import { appendFieldEvents, listFieldEvents } from "../explore/field";
+import { readRevision, snapshotRevision } from "../explore/revisions";
+import {
+  createOfflinePack,
+  defaultOfflineFetch,
+  lightSnapshot,
+  offlineGlyph,
+  offlineTile,
+  offlineTileJson,
+  readOfflinePack,
+  type OfflineFetch,
+  type OfflineOptions,
+} from "../explore/offline";
 
 export type ExploreApiOptions = {
   /** 地图公开配置来源；缺省时按空配置（页面显示底图未配置）。 */
@@ -68,6 +83,8 @@ export type ExploreApiOptions = {
   exploreStorage?: ExploreStorage;
   /** 中文 PDF 用的字体文件（开源黑体 TTF）。 */
   pdfFontFile?: string;
+  /** 离线包代取瓦片/字形的取数通道；缺省真实 fetch，测试可注入。 */
+  offlineFetch?: OfflineFetch;
 };
 
 /** 批次生效后推给页面：页面本地修订 +1 时直接应用，否则重拉。 */
@@ -121,6 +138,185 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
     if (settled) publishOps(account, settled);
     return response;
   });
+
+  // ── 现场记录（第二版第 1 批，契约 §2.2）────────────────────────
+  // 记录是附加事实，不参与计划修订：按设备 clientId 幂等，更正是一条新记录。
+  app.post("/v1/explore/plans/:dossierId/field-events", async (c) => {
+    const account = c.get("accountId");
+    const dossierId = c.req.param("dossierId");
+    let settled: Awaited<ReturnType<typeof appendFieldEvents>> | null = null;
+    let planRevision = 0;
+    const response = await mutate(c, database, FieldEventsBody, async (client, input) => {
+      const { plan } = await loadPlan(client, account, dossierId);
+      planRevision = plan.revision;
+      settled = await appendFieldEvents(client, {
+        account,
+        dossier: dossierId,
+        document: plan.document,
+        events: input.events,
+      });
+      return {
+        status: 200,
+        body: { results: settled.results, planRevision: plan.revision },
+      };
+    });
+    // 幂等重放返回原收据、不重复推事件（settled 为空）。
+    if (settled && (settled as { inserted: number }).inserted)
+      publishAccountEvent(account, "exploration", {
+        type: "explore.field",
+        dossierId,
+        planRevision,
+        results: (settled as { results: unknown }).results,
+      });
+    return response;
+  });
+
+  app.get("/v1/explore/plans/:dossierId/field-events", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      const { plan } = await loadPlan(client, account, dossier);
+      return c.json({
+        items: await listFieldEvents(client, { account, dossier, document: plan.document }),
+      });
+    }),
+  );
+
+  // 某一修订的计划快照：出发时那一版，回顾对照用。
+  app.get("/v1/explore/plans/:dossierId/revisions/:revision", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      const revision = Number(c.req.param("revision"));
+      const { plan } = await loadPlan(client, account, dossier);
+      try {
+        return c.json(await readRevision(client, account, dossier, revision));
+      } catch (error) {
+        // 从没有业务批次写过这份计划时，当前正文就是那一版：回填一份，别让出发时的计划查不到。
+        if (
+          error instanceof ApiFailure &&
+          error.code === "REVISION_NOT_FOUND" &&
+          revision === plan.revision
+        ) {
+          await snapshotRevision(client, {
+            account,
+            dossier,
+            revision: plan.revision,
+            state: plan.state,
+            document: plan.document,
+          });
+          return c.json(await readRevision(client, account, dossier, revision));
+        }
+        throw error;
+      }
+    }),
+  );
+
+  // ── 离线包（契约 §2.1）──────────────────────────────────────
+  const offlineOptions = (): OfflineOptions => ({
+    storage: options.exploreStorage ?? unavailableStorage(),
+    mapConfig: options.mapConfig ?? (() => mapConfigFrom({})),
+    ...(options.offlineFetch ? { fetch: options.offlineFetch } : {}),
+  });
+
+  app.post("/v1/explore/plans/:dossierId/offline-packs", (c) =>
+    mutate(c, database, OfflinePackBody, async (client, input) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      const { plan } = await loadPlan(client, account, dossier);
+      return {
+        status: 201,
+        body: {
+          pack: await createOfflinePack(
+            client,
+            account,
+            dossier,
+            { plan, day: input.day, ...(input.detail ? { detail: input.detail } : {}) },
+            offlineOptions(),
+          ),
+        },
+      };
+    }),
+  );
+
+  // 清单直接返回（和 POST 的 { pack } 不同）：准备页「检查完整性」拿到的就是清单本身。
+  app.get("/v1/explore/plans/:dossierId/offline-packs/:packId", (c) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) =>
+      c.json(
+        await readOfflinePack(
+          client,
+          c.get("accountId"),
+          c.req.param("dossierId"),
+          c.req.param("packId"),
+        ),
+      ),
+    ),
+  );
+
+  // 只代取清单里列过的瓦片；超上限明确拒绝，不悄悄漏图。
+  app.get("/v1/explore/offline-tiles/:packId/:z/:x/:y", (c) => {
+    const coord = {
+      z: Number(c.req.param("z")),
+      x: Number(c.req.param("x")),
+      y: Number(c.req.param("y")),
+    };
+    if (![coord.z, coord.x, coord.y].every((value) => Number.isInteger(value) && value >= 0))
+      throw new ApiFailure("OFFLINE_TILE_NOT_FOUND", 404, "瓦片坐标不对。");
+    return database.withAccount(c.get("accountId"), async (client) => {
+      const tile = await offlineTile(
+        client,
+        c.get("accountId"),
+        { packId: c.req.param("packId"), ...coord },
+        offlineOptions(),
+      );
+      return new Response(tile.bytes, {
+        headers: {
+          "content-type": tile.mime,
+          "content-length": String(tile.bytes.length),
+          "cache-control": "private, max-age=3600",
+          "x-content-type-options": "nosniff",
+        },
+      });
+    });
+  });
+
+  // 字形按账户共用：不同离线包要的是同一批拉丁/标点区段，不按包重复存。
+  app.get("/v1/explore/offline-glyphs/:fontstack/:range", async (c) => {
+    const glyph = await offlineGlyph(
+      { fontstack: c.req.param("fontstack"), range: c.req.param("range") },
+      offlineOptions(),
+    );
+    return new Response(glyph.bytes, {
+      headers: {
+        "content-type": glyph.mime,
+        "content-length": String(glyph.bytes.length),
+        "cache-control": "private, max-age=86400",
+      },
+    });
+  });
+
+  // 离线源 TileJSON：页面把样式里的矢量源指到这里，就只会跟我们要清单里的瓦片。
+  app.get("/v1/explore/offline-packs/:packId/tilejson", (c) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) =>
+      c.json(
+        await offlineTileJson(
+          client,
+          c.get("accountId"),
+          { packId: c.req.param("packId"), origin: requestOrigin(c) },
+          offlineOptions(),
+        ),
+      ),
+    ),
+  );
+
+  app.get("/v1/explore/plans/:dossierId/offline-light", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      const { plan } = await loadPlan(client, c.get("accountId"), c.req.param("dossierId"));
+      const day = c.req.query("day") || plan.document.days[0];
+      if (!day) throw new ApiFailure("OFFLINE_NO_STOPS", 409, "这份计划还没有拍摄日。");
+      return c.json({ planRevision: plan.revision, ...lightSnapshot(plan.document, day) });
+    }),
+  );
 
   app.get("/v1/explore/plans/:dossierId/weather", (c) =>
     database.withAccount(c.get("accountId"), async (client) => {
@@ -429,5 +625,19 @@ function unavailableStorage(): ExploreStorage {
     readSnapshot: fail,
     saveBook: fail,
     readBook: fail,
+    savePackAsset: fail,
+    readPackAsset: fail,
+    saveFontAsset: fail,
+    readFontAsset: fail,
   };
+}
+
+/** 请求真正来自哪儿：LAN 反代会带 X-Forwarded-Proto/Host，页面和接口是同一个 origin。 */
+function requestOrigin(c: ApiContext): string {
+  const url = new URL(c.req.url);
+  const proto =
+    (c.req.header("X-Forwarded-Proto") ?? "").split(",")[0].trim().toLowerCase() ||
+    url.protocol.replace(":", "");
+  const forwarded = (c.req.header("X-Forwarded-Host") ?? "").split(",")[0].trim();
+  return `${proto}://${forwarded || url.host}`;
 }

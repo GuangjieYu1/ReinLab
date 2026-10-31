@@ -59,6 +59,20 @@ export function localExploreStorage(root: string): ExploreStorage {
 
   const refsDir = (dossier: string) => path.join(root, "dossiers", dossier, "refs");
 
+  const packDir = (dossier: string, packId: string) =>
+    path.join(root, "dossiers", dossier, "offline", packId);
+
+  /** 字形按账户共用一份：不同离线包要的是同一批拉丁区段。 */
+  const fontsDir = () => path.join(root, "fonts");
+
+  /** 包内相对名 → 绝对路径；不接受跳出该包目录的名字。 */
+  const packAssetInside = (base: string, name: string) => {
+    const resolved = path.resolve(base, name);
+    if (!resolved.startsWith(base + path.sep))
+      throw new ApiFailure("STORAGE_PATH_INVALID", 503, "文件路径不在这个离线包里。");
+    return resolved;
+  };
+
   /** 相对路径 → 绝对路径，且必须落在这份档案的目录里。 */
   const resolveInside = (dossier: string, relative: string) => {
     const base = refsDir(dossier);
@@ -86,6 +100,36 @@ export function localExploreStorage(root: string): ExploreStorage {
     },
     async readBook({ dossier, path: relative }) {
       return readFileInside(sub(dossier, "books"), relative);
+    },
+
+    // 离线包：offline/<packId>/tiles/<z>/<x>/<y>.pbf、offline/<packId>/glyphs/…
+    // 名字由服务端拼，仍然挡住越界（包目录之外一律不读不写）。
+    async savePackAsset({ dossier, packId, name, bytes }) {
+      const base = packDir(dossier, packId);
+      const absolute = packAssetInside(base, name);
+      await writeAtomic(path.dirname(absolute), path.basename(absolute), bytes);
+    },
+    async saveFontAsset({ name, bytes }) {
+      const base = fontsDir();
+      const absolute = packAssetInside(base, name);
+      await writeAtomic(path.dirname(absolute), path.basename(absolute), bytes);
+    },
+    async readFontAsset({ name }) {
+      const absolute = packAssetInside(fontsDir(), name);
+      const real = await realpath(absolute).catch(() => null);
+      if (!real) return null;
+      const info = await lstat(real);
+      if (!info.isFile() || info.isSymbolicLink()) return null;
+      return readFile(real);
+    },
+
+    async readPackAsset({ dossier, packId, name }) {
+      const absolute = packAssetInside(packDir(dossier, packId), name);
+      const real = await realpath(absolute).catch(() => null);
+      if (!real) return null;
+      const info = await lstat(real);
+      if (!info.isFile() || info.isSymbolicLink()) return null;
+      return readFile(real);
     },
 
     async saveRef({ dossier, refId, ext, bytes }) {

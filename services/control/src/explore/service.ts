@@ -32,6 +32,7 @@ import {
   type UndoCandidate,
 } from "./plan";
 import { consumeUserAuthorization, verifyUserAuthorization } from "./authorize";
+import { snapshotRevision } from "./revisions";
 import { nextCheckAt } from "./schedule";
 import { conflictsOf, walkLegs } from "./providers";
 import { computeStopLight } from "./terrain";
@@ -382,6 +383,22 @@ async function commitBatch(
         scheduled,
       ],
     );
+    // 这一版正文留一份快照：出发时用的计划和后来批准的版本都还在，回顾才有对照。
+    // 改之前那一版也补一次（第一次修改时修订 1 才查得到）。
+    await snapshotRevision(client, {
+      account,
+      dossier,
+      revision: plan.revision,
+      state: plan.state,
+      document: plan.document,
+    });
+    await snapshotRevision(client, {
+      account,
+      dossier,
+      revision: batch.plan.revision,
+      state: batch.plan.state,
+      document: batch.plan.document,
+    });
     const seqs: string[] = [];
     for (const [index, applied] of batch.applied.entries()) {
       const inserted = (

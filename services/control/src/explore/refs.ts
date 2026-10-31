@@ -38,6 +38,12 @@ export type ExploreStorage = {
   /** 计划书 PDF。 */
   saveBook: (input: { dossier: string; artifactId: string; bytes: Buffer }) => Promise<string>;
   readBook: (input: { dossier: string; path: string }) => Promise<{ bytes: Buffer; mime: string } | null>;
+  /** 离线包代取到的瓦片（按包存放；名字由服务端给，如 tiles/14/13720/6694.pbf）。 */
+  savePackAsset: (input: { dossier: string; packId: string; name: string; bytes: Buffer }) => Promise<void>;
+  readPackAsset: (input: { dossier: string; packId: string; name: string }) => Promise<Buffer | null>;
+  /** 地图字形（拉丁/标点区段）：账户共用，按 fontstack/range 缓存。 */
+  saveFontAsset: (input: { name: string; bytes: Buffer }) => Promise<void>;
+  readFontAsset: (input: { name: string }) => Promise<Buffer | null>;
 };
 
 export const refImageUrl = (dossier: string, refId: string) =>

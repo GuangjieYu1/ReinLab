@@ -51,6 +51,8 @@ export async function createApp(options: {
   exploreStorage?: import("../explore/refs").ExploreStorage;
   /** 中文 PDF 用的字体文件。 */
   pdfFontFile?: string;
+  /** 离线包代取瓦片/字形的取数通道；缺省真实 fetch，测试可注入。 */
+  offlineFetch?: import("../explore/offline").OfflineFetch;
   /** 网图抓取通道；缺省用真实 fetch，测试可注入。 */
   refTransport?: import("../explore/refs").WeatherLikeTransport;
   realModelsEnabled?: boolean;
@@ -147,6 +149,7 @@ export async function createApp(options: {
     weatherJudge: options.weatherJudge,
     exploreStorage: options.exploreStorage,
     pdfFontFile: options.pdfFontFile,
+    offlineFetch: options.offlineFetch,
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
     let applied: OpsOutcome | null = null;

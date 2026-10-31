@@ -18,7 +18,8 @@ import { acquireStartupLock } from "./startup-lock";
 import { startControlProcess, stopOwnedControl } from "./control-process";
 import { bootstrapLocalDatabase, reconcileAfterBootstrap } from "../../services/control/src/db/bootstrap";
 
-import { realModelMode } from "./real-models";
+import { localArgs } from "./args";
+import { prepareLan } from "./lan";
 import { ensureNode22 } from "./runtime";
 
 /** 镜像里那些「内容一变就要重建」的文件：Dockerfile 与它 COPY 进去的东西。 */
@@ -62,7 +63,8 @@ const step = (code: string) => console.log(JSON.stringify({ code }));
 let startupLock: Awaited<ReturnType<typeof acquireStartupLock>> | undefined;
 
 try {
-  const realModels = realModelMode(process.argv.slice(2), process.env);
+  const args = localArgs(process.argv.slice(2), process.env);
+  const realModels = args.realModels;
   if (
     process.versions.node.split(".")[0] !== "22" &&
     process.versions.node.split(".")[0] !== "24"
@@ -262,6 +264,49 @@ try {
       port: 5183,
       node: nodeBin,
     });
+  // 手机/iPad 用的可信局域网入口：固定主机名 + 本机 CA 签的证书 + 同源反代构建后的前端。
+  let lan:
+    | { origin: string; fallback: string; ca: string; note: string; device: string }
+    | undefined;
+  if (args.lan) {
+    await stopOwnedControl(
+      join(paths.state, "lan-server.json"),
+      resolve("tooling/local/lan-server.ts"),
+    );
+    step("LOCAL_LAN_PREPARING");
+    const site = await prepareLan({
+      root: paths.root,
+      state: paths.state,
+      node: nodeBin,
+      ...(args.lanHost ? { host: args.lanHost } : {}),
+      ...(args.lanPort ? { port: args.lanPort } : {}),
+    });
+    await startControlProcess({
+      script: resolve("tooling/local/lan-server.ts"),
+      cwd: paths.root,
+      env: {
+        ...cliEnvironment,
+        REINLAB_LAN_HOST: site.host,
+        REINLAB_LAN_PORT: String(site.port),
+        REINLAB_LAN_ADDRESS: site.address,
+        REINLAB_LAN_CERT: site.cert,
+        REINLAB_LAN_KEY: site.key,
+        REINLAB_LAN_CA: site.ca,
+        REINLAB_LAN_DIST: site.dist,
+        REINLAB_CONTROL_PORT: "3001",
+      },
+      recordFile: join(paths.state, "lan-server.json"),
+      port: site.port,
+      node: nodeBin,
+    });
+    lan = {
+      origin: `https://${site.host}:${site.port}`,
+      fallback: `https://${site.address}:${site.port}`,
+      ca: site.ca,
+      note: site.note,
+      device: `手机/iPad 第一次用：把 ${site.ca} 传到设备上装好，再到「设置 → 通用 → 关于本机 → 证书信任设置」里打开对 ReinLab Local CA 的完全信任；然后用 ${site.origin} 打开。`,
+    };
+  }
   console.log(
     JSON.stringify({
       code: "LOCAL_STACK_READY",
@@ -274,6 +319,7 @@ try {
       stateDirectory: paths.state,
       realModels,
       ...(realModels ? { frontend: "http://127.0.0.1:5183" } : {}),
+      ...(lan ? { lan } : {}),
     }),
   );
 } catch (error) {

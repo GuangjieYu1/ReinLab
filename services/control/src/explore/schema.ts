@@ -86,6 +86,59 @@ export const OpsBody = z
 
 export const SettingsBody = z.object({ timezone: z.string().min(1).max(64) }).strict();
 
+// ── 第二版第 1 批：现场记录、离线包（10-explore-v2-contract.md §2.1–2.2）──
+
+const fieldCorrection = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("retract") }).strict(),
+  z.object({ action: z.literal("edit"), text: z.string().min(1).max(4000) }).strict(),
+  z.object({ action: z.literal("relink"), stopId: z.string().min(1).max(64) }).strict(),
+]);
+
+const fieldEvent = z
+  .object({
+    clientId: z.string().min(1).max(100),
+    kind: z.enum(["arrived", "shot", "note", "situation", "correction"]),
+    stopId: z.string().min(1).max(64).nullable(),
+    stopName: z.string().max(200).nullable(),
+    planRevision: z.number().int().min(0).max(1_000_000),
+    // 带偏移的 ISO：现场那一刻，不是服务器时间。
+    at: z.string().datetime({ offset: true }),
+    tz: z.string().min(1).max(64),
+    text: z.string().max(4000).optional(),
+    situation: z.enum(["rain", "late", "crowd", "light", "other"]).optional(),
+    position: z
+      .object({ at: position, accuracyM: z.number().finite().min(0).max(100_000) })
+      .strict()
+      .optional(),
+    refersTo: z.string().min(1).max(100).optional(),
+    correction: fieldCorrection.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.kind === "correction") {
+      if (!value.refersTo)
+        ctx.addIssue({ code: "custom", message: "更正要指向原记录的 clientId。" });
+      if (!value.correction)
+        ctx.addIssue({ code: "custom", message: "更正要说明是撤销、改文字还是重新关联。" });
+      return;
+    }
+    if (value.correction || value.refersTo)
+      ctx.addIssue({ code: "custom", message: "只有 correction 事件能带更正内容。" });
+    if (value.situation && value.kind !== "situation")
+      ctx.addIssue({ code: "custom", message: "situation 只属于「情况变了」。" });
+  });
+
+export const FieldEventsBody = z
+  .object({ events: z.array(fieldEvent).min(1).max(200) })
+  .strict();
+
+export const OfflinePackBody = z
+  .object({
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    detail: z.enum(["full", "low"]).optional(),
+  })
+  .strict();
+
 /**
  * 模特 / 器材：字段按契约给，服务端只认这些键。
  * 具体的数值范围与「机身还是镜头」由资料层再校验一次。

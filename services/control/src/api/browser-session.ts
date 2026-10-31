@@ -151,11 +151,20 @@ export async function requireAccount(c: Context, sessions: BrowserSessions): Pro
 /**
  * 写操作防伪造：Origin 必须是同一个源，并带 `X-ReinLab-CSRF: 1`。
  * 只看 Origin 对 Cookie 认证不够（浏览器会替跨站表单带上 Cookie）。
+ *
+ * LAN 模式前面有一层同源 HTTPS 反代（`local:up22 --lan`）：浏览器发的是 https origin，
+ * 到控制面已经是内网 http，所以按反代给的 X-Forwarded-Proto/Host 还原页面看到的源。
+ * 这两个头浏览器不能跨站伪造（都要预检），不因此放宽跨站限制。
  */
 export function assertSameOriginWrite(c: Context): void {
   const url = new URL(c.req.url);
+  const proto =
+    (c.req.header("X-Forwarded-Proto") ?? "").split(",")[0].trim().toLowerCase() ||
+    url.protocol.replace(":", "");
+  const forwarded = (c.req.header("X-Forwarded-Host") ?? "").split(",")[0].trim();
+  const expected = `${proto}://${forwarded || url.host}`;
   const origin = c.req.header("Origin");
-  if (!origin || origin !== url.origin)
+  if (!origin || origin.toLowerCase() !== expected.toLowerCase())
     throw new ApiFailure("AUTH_ORIGIN_DENIED", 403, "请求来源无效。");
   if (c.req.header("X-ReinLab-CSRF") !== "1")
     throw new ApiFailure("CSRF_REQUIRED", 403, "缺少防伪造请求头。");

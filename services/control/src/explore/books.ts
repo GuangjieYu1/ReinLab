@@ -272,9 +272,11 @@ export async function buildBookPdf(
     row(["#", "名称", "类型", "日期", "时段", "焦段", "要点"], 8.5, FADED);
     let shown = 0;
     for (const [index, stop] of stops.entries()) {
+      // 引导词第二版可能是 { id, text, pose }：PDF 只用文字，姿势不画。
+      const firstLine = stop.detail?.guidance?.[0];
       const point =
         stop.detail?.composition ??
-        stop.detail?.guidance?.[0] ??
+        (typeof firstLine === "string" ? firstLine : firstLine?.text) ??
         stop.reason ??
         (stop.light?.lit?.length ? "地形见光见详细版" : "光线见详细版");
       const ok = row([
@@ -295,8 +297,12 @@ export async function buildBookPdf(
       text(cursor, `其余 ${stops.length - shown} 个停留点见详细版。`, { size: 8.5, color: FADED });
     // 要点放不下就截短：按 PRD 7.1 在页脚说明，别硬塞。
     if (stops.some((stop) => {
+      const firstLine = stop.detail?.guidance?.[0];
       const point =
-        stop.detail?.composition ?? stop.detail?.guidance?.[0] ?? stop.reason ?? "";
+        stop.detail?.composition ??
+        (typeof firstLine === "string" ? firstLine : firstLine?.text) ??
+        stop.reason ??
+        "";
       return clip(point, font, 9, PAGE.width - MARGIN - columns[6]).clipped;
     }))
       text(cursor, "要点放不下的已截短，完整内容见详细版。", { size: 8.5, color: FADED });
