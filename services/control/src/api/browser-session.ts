@@ -65,6 +65,23 @@ export function sessionView(row: BrowserSessionRow): SessionView {
 }
 
 /** HTTPS 下加 Secure；本地开发走 http，不加（否则 Cookie 根本存不下来）。 */
+/**
+ * 这个 Origin 算不算同一个源？
+ *
+ * 直连时就是 Origin 与控制面看到的源一致；局域网入口前面有一层同源 HTTPS 反代，
+ * 控制面看到的是内网 http，所以也认反代给的 X-Forwarded-Proto/Host 还原出来的源。
+ * 这两个头浏览器跨站伪造不了（要预检），不因此放宽跨站限制；主机不匹配一律拒绝。
+ */
+export function isSameOriginRequest(c: Context, origin: string | undefined): boolean {
+  if (!origin) return false;
+  const url = new URL(c.req.url);
+  const forwardedProto = (c.req.header("X-Forwarded-Proto") ?? "").split(",")[0].trim().toLowerCase();
+  const forwardedHost = (c.req.header("X-Forwarded-Host") ?? "").split(",")[0].trim();
+  const forwarded = `${forwardedProto || url.protocol.replace(":", "")}://${forwardedHost || url.host}`;
+  const value = origin.toLowerCase();
+  return value === forwarded.toLowerCase() || value === url.origin.toLowerCase();
+}
+
 export function isSecureRequest(url: string, forwardedProto?: string | null): boolean {
   if (/^https$/i.test(String(forwardedProto ?? "").split(",")[0].trim())) return true;
   return new URL(url).protocol === "https:";
@@ -157,14 +174,7 @@ export async function requireAccount(c: Context, sessions: BrowserSessions): Pro
  * 这两个头浏览器不能跨站伪造（都要预检），不因此放宽跨站限制。
  */
 export function assertSameOriginWrite(c: Context): void {
-  const url = new URL(c.req.url);
-  const proto =
-    (c.req.header("X-Forwarded-Proto") ?? "").split(",")[0].trim().toLowerCase() ||
-    url.protocol.replace(":", "");
-  const forwarded = (c.req.header("X-Forwarded-Host") ?? "").split(",")[0].trim();
-  const expected = `${proto}://${forwarded || url.host}`;
-  const origin = c.req.header("Origin");
-  if (!origin || origin.toLowerCase() !== expected.toLowerCase())
+  if (!isSameOriginRequest(c, c.req.header("Origin")))
     throw new ApiFailure("AUTH_ORIGIN_DENIED", 403, "请求来源无效。");
   if (c.req.header("X-ReinLab-CSRF") !== "1")
     throw new ApiFailure("CSRF_REQUIRED", 403, "缺少防伪造请求头。");

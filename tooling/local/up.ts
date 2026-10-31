@@ -304,7 +304,7 @@ try {
       fallback: `https://${site.address}:${site.port}`,
       ca: site.ca,
       note: site.note,
-      device: `手机/iPad 第一次用：把 ${site.ca} 传到设备上装好，再到「设置 → 通用 → 关于本机 → 证书信任设置」里打开对 ReinLab Local CA 的完全信任；然后用 ${site.origin} 打开。`,
+      device: `手机/iPad 第一次用：把 ${site.ca} 传到设备上装好，再到「设置 → 通用 → 关于本机 → 证书信任设置」里打开对 ReinLab Local CA 的完全信任；然后用 https://${site.host}:${site.port} 打开。`,
     };
   }
   console.log(

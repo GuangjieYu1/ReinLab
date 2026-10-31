@@ -7,6 +7,7 @@ import { LocalUsername, LocalLoginAlias } from "../local-login";
 import {
   BrowserSessions,
   clearSessionCookie,
+  isSameOriginRequest,
   isSecureRequest,
   sessionFailure,
   sessionState,
@@ -83,16 +84,10 @@ export function registerSession(
     await next();
   });
   /** 登录、锁定、touch 会改变状态：只认同源发起的（浏览器会替跨站表单带 Cookie）。 */
+  // 局域网入口前面有一层同源反代：按 X-Forwarded-Proto/Host 还原页面看到的源。
   const sameOrigin = (c: any) => {
-    const url = new URL(c.req.url);
-    const origin = c.req.header("Origin");
     const site = c.req.header("Sec-Fetch-Site");
-    if (
-      !origin ||
-      origin !== url.origin ||
-      (c.req.header("Host") && c.req.header("Host") !== url.host) ||
-      (site && site !== "same-origin")
-    )
+    if (!isSameOriginRequest(c, c.req.header("Origin")) || (site && site !== "same-origin"))
       throw new ApiFailure("AUTH_ORIGIN_DENIED", 403, "登录请求来源无效。");
   };
   /** 有效会话的那一行；没有、被撤销、过期分别给对应的 401 code。 */
