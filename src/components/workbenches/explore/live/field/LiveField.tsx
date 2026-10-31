@@ -6,7 +6,7 @@ import { center, stopLabels } from '../overlays';
 import { KIND_TEXT, lightAt } from '../StopPanel';
 import { dateToLocal, hm } from '../sunlive';
 import { guidanceLines } from '../guidance';
-import { PoseGlyph } from '../../Figures';
+import { PoseFigure } from '../diagrams';
 import type { PackRecord } from '../offline/db';
 import { amapLink } from './gcj';
 import { arrival, useFieldLocation } from './useFieldLocation';
@@ -17,7 +17,6 @@ import './field.css';
 // 现场（09-explore-v2.md 第 3、4 节；10-explore-v2-contract.md 第 4.1 节）。手机 / iPad 两套布局，CSS 按宽度切。
 // 数据来源：在线 = 当前计划；离线 = 离线包里的计划快照。离线不改正式行程，只记事实。
 
-const OLD_POSES = new Set(['walk', 'look-back', 'lean', 'touch', 'pockets', 'scarf', 'step', 'stand']);
 const SITUATIONS = [
   { key: 'rain', label: '下雨了' }, { key: 'late', label: '晚到了' }, { key: 'crowd', label: '人太多' }, { key: 'light', label: '光不对' },
 ] as const;
@@ -147,7 +146,7 @@ export default function LiveField(p: FieldProps) {
     {current && <section className="exf-guide">
       <span className="exf-kicker">引导词</span>
       {guidance.length === 0 ? <p className="exf-hint">这个点没有引导词</p>
-        : <ol>{guidance.map(g => <li key={g.id}>{g.pose && OLD_POSES.has(g.pose) && <PoseGlyph pose={g.pose as never} />}<span>{g.text}</span></li>)}</ol>}
+        : <ol>{guidance.map(g => <li key={g.id}>{g.pose ? <PoseFigure pose={g.pose} /> : <span />}<span>{g.text}</span></li>)}</ol>}
     </section>}
 
     <section className="exf-act">

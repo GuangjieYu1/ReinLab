@@ -9,7 +9,10 @@ const DAY = (() => { const d = new Date(Date.now() + 3 * 864e5); return d.toISOS
 function seed(): ExploreSnapshot {
   const stops: Stop[] = [
     { id: 's1', kind: 'spot', state: 'confirmed', name: '外滩观景平台', geometry: { type: 'Point', coordinates: [121.4905, 31.2397] }, day: DAY, window: { start: iso(DAY, '16:30'), end: iso(DAY, '17:20') },
-      reason: '对岸陆家嘴天际线，日落后蓝调最好', facing: 100, focal: [35, 85], refs: [], source: 'agent', detail: { composition: '人物放左三分之一，背景压陆家嘴', guidance: ['沿栏杆慢慢走过来，看江面', '停下，回头看我'] } },
+      reason: '对岸陆家嘴天际线，日落后蓝调最好', facing: 100, focal: [35, 85], refs: [], source: 'agent', detail: { composition: '人物放左三分之一，背景压陆家嘴',
+        guidance: [{ id: 'g1', text: '沿栏杆慢慢走过来，看江面', pose: 'walk' }, { id: 'g2', text: '停下，回头看我', pose: 'look-back' }, { id: 'g3', text: '坐在台阶上，手搭膝盖', pose: 'sit' }, { id: 'g4', text: '随便聊两句，放松', pose: null }],
+        settings: { focalMm: 85, aperture: 1.8, shutterS: 1 / 250, iso: 400, snapshot: { body: 'Sony A7C2', lens: '85mm f/1.8' } },
+        frame: { orientation: 'portrait', subject: { x: 0.33, y: 0.6, w: 0.24, h: 0.6 }, horizon: 0.58 } } },
     { id: 's2', kind: 'area', state: 'candidate', name: '武康路一带', geometry: { type: 'Polygon', coordinates: [[[121.4385, 31.2085], [121.4425, 31.2105], [121.4455, 31.2065], [121.4405, 31.2040], [121.4385, 31.2085]]] }, day: DAY, window: { start: iso(DAY, '14:00'), end: iso(DAY, '15:30') },
       reason: '梧桐和老洋房，下午侧光', refs: [], source: 'agent' },
     { id: 's3', kind: 'waypoint', state: 'candidate', name: '南京东路步行街', geometry: { type: 'Point', coordinates: [121.4815, 31.2380] }, day: DAY, window: { start: iso(DAY, '18:00'), end: iso(DAY, '18:40') },

@@ -1,7 +1,8 @@
-import type { ExplorePlan, RefImage, Stop, WeatherView } from '../../../../../packages/contracts/src/explore';
+import type { ExplorePlan, Frame, RefImage, Stop, WeatherView } from '../../../../../packages/contracts/src/explore';
 import { center, stopLabels } from './overlays';
 import { dateToLocal, dayLight, hm, horizonAt, localToDate, sunPos } from './sunlive';
 import { guidanceLines } from './guidance';
+import { FrameBox, LightCallout, PoseFigure, SettingsRow } from './diagrams';
 
 export const KIND_TEXT: Record<Stop['kind'], string> = { spot: '固定机位', area: '一片街区', waypoint: '顺路点' };
 
@@ -60,8 +61,9 @@ export function StopAside({ plan, stop, day, tz, minutes, weather, refs, onKeep,
 }
 
 /** 机位面：选中停留点的全部信息（第一版不含 2.5D 白模）。 */
-export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople }: {
+export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople, onFrame }: {
   plan: ExplorePlan; stop: Stop; day: string; tz: string; minutes: number; refs: RefImage[]; hasPeople: boolean;
+  onFrame?: (f: Frame) => void;
 }) {
   const label = stopLabels(plan)[stop.id], c = center(stop), dl = dayLight(day, tz, c[0], c[1]), l = lightAt(stop, day, tz, minutes);
   const mine = refs.filter(r => stop.refs.includes(r.id));
@@ -70,6 +72,7 @@ export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople }: {
     <header className="ex-head"><span className="ex-id">{label}</span><div className="ex-title"><strong>{stop.name}</strong><span>{KIND_TEXT[stop.kind]} <i>·</i> {stop.state === 'candidate' ? '候选' : '已确认'} <i>·</i> {win(stop, day, tz)}</span></div></header>
     <div className="exl-detail-body">
       <section><h3>光线</h3>
+        {stop.light2 && <LightCallout camera={stop.light2.camera} subject={stop.light2.subject} now={localToDate(day, minutes, tz).getTime()} day={day} tz={tz} />}
         <dl className="ex-kv">
           <div><dt>日出 · 日落</dt><dd>{dl.sunrise != null ? hm(dl.sunrise) : '—'} · {dl.sunset != null ? hm(dl.sunset) : '—'}</dd></div>
           <div><dt>金色时刻</dt><dd>{dl.goldAm ? `${hm(dl.goldAm[0])}–${hm(dl.goldAm[1])}` : '—'} / {dl.goldPm ? `${hm(dl.goldPm[0])}–${hm(dl.goldPm[1])}` : '—'}</dd></div>
@@ -86,7 +89,10 @@ export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople }: {
           {stop.focal?.length ? <div><dt>焦段</dt><dd>{stop.focal.map(f => `${f}mm`).join(' · ')}</dd></div> : null}
         </dl>
       </section>
-      {hasPeople && d.guidance?.length ? <section><h3>引导词</h3><ol className="ex-lines">{guidanceLines(d).map(g => <li key={g.id}>{g.text}</li>)}</ol></section> : null}
+      {hasPeople && d.guidance?.length ? <section><h3>引导词</h3><ol className="exd-lines">{guidanceLines(d).map(g => <li key={g.id}>{g.pose ? <PoseFigure pose={g.pose} title /> : <span />}<span>{g.text}</span></li>)}</ol></section> : null}
+      {(d.settings || d.frame || onFrame) && <section><h3>参数与构图</h3><SettingsRow s={d.settings} />
+        {d.frame ? <FrameBox key={stop.id} frame={d.frame} onChange={onFrame} />
+          : onFrame ? <button className="rh-btn" onClick={() => onFrame({ orientation: hasPeople ? 'portrait' : 'landscape', subject: hasPeople ? { x: 0.33, y: 0.62, w: 0.22, h: 0.55 } : null, horizon: 0.66 })}>画构图框</button> : null}</section>}
       {hasPeople && d.outfit ? <section><h3>服饰</h3>{d.outfit.palette && <span className="ex-palette">{d.outfit.palette.map(c => <i key={c} style={{ background: c }} title={c} />)}</span>}{d.outfit.notes && <p>{d.outfit.notes}</p>}</section> : null}
       <section><h3>参考 · {mine.length}</h3>
         {mine.length === 0 ? <p><em>还没有参考图</em></p> : <div className="exl-refs">{mine.map(r => <RefTile key={r.id} r={r} />)}</div>}

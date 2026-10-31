@@ -325,7 +325,8 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
         {view === 'map' ? mapArea : <BookView plan={plan} title={dossier?.title ?? '探索计划'} refs={x.snap.refs} weather={weather} variant={variant} onVariant={setVariant} onPdf={v => void makePdf(v)} pdfState={pdf} />}
         <LiveDayLine plan={plan} day={day} tz={tz} selected={sel} onSelect={setSel} t={t} onT={setT} weather={weather} />
       </div>
-      : stop ? <StopDetail plan={plan} stop={stop} day={day} tz={tz} minutes={t} refs={x.snap.refs} hasPeople={hasPeople} />
+      : stop ? <StopDetail plan={plan} stop={stop} day={day} tz={tz} minutes={t} refs={x.snap.refs} hasPeople={hasPeople}
+          onFrame={f => void x.run([{ op: 'stop.update', id: stop.id, patch: { detail: { ...(stop.detail ?? {}), frame: f } } }], s => s.plan.stops.some(st => st.id === stop.id))} />
       : <div className="ex-center"><div className="de"><p>先在计划面的地图或左边列表里选一个停留点。</p></div></div>}
       <div className="exl-dock" onPaste={e => { if (e.clipboardData.files.length) { e.preventDefault(); void addFiles(e.clipboardData.files); } }}
         onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } }}>

@@ -128,3 +128,26 @@
 .exl-ask { margin: 6px 0 0; font: 500 10.5px/1.3 var(--rh-f-mono); color: #b84d00; }
 
 .ex-center.exl-fieldwrap { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; } .exl-fieldwrap > .exf { height: 100%; }
+
+/* 第二版示意图 */
+.exd-pose { display: inline-grid; justify-items: center; flex: none; }
+.exd-pose svg { width: 30px; height: 40px; } .exd-pose path { fill: none; stroke: #141213; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.exd-pose small { font: 500 9px/1 var(--rh-f-mono); color: #6b6865; }
+.exd-lines { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; } .exd-lines li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; }
+.exd-settings { display: grid; gap: 4px; } .exd-k { font: 500 10px/1 var(--rh-f-mono); color: #9a9792; letter-spacing: .08em; }
+.exd-settings > div { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #141213; }
+.exd-settings span { display: grid; gap: 2px; padding: 6px 8px; border-right: 1px solid #14121322; } .exd-settings span:last-child { border-right: 0; }
+.exd-settings small { font: 500 9.5px/1 var(--rh-f-mono); color: #6b6865; } .exd-settings b { font: 700 15px/1.1 var(--rh-f-mono); }
+.exd-frame-wrap { display: grid; gap: 6px; justify-items: start; }
+.exd-frame { position: relative; background: #e6e4df; border: 1.5px solid #141213; touch-action: none; user-select: none; }
+.exd-frame[data-o='portrait'] { width: 160px; aspect-ratio: 2 / 3; } .exd-frame[data-o='landscape'] { width: 240px; aspect-ratio: 3 / 2; }
+.exd-third { position: absolute; background: #14121333; } .exd-third.v1, .exd-third.v2 { top: 0; bottom: 0; width: 1px; } .exd-third.v1 { left: 33.33%; } .exd-third.v2 { left: 66.66%; }
+.exd-third.h1, .exd-third.h2 { left: 0; right: 0; height: 1px; } .exd-third.h1 { top: 33.33%; } .exd-third.h2 { top: 66.66%; }
+.exd-horizon { position: absolute; left: 0; right: 0; height: 2px; margin-top: -1px; background: #ff7a1a; cursor: ns-resize; }
+.exd-horizon::after { content: ''; position: absolute; inset: -6px 0; }
+.exd-subject { position: absolute; border: 2px solid #141213; background: #14121322; cursor: move; }
+.exd-frame-tools { display: flex; gap: 8px; align-items: baseline; } .exd-frame-tools small { font: 500 10px/1.3 var(--rh-f-mono); color: #9a9792; }
+.exd-light { display: grid; gap: 6px; border-left: 4px solid #ff7a1a; background: #fff6ef; padding: 8px 10px; }
+.exd-light > div { display: grid; grid-template-columns: 34px 1fr; column-gap: 8px; font-size: 13px; }
+.exd-light > div[data-state='maybe_lit'] { opacity: .8; } .exd-light b { font: 700 12px/1.6 var(--rh-f-mono); }
+.exd-light small, .exd-light em { grid-column: 2; font: normal 500 10.5px/1.4 var(--rh-f-mono); color: #6b6865; }
