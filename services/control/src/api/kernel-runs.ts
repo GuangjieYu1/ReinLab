@@ -156,6 +156,8 @@ export function registerKernelRuns(
         };
         let state = "";
         let lastStateSent = "";
+        const startedAt = Date.now();
+        const MAX_MS = 30 * 60_000;
         const tick = setInterval(() => {
           void (async () => {
             if (closed) return;
@@ -171,7 +173,8 @@ export function registerKernelRuns(
                 const run = (
                   await client.query("select state from run where account_id=$1 and id=$2", [account, runId])
                 ).rows[0];
-                return { events: rows, current: run ? String(run.state) : "" };
+                // 运行行不见了（被清理）：没有更多事件，直接收尾。
+                return { events: rows, current: run ? String(run.state) : "missing" };
               });
               for (const row of events) {
                 cursor = Number(row.seq);
@@ -182,9 +185,15 @@ export function registerKernelRuns(
                 state = current;
                 push({ state: current });
               }
-              const done = ["completed", "failed", "cancelled", "interrupted"].includes(state);
+              const done = ["completed", "failed", "cancelled", "interrupted", "missing"].includes(state);
               if (done && !events.length) {
                 push({ done: true, state });
+                finish();
+                return;
+              }
+              // 兜底：极长的一轮（或页面早走没断干净）不要一直占着连接。
+              if (Date.now() - startedAt > MAX_MS) {
+                push({ done: true, state: state || "timeout" });
                 finish();
               }
             } catch {
