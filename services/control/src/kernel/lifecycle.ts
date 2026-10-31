@@ -23,6 +23,8 @@ export async function reconcileAccount(
      * 免得把正在跑的任务判成孤儿。
      */
     isLive?: (runId: string) => boolean;
+    /** 起跑宽限期（毫秒）：刚建的运行还没登记进内存，先别判成残留。 */
+    graceMs?: number;
   } = {},
 ): Promise<{ expiredRequests: number; interruptedRuns: number }> {
   const ttlMs = options.ttlMs ?? DEFAULT_ANSWER_TTL_MS;
@@ -104,12 +106,15 @@ export async function reconcileAccount(
     }
 
     // 2) 进程已经不在、状态还停在执行中的任务
+    // 刚起跑几十毫秒的运行还没登记进内存，不能当成残留：给一段宽限期再判。
+    const graceMs = options.graceMs ?? 45_000;
     const candidates = options.isLive
       ? (
           await client.query(
             `select id, dossier_id from run
-              where account_id=$1 and state in ('queued','running') and ended_at is null`,
-            [account],
+              where account_id=$1 and state in ('queued','running') and ended_at is null
+                and created_at < now() - ($2 || ' milliseconds')::interval`,
+            [account, String(graceMs)],
           )
         ).rows.filter((row) => !options.isLive!(row.id))
       : [];

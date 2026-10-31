@@ -45,16 +45,18 @@ const send = async (app: Hono, body: unknown) =>
   });
 
 describe("参考图进模型", () => {
-  it("带图的一轮：文字在前，图片按原样跟在后面", () => {
+  it("带图的一轮：图按给的顺序，每张前面带编号（模型才不会把第几张说反）", () => {
     const input = promptWithImages("看看这张图", [
-      { data: "AAAA", mimeType: "image/png" },
+      { data: "AAAA", mimeType: "image/png", label: "该机位实拍" },
       { data: "BBBB", mimeType: "image/jpeg" },
     ]);
     expect(Array.isArray(input)).toBe(true);
     if (Array.isArray(input)) {
       expect(input[0]).toEqual({ type: "text", text: "看看这张图" });
-      expect(input[1]).toEqual({ type: "image", data: "AAAA", mimeType: "image/png" });
-      expect(input[2]).toEqual({ type: "image", data: "BBBB", mimeType: "image/jpeg" });
+      expect(input[1]).toEqual({ type: "text", text: "图 1（该机位实拍）：" });
+      expect(input[2]).toEqual({ type: "image", data: "AAAA", mimeType: "image/png" });
+      expect(input[3]).toEqual({ type: "text", text: "图 2：" });
+      expect(input[4]).toEqual({ type: "image", data: "BBBB", mimeType: "image/jpeg" });
     }
     // 没有图就还是纯文字，不改协议形状。
     expect(promptWithImages("只有文字")).toBe("只有文字");

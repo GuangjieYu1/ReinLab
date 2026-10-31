@@ -11,7 +11,12 @@ export type TurnResult = {
   finalResponse: string;
 };
 /** 一轮里可以带的内容：文字，或「文字 + 已编码图片」（SDK 原样发送）。 */
-export type PromptImage = { data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" };
+export type PromptImage = {
+  data: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  /** 这张图的说明（文件名 / 作者 / 序号），拼在图片前面。 */
+  label?: string;
+};
 export type PromptBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: PromptImage["mimeType"] };
 export type PromptInput = string | PromptBlock[];
 
@@ -126,8 +131,12 @@ export async function runTurn(input: {
  */
 export function promptWithImages(text: string, images: PromptImage[] = []): PromptInput {
   if (!images.length) return text;
+  // 每张图前面带编号和名字：模型引用「第几张」时才不会数反。
   return [
     { type: "text" as const, text },
-    ...images.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })),
+    ...images.flatMap((image, index) => [
+      { type: "text" as const, text: `图 ${index + 1}${image.label ? `（${image.label}）` : ""}：` },
+      { type: "image" as const, data: image.data, mimeType: image.mimeType },
+    ]),
   ];
 }

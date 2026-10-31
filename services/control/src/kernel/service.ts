@@ -47,6 +47,17 @@ export type KernelLayout = {
 export type KernelDependencies = {
   db: Database;
   /** 把这一轮的参考图读成可发送的图片块；没配就只发文字。 */
+  /**
+   * 带图开跑前的服务端读图：把这一轮附带的图写成计划的「想要的感觉」。
+   * 失败不影响这一轮（读不出来就是没有感觉卡，照实空着）。
+   */
+  beforeRun?: (input: {
+    account: string;
+    dossier: string;
+    runId: string;
+    refIds: string[];
+    images: { data: string; mimeType: string; label?: string }[];
+  }) => Promise<void>;
   loadRefImages?: (input: {
     account: string;
     dossier: string;
@@ -71,6 +82,12 @@ const ACTIVE_SESSION_STATE = new Set(["queued", "running", "waiting"]);
  */
 export class KernelService {
   private readonly handles = new Map<string, RunHandle>();
+  /**
+   * 正在起跑（已写 run 行、还没拿到 handle）的运行。
+   * 收件箱的核对会把「不在 handles 里的 running」当成残留；起跑窗口只有几十毫秒，
+   * 但页面恰好在那一刻刷收件箱就会把刚建好的运行标成中断（验收时真的发生过）。
+   */
+  private readonly starting = new Set<string>();
   private readonly sessions = new Map<string, string>();
   private readonly now: () => number;
 
@@ -80,6 +97,22 @@ export class KernelService {
 
   /** Start (or resume) the dossier's kernel session for this run. */
   async submit(
+    account: string,
+    runId: string,
+    options: { newSession?: boolean; prompt?: string; mode?: "assist" | "explore" } = {},
+  ): Promise<{ runId: string; sessionId: string; resume: boolean }> {
+    const { db, layout } = this.dependencies;
+    // 从这一刻起就算「活着」：run 行是在下面的事务里被标成 running 的，
+    // 到 handles 里登记还要过 launch/materialize/容器几步。
+    this.starting.add(runId);
+    try {
+      return await this.submitNow(account, runId, options);
+    } finally {
+      this.starting.delete(runId);
+    }
+  }
+
+  private async submitNow(
     account: string,
     runId: string,
     options: { newSession?: boolean; prompt?: string; mode?: "assist" | "explore" } = {},
@@ -272,6 +305,24 @@ export class KernelService {
           })
         : [];
 
+    // 带图开跑前：服务端自己读一次图，把结构化观察写成计划的「想要的感觉」。
+    // 放在这里是为了不依赖模型「记得调 feel.set」；失败不影响这一轮。
+    if (images.length && this.dependencies.beforeRun)
+      await this.dependencies.beforeRun({
+        account,
+        dossier: prepared.dossierId,
+        runId,
+        refIds: prepared.refIds,
+        images,
+      }).catch((error) => {
+        console.error(
+          JSON.stringify({
+            code: "EXPLORE_FEEL_UNAVAILABLE",
+            detail: String((error as Error)?.message ?? error).slice(0, 160),
+          }),
+        );
+      });
+
     const handle = executeRun(
       {
         factory: this.dependencies.factory,
@@ -431,6 +482,7 @@ export class KernelService {
 
   /** 这一段执行此刻是否还挂在本进程里（残留判定用）。 */
   isLive(runId: string): boolean {
+    if (this.starting.has(runId)) return true;
     return this.handles.has(runId);
   }
 

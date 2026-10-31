@@ -958,6 +958,13 @@ async function exploreTool(
     };
   }
   if (input.tool === "view") {
+    // 第一版只做矢量底图（用户 2026-10-31 定）：卫星请求明确拒绝，别让助手说"已切到卫星"。
+    if (typeof args.basemap === "string" && args.basemap !== "vector")
+      throw new ApiFailure(
+        "BASEMAP_UNSUPPORTED",
+        409,
+        "第一版只有矢量底图，卫星和等高线没做；basemap 只能给 vector。",
+      );
     const viewport = args.viewport as Viewport;
     const basemap: Basemap = args.basemap === "satellite" ? "satellite" : "vector";
     const outcome = await applyOps(client, input.account, input.dossier, {

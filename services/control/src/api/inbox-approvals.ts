@@ -377,9 +377,16 @@ export async function decideInboxCard(
       const approved = input.decision === "approve";
       if (!approved) {
         await client.query(
-          "update approval set state='rejected', decided_at=now() where account_id=$1 and id=$2",
+          "update approval set state='rejected', decided_at=now(), decided_scope='once' where account_id=$1 and id=$2",
           [account, id.data],
         );
+        // 驳回也要送回原会话：不送回去，下一轮助手还以为「那张卡在等你点」。
+        if (row.run_state === "waiting")
+          resume?.(
+            account,
+            row.run_id,
+            `用户驳回了这次计划修改（审批 ${row.id}），计划没有被改动。不要重复提交同一批改动；如果他问原因，照实说明这次为什么被退回。`,
+          );
         return { status: 200, body: { state: "rejected" } } as any;
       }
       const effects = effectOf as any;
@@ -426,7 +433,16 @@ export async function decideInboxCard(
         [account, id.data, approved ? "approved" : "rejected"],
       );
       if (!marked.rowCount) throw conflict();
-      if (!approved) return { status: 200, body: { state: "rejected" } } as any;
+      if (!approved) {
+        // 天气调整建议被驳回：同样送回会话，别让助手下一轮还说「等你确认」。
+        if (row.run_state === "waiting")
+          resume?.(
+            account,
+            row.run_id,
+            `用户没有采纳这条天气调整建议（审批 ${row.id}），计划保持原样。不要重复提交同一批改动。`,
+          );
+        return { status: 200, body: { state: "rejected" } } as any;
+      }
       try {
         const outcome = await applyOps(client, account, String(effects.dossierId), {
           ops: Array.isArray(effects.ops) ? effects.ops : [],

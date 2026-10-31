@@ -530,7 +530,12 @@ async function cachedWeather(
   dossier: string,
   target: WeatherTarget,
   options: { refresh?: boolean; transport?: WeatherTransport; now: Date; timezone: string },
-): Promise<{ result: StopWeatherResult; fresh: boolean }> {
+): Promise<{
+  result: StopWeatherResult;
+  fresh: boolean;
+  /** 需要落库的新鲜结果：由调用方按 key 排序后统一写，避免并发请求交错写同一批行而互锁。 */
+  persist?: { signature: string; result: StopWeatherResult };
+}> {
   const signature = weatherSignature(target);
   const row = (
     await client.query(
@@ -565,28 +570,7 @@ async function cachedWeather(
     transport: options.transport,
     now: options.now,
   });
-  await client.query(
-    `insert into explore_weather(account_id,dossier_id,key,at,signature,state,hours,from_date,source,reason,fetched_at,updated_at)
-     values($1,$2,$3,$4::jsonb,$5,$6,$7::jsonb,$8,$9::jsonb,$10,$11,now())
-     on conflict (account_id,dossier_id,key) do update set
-       at=excluded.at, signature=excluded.signature, state=excluded.state, hours=excluded.hours,
-       from_date=excluded.from_date, source=excluded.source, reason=excluded.reason,
-       fetched_at=excluded.fetched_at, updated_at=now()`,
-    [
-      account,
-      dossier,
-      target.key,
-      JSON.stringify(target.at),
-      signature,
-      result.state,
-      JSON.stringify(result.hours),
-      result.fromDate ?? null,
-      JSON.stringify(result.source),
-      result.reason ?? null,
-      result.fetchedAt,
-    ],
-  );
-  return { result, fresh: false };
+  return { result, fresh: false, persist: { signature, result } };
 }
 
 const WORST: Record<WeatherBundle["state"], number> = { ok: 0, out_of_range: 1, failed: 2 };
@@ -648,6 +632,34 @@ export async function weatherView(
       }),
     ),
   );
+  // 把这次取到的新鲜预报按 key 排序后串行写：两个请求同时刷新时不会交错持锁。
+  const pendingWrites = results
+    .flatMap((entry, index) =>
+      entry.persist ? [{ key: targets[index].key, at: targets[index].at, persist: entry.persist }] : [],
+    )
+    .sort((a, b) => a.key.localeCompare(b.key));
+  for (const write of pendingWrites)
+    await client.query(
+      `insert into explore_weather(account_id,dossier_id,key,at,signature,state,hours,from_date,source,reason,fetched_at,updated_at)
+       values($1,$2,$3,$4::jsonb,$5,$6,$7::jsonb,$8,$9::jsonb,$10,$11,now())
+       on conflict (account_id,dossier_id,key) do update set
+         at=excluded.at, signature=excluded.signature, state=excluded.state, hours=excluded.hours,
+         from_date=excluded.from_date, source=excluded.source, reason=excluded.reason,
+         fetched_at=excluded.fetched_at, updated_at=now()`,
+      [
+        account,
+        dossier,
+        write.key,
+        JSON.stringify(write.at),
+        write.persist.signature,
+        write.persist.result.state,
+        JSON.stringify(write.persist.result.hours),
+        write.persist.result.fromDate ?? null,
+        JSON.stringify(write.persist.result.source),
+        write.persist.result.reason ?? null,
+        write.persist.result.fetchedAt,
+      ],
+    );
 
   let state: WeatherBundle["state"] = "ok";
   let fetchedAt: string | null = null;

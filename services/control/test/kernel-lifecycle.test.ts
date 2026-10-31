@@ -108,7 +108,7 @@ describe("运行生命周期收尾", () => {
     const card1 = await pendingCard(own.run, 1_000, "papers.fetch:orphan");
 
     // 收尾只看「执行是否还活着」这个判据，不猜；这里如实说它不在了。
-    await reconcileAccount(db, account, { isLive: () => false });
+    await reconcileAccount(db, account, { isLive: () => false, graceMs: 0 });
 
     expect(await state(own.run)).toBe("interrupted");
     expect(await card(card1)).toBe("expired");

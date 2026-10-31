@@ -114,6 +114,104 @@ export function registerKernelRuns(
     }),
   );
 
+  /**
+   * 运行事件的 SSE：页面订阅它代替 1 秒轮询。
+   *
+   * 为什么要它：DSH 内核是整步落盘（没有 token 增量），一轮常有 10–20 秒的静默；
+   * 页面靠轮询既慢又看不出"还在跑"。这里把落盘的每一步事件即刻推过去，
+   * 连 `step/start`、`assistant/attempt` 这类活性事件一起给，页面据此显示"正在想/正在调工具"。
+   *
+   * 帧格式：`data: {"seq":n,"action":"…","payload":{…}}`；
+   * 另有 `{"state":"running"|"completed"|…}` 状态帧与 `{"done":true}` 收尾帧。
+   */
+  app.get("/v1/kernel/runs/:id/stream", (c) => {
+    const account = c.get("accountId");
+    const runId = c.req.param("id");
+    if (!z.string().uuid().safeParse(runId).success)
+      throw new ApiFailure("RUN_NOT_FOUND", 404, "运行不存在。");
+    let cursor = Number(c.req.query("after") ?? 0);
+    if (!Number.isFinite(cursor) || cursor < 0) cursor = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        let closed = false;
+        const push = (event: Record<string, unknown>) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          } catch {
+            closed = true;
+          }
+        };
+        const finish = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(tick);
+          clearInterval(beat);
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        };
+        let state = "";
+        let lastStateSent = "";
+        const tick = setInterval(() => {
+          void (async () => {
+            if (closed) return;
+            try {
+              const { events, current } = await dependencies.db.withAccountSnapshot(account, async (client) => {
+                const rows = (
+                  await client.query(
+                    `select seq,action,payload from event
+                      where account_id=$1 and run_id=$2 and seq>$3 order by seq limit 200`,
+                    [account, runId, cursor],
+                  )
+                ).rows;
+                const run = (
+                  await client.query("select state from run where account_id=$1 and id=$2", [account, runId])
+                ).rows[0];
+                return { events: rows, current: run ? String(run.state) : "" };
+              });
+              for (const row of events) {
+                cursor = Number(row.seq);
+                push({ seq: cursor, action: row.action, payload: row.payload });
+              }
+              if (current && current !== lastStateSent) {
+                lastStateSent = current;
+                state = current;
+                push({ state: current });
+              }
+              const done = ["completed", "failed", "cancelled", "interrupted"].includes(state);
+              if (done && !events.length) {
+                push({ done: true, state });
+                finish();
+              }
+            } catch {
+              /* 下一拍再试 */
+            }
+          })();
+        }, 300);
+        const beat = setInterval(() => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(": ping\n\n"));
+          } catch {
+            closed = true;
+          }
+        }, 15000);
+        c.req.raw.signal.addEventListener("abort", finish);
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+      },
+    });
+  });
+
   app.post("/v1/kernel/approvals/:id/answer", async (c) => {
     const account = c.get("accountId");
     const id = c.req.param("id");

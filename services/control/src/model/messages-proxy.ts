@@ -9,6 +9,16 @@ export type NormalizedUsage = {
   cacheWriteTokens?: number;
 };
 
+/** 最后一条消息里有没有图片块（这一轮是不是刚把图送进去）。 */
+function lastMessageHasImage(body: unknown): boolean {
+  const messages = (body as { messages?: unknown })?.messages;
+  if (!Array.isArray(messages) || !messages.length) return false;
+  const last = messages[messages.length - 1] as { content?: unknown };
+  const content = last?.content;
+  if (!Array.isArray(content)) return false;
+  return content.some((block) => (block as { type?: unknown })?.type === "image");
+}
+
 export type RecordedUsage = {
   account: string;
   dossier: string;
@@ -118,8 +128,9 @@ export function registerMessagesProxy(
       return c.json({ error: "MESSAGES_BODY_INVALID" }, 400);
     }
     const model = typeof parsed.model === "string" ? parsed.model : "";
-    // 请求里带图片内容块 → 这一笔算「读图」，和纯文本编排分开记。
-    const purpose = /"type"\s*:\s*"image"/.test(body) ? ("vision" as const) : ("planning" as const);
+    // 只把「真正在首次读这几张图」的那一笔算读图：请求里**最后一条消息**带图片内容块才算。
+    // 后续步骤会把历史里的图一起回传，那些只是在延续思考，按编排记。
+    const purpose = lastMessageHasImage(parsed) ? ("vision" as const) : ("planning" as const);
     const target = new URL(dependencies.providerBaseUrl.replace(/\/+$/, "") + "/v1/messages");
     const upstream = new Request(target, {
       method: "POST",

@@ -23,6 +23,9 @@ import { localExploreStorage } from "./explore/storage";
 import { configureGeoProviders } from "./explore/providers";
 import { generateBook } from "./explore/book-job";
 import { createWeatherJudge } from "./explore/weather-judge";
+import { createFeelReader } from "./explore/feel";
+import { applyOps } from "./explore/service";
+import { publishOps } from "./api/explore-api";
 import { createWeatherScheduler } from "./explore/schedule";
 import { runWeatherCheck } from "./explore/weather-check";
 import { publishAccountEvent } from "./dossier/service";
@@ -76,22 +79,35 @@ const kernel = new KernelService({
   db: database,
   // 一轮最多带 4 张图：够说清感觉，也不至于把上下文撑爆。
   loadRefImages: async ({ account, dossier, refIds }) => {
+    const wanted = refIds.slice(0, 4);
     const rows = (
       await database.withAccountSnapshot(account, (client) =>
         client.query(
-          "select id,image_path,mime from explore_ref where account_id=$1 and dossier_id=$2 and id = any($3::uuid[]) and removed_at is null",
-          [account, dossier, refIds.slice(0, 4)],
+          "select id,image_path,mime,kind,author,platform from explore_ref where account_id=$1 and dossier_id=$2 and id = any($3::uuid[]) and removed_at is null",
+          [account, dossier, wanted],
         ),
       )
     ).rows;
-    const images: { data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" }[] = [];
-    for (const row of rows) {
+    // 按 refIds 给的顺序取，别用数据库返回顺序（否则模型看到的第 1、2 张会反过来）。
+    const byId = new Map(rows.map((row) => [String(row.id), row]));
+    const ordered = wanted.map((id) => byId.get(String(id))).filter(Boolean) as typeof rows;
+    const images: { data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif"; label?: string }[] = [];
+    for (const row of ordered) {
       if (!row.image_path) continue;
       const file = await exploreStorage.readRef({ dossier, path: String(row.image_path) });
       if (!file) continue;
       const mime = String(row.mime ?? file.mime);
       if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mime)) continue;
-      images.push({ data: file.bytes.toString("base64"), mimeType: mime as "image/png" });
+      const labelBits = [
+        row.kind === "same-spot" ? "该机位实拍" : "风格参考",
+        row.author ? String(row.author) : "",
+        row.platform ? String(row.platform) : "",
+      ].filter(Boolean);
+      images.push({
+        data: file.bytes.toString("base64"),
+        mimeType: mime as "image/png",
+        ...(labelBits.length ? { label: labelBits.join(" · ") } : {}),
+      });
     }
     return images;
   },
@@ -152,6 +168,15 @@ const weatherJudge = providerKey
       apiKey: providerKey,
       model: config.REINLAB_WEATHER_JUDGE_MODEL ?? config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
       provider: "deepseek-official",
+    })
+  : undefined;
+
+// 读图 → 想要的感觉：带图开跑前由服务端读一次，写成计划上的感觉卡。
+const feelReader = providerKey
+  ? createFeelReader({
+      baseUrl: "https://api.deepseek.com/anthropic",
+      apiKey: providerKey,
+      model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
     })
   : undefined;
 
