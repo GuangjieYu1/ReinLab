@@ -24,7 +24,8 @@ export async function renderSnapshot(cfg: MapConfig, plan: ExplorePlan, key: str
   const map = new maplibregl.Map({
     container: div, style: rhineStyle(cfg, 'vector'), transformRequest: withKey(cfg), pixelRatio: 2, interactive: false, attributionControl: false,
     canvasContextAttributes: { preserveDrawingBuffer: true },
-    ...(bounds ? { bounds, fitBoundsOptions: { padding: 60, maxZoom: 17 } } : { center: plan.destination?.center ?? [0, 0], zoom: 13 }),
+    // 点名标在点的右侧：右边多留，靠边的点名不被截（地图宽 800 / 600 CSS 像素）
+    ...(bounds ? { bounds, fitBoundsOptions: { padding: { top: 60, bottom: 60, left: 60, right: stop ? 200 : 240 }, maxZoom: 17 } } : { center: plan.destination?.center ?? [0, 0], zoom: 13 }),
   });
   try {
     await new Promise<void>((resolve, reject) => {
