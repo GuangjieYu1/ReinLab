@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createApp } from "../src/api/app";
 import { generateBook } from "../src/explore/book-job";
+import { orderedStops } from "../src/explore/books";
 import { KernelAuth } from "../src/kernel/auth";
 import { generateKeyPairSync } from "node:crypto";
 import { Database } from "../src/db/database";
@@ -373,5 +374,28 @@ describe("助手发起生成计划书", () => {
       headers: headers(),
     });
     expect(file.status).toBe(200);
+  });
+});
+
+describe("计划书里的停留点顺序", () => {
+  it("按开拍时间编号，没有时段的排最后（要和地图快照上的数字对得上）", () => {
+    const stops = [
+      { name: "下午点", window: { start: "2026-11-09T15:00:00+08:00" } },
+      { name: "没有时段", window: null },
+      { name: "清晨点", window: { start: "2026-11-09T06:30:00+08:00" } },
+      { name: "上午点", window: { start: "2026-11-09T09:10:00+08:00" } },
+    ];
+    expect(orderedStops(stops).map((stop) => stop.name)).toEqual([
+      "清晨点",
+      "上午点",
+      "下午点",
+      "没有时段",
+    ]);
+    // 同一时刻保持原有先后，别乱动
+    const same = orderedStops([
+      { name: "A", window: { start: "2026-11-09T07:00:00+08:00" } },
+      { name: "B", window: { start: "2026-11-09T07:00:00+08:00" } },
+    ]);
+    expect(same.map((stop) => stop.name)).toEqual(["A", "B"]);
   });
 });

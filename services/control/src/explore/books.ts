@@ -76,6 +76,23 @@ const clock = (iso: string | null | undefined): string => {
   return match ? match[1] : iso;
 };
 
+/**
+ * 时间表与详细版页序：按开拍时间（window.start）排，没有时段的排最后，其余保持原顺序。
+ * 页面和地图快照就是这么编号的，PDF 必须对得上，否则「1 号点」在两边指的不是同一个地方。
+ */
+export function orderedStops<T extends { window?: { start: string } | null }>(stops: T[]): T[] {
+  const key = (stop: T) => {
+    const start = stop.window?.start;
+    if (!start) return Number.POSITIVE_INFINITY;
+    const at = Date.parse(start);
+    return Number.isNaN(at) ? Number.POSITIVE_INFINITY : at;
+  };
+  return stops
+    .map((stop, index) => ({ stop, index, key: key(stop) }))
+    .sort((a, b) => (a.key === b.key ? a.index - b.index : a.key - b.key))
+    .map((entry) => entry.stop);
+}
+
 const kindText = (kind: Stop["kind"]): string =>
   kind === "area" ? "街区" : kind === "waypoint" ? "顺路点" : "机位";
 
@@ -141,7 +158,7 @@ export async function buildBookPdf(
   const font = await doc.embedFont(input.fontBytes, { subset: input.subset ?? true });
   const title = input.dossierTitle.trim() || "旅拍计划";
   const confirmed = input.plan.document.stops.filter((stop) => stop.state === "confirmed");
-  const stops = confirmed.length ? confirmed : input.plan.document.stops;
+  const stops = orderedStops(confirmed.length ? confirmed : input.plan.document.stops);
   const destination = input.plan.document.destination;
   const days = input.plan.document.days;
 
