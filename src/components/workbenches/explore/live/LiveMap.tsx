@@ -98,11 +98,13 @@ export default function LiveMap(p: Props) {
   useEffect(() => {
     const q = latest.current;
     const fit = planBounds(q.plan);
+    // 窄地图（现场页侧栏、手机）里固定 80px 留白会塞不下，按尺寸缩
+    const pad = Math.max(16, Math.min(80, Math.min(box.current!.clientWidth, box.current!.clientHeight) / 6));
     const map = new maplibregl.Map({
       container: box.current!, style: rhineStyle(q.cfg, q.basemap), transformRequest: withKey(q.cfg), localIdeographFontFamily: CJK,
       attributionControl: { compact: true },
       ...(q.initialView ? { center: q.initialView.center, zoom: q.initialView.zoom, bearing: q.initialView.bearing, pitch: q.initialView.pitch }
-        : fit ? { bounds: fit, fitBoundsOptions: { padding: 80, maxZoom: 16 } } : { center: [116.39, 39.9], zoom: 3 }),
+        : fit ? { bounds: fit, fitBoundsOptions: { padding: pad, maxZoom: 16 } } : { center: [116.39, 39.9], zoom: 3 }),
     });
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
@@ -140,7 +142,7 @@ export default function LiveMap(p: Props) {
     const prev = had.current, dest = p.plan.destination?.name ?? null;
     had.current = { stops: p.plan.stops.length, dest };
     if (!p.following) return;
-    if (prev.stops === 0 && p.plan.stops.length > 0) { const b = planBounds(p.plan); if (b) map.fitBounds(b, { padding: 90, maxZoom: 16, duration: 900 }); }
+    if (prev.stops === 0 && p.plan.stops.length > 0) { const b = planBounds(p.plan); if (b) { const c = map.getContainer(); map.fitBounds(b, { padding: Math.max(16, Math.min(90, Math.min(c.clientWidth, c.clientHeight) / 6)), maxZoom: 16, duration: 900 }); } }
     else if (!prev.dest && dest && p.plan.stops.length === 0 && p.plan.destination) map.flyTo({ center: p.plan.destination.center, zoom: 12, duration: 900 });
   }, [p.plan.stops.length, p.plan.destination?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 

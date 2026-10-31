@@ -22,7 +22,7 @@
 .exf-big.is-solid { background: #141213; color: #fbfbf9; } .exf-big:disabled { opacity: .4; }
 .exf-act > .exf-big { width: 100%; } .exf-act { grid-template-columns: 1fr 1fr; } .exf-act > :not(.exf-big) { grid-column: 1 / -1; }
 .exf-note { display: flex; gap: 6px; } .exf-note input, .exf-sit input { flex: 1; min-width: 0; font: 500 15px/1.3 var(--rh-f-ui); padding: 10px; border: 1px solid #141213; background: #fff; }
-.exf-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } .exf-row a.rh-btn { text-decoration: none; }
+.exf-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } .exf-row a.rh-btn, .exf-status a.rh-btn { text-decoration: none; color: inherit; }
 .exf-sit { display: grid; gap: 8px; } .exf-sit > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .exf-hint { margin: 4px 0 0; font: 500 11.5px/1.45 var(--rh-f-mono); color: #6b6865; }
 .exf-check, .exf-records { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
@@ -37,6 +37,18 @@
 .exf-pack > div { display: flex; gap: 6px; align-items: center; }
 .exf-over { border: 1px solid #ff7a1a; background: #fff6ef; padding: 8px; display: grid; gap: 6px; font-size: 12.5px; }
 .exf-mapbtn { display: none; }
+
+/* 按现场区域自身宽度排版（工作台里两侧有栏，比屏幕窄得多） */
+.exl-fieldwrap { container-type: inline-size; }
+@container (max-width: 1000px) and (min-width: 600px) {
+  .exf { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "status status" "now map" "light map" "guide map" "act act" "log log"; }
+  .exf-map { min-height: 340px; }
+}
+@container (max-width: 599px) {
+  .exf { grid-template-columns: 1fr; grid-template-areas: "status" "now" "light" "guide" "act" "map" "log"; padding: 8px; gap: 8px; }
+  .exf-map { min-height: 0; display: none; } .exf-map[data-open] { display: block; min-height: 320px; }
+  .exf-mapbtn { display: inline-flex; }
+}
 
 /* 手机：单栏，信息少而大；地图收起成按钮 */
 @media (max-width: 767px) {

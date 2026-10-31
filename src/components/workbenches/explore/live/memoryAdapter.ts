@@ -88,7 +88,7 @@ export function createMemoryExploreAdapter(): ExploreAdapter {
     async getOfflinePack() { throw new ExploreError('本地预览不做离线包', 'NOT_AVAILABLE'); },
     async postFieldEvents(events) { return { results: events.map(e => ({ clientId: e.clientId, serverId: 'm' + e.clientId, status: 'ok' as const })), planRevision: snap.plan.revision }; },
     async fieldEvents() { return []; },
-    async revision() { return structuredClone(snap.plan); },
+    async revision() { return structuredClone(snap); },
     async ping() { return true; },
     async scene(stopId) {
       // 本地预览示例：几块楼，其中一块高度未知。不是真实建筑数据。

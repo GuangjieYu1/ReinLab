@@ -1,13 +1,16 @@
 // 探索台离线（10-explore-v2-contract.md 第 0、2.1 节）：只在构建版本里注册。
 // 页面：网络优先、断网回首页壳；构建产物：缓存优先后台更新；后端：网络优先、断网回离线包；离线瓦片 / 字形：缓存优先。
-const SHELL = 'reinlab-shell-v1';
+const SHELL = 'reinlab-shell-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', e => e.waitUntil(caches.keys()
+  .then(ks => Promise.all(ks.filter(k => k.startsWith('reinlab-shell-') && k !== SHELL).map(k => caches.delete(k))))
+  .then(() => self.clients.claim())));
 
 // 页面在准备离线包时把当前用到的构建产物地址发过来，一起放进壳缓存
 self.addEventListener('message', e => {
-  if (e.data?.type === 'cache-shell') e.waitUntil(caches.open(SHELL).then(c => c.addAll(e.data.urls).catch(() => {})));
+  // 逐个放：addAll 一个失败就全部作废
+  if (e.data?.type === 'cache-shell') e.waitUntil(caches.open(SHELL).then(c => Promise.all(e.data.urls.map(u => c.add(u).catch(() => {})))));
 });
 
 const fromCache = req => caches.match(req, { ignoreVary: true });
@@ -18,7 +21,7 @@ self.addEventListener('fetch', e => {
 
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(SHELL).then(c => c.put('/', copy)); return r; })
-      .catch(async () => (await caches.match('/', { cacheName: SHELL })) || Response.error()));
+      .catch(async () => (await caches.match('/', { cacheName: SHELL, ignoreSearch: true })) || Response.error()));
     return;
   }
   if (url.pathname.startsWith('/backend/v1/explore/offline-')) {   // 离线瓦片 / 字形
@@ -32,7 +35,7 @@ self.addEventListener('fetch', e => {
   }
   if (url.pathname.startsWith('/assets/') || /\.(js|css|woff2?|svg|png)$/.test(url.pathname)) {
     e.respondWith(caches.open(SHELL).then(async c => {
-      const hit = await c.match(req);
+      const hit = await c.match(req, { ignoreVary: true });   // 模块脚本带 Origin 头，缓存时没带
       const net = fetch(req).then(r => { if (r.ok) c.put(req, r.clone()); return r; }).catch(() => hit);
       return hit || net;
     }));

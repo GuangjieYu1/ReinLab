@@ -67,6 +67,9 @@ export async function preparePack(opts: {
   rec.missing = await missingIn(rec);
   rec.state = rec.missing.length === 0 && failed.length === 0 ? 'ready' : 'incomplete';
   await db.putPack(rec);
+  // 同一天重新准备好了，旧包就没用了（现场记录按档案存，不随包删）
+  if (rec.state === 'ready') for (const old of await db.packsFor(opts.dossierId))
+    if (old.packId !== rec.packId && old.day === rec.day) { await caches.delete(cacheName(old.packId)); await db.deletePack(old.packId); }
   onProgress({ total: urls.length, done: rec.done.length, failed: rec.missing, phase: rec.state === 'ready' ? 'ready' : 'incomplete' });
   await db.setLastAccount(opts.accountId);
   return rec;
@@ -100,6 +103,8 @@ export async function deletePack(packId: string): Promise<{ ok: true } | { ok: f
 }
 
 /** 离线地图源：用清单的瓦片 / 字形模板替换在线源。 */
+// MapLibre 在 worker 里取瓦片 / 字形，相对地址解析不了，要给完整地址
+const abs = (u: string) => new URL(viaBackend(u), location.origin).href.replace(/%7B/g, '{').replace(/%7D/g, '}');
 export const offlineMapConfig = (m: OfflineManifest) => ({
-  tiles: [viaBackend(m.tileTemplate)], minzoom: m.tileZoom.min, maxzoom: m.tileZoom.max, glyphs: viaBackend(m.glyphTemplate),
+  tiles: [abs(m.tileTemplate)], minzoom: m.tileZoom.min, maxzoom: m.tileZoom.max, glyphs: abs(m.glyphTemplate),
 });

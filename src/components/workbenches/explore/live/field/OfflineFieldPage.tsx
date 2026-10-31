@@ -4,6 +4,7 @@ import type { MapConfig } from '../adapter';
 import { db, type PackRecord, type SnapshotRecord } from '../offline/db';
 import { offlineMapConfig } from '../offline/pack';
 import LiveField from './LiveField';
+import '../../../workbench-shell.css';
 import '../../explore.css';
 import '../live.css';
 
@@ -30,7 +31,7 @@ export default function OfflineFieldPage() {
   const { pack, snap } = state, m = pack.manifest;
   const off = offlineMapConfig(m);
   const mapCfg: MapConfig = { vector: { tilejson: '', glyphs: off.glyphs, attribution: '© OpenMapTiles © OpenStreetMap contributors · OpenFreeMap', tiles: off.tiles, minzoom: off.minzoom, maxzoom: off.maxzoom }, satellite: null, contours: null, publicKey: null };
-  return <main className="wb wb-exploration exl-offline">
+  return <main className="wb wb-exploration exl-fieldpage exl-offline">
     <header className="wb-strip" data-wb-bar><a className="wb-back" href="/">←</a><span className="wb-strip-bench"><b>EXPL</b>离线现场 · {pack.title}</span></header>
     <div className="wb-body exl-fieldwrap">
       <LiveField plan={snap.snap.plan} title={pack.title} weather={(snap.weather as WeatherView | null) ?? null} adapter={null}

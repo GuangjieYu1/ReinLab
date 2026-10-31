@@ -139,7 +139,7 @@ type ExperienceProposal = { approvalId: string; target: 'model' | 'place'; profi
 | 路由 | 说明 |
 |---|---|
 | `POST /v1/explore/plans/:id/offline-packs` `{ day }` | 生成清单 → `{ pack: OfflineManifest }` |
-| `GET /v1/explore/plans/:id/offline-packs/:packId` | 取清单（准备页检查完整性用） |
+| `GET /v1/explore/plans/:id/offline-packs/:packId` | 取清单（准备页检查完整性用）→ 直接返回 `OfflineManifest`（不包 `{pack}`） |
 | `GET /v1/explore/offline-tiles/:packId/:z/:x/:y` | 服务端带 ReinLab UA 代取并缓存的矢量瓦片（只发清单里列的） |
 
 ```ts
@@ -170,11 +170,11 @@ type OfflineManifest = {
 |---|---|
 | `POST /v1/explore/plans/:id/field-events` `{ events: FieldEvent[] }` | 批量上传。按 `clientId` 幂等，重复上传只存一份。→ `{ results: { clientId, serverId, status: 'ok' \| 'orphan' \| 'duplicate' \| 'conflict', server?: FieldEventRecord }[], planRevision }` |
 | `GET /v1/explore/plans/:id/field-events` | → `{ items: FieldEventRecord[] }` |
-| `GET /v1/explore/plans/:id/revisions/:rev` | 某个修订的计划快照（出发时的计划，回顾对照用） |
+| `GET /v1/explore/plans/:id/revisions/:rev` | 某个修订的计划快照（出发时的计划，回顾对照用）→ 整份 `ExploreSnapshot`（与 `GET plans/:id` 同形状） |
 
 - 同步顺序：先传事件，再拉最新计划。**旧离线快照绝不覆盖服务端计划。**
 - 点被删：`status: 'orphan'`，页面显示原名称和"重新关联"按钮（发 `correction: relink`）。
-- 更正（撤销、改文字、重关联）一律是新的 `correction` 事件，不改原记录。
+- 更正（撤销、改文字、重关联）一律是新的 `correction` 事件，不改原记录。读接口的 `stopId` 返回更正后的有效停留点，原值留在库里，不另加字段。
 - 冲突：同一条记录本地改过、服务端也有更正时，接口返回 `status: 'conflict'` 和服务端版本，页面让用户二选一（只有这一种冲突）。
 - "情况变了"：联网时，页面把 `situation` 事件存下来，同时用一句结构化文字发进对话（`POST /v1/kernel/runs`，第一版的探索会话），格式如「【现场 · 下雨了】当前在 2 号点 · 17:42 · 用户补充：……」。之后的前后对照和应用沿用第一版的审批。离线时只存 `situation` 事件，页面明说"现在连不上 ReinLab，助手暂时不能重排"，**不排队成回来后自动执行的命令**。
 

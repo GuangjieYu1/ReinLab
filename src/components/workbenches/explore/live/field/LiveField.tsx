@@ -45,7 +45,9 @@ export default function LiveField(p: FieldProps) {
   useEffect(() => {
     const on = () => setInternet(navigator.onLine);
     window.addEventListener('online', on); window.addEventListener('offline', on);
-    const ping = () => p.adapter ? p.adapter.ping().then(setReachable) : setReachable(false);
+    // 离线页没有 adapter，也探一下：连上了就提示回到在线现场同步
+    const probe = () => fetch('/backend/v1/explore/map-config', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(4000) }).then(r => r.status < 500, () => false);
+    const ping = () => (p.adapter ? p.adapter.ping() : probe()).then(setReachable);
     void ping(); const t = window.setInterval(() => void ping(), 20000);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', on); window.clearInterval(t); };
   }, [p.adapter]);
@@ -53,7 +55,9 @@ export default function LiveField(p: FieldProps) {
   const log = useFieldLog({ adapter: reachable ? p.adapter : null, accountId: p.accountId, dossierId: p.dossierId, planRevision: plan.revision, reachable });
 
   // 行程：已确认停留点按开拍时间；当前点 = 定位到达 / 手动选 / 按时间
-  const stops = useMemo(() => plan.stops.filter(s => s.state === 'confirmed').sort((a, b) => (a.window?.start ?? '~').localeCompare(b.window?.start ?? '~')), [plan.stops]);
+  // 计划还没确认时按候选点显示（现场照样能用）
+  const onlyCandidates = !plan.stops.some(s => s.state === 'confirmed');
+  const stops = useMemo(() => plan.stops.filter(s => onlyCandidates || s.state === 'confirmed').sort((a, b) => (a.window?.start ?? '~').localeCompare(b.window?.start ?? '~')), [plan.stops]);
   const labels = stopLabels(plan);
   const [locOn, setLocOn] = useState(false);
   const loc = useFieldLocation(locOn);
@@ -112,6 +116,8 @@ export default function LiveField(p: FieldProps) {
       <span data-ok={reachable || undefined}>ReinLab {reachable ? '可连接' : '连不上'}</span>
       <span data-ok={internet || undefined}>互联网 {internet ? '有' : '无'}</span>
       <span data-warn={log.pending > 0 || undefined}>{log.syncing ? '同步中…' : log.pending ? `待同步 ${log.pending} 条` : '已同步'}</span>
+      {onlyCandidates && plan.stops.length > 0 && <span data-warn>计划还没确认 · 按候选点显示</span>}
+      {!p.adapter && reachable && <a className="rh-btn" href={`/?preview=workbench&studio=exploration&file=0&dossier=${encodeURIComponent(p.dossierId)}`}>ReinLab 连上了 · 回在线现场同步</a>}
       {p.offlinePack && <span>离线包 · 第 {p.offlinePack.planRevision} 版计划 · {new Date(p.offlinePack.preparedAt).toLocaleDateString('zh-CN')} 准备</span>}
       {stale && <span data-warn>计划有新版本（第 {p.serverRevision} 版），联网时更新离线包</span>}
       {p.weather?.fetchedAt && <span>天气快照 · {new Date(p.weather.fetchedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
@@ -123,7 +129,7 @@ export default function LiveField(p: FieldProps) {
         <h2>{current.name}</h2>
         <p className="exf-window">{current.window ? `${hm(dateToLocal(current.window.start, day, tz))}–${hm(dateToLocal(current.window.end, day, tz))}` : '时段未定'}</p>
         <p className="exf-leave" data-warn={leave.warn || undefined}>{next ? `下一个：${labels[next.id]} 号 ${next.name} · ` : ''}{leave.text}</p>
-      </> : <h2>今天还没有已确认的停留点</h2>}
+      </> : <h2>今天还没有停留点</h2>}
       <div className="exf-pick">
         <select value={current?.id ?? ''} onChange={e => setManual(e.target.value || null)} aria-label="手动切换停留点">
           {stops.map(s => <option key={s.id} value={s.id}>{labels[s.id]} · {s.name}{shotIds.has(s.id) ? ' ✓' : ''}</option>)}

@@ -81,7 +81,7 @@ export interface ExploreAdapter {
   getOfflinePack(packId: string): Promise<OfflineManifest>;
   postFieldEvents(events: FieldEvent[]): Promise<{ results: FieldSyncResult[]; planRevision: number }>;
   fieldEvents(): Promise<FieldEventRecord[]>;
-  revision(rev: number): Promise<ExploreSnapshot['plan']>;
+  revision(rev: number): Promise<ExploreSnapshot>;   // 和 load() 同形状
   // ── 第二版：白模与楼影（第 2.6 节）──
   scene(stopId: string): Promise<BuildingScene>;
   recomputeLight(stopId: string): Promise<void>;
