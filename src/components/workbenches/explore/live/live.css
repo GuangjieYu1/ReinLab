@@ -58,7 +58,7 @@
 
 .exl-xp-sub { display: block; padding: 8px 10px 2px; font: 500 10px/1 var(--rh-f-mono); color: #9a9792; letter-spacing: .1em; }
 .ex-list button[data-cand] em { background: #fbfbf9; color: #141213; outline: 2px dashed #ff7a1a; outline-offset: -2px; }
-.exl-feel { margin: 0; padding: 4px 10px 8px 26px; font-size: 12px; line-height: 1.55; }
+.exl-feel { margin: 0; padding: 4px 10px 8px 26px; font-size: 12px; line-height: 1.55; max-height: 220px; overflow: auto; }
 
 /* 资料 */
 .exl-prof { display: grid; gap: 6px; padding: 4px 8px 8px; }
