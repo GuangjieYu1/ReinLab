@@ -219,13 +219,15 @@ export class KernelService {
       if (layout.shimMode === "docker" && layout.container) {
         // dsh 要在 HOME 下建 profile：先在账户卷里把它建好。
         await layout.io.mkdir(layout.home + "/accounts/" + account + "/home");
-        // 这个账户还有别的任务在跑吗？有就别重建它的容器。
+        // 这个账户还有别的任务在**真正执行**吗？有就别重建它的容器。
+        // 只认 running：waiting 是停在卡片上等用户，不占容器；
+        // 早先的实现把 waiting 也算忙，结果有历史遗留的 waiting 记录时容器永远不更新。
         const busy = await this.dependencies.db
           .withAccount(account, async (client) => {
             const rows = (
               await client.query(
                 `select 1 from run
-                  where account_id=$1 and id<>$2 and state in ('running','waiting') limit 1`,
+                  where account_id=$1 and id<>$2 and state='running' limit 1`,
                 [account, runId],
               )
             ).rowCount;
