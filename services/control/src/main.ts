@@ -79,7 +79,7 @@ const kernel = new KernelService({
   db: database,
   // 带图开跑前：服务端读一次图，把观察写成计划上的感觉卡（不依赖模型记不记得调工具）。
   beforeRun: async ({ account, dossier, runId, refIds, images }) => {
-    if (!feelReader || !images.length) return;
+    if (!feelReader || !images.length) return null;
     const outcome = await database.withAccount(account, async (client) => {
       const current = await readPlan(client, account, dossier);
       // 只在还没有感觉卡时补一次：有了就不再覆盖（用户和助手都可以自己改它）。
@@ -111,6 +111,16 @@ const kernel = new KernelService({
       });
     });
     if (outcome) publishOps(account, outcome);
+    const feel = outcome ? outcome.applied.map((entry) => (entry.result as { plan?: { feel?: unknown } })?.plan?.feel).find(Boolean) : null;
+    const line = (feel ?? null) as { observations?: { aspect: string; text: string }[]; guesses?: { aspect: string; text: string }[] } | null;
+    if (!line?.observations?.length) return null;
+    const aspectText = (aspect: string) =>
+      ({ light: "光", tone: "色", composition: "构图", pose: "姿态", other: "其他", time: "时间", focal: "焦段" } as Record<string, string>)[aspect] ?? aspect;
+    const observations = line.observations.map((item) => `${aspectText(item.aspect)}—${item.text}`).join("；");
+    const guesses = line.guesses?.length
+      ? `（推测：${line.guesses.map((item) => `${aspectText(item.aspect)}—${item.text}`).join("；")}）`
+      : "";
+    return `（服务端已按这几张参考图记下「想要的感觉」，图片编号见下方的图 1、图 2…：${observations}${guesses}。这是服务和你看同一张图得出的结论，别推翻重来，可以补充或纠正。）`;
   },
   // 一轮最多带 4 张图：够说清感觉，也不至于把上下文撑爆。
   loadRefImages: async ({ account, dossier, refIds }) => {

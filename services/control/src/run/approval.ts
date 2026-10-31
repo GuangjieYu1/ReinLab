@@ -47,6 +47,21 @@ export async function requestApproval(
     ).rows[0];
   const found = await live();
   if (found) return card(found);
+  // 同一份档案里已经有同样内容的待批卡：直接用它，别再出一张。
+  // （驳回后助手会在新的一轮里重提同一批改动，run_id 变了但内容一样——
+  //  验收时就因此出过两张一模一样的卡。）
+  const sameDossier = (
+    await client.query(
+      `select a.id,a.state,a.consumed_at
+         from approval a
+         left join run r on r.account_id=a.account_id and r.id=a.run_id
+        where a.account_id=$1 and a.state='pending' and a.effect_key=$2
+          and coalesce(a.dossier_id,r.dossier_id)=$3
+        order by a.id desc limit 1`,
+      [request.account, key, request.dossier],
+    )
+  ).rows[0];
+  if (sameDossier) return card(sameDossier);
   const inserted = await client.query(
     `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key)
      values(gen_random_uuid(),$1,$2,$7,$3,$4,$5,'pending',$6)

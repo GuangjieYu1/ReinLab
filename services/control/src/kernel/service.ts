@@ -57,7 +57,7 @@ export type KernelDependencies = {
     runId: string;
     refIds: string[];
     images: { data: string; mimeType: string; label?: string }[];
-  }) => Promise<void>;
+  }) => Promise<string | null>;
   loadRefImages?: (input: {
     account: string;
     dossier: string;
@@ -307,8 +307,10 @@ export class KernelService {
 
     // 带图开跑前：服务端自己读一次图，把结构化观察写成计划的「想要的感觉」。
     // 放在这里是为了不依赖模型「记得调 feel.set」；失败不影响这一轮。
-    if (images.length && this.dependencies.beforeRun)
-      await this.dependencies.beforeRun({
+    // 预读结果同时作为这一轮的上下文：不然服务端记的「柔光」和模型自己说的「硬光」
+    // 会各说各的，用户看到两张嘴上打架的结论。
+    const feelNote = images.length && this.dependencies.beforeRun
+      ? await this.dependencies.beforeRun({
         account,
         dossier: prepared.dossierId,
         runId,
@@ -321,7 +323,9 @@ export class KernelService {
             detail: String((error as Error)?.message ?? error).slice(0, 160),
           }),
         );
-      });
+        return null;
+      })
+      : null;
 
     const handle = executeRun(
       {
@@ -448,7 +452,13 @@ export class KernelService {
         // 页面上（纲领第 9 条）。结果照实记录在事件里，不伪装成人说的话。
         release: plan.release,
       },
-      { plan, prompt: prepared.message, resume: prepared.resume, token, ...(images.length ? { images } : {}) },
+      {
+        plan,
+        prompt: feelNote ? `${feelNote}\n\n${prepared.message}` : prepared.message,
+        resume: prepared.resume,
+        token,
+        ...(images.length ? { images } : {}),
+      },
     );
     this.handles.set(runId, handle);
     void handle.done.catch(() => {}).finally(() => this.handles.delete(runId));

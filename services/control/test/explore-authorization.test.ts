@@ -371,4 +371,72 @@ describe("确认整份计划的授权语义", () => {
     const ok = await tool("view", { viewport: { center: [120.14, 30.25], zoom: 12, bearing: 0, pitch: 0 }, basemap: "vector" });
     expect(ok.status).toBe(200);
   });
+
+  it("同一份档案里同样内容的两张待批卡：第二次提交复用第一张，不再多出一张", async () => {
+    const fresh = randomUUID();
+    await admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path) values($1::uuid,$2,'exploration','去重',$3)",
+      [fresh, A, "/data/dossiers/" + fresh],
+    );
+    const seed = await (await app.request(`/v1/explore/plans/${fresh}`, { headers: headers() })).json();
+    await app.request(`/v1/explore/plans/${fresh}/ops`, {
+      method: "POST",
+      headers: headers(randomUUID()),
+      body: JSON.stringify({
+        baseRevision: seed.plan.revision,
+        ops: [
+          {
+            op: "plan.set",
+            patch: { destination: { name: "杭州", center: [120.14, 30.25], timezone: "Asia/Shanghai" }, days: ["2026-12-02"] },
+          },
+          {
+            op: "stop.add",
+            stop: {
+              kind: "spot",
+              name: "前海石公园",
+              geometry: { type: "Point", coordinates: [113.89, 22.51] },
+              day: "2026-12-02",
+              state: "confirmed",
+            },
+          },
+        ],
+      }),
+    });
+    const stopId = (await (await app.request(`/v1/explore/plans/${fresh}`, { headers: headers() })).json()).plan.stops[0].id;
+    await admin.query(
+      `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+       values($1,$2,null,'dsh','user/message',$3,$4)`,
+      [A, fresh, JSON.stringify({ id: `msg-${randomUUID()}`, content: [{ type: "text", text: "今天风大吗？" }] }), randomUUID()],
+    );
+    const ask = async (runId: string) =>
+      app.request("/kernel/tool", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": auth.issue({ account: A, dossier: fresh, run: runId }, Math.floor(Date.now() / 1000)),
+        },
+        body: JSON.stringify({ server: "explore", tool: "ops", args: { ops: [{ op: "stop.remove", id: stopId }] } }),
+      });
+    // 两轮不同的 run 提交完全相同的内容：应当复用同一张卡
+    const runFor = async () => {
+      const id = randomUUID();
+      await admin.query(
+        "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,'bench-explore','explore',$4,'running',1)",
+        [id, A, fresh, "req-" + id.slice(0, 8)],
+      );
+      return id;
+    };
+    const firstRun = await runFor();
+    const firstResponse = await ask(firstRun);
+    const first = await firstResponse.json() as { approvalId: string };
+    expect(firstResponse.status, JSON.stringify(first)).toBe(409);
+    const second = await (await ask(await runFor())).json() as { approvalId: string };
+    expect(first.approvalId).toBeTruthy();
+    expect(second.approvalId).toBe(first.approvalId);
+    const pending = await admin.query(
+      "select a.id,a.state,coalesce(a.dossier_id,r.dossier_id)::text dossier from approval a left join run r on r.id=a.run_id where coalesce(a.dossier_id,r.dossier_id)=$1",
+      [fresh],
+    );
+    expect(pending.rows.map((row) => row.state)).toEqual(["pending"]);
+  });
 });

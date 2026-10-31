@@ -385,7 +385,7 @@ export async function decideInboxCard(
           resume?.(
             account,
             row.run_id,
-            `用户驳回了这次计划修改（审批 ${row.id}），计划没有被改动。不要重复提交同一批改动；如果他问原因，照实说明这次为什么被退回。`,
+            `用户驳回了这次计划修改（审批 ${row.id}），计划没有被改动。这一项已被拒绝：除非用户在这之后又明确提出，不要再提交它，也不要把它打包进别的修改里。如果他问原因，照实说明这次为什么被退回。`,
           );
         return { status: 200, body: { state: "rejected" } } as any;
       }

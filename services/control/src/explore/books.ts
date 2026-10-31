@@ -49,6 +49,27 @@ export function requiredSnapshotKeys(plan: StoredPlan, variant: BookVariant): st
   return variant === "brief" ? ["overview"] : ["overview", ...confirmed.map((stop) => stop.id)];
 }
 
+/** 取数时间按拍摄地点时区显示成本地「MM月DD日 HH:mm」，不甩 ISO。 */
+const localStamp = (iso: string | null | undefined, timezone: string | null | undefined): string => {
+  if (!iso) return "未知";
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return iso;
+  try {
+    const parts = new Intl.DateTimeFormat("zh-CN", {
+      timeZone: timezone || "UTC",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(when);
+    const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+    return `${get("month")}月${get("day")}日 ${get("hour")}:${get("minute")}`;
+  } catch {
+    return iso;
+  }
+};
+
 const clock = (iso: string | null | undefined): string => {
   if (!iso) return "未知";
   const match = /T(\d{2}:\d{2})/.exec(iso);
@@ -65,9 +86,19 @@ const stampText = (at: Date): string =>
   `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
 
 /** 按字符折行（中文没有空格，按宽度逐字累加）。 */
+/** 按实际渲染宽度截断到 maxWidth，超出加省略号。 */
+function clip(value: string, font: PDFFont, size: number, maxWidth: number): { text: string; clipped: boolean } {
+  if (font.widthOfTextAtSize(value, size) <= maxWidth) return { text: value, clipped: false };
+  let cut = value;
+  while (cut.length > 1 && font.widthOfTextAtSize(cut + "…", size) > maxWidth) cut = cut.slice(0, -1);
+  return { text: cut + "…", clipped: true };
+}
+
 function wrap(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const lines: string[] = [];
   let current = "";
+  // 拉丁字母/数字/常见单位与时间符号当成一个整体，避免「24mm」被拆成「2 4 mm」。
+  const glue = /[0-9A-Za-z:./+\-–—%°℃mmcmlb′″]/;
   for (const char of text) {
     if (char === "\n") {
       lines.push(current);
@@ -75,9 +106,17 @@ function wrap(text: string, font: PDFFont, size: number, maxWidth: number): stri
       continue;
     }
     const next = current + char;
-    if (font.widthOfTextAtSize(next, size) > maxWidth && current) {
-      lines.push(current);
-      current = char;
+    const over = font.widthOfTextAtSize(next, size) > maxWidth && current;
+    if (over) {
+      // 断点落在一段连续拉丁/数字里：整段挪到下一行，别从中间切。
+      const match = /[0-9A-Za-z:./+\-–—%°℃′″]+$/.exec(current);
+      if (match && glue.test(char) && match[0].length > 1) {
+        lines.push(current.slice(0, current.length - match[0].length));
+        current = match[0] + char;
+      } else {
+        lines.push(current);
+        current = char;
+      }
     } else current = next;
   }
   if (current) lines.push(current);
@@ -97,9 +136,9 @@ export async function buildBookPdf(
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
-  // 字体是我们自己按这份文档用到的字裁剪过的（harfbuzz），所以这里整份嵌入：
-  // pdf-lib 自身对 3 万字形的大字体做子集会掉字形，实测中文变空白。
-  const font = await doc.embedFont(input.fontBytes, { subset: input.subset ?? false });
+  // 字体先由 harfbuzz 裁到这份文档用到的字（3 万字形的原字体直接交给 pdf-lib 子集会掉字），
+  // 再让 pdf-lib 做一次子集嵌入：整份嵌入时 fontkit 会把数字/字母的 glyph 映射错（实测「24mm」变「2 4 mm」）。
+  const font = await doc.embedFont(input.fontBytes, { subset: input.subset ?? true });
   const title = input.dossierTitle.trim() || "旅拍计划";
   const confirmed = input.plan.document.stops.filter((stop) => stop.state === "confirmed");
   const stops = confirmed.length ? confirmed : input.plan.document.stops;
@@ -227,14 +266,23 @@ export async function buildBookPdf(
         kindText(stop.kind),
         stop.day.slice(5),
         windowText(stop),
-        stop.focal?.length ? `${stop.focal[0]}mm` : "—",
-        point.length > 22 ? point.slice(0, 22) + "…" : point,
+        stop.focal?.length
+          ? clip(`${stop.focal[0]}mm`, font, 9, columns[6] - columns[5] - 6).text
+          : "—",
+        clip(point, font, 9, PAGE.width - MARGIN - columns[6]).text,
       ]);
       if (!ok) break;
       shown += 1;
     }
     if (shown < stops.length)
       text(cursor, `其余 ${stops.length - shown} 个停留点见详细版。`, { size: 8.5, color: FADED });
+    // 要点放不下就截短：按 PRD 7.1 在页脚说明，别硬塞。
+    if (stops.some((stop) => {
+      const point =
+        stop.detail?.composition ?? stop.detail?.guidance?.[0] ?? stop.reason ?? "";
+      return clip(point, font, 9, PAGE.width - MARGIN - columns[6]).clipped;
+    }))
+      text(cursor, "要点放不下的已截短，完整内容见详细版。", { size: 8.5, color: FADED });
 
     cursor.y -= 10;
     text(cursor, "光线与天气", { size: 12, gap: 2 });
@@ -253,7 +301,7 @@ export async function buildBookPdf(
     if (firstWeather)
       text(
         cursor,
-        `天气（${input.weather?.fetchedAt ?? "未知"} 取）：云量 ${firstWeather.cloud ?? "未知"}% · 降水概率 ${firstWeather.precipProb ?? "未知"}% · 降水 ${firstWeather.precipMm ?? "未知"} mm/h · 风 ${firstWeather.wind ?? "未知"} m/s · ${firstWeather.temp ?? "未知"}°C`,
+        `天气（${localStamp(input.weather?.fetchedAt, input.plan.document.destination?.timezone)} 取）：云量 ${firstWeather.cloud ?? "未知"}% · 降水概率 ${firstWeather.precipProb ?? "未知"}% · 降水 ${firstWeather.precipMm ?? "未知"} mm/h · 风 ${firstWeather.wind ?? "未知"} m/s · ${firstWeather.temp ?? "未知"}°C`,
         { size: 9 },
       );
     else text(cursor, "天气：未知（还没有取到这份计划的预报）", { size: 9, color: FADED });
@@ -350,7 +398,7 @@ export async function buildBookPdf(
     const last = newPage();
     text(last, "天气预案 · 装备 · 来源", { size: 15, gap: 2 });
     rule(last, RHINE_ORANGE, 1.2);
-    text(last, `预报获取时间：${input.weather?.fetchedAt ?? "未知"}`, { size: 9, color: FADED, gap: 4 });
+    text(last, `预报获取时间：${localStamp(input.weather?.fetchedAt, input.plan.document.destination?.timezone)}（当地）`, { size: 9, color: FADED, gap: 4 });
     for (const [index, stop] of stops.entries()) {
       const hours = input.weather?.byStop.find((entry) => entry.stopId === stop.id)?.hours ?? [];
       const slice = hours.slice(0, 4);
@@ -430,7 +478,7 @@ export async function renderBookPdf(input: BookInput): Promise<Uint8Array> {
   const text = [...chars].join("");
   try {
     const subset = await subsetFont(input.fontBytes, text, { targetFormat: "truetype" });
-    return await buildBookPdf({ ...input, fontBytes: subset, subset: false });
+    return await buildBookPdf({ ...input, fontBytes: subset });
   } catch (error) {
     // 裁剪失败就退回整份嵌入（字体有 10 MB，宁可大一点也别丢字）。
     console.error(
@@ -439,6 +487,6 @@ export async function renderBookPdf(input: BookInput): Promise<Uint8Array> {
         message: String((error as Error)?.message ?? error).slice(0, 200),
       }),
     );
-    return buildBookPdf({ ...input, subset: false });
+    return buildBookPdf({ ...input });
   }
 }
