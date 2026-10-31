@@ -6,6 +6,7 @@ import { RichBlocks } from '../../richText';
 import type { BenchProps } from '../../WorkbenchStudio';
 import type { Basemap, LngLat, PendingChange, PlanUsage, Profile, Stop, Viewport, WeatherSuggestion, WeatherView } from '../../../../../packages/contracts/src/explore';
 import { ExploreError, type ChatItem, type ExploreAdapter, type MapConfig, type Place } from './adapter';
+import { api } from '../../../../data/research-live';
 import { useExplore } from './state';
 import LiveMap from './LiveMap';
 import LiveDayLine from './LiveDayLine';
@@ -60,6 +61,9 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const [found, setFound] = useState<Place[] | null>(null);
   const [focus, setFocus] = useState<{ at: LngLat; n: number } | null>(null);
   const lastView = useRef<Viewport | null>(null);
+  // 对话里的审批卡：还在待批的才显示按钮；处理过的按本页记下的结果显示（重开页面时统一算已处理）
+  const [openApprovals, setOpenApprovals] = useState<Set<string> | null>(null);
+  const [decided, setDecided] = useState<Record<string, 'approved' | 'rejected'>>({});
   const plan = x.snap?.plan;
   const tz = plan?.destination?.timezone ?? browserTz();
   const day = plan?.days[dayIdx] ?? plan?.days[0] ?? new Date().toISOString().slice(0, 10);
@@ -89,6 +93,14 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     handled.current = x.events.length;
   }, [x.events]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 哪些审批还在待批：对话变化、计划修订变化时刷新
+  const chatLen = chat.length;
+  useEffect(() => {
+    if (adapter.kind !== 'live') return;
+    void api('/v1/approvals?state=pending').then((r: { items?: { id: string }[] }) => setOpenApprovals(new Set((r.items ?? []).map(i => i.id))), () => {});
+    // 重开页面时本页记录是空的：被驳回的照实标「没有执行」
+    void api('/v1/approvals?state=rejected').then((r: { items?: { id: string }[] }) => setDecided(d => ({ ...Object.fromEntries((r.items ?? []).map(i => [i.id, 'rejected' as const])), ...d })), () => {});
+  }, [chatLen, x.snap?.plan.revision, adapter.kind]);
   // 对话
   const session = useMemo(() => adapter.chat((items, b) => { setChat([...items]); setBusy(b); }), [adapter]);
   useEffect(() => { void session.load().catch(() => {}); return () => session.stop(); }, [session]);
@@ -122,7 +134,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     void x.run([{ op: 'plan.confirm' }], s => s.plan.state === 'draft');
   };
   const decide = async (approvalId: string, approve: boolean) => {
-    try { await adapter.decide(approvalId, approve); await x.reload(); adapter.suggestions().then(setSugs, () => {}); }
+    try { await adapter.decide(approvalId, approve); setDecided(d => ({ ...d, [approvalId]: approve ? 'approved' : 'rejected' })); await x.reload(); adapter.suggestions().then(setSugs, () => {}); }
     catch (e) { setErr(e instanceof Error ? e.message : '没有成功'); }
   };
 
@@ -150,7 +162,8 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   // —— 对话 + 操作记录：按出现先后排在一起 ——
   const order = useRef(new Map<string, number>()), seq = useRef(0);
   const seen = (id: string) => { if (!order.current.has(id)) order.current.set(id, seq.current++); return order.current.get(id)!; };
-  const approvalOf = (c: PendingChange): DockEvent => ({ id: `ap:${c.approvalId}`, kind: 'approval', action: '修改计划', title: c.summary, risk: 'write', state: 'pending',
+  const approvalOf = (c: PendingChange): DockEvent => ({ id: `ap:${c.approvalId}`, kind: 'approval', action: '修改计划', title: c.summary, risk: 'write',
+    state: decided[c.approvalId] ?? (openApprovals && !openApprovals.has(c.approvalId) ? 'approved' : 'pending'),
     effects: c.changes.map(ch => {
       const name = (ch as { stopName?: string }).stopName ?? plan?.stops.find(s => s.id === ch.stopId)?.name ?? (ch.after as Partial<Stop> | null)?.name ?? ch.stopId;
       if (ch.after === null) return `删除「${name}」`;
@@ -180,7 +193,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     for (const l of x.log) out.push([seen(`l:${l.id}`), { id: `l:${l.id}`, kind: 'note', text: `${l.actor === 'agent' ? '助手' : '你'} · ${l.text}`, at: '' }]);
     for (const p of x.pending) out.push([seen(`p:${p.approvalId}`), approvalOf(p)]);
     return out.sort((a, b) => a[0] - b[0]).map(e => e[1]);
-  }, [chat, x.log, x.pending, plan, busy]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chat, x.log, x.pending, plan, busy, decided, openApprovals]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!x.snap || !plan) return <BenchFrame code="EXPL" section="006" file={file} reduced={reduced} chrome={chrome} face="plan" onFace={() => {}} faces={[{ id: 'plan', label: '计划', en: 'PLAN' }]} strip={<>读取中</>} status={<span>读取中</span>} shutterLines={() => ['> open plan', '> ready']}>
     <div className="de"><p>{x.error ?? '正在读取计划…'}</p>{x.error && <button className="rh-btn" onClick={() => void x.reload()}>重试</button>}</div>
