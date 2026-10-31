@@ -14,10 +14,13 @@ const RhineSpecimen = lazy(() => import('./components/rhine/RhineSpecimen'));
 const RhineEntry = lazy(() => import('./components/entry/RhineEntry'));
 const EmblemTransit = lazy(() => import('./components/entry/EmblemTransit'));
 const InboxPreview = lazy(() => import('./components/inbox/InboxPreview'));
+const OfflineFieldPage = lazy(() => import('./components/workbenches/explore/live/field/OfflineFieldPage'));
+const OfflinePacksList = lazy(() => import('./components/workbenches/explore/live/field/OfflineFieldPage').then(m => ({ default: m.OfflinePacksList })));
 
 // 正式产品：入口（默认）→ 工作台。演示区：?preview=rhine（设计语言样张）、?preview=inbox（收件箱 mock 预览）。
 function Page({ preview }: { preview: string | null }) {
   if (preview === '__blank') return null;
+  if (preview === 'field-offline') return <Suspense fallback={null}><OfflineFieldPage /></Suspense>;
   return preview === 'workbench'
     ? <Suspense fallback={null}><WorkbenchStudio /></Suspense>
     : preview === 'template' || preview === 'rhine'
@@ -32,11 +35,13 @@ function Page({ preview }: { preview: string | null }) {
 void restoreSession();
 function SessionGate({ children }: { children: React.ReactNode }) {
   const state = useSyncExternalStore(subscribeSession, sessionState, sessionState);
-  if (!liveBackend) return <>{children}</>;
+  // 离线现场不经过登录恢复（数据全在本设备离线包里；锁定由页面自己检查）
+  if (!liveBackend || new URLSearchParams(window.location.search).get('preview') === 'field-offline') return <>{children}</>;
   if (state === 'restoring') return <div role="status" className="rh-micro" style={{ position: 'fixed', inset: 'auto 0 24px', textAlign: 'center', opacity: 0.6 }}>正在恢复登录…</div>;
   if (state === 'offline') return <div role="alert" style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', gap: 12, alignContent: 'center' }}>
     <b>连不上本地服务</b><span className="rh-micro">登录没有丢，恢复连接后会自动继续</span>
-    <button className="rh-btn" onClick={() => void restoreSession()}>重试</button></div>;
+    <button className="rh-btn" onClick={() => void restoreSession()}>重试</button>
+    <Suspense fallback={null}><OfflinePacksList /></Suspense></div>;
   return <>{children}</>;
 }
 
@@ -55,7 +60,7 @@ function Root() {
     return () => { window.removeEventListener(NAV_EVENT, on); window.removeEventListener('popstate', on); };
   }, []);
   const withTransit = nav.preview !== 'rhine' && nav.preview !== 'template' && nav.preview !== 'inbox';
-  const entry = nav.preview === null || nav.preview === 'entry' || nav.preview === '__blank';
+  const entry = nav.preview === null || nav.preview === 'entry' || nav.preview === '__blank' || nav.preview === 'field-offline';
   return <SessionGate>
     {liveBackend && !entry
       ? <LiveSessionBoundary><Page key={nav.n} preview={nav.preview} /></LiveSessionBoundary>

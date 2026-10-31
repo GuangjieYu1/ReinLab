@@ -87,6 +87,15 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
     timezone: async () => (await call<{ timezone: string | null }>('GET', '/v1/account/settings')).timezone,
     async setTimezone(tz) { await call('PUT', '/v1/account/settings', { timezone: tz }); },
     async decide(approvalId, approve) { await decide('approval', approvalId, { decision: approve ? 'approve' : 'reject', scope: 'once' }); },
+    offlinePack: (day, detail) => call('POST', `${base}/offline-packs`, { day, ...(detail ? { detail } : {}) }).then((r: any) => r.pack),
+    getOfflinePack: packId => call('GET', `${base}/offline-packs/${enc(packId)}`),
+    postFieldEvents: events => call('POST', `${base}/field-events`, { events }),
+    fieldEvents: async () => (await call<{ items: never[] }>('GET', `${base}/field-events`)).items,
+    revision: rev => call('GET', `${base}/revisions/${rev}`),
+    async ping() {
+      try { const r = await fetch('/backend/v1/explore/map-config', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(4000) }); return r.status < 500; }
+      catch { return false; }
+    },
     subscribe(on) {
       // 共用 /v1/stream；只收这份档案的探索事件。断线 3 秒重连，期间漏的由页面按修订号重取兜底。
       const ctl = new AbortController();

@@ -29,6 +29,9 @@ export function sessionState() {
 export function lockIsPending() {
   return lockPending;
 }
+export function currentAccountId() {
+  return account?.accountId ?? null;
+}
 export function loggedIn() {
   return state === "active";
 }

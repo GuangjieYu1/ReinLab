@@ -1,6 +1,7 @@
 // 探索台真实模式的数据边界（design/prd/07-explore-contract.md）。页面只认这个接口：
 // live 接控制面，memory 是本地内存版（没有后端时看界面用，不调模型）。
 import type {
+  FieldEvent, FieldEventRecord, OfflineManifest,
   AppliedOp, Basemap, CanvasObject, ExplorePlan, LngLat, Op, PendingChange, PlanUsage, Profile,
   RefImage, Source, Viewport, WeatherSuggestion, WeatherView,
 } from '../../../../../packages/contracts/src/explore';
@@ -9,10 +10,12 @@ export type ExploreSnapshot = {
   plan: ExplorePlan; canvas: CanvasObject[]; refs: RefImage[];
   lastViewport: Viewport | null; basemap: Basemap;
 };
+export type FieldSyncResult = { clientId: string; serverId?: string; status: 'ok' | 'orphan' | 'duplicate' | 'conflict'; server?: FieldEventRecord };
 export type OpsResult = { revision: number; applied: AppliedOp[]; pending: PendingChange | null };
 export type Place = { name: string; address?: string; at: LngLat; source: Source };
 export type MapConfig = {
-  vector: { tilejson: string; glyphs: string; attribution: string };   // OpenMapTiles 结构的矢量源；样式由前端画
+  vector: { tilejson: string; glyphs: string; attribution: string;     // OpenMapTiles 结构的矢量源；样式由前端画
+    tiles?: string[]; minzoom?: number; maxzoom?: number };            // 离线包：直接给瓦片模板，不取 TileJSON
   satellite: { tilejson: string; attribution: string } | null;
   contours: { tilejson: string } | null;
   publicKey: string | null;
@@ -73,5 +76,13 @@ export interface ExploreAdapter {
   setTimezone(tz: string): Promise<void>;
   decide(approvalId: string, approve: boolean): Promise<void>;
   subscribe(on: (e: ExploreEvent) => void): () => void;
+  // ── 第二版：离线与现场（10-explore-v2-contract.md 第 2.1、2.2 节）──
+  offlinePack(day: string, detail?: 'low'): Promise<OfflineManifest>;
+  getOfflinePack(packId: string): Promise<OfflineManifest>;
+  postFieldEvents(events: FieldEvent[]): Promise<{ results: FieldSyncResult[]; planRevision: number }>;
+  fieldEvents(): Promise<FieldEventRecord[]>;
+  revision(rev: number): Promise<ExploreSnapshot['plan']>;
+  /** ReinLab 服务可不可达（离线判断用，和互联网分开）。 */
+  ping(): Promise<boolean>;
   chat(on: (items: ChatItem[], busy: boolean) => void): ChatSession;
 }

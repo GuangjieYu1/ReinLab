@@ -41,7 +41,9 @@ function vectorLayers(): LayerSpecification[] {
 
 /** 底图样式。satellite=true 时叠卫星影像在最下层（矢量的道路和地名关掉，只留计划图层）。 */
 export function rhineStyle(cfg: MapConfig, basemap: 'vector' | 'satellite'): StyleSpecification {
-  const sources: StyleSpecification['sources'] = { v: { type: 'vector', url: cfg.vector.tilejson, attribution: cfg.vector.attribution } };
+  const sources: StyleSpecification['sources'] = { v: cfg.vector.tiles
+    ? { type: 'vector', tiles: cfg.vector.tiles, minzoom: cfg.vector.minzoom ?? 0, maxzoom: cfg.vector.maxzoom ?? 14, attribution: cfg.vector.attribution }
+    : { type: 'vector', url: cfg.vector.tilejson, attribution: cfg.vector.attribution } };
   const layers = vectorLayers();
   if (cfg.contours) {
     sources.c = { type: 'vector', url: cfg.contours.tilejson };

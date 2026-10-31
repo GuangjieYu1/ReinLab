@@ -126,3 +126,5 @@
 .exl-conflicts { display: block; margin: 8px 16px 0; padding-left: 20px; } .exl-conflicts li { margin: 1px 0; }
 
 .exl-ask { margin: 6px 0 0; font: 500 10.5px/1.3 var(--rh-f-mono); color: #b84d00; }
+
+.ex-center.exl-fieldwrap { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; } .exl-fieldwrap > .exf { height: 100%; }

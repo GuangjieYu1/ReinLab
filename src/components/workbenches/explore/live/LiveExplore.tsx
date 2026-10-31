@@ -3,10 +3,11 @@ import BenchFrame from '../../BenchFrame';
 import AgentDock, { type DockEvent } from '../../AgentDock';
 import Explorer, { type ExplorerSection, type ExplorerViewDef } from '../../engineering/Explorer';
 import { RichBlocks } from '../../richText';
+import LiveField from './field/LiveField';
 import type { BenchProps } from '../../WorkbenchStudio';
 import type { Basemap, LngLat, PendingChange, PlanUsage, Profile, Stop, Viewport, WeatherSuggestion, WeatherView } from '../../../../../packages/contracts/src/explore';
 import { ExploreError, type ChatItem, type ExploreAdapter, type MapConfig, type Place } from './adapter';
-import { api } from '../../../../data/research-live';
+import { api, currentAccountId } from '../../../../data/research-live';
 import { useExplore } from './state';
 import LiveMap from './LiveMap';
 import LiveDayLine from './LiveDayLine';
@@ -310,14 +311,15 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     {plan.conflicts.length > 0 && <ul className="dm-msg exl-notice exl-conflicts">{plan.conflicts.map(c => <li key={c.stopId}>{c.text}</li>)}</ul>}
   </div>;
 
-  return <BenchFrame code="EXPL" section="006" file={file} reduced={reduced} chrome={chrome} face={face} onFace={id => { if (id === 'plan' || id === 'spot') setFace(id); }}
-    faces={[{ id: 'plan', label: '计划', en: 'PLAN' }, { id: 'spot', label: '机位', en: 'SPOT', badge: confirmed.length || undefined }, { id: 'field', label: '现场 · 下一版', en: 'FIELD', locked: true }, { id: 'review', label: '回顾 · 下一版', en: 'REVIEW', locked: true }]}
+  return <BenchFrame code="EXPL" section="006" file={file} reduced={reduced} chrome={chrome} face={face} onFace={id => { if (id === 'plan' || id === 'spot' || id === 'field') setFace(id); }}
+    faces={[{ id: 'plan', label: '计划', en: 'PLAN' }, { id: 'spot', label: '机位', en: 'SPOT', badge: confirmed.length || undefined }, { id: 'field', label: '现场', en: 'FIELD' }, { id: 'review', label: '回顾 · 下一版', en: 'REVIEW', locked: true }]}
     strip={<>{plan.destination?.name ?? '目的地未定'} <i>·</i> {day} <i>·</i> {dl?.sunrise != null ? `日出 ${hm(dl.sunrise)}` : ''} <i>·</i> {dl?.sunset != null ? `日落 ${hm(dl.sunset)}` : ''} <i>·</i> {confirmed.length} 个已确认 · {candidates.length} 个候选</>}
     shutterLines={f => [`> open plan · ${plan.destination?.name ?? 'new'}`, `> ${f.en.toLowerCase()} · rev ${plan.revision}`, '> ready']}
     status={<><span><i className="en-sq" />{dossier?.title ?? '探索计划'}</span><span>{stateText}</span><span>已确认 {confirmed.length}</span><span>候选 {candidates.length}</span><span>太阳为真实计算 · 天气 {weather?.source.name ?? '—'}</span></>}>
     <div className="ex" data-face={face}>
       <Explorer code="EXPL" open={xpOpen} view={xpView} onView={setXpView} onToggle={() => setXpOpen(v => !v)} views={VIEWS} key={xpView} title="plan/" sections={sections} />
-      {face === 'plan' ? <div className="ex-center ex-plan exl-plan" data-view={view}>
+      {face === 'field' ? <div className="ex-center exl-fieldwrap"><LiveField plan={plan} title={dossier?.title ?? '探索计划'} weather={weather} adapter={adapter} accountId={currentAccountId() ?? ''} dossierId={dossier?.id ?? ''} mapCfg={cfg} offlinePack={null} serverRevision={plan.revision} onSituation={send} /></div>
+      : face === 'plan' ? <div className="ex-center ex-plan exl-plan" data-view={view}>
         {head}
         {banners}
         {view === 'map' ? mapArea : <BookView plan={plan} title={dossier?.title ?? '探索计划'} refs={x.snap.refs} weather={weather} variant={variant} onVariant={setVariant} onPdf={v => void makePdf(v)} pdfState={pdf} />}

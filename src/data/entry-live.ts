@@ -16,6 +16,8 @@ export const liveEntryAuth: EntryAuth = {
   },
   async verify(email, password) {
     await login(email, password);
+    // 正常登录解除离线现场的锁定标记
+    void import('../components/workbenches/explore/live/offline/db').then(m => m.db.setLocked(false)).catch(() => {});
     const back = sessionStorage.getItem(RETURN_KEY);
     if (back) {
       sessionStorage.removeItem(RETURN_KEY);
@@ -25,6 +27,10 @@ export const liveEntryAuth: EntryAuth = {
     return true;
   },
   active: loggedIn,
-  lock,
+  lock() {
+    // 锁定：离线现场也一并遮蔽（不缓存 Cookie，靠这个标记）
+    void import('../components/workbenches/explore/live/offline/db').then(m => m.db.setLocked(true)).catch(() => {});
+    lock();
+  },
   subscribe: subscribeSession,
 };

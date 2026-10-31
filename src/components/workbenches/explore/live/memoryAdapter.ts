@@ -81,6 +81,12 @@ export function createMemoryExploreAdapter(): ExploreAdapter {
     async setTimezone() {},
     async decide() {},
     subscribe(on) { subs.add(on); return () => { subs.delete(on); }; },
+    async offlinePack() { throw new ExploreError('本地预览不做离线包', 'NOT_AVAILABLE'); },
+    async getOfflinePack() { throw new ExploreError('本地预览不做离线包', 'NOT_AVAILABLE'); },
+    async postFieldEvents(events) { return { results: events.map(e => ({ clientId: e.clientId, serverId: 'm' + e.clientId, status: 'ok' as const })), planRevision: snap.plan.revision }; },
+    async fieldEvents() { return []; },
+    async revision() { return structuredClone(snap.plan); },
+    async ping() { return true; },
     chat(on) {
       let items: ChatItem[] = [{ id: 'hello', kind: 'agent', text: '这是本地预览：地图是真的，计划是预置的示例，对话不连模型。可以在地图上点候选「留下 / 不要」，或者确认整份计划看看效果。' }];
       return {

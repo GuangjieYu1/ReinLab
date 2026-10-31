@@ -5,6 +5,8 @@ import { createMemoryExploreAdapter } from "../components/workbenches/explore/li
 import type { BenchProps } from "../components/workbenches/WorkbenchStudio";
 import { liveBackend } from "./research-live";
 import { createLiveExploreAdapter } from "./explore-live";
+import FieldPage from "../components/workbenches/explore/live/field/FieldPage";
+import { currentAccountId } from "./research-live";
 
 /**
  * 探索台：真实模式接控制面（每份档案一个适配器）；演示模式仍是京都示例。
@@ -18,5 +20,8 @@ export default function ExploreStudioData(props: BenchProps) {
     [dossierId, memory]
   );
   if (!adapter) return <ExploreStudio {...props} />;
+  // 手机：工作台三栏放不下，直接进全屏现场（09-explore-v2.md：手机 / iPad 各一套）
+  if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches && props.dossier)
+    return <FieldPage adapter={adapter} title={props.dossier.title} dossierId={props.dossier.id} accountId={currentAccountId() ?? ""} />;
   return <LiveExplore key={dossierId ?? "memory"} {...props} adapter={adapter} />;
 }

@@ -20,7 +20,7 @@ function arrowImage() {
 /** 计划图层：停留点、街区、路线、画布、太阳线。换底图后要重新挂。 */
 export function addOverlays(map: MLMap) {
   if (!map.hasImage('rh-arrow')) map.addImage('rh-arrow', arrowImage(), { sdf: true });
-  for (const id of ['areas', 'routes', 'cv-fills', 'cv-lines', 'cv-heads', 'cv-notes', 'sun', 'stops']) if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
+  for (const id of ['areas', 'routes', 'cv-fills', 'cv-lines', 'cv-heads', 'cv-notes', 'sun', 'stops', 'me']) if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   const add = (l: maplibregl.AddLayerObject) => { if (!map.getLayer(l.id)) map.addLayer(l); };
   add({ id: 'area-fill', type: 'fill', source: 'areas', paint: { 'fill-color': ['case', ['==', ['get', 'state'], 'candidate'], ORANGE, INK], 'fill-opacity': ['case', ['get', 'sel'], 0.14, 0.06] } });
   add({ id: 'area-line-c', type: 'line', source: 'areas', filter: ['==', ['get', 'state'], 'candidate'], paint: { 'line-color': ORANGE, 'line-width': 1.6, 'line-dasharray': [3, 2] } });
@@ -44,6 +44,9 @@ export function addOverlays(map: MLMap) {
       'circle-stroke-color': ['case', ['all', ['==', ['get', 'state'], 'candidate'], ['!', ['get', 'sel']]], ORANGE, INK], 'circle-stroke-width': 2 } });
   add({ id: 'stop-no', type: 'symbol', source: 'stops', layout: { 'text-field': ['get', 'label'], 'text-font': FONT_BOLD, 'text-size': 12, 'text-allow-overlap': true },
     paint: { 'text-color': ['case', ['all', ['==', ['get', 'state'], 'confirmed'], ['!', ['get', 'sel']]], CARD, INK] } });
+  // 现场定位：我的位置（精度圈 + 点）；只在内存，不存轨迹
+  add({ id: 'me-acc', type: 'circle', source: 'me', paint: { 'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 10, ['/', ['get', 'acc'], 150], 20, ['*', ['get', 'acc'], 7]], 'circle-color': '#2f7bff', 'circle-opacity': 0.12, 'circle-stroke-color': '#2f7bff', 'circle-stroke-width': 1 } });
+  add({ id: 'me-dot', type: 'circle', source: 'me', paint: { 'circle-radius': 6, 'circle-color': '#2f7bff', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } });
   add({ id: 'stop-name', type: 'symbol', source: 'stops', layout: { 'text-field': ['get', 'name'], 'text-font': FONT_BOLD, 'text-size': 12, 'text-anchor': 'left', 'text-offset': [1.5, 0], 'text-max-width': 10 },
     paint: { 'text-color': INK, 'text-halo-color': CARD, 'text-halo-width': 3 } });
 }
@@ -72,6 +75,7 @@ type Props = {
   focus?: { at: LngLat; n: number } | null;   // 页面要求飞到某处（搜索结果）：飞完在那里弹出操作
   following: boolean; onFollow: (v: boolean) => void; onBasemap: (b: Basemap) => void;
   onView: (v: Viewport) => void; onMapClick: (at: LngLat, screen: { x: number; y: number }) => void;
+  me?: { at: LngLat; accuracyM: number } | null;
 };
 
 export default function LiveMap(p: Props) {
@@ -88,6 +92,7 @@ export default function LiveMap(p: Props) {
       sun = sunFeatures(stop, q.day, q.tz, q.minutes, map.getZoom(), q.horizonAlt(stop.id, az));
     }
     fillOverlays(map, q.plan, q.canvas, q.selected, sun);
+    (map.getSource('me') as GeoJSONSource | undefined)?.setData((q.me ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: q.me.at }, properties: { acc: q.me.accuracyM } }] } : EMPTY) as never);
   };
 
   useEffect(() => {
@@ -126,7 +131,7 @@ export default function LiveMap(p: Props) {
     map.setStyle(rhineStyle(p.cfg, p.basemap));
   }, [p.basemap, p.cfg]);
 
-  useEffect(refresh, [p.plan, p.canvas, p.selected, p.minutes, p.day, p.tz]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(refresh, [p.plan, p.canvas, p.selected, p.minutes, p.day, p.tz, p.me]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 计划第一次有了停留点 / 刚定了目的地：跟随状态下飞过去对准（助手没发视野事件时也不至于停在全国图）
   const had = useRef({ stops: p.plan.stops.length, dest: p.plan.destination?.name ?? null });
