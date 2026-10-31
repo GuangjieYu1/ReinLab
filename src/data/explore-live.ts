@@ -92,6 +92,8 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
     postFieldEvents: events => call('POST', `${base}/field-events`, { events }),
     fieldEvents: async () => (await call<{ items: never[] }>('GET', `${base}/field-events`)).items,
     revision: rev => call('GET', `${base}/revisions/${rev}`),
+    scene: stopId => call('GET', `${base}/scene?stopId=${enc(stopId)}`),
+    async recomputeLight(stopId) { await call('POST', `${base}/light/recompute`, { stopId }); },
     async ping() {
       try { const r = await fetch('/backend/v1/explore/map-config', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(4000) }); return r.status < 500; }
       catch { return false; }

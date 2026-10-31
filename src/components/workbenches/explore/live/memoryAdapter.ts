@@ -90,6 +90,20 @@ export function createMemoryExploreAdapter(): ExploreAdapter {
     async fieldEvents() { return []; },
     async revision() { return structuredClone(snap.plan); },
     async ping() { return true; },
+    async scene(stopId) {
+      // 本地预览示例：几块楼，其中一块高度未知。不是真实建筑数据。
+      const st = snap.plan.stops.find(s => s.id === stopId);
+      const origin = (st?.geometry.type === 'Point' ? st.geometry.coordinates : [121.4905, 31.2397]) as [number, number];
+      const box = (x: number, y: number, w: number, d: number): [number, number][] => [[x, y], [x + w, y], [x + w, y + d], [x, y + d], [x, y]];
+      return { id: 'mem-scene', version: 1, origin, radiusM: 1000, fetchedAt: new Date().toISOString(), source: '本地预览示例（不是真实建筑数据）',
+        buildings: [
+          { id: 'b1', osm: 'way/1', footprint: box(-60, 30, 40, 25), baseM: 0, heightM: 24, minHeightM: 0, heightSource: 'tag', basis: 'height=24' },
+          { id: 'b2', osm: 'way/2', footprint: box(-10, 55, 30, 30), baseM: 0, heightM: 42, minHeightM: 0, heightSource: 'levels', basis: 'building:levels=14 × 3 m' },
+          { id: 'b3', osm: 'way/3', footprint: box(40, 20, 25, 40), baseM: 0, heightM: null, minHeightM: 0, heightSource: 'unknown', basis: '没有高度和层数' },
+          { id: 'b4', osm: 'way/4', footprint: box(-90, -40, 35, 20), baseM: 0, heightM: 15, minHeightM: 0, heightSource: 'tag', basis: 'height=15' },
+        ], coverage: { status: 'partial', note: '本地预览示例' } };
+    },
+    async recomputeLight() {},
     chat(on) {
       let items: ChatItem[] = [{ id: 'hello', kind: 'agent', text: '这是本地预览：地图是真的，计划是预置的示例，对话不连模型。可以在地图上点候选「留下 / 不要」，或者确认整份计划看看效果。' }];
       return {

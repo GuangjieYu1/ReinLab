@@ -151,3 +151,16 @@
 .exd-light > div { display: grid; grid-template-columns: 34px 1fr; column-gap: 8px; font-size: 13px; }
 .exd-light > div[data-state='maybe_lit'] { opacity: .8; } .exd-light b { font: 700 12px/1.6 var(--rh-f-mono); }
 .exd-light small, .exd-light em { grid-column: 2; font: normal 500 10.5px/1.4 var(--rh-f-mono); color: #6b6865; }
+
+/* 白模（第二版 B4） */
+.exw { display: grid; gap: 6px; }
+.exw-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font: 500 11px/1.3 var(--rh-f-mono); color: #6b6865; }
+.exw-stage { position: relative; width: 100%; height: 360px; border: 1px solid #141213; background: #f0eeea; overflow: hidden; touch-action: none; }
+.exw-stage[data-mode='camera'] { height: auto; margin: 0 auto; }
+.exw-stage canvas { display: block; width: 100% !important; height: 100% !important; }
+.exw-frame { position: absolute; inset: 0; pointer-events: none; border: 2px solid #ff7a1a; z-index: 1; }
+.exw-frame i { position: absolute; background: #ff7a1a88; }
+.exw-frame .v1, .exw-frame .v2 { top: 0; bottom: 0; width: 1px; } .exw-frame .v1 { left: 33.33%; } .exw-frame .v2 { left: 66.67%; }
+.exw-frame .h1, .exw-frame .h2 { left: 0; right: 0; height: 1px; } .exw-frame .h1 { top: 33.33%; } .exw-frame .h2 { top: 66.67%; }
+.exw-time { width: 100%; accent-color: #ff7a1a; }
+.exw-note { margin: 0; font: 500 11px/1.5 var(--rh-f-mono); color: #6b6865; } .exw-note b { color: #b84d00; }

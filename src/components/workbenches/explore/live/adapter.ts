@@ -1,7 +1,7 @@
 // 探索台真实模式的数据边界（design/prd/07-explore-contract.md）。页面只认这个接口：
 // live 接控制面，memory 是本地内存版（没有后端时看界面用，不调模型）。
 import type {
-  FieldEvent, FieldEventRecord, OfflineManifest,
+  FieldEvent, FieldEventRecord, OfflineManifest, BuildingScene,
   AppliedOp, Basemap, CanvasObject, ExplorePlan, LngLat, Op, PendingChange, PlanUsage, Profile,
   RefImage, Source, Viewport, WeatherSuggestion, WeatherView,
 } from '../../../../../packages/contracts/src/explore';
@@ -82,6 +82,9 @@ export interface ExploreAdapter {
   postFieldEvents(events: FieldEvent[]): Promise<{ results: FieldSyncResult[]; planRevision: number }>;
   fieldEvents(): Promise<FieldEventRecord[]>;
   revision(rev: number): Promise<ExploreSnapshot['plan']>;
+  // ── 第二版：白模与楼影（第 2.6 节）──
+  scene(stopId: string): Promise<BuildingScene>;
+  recomputeLight(stopId: string): Promise<void>;
   /** ReinLab 服务可不可达（离线判断用，和互联网分开）。 */
   ping(): Promise<boolean>;
   chat(on: (items: ChatItem[], busy: boolean) => void): ChatSession;

@@ -1,4 +1,5 @@
-import type { ExplorePlan, Frame, RefImage, Stop, WeatherView } from '../../../../../packages/contracts/src/explore';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import type { BuildingScene, ExplorePlan, Frame, RefImage, Stop, WeatherView } from '../../../../../packages/contracts/src/explore';
 import { center, stopLabels } from './overlays';
 import { dateToLocal, dayLight, hm, horizonAt, localToDate, sunPos } from './sunlive';
 import { guidanceLines } from './guidance';
@@ -60,10 +61,35 @@ export function StopAside({ plan, stop, day, tz, minutes, weather, refs, onKeep,
   </aside>;
 }
 
-/** 机位面：选中停留点的全部信息（第一版不含 2.5D 白模）。 */
-export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople, onFrame }: {
+const WhiteModel = lazy(() => import('./WhiteModel'));
+
+/** 白模区：按需取建筑场景（Three.js 懒加载，只在机位面打开时下载）。 */
+function SceneSection({ plan, stop, day, tz, minutes, onMinutes, loadScene }: {
+  plan: ExplorePlan; stop: Stop; day: string; tz: string; minutes: number; onMinutes: (m: number) => void; loadScene: (stopId: string) => Promise<BuildingScene>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [scene, setScene] = useState<BuildingScene | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setScene(null); setErr(null); }, [stop.id]);
+  useEffect(() => { if (open && !scene && !err) loadScene(stop.id).then(setScene, e => setErr(e instanceof Error ? e.message : '取不到建筑数据')); }, [open, scene, err, stop.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const body = plan.gear.map(g => g.data).find((g): g is Extract<typeof g, { type: 'gear' }> => g.type === 'gear' && g.kind === 'body');
+  const focal = stop.detail?.settings?.focalMm ?? stop.focal?.[0] ?? null;
+  return <section><h3>白模 · 机位视角</h3>
+    {!open ? <button className="rh-btn" onClick={() => setOpen(true)}>打开白模</button>
+      : err ? <p className="dm-msg">{err} <button className="dm-link" onClick={() => setErr(null)}>重试</button></p>
+      : !scene ? <p><em>正在取周边建筑…</em></p>
+      : <Suspense fallback={<p><em>正在加载白模…</em></p>}>
+          <WhiteModel key={stop.id} scene={scene} stop={stop} day={day} tz={tz} minutes={minutes} onMinutes={onMinutes}
+            focalMm={focal} sensor={body?.sensor ?? null} orientation={stop.detail?.frame?.orientation ?? 'landscape'}
+            cameraHeightM={stop.cameraHeightM ?? 1.5} subjectHeightM={stop.subjectHeightM ?? 1.5} />
+        </Suspense>}
+  </section>;
+}
+
+/** 机位面：选中停留点的全部信息。 */
+export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople, onFrame, onMinutes, loadScene }: {
   plan: ExplorePlan; stop: Stop; day: string; tz: string; minutes: number; refs: RefImage[]; hasPeople: boolean;
-  onFrame?: (f: Frame) => void;
+  onFrame?: (f: Frame) => void; onMinutes?: (m: number) => void; loadScene?: (stopId: string) => Promise<BuildingScene>;
 }) {
   const label = stopLabels(plan)[stop.id], c = center(stop), dl = dayLight(day, tz, c[0], c[1]), l = lightAt(stop, day, tz, minutes);
   const mine = refs.filter(r => stop.refs.includes(r.id));
@@ -89,6 +115,7 @@ export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople, onFr
           {stop.focal?.length ? <div><dt>焦段</dt><dd>{stop.focal.map(f => `${f}mm`).join(' · ')}</dd></div> : null}
         </dl>
       </section>
+      {loadScene && onMinutes && <SceneSection plan={plan} stop={stop} day={day} tz={tz} minutes={minutes} onMinutes={onMinutes} loadScene={loadScene} />}
       {hasPeople && d.guidance?.length ? <section><h3>引导词</h3><ol className="exd-lines">{guidanceLines(d).map(g => <li key={g.id}>{g.pose ? <PoseFigure pose={g.pose} title /> : <span />}<span>{g.text}</span></li>)}</ol></section> : null}
       {(d.settings || d.frame || onFrame) && <section><h3>参数与构图</h3><SettingsRow s={d.settings} />
         {d.frame ? <FrameBox key={stop.id} frame={d.frame} onChange={onFrame} />

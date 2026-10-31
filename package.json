@@ -34,7 +34,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "subset-font": "^2.9.0",
-    "suncalc": "^1.9.0"
+    "suncalc": "^1.9.0",
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
@@ -44,6 +45,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/suncalc": "^1.9.2",
+    "@types/three": "^0.187.0",
     "@types/topojson-specification": "1.0.5",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "4.1.11",
