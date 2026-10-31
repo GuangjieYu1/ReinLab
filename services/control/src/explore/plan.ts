@@ -584,6 +584,8 @@ export function applyBatch(input: BatchInput): Batch {
           throw new ApiFailure("PLAN_STATE", 409, "这份计划已经确认过，改完内容仍然在待执行。");
         if (!document.stops.length)
           throw new ApiFailure("PLAN_EMPTY", 409, "计划里还没有停留点，先把要去的点放上去。");
+        // 先数候选（下一行就全转正了，晚数永远是 0）。
+        const candidatesBefore = document.stops.filter((stop) => stop.state === "candidate").length;
         for (const stop of document.stops) stop.state = "confirmed";
         state = "ready";
         business = true;
@@ -591,7 +593,12 @@ export function applyBatch(input: BatchInput): Batch {
           ...op,
           opId: newId(),
           actor,
-          summary: `确认整份计划，进入待执行（${document.stops.length} 个停留点）`,
+          summary: (() => {
+            const candidates = candidatesBefore;
+            return `确认整份计划，进入待执行（共 ${document.stops.length} 个停留点${
+              candidates ? `，其中 ${candidates} 个候选一并转正` : ""
+            }）`;
+          })(),
           result: { plan: { state: "ready" }, stops: document.stops },
         });
         inverses.push(null);
@@ -801,20 +808,31 @@ export function describeChanges(
 export function describeBatch(plan: StoredPlan, ops: Op[]): string {
   const parts: string[] = [];
   const byId = (id: string) => plan.document.stops.find((stop) => stop.id === id);
+  // 整份确认会把所有候选一起转正：卡上要照实写，别只说「确认 N 个停留点」。
+  const wholePlan = ops.some((op) => op.op === "plan.confirm");
+  const candidates = plan.document.stops.filter((stop) => stop.state === "candidate").length;
   for (const op of ops) {
-    if (op.op === "plan.confirm") parts.push("确认整份计划，进入待执行");
+    if (op.op === "plan.confirm")
+      parts.push(
+        candidates
+          ? `确认整份计划，进入待执行（${candidates} 个候选一并转为已确认）`
+          : "确认整份计划，进入待执行",
+      );
     else if (op.op === "plan.finish") parts.push("结束这份计划");
     else if (op.op === "plan.cancel") parts.push("取消这份计划");
     else if (op.op === "plan.set") parts.push("改计划的" + (op.patch?.days ? "日期" : op.patch?.destination ? "地点" : "内容"));
     else if (op.op === "stop.confirm")
+      // 已经写了「整份确认会把候选一起转正」，这套逐点确认就不再重复念一遍。
       parts.push(
-        op.ids.length === 1 && byId(op.ids[0])
-          ? `把「${byId(op.ids[0])!.name}」定下来`
-          : `确认 ${op.ids.length} 个停留点`,
+        wholePlan
+          ? ""
+          : op.ids.length === 1 && byId(op.ids[0])
+            ? `把「${byId(op.ids[0])!.name}」定下来`
+            : `确认 ${op.ids.length} 个停留点`,
       );
     else if (op.op === "stop.add" && op.stop?.state === "confirmed") parts.push(`加上并确认「${op.stop.name}」`);
     else if (op.op === "stop.update" && byId(op.id)) parts.push(`改「${byId(op.id)!.name}」`);
     else if (op.op === "stop.remove" && byId(op.id)) parts.push(`删掉「${byId(op.id)!.name}」`);
   }
-  return parts.join("；").slice(0, 300) || "按刚才说的改一下计划";
+  return parts.filter(Boolean).join("；").slice(0, 300) || "按刚才说的改一下计划";
 }

@@ -12,7 +12,7 @@ import type pg from "pg";
 import type { WeatherHour } from "@reinlab/contracts";
 import { ApiFailure } from "../api/errors";
 import { announceDossierChanged } from "../dossier/service";
-import { buildBookPdf, missingSnapshots, type BookVariant, type SnapshotRecord } from "./books";
+import { missingSnapshots, renderBookPdf, type BookVariant, type SnapshotRecord } from "./books";
 import { loadPlan } from "./service";
 import { listRefs, type ExploreStorage } from "./refs";
 import { sunDay } from "./sun";
@@ -244,7 +244,7 @@ export async function generateBook(
       );
     });
 
-    const bytes = await buildBookPdf({
+    const bytes = await renderBookPdf({
       dossierTitle: material.title,
       plan: material.plan,
       variant: input.plan.variant,

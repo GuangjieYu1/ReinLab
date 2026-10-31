@@ -368,4 +368,31 @@ describe("停留点 detail 的写法", () => {
     ]);
   });
 });
+
+describe("整份确认的卡片文案", () => {
+  it("有候选点时，标题写清「候选一并转为已确认」，不再只说「确认 N 个停留点」", () => {
+    const plan = planOfDocument({
+      stops: [
+        stop({ id: "s1", name: "人才公园", state: "candidate" }),
+        stop({ id: "s2", name: "日出剧场", state: "candidate" }),
+      ],
+    });
+    const title = describeBatch(plan, [
+      { op: "stop.confirm", ids: ["s1", "s2"] } as never,
+      { op: "plan.confirm" } as never,
+    ]);
+    expect(title).toContain("2 个候选一并转为已确认");
+    expect(title).toContain("进入待执行");
+    expect(title).not.toContain("确认 2 个停留点");
+  });
+
+  it("引擎生效后的摘要也照实说候选转正", () => {
+    const plan = planOfDocument({
+      stops: [stop({ id: "s1", name: "人才公园", state: "candidate" })],
+    });
+    const out = run(plan, [{ op: "plan.confirm" } as never]);
+    const summary = out.applied.map((entry) => entry.summary).join(" ");
+    expect(summary).toContain("1 个候选一并转正");
+  });
+});
 });

@@ -9,6 +9,7 @@
 import type { RefImage, Stop, WeatherHour } from "@reinlab/contracts";
 import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
+import subsetFont from "subset-font";
 import type { StoredPlan } from "./plan";
 import type { SunDay } from "./sun";
 
@@ -26,6 +27,8 @@ export type SnapshotRecord = { key: string; bytes: Buffer; attribution: string }
 
 export type BookInput = {
   dossierTitle: string;
+  /** 字体是否再交给 pdf-lib 子集化（默认 false：调用方已按文档字符裁剪）。 */
+  subset?: boolean;
   plan: StoredPlan;
   variant: BookVariant;
   /** overview + 每个已确认停留点各一张。 */
@@ -83,10 +86,20 @@ function wrap(text: string, font: PDFFont, size: number, maxWidth: number): stri
 
 type Cursor = { page: PDFPage; y: number };
 
-export async function buildBookPdf(input: BookInput): Promise<Uint8Array> {
+/** 第一遍只记录要画的字符串（不落笔），用来决定字体子集。 */
+let collector: ((text: string) => void) | null = null;
+const emit = (value: string) => {
+  if (collector) collector(value);
+};
+
+export async function buildBookPdf(
+  input: BookInput & { collect?: (text: string) => void; dryRun?: boolean },
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
-  const font = await doc.embedFont(input.fontBytes, { subset: true });
+  // 字体是我们自己按这份文档用到的字裁剪过的（harfbuzz），所以这里整份嵌入：
+  // pdf-lib 自身对 3 万字形的大字体做子集会掉字形，实测中文变空白。
+  const font = await doc.embedFont(input.fontBytes, { subset: input.subset ?? false });
   const title = input.dossierTitle.trim() || "旅拍计划";
   const confirmed = input.plan.document.stops.filter((stop) => stop.state === "confirmed");
   const stops = confirmed.length ? confirmed : input.plan.document.stops;
@@ -112,6 +125,8 @@ export async function buildBookPdf(input: BookInput): Promise<Uint8Array> {
     for (const line of wrap(value, font, size, CONTENT - indent)) {
       if (cursor.y < MARGIN + 28) return false;
       cursor.y -= size + 3;
+      emit(line);
+      if (input.dryRun) continue;
       cursor.page.drawText(line, {
         x: MARGIN + indent,
         y: cursor.y,
@@ -192,7 +207,10 @@ export async function buildBookPdf(input: BookInput): Promise<Uint8Array> {
       if (cursor.y < MARGIN + 60) return false;
       cursor.y -= size + 6;
       for (const [index, value] of values.entries())
-        if (value) cursor.page.drawText(value, { x: columns[index], y: cursor.y, size, font, color });
+        if (value) {
+          emit(String(value));
+          if (!input.dryRun) cursor.page.drawText(value, { x: columns[index], y: cursor.y, size, font, color });
+        }
       return true;
     };
     row(["#", "名称", "类型", "日期", "时段", "焦段", "要点"], 8.5, FADED);
@@ -375,7 +393,8 @@ export async function buildBookPdf(input: BookInput): Promise<Uint8Array> {
       thickness: 0.4,
       color: FADED,
     });
-    page.drawText(footer, { x: MARGIN, y: MARGIN - 20, size: 7.5, font, color: FADED });
+    emit(footer);
+    if (!input.dryRun) page.drawText(footer, { x: MARGIN, y: MARGIN - 20, size: 7.5, font, color: FADED });
   });
 
   return doc.save();
@@ -392,3 +411,34 @@ export function missingSnapshots(
 
 /** 详细版每页最多容纳的参考图（契约：最多 3 张）。 */
 export const MAX_REFS_PER_STOP = 3;
+
+/**
+ * 生成计划书 PDF：先空跑一遍收集这份文档用到的字符，用 harfbuzz 把字体裁到这些字，
+ * 再正式渲染并整份嵌入。这样既不会掉字形（pdf-lib 自带的子集化对大字体会丢），
+ * 体积也保持在几十 KB。
+ */
+export async function renderBookPdf(input: BookInput): Promise<Uint8Array> {
+  const chars = new Set<string>();
+  collector = (text) => {
+    for (const ch of text) chars.add(ch);
+  };
+  try {
+    await buildBookPdf({ ...input, dryRun: true });
+  } finally {
+    collector = null;
+  }
+  const text = [...chars].join("");
+  try {
+    const subset = await subsetFont(input.fontBytes, text, { targetFormat: "truetype" });
+    return await buildBookPdf({ ...input, fontBytes: subset, subset: false });
+  } catch (error) {
+    // 裁剪失败就退回整份嵌入（字体有 10 MB，宁可大一点也别丢字）。
+    console.error(
+      JSON.stringify({
+        code: "PDF_FONT_SUBSET_FAILED",
+        message: String((error as Error)?.message ?? error).slice(0, 200),
+      }),
+    );
+    return buildBookPdf({ ...input, subset: false });
+  }
+}
