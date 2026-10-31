@@ -25,6 +25,8 @@ const dossier = randomUUID();
 const run = randomUUID();
 const auth = new KernelAuth(generateKeyPairSync("ed25519").privateKey);
 let app: Awaited<ReturnType<typeof createApp>>;
+/** 驳回/批准后要送回原会话：这里记下投递内容。 */
+const resumed: { runId: string; prompt: string }[] = [];
 let cookie = "";
 
 const headers = (key?: string) => ({
@@ -85,6 +87,12 @@ beforeAll(async () => {
     pool,
     auth: { issuer: "http://127.0.0.1/reinlab/auth/v1", secret: randomBytes(48) },
     kernelTools: { auth, dispatch: async () => ({}) },
+    kernel: {
+      isLive: () => false,
+      resumeAfterAnswer: async (_account: string, runId: string, prompt: string) => {
+        resumed.push({ runId, prompt });
+      },
+    } as never,
   });
 
   // 页面先 GET 一次拿到当前修订号，再带上它写（契约第 3 节）。
@@ -274,5 +282,93 @@ describe("确认整份计划的授权语义", () => {
     const after = await planOf();
     expect(after.plan.state).toBe("ready");
     expect(after.plan.stops.every((stop: any) => stop.state === "confirmed")).toBe(true);
+  });
+
+  it("驳回也要送回原会话：不然下一轮助手还会说「那张卡等你点」", async () => {
+    const fresh = randomUUID();
+    await admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path) values($1::uuid,$2,'exploration','驳回回送',$3)",
+      [fresh, A, "/data/dossiers/" + fresh],
+    );
+    const seed = await (await app.request(`/v1/explore/plans/${fresh}`, { headers: headers() })).json();
+    await app.request(`/v1/explore/plans/${fresh}/ops`, {
+      method: "POST",
+      headers: headers(randomUUID()),
+      body: JSON.stringify({
+        baseRevision: seed.plan.revision,
+        ops: [
+          {
+            op: "plan.set",
+            patch: {
+              destination: { name: "杭州", center: [120.14, 30.25], timezone: "Asia/Shanghai" },
+              days: ["2026-12-01"],
+            },
+          },
+          {
+            op: "stop.add",
+            stop: {
+              kind: "spot",
+              name: "日出剧场",
+              geometry: { type: "Point", coordinates: [114.07, 22.54] },
+              day: "2026-12-01",
+              state: "confirmed",
+            },
+          },
+        ],
+      }),
+    });
+    // 用户这句话没要求删除 → 出卡
+    await admin.query(
+      `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+       values($1,$2,null,'dsh','user/message',$3,$4)`,
+      [
+        A,
+        fresh,
+        JSON.stringify({ id: `msg-${randomUUID()}`, content: [{ type: "text", text: "这个点放在哪比较好？" }] }),
+        randomUUID(),
+      ],
+    );
+    const stopId = (await (await app.request(`/v1/explore/plans/${fresh}`, { headers: headers() })).json()).plan
+      .stops[0].id;
+    const card = await app.request("/kernel/tool", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": auth.issue({ account: A, dossier: fresh, run }, Math.floor(Date.now() / 1000)),
+      },
+      body: JSON.stringify({ server: "explore", tool: "ops", args: { ops: [{ op: "stop.remove", id: stopId }] } }),
+    });
+    expect(card.status).toBe(409);
+    const approvalId = ((await card.json()) as any).approvalId as string;
+    expect(approvalId).toBeTruthy();
+    // 把这张卡挂到一条 waiting 的运行上（真实场景就是这样）
+    const waitingRun = randomUUID();
+    await admin.query(
+      "insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny) values($1,$2,$3,'bench-explore','explore',$4,'waiting',1)",
+      [waitingRun, A, fresh, "req-" + waitingRun.slice(0, 8)],
+    );
+    await admin.query("update approval set run_id=$1 where id=$2", [waitingRun, approvalId]);
+    const decided = await app.request(`/v1/approvals/${approvalId}/decide`, {
+      method: "POST",
+      headers: headers(randomUUID()),
+      body: JSON.stringify({ decision: "reject", scope: "once" }),
+    });
+    expect(decided.status).toBe(200);
+    expect(await decided.json()).toMatchObject({ state: "rejected" });
+    const delivered = resumed.filter((row) => row.runId === waitingRun);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].prompt).toContain("驳回");
+    // 计划没变
+    const after = await (await app.request(`/v1/explore/plans/${fresh}`, { headers: headers() })).json();
+    expect(after.plan.stops).toHaveLength(1);
+  });
+
+  it("切卫星被拒：第一版只有矢量底图", async () => {
+    const response = await tool("view", { viewport: { center: [120.14, 30.25], zoom: 12, bearing: 0, pitch: 0 }, basemap: "satellite" });
+    expect(response.status).toBe(409);
+    expect((response.body as any).code).toBe("BASEMAP_UNSUPPORTED");
+    // vector 正常
+    const ok = await tool("view", { viewport: { center: [120.14, 30.25], zoom: 12, bearing: 0, pitch: 0 }, basemap: "vector" });
+    expect(ok.status).toBe(200);
   });
 });

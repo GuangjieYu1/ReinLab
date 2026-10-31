@@ -24,7 +24,7 @@ import { configureGeoProviders } from "./explore/providers";
 import { generateBook } from "./explore/book-job";
 import { createWeatherJudge } from "./explore/weather-judge";
 import { createFeelReader } from "./explore/feel";
-import { applyOps } from "./explore/service";
+import { applyOps, readPlan } from "./explore/service";
 import { publishOps } from "./api/explore-api";
 import { createWeatherScheduler } from "./explore/schedule";
 import { runWeatherCheck } from "./explore/weather-check";
@@ -77,6 +77,27 @@ const kernelDispatch = createKernelDispatch({
 });
 const kernel = new KernelService({
   db: database,
+  // 带图开跑前：服务端读一次图，把观察写成计划上的感觉卡（不依赖模型记不记得调工具）。
+  beforeRun: async ({ account, dossier, runId, refIds, images }) => {
+    if (!feelReader || !images.length) return;
+    const outcome = await database.withAccount(account, async (client) => {
+      const current = await readPlan(client, account, dossier);
+      const feel = current.plan.feel;
+      // 已经有感觉卡、且引用的就是这几张图：不覆盖既有判断。
+      if (feel && feel.refIds.length && refIds.every((id) => feel.refIds.includes(id))) return null;
+      const { feel: next } = await feelReader({
+        images,
+        destination: current.plan.destination?.name ?? null,
+      });
+      if (!next.observations.length) return null;
+      return applyOps(client, account, dossier, {
+        ops: [{ op: "feel.set", feel: { ...next, refIds: refIds.slice(0, 4) } } as never],
+        actor: "agent",
+        run: runId,
+      });
+    });
+    if (outcome) publishOps(account, outcome);
+  },
   // 一轮最多带 4 张图：够说清感觉，也不至于把上下文撑爆。
   loadRefImages: async ({ account, dossier, refIds }) => {
     const wanted = refIds.slice(0, 4);
