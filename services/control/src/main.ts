@@ -82,14 +82,28 @@ const kernel = new KernelService({
     if (!feelReader || !images.length) return;
     const outcome = await database.withAccount(account, async (client) => {
       const current = await readPlan(client, account, dossier);
-      const feel = current.plan.feel;
-      // 已经有感觉卡、且引用的就是这几张图：不覆盖既有判断。
-      if (feel && feel.refIds.length && refIds.every((id) => feel.refIds.includes(id))) return null;
-      const { feel: next } = await feelReader({
+      // 只在还没有感觉卡时补一次：有了就不再覆盖（用户和助手都可以自己改它）。
+      if (current.plan.feel) return null;
+      const { feel: next, usage } = await feelReader({
         images,
         destination: current.plan.destination?.name ?? null,
       });
       if (!next.observations.length) return null;
+      // 这次读图也是真花钱的调用：按「读图」记一笔，别让它从用量里消失。
+      await recordUsage(client, {
+        account,
+        dossier,
+        run: runId,
+        purpose: "vision",
+        provider: "deepseek-official",
+        model: usage.model,
+        known: usage.inputTokens !== null && usage.outputTokens !== null,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        costCny: null,
+      });
       return applyOps(client, account, dossier, {
         ops: [{ op: "feel.set", feel: { ...next, refIds: refIds.slice(0, 4) } } as never],
         actor: "agent",

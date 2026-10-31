@@ -128,24 +128,72 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
           else if (x.kind === 'tool' && items[i].kind === 'tool') items = items.map((y, k) => k === i ? { ...y, state: x.state } as ChatItem : y);
         }
       };
+      /**
+       * 订阅这一轮的事件流（SSE），代替 1 秒轮询。
+       * 服务端会把每一步事件（含 step/start 这类活性事件）与状态帧推过来；
+       * 断线后按 last seq 重连，漏的会在重连时补齐。
+       */
       async function follow(runId: string) {
         let after = 0;
-        for (let n = 0; !stopped && n < 2000; n++) {
-          const { events = [] } = await api(`/v1/kernel/runs/${runId}/events?after=${after}`) as { events?: KernelEvent[] };
-          for (const e of events) { after = Math.max(after, e.seq); push(mapExploreEvent(e)); }
-          const st = await api(`/v1/kernel/runs/${runId}`) as { state?: string };
-          const done = ['completed', 'failed', 'cancelled', 'interrupted'].includes(String(st.state));
-          on(items, !done);
-          if (done) return;
-          await new Promise(r => setTimeout(r, 1000));
+        const ctl = new AbortController();
+        const stopIt = () => ctl.abort();
+        try {
+          while (!stopped) {
+            let response: Response;
+            try {
+              response = await readEventStream(`/v1/kernel/runs/${runId}/stream?after=${after}`, ctl.signal, after);
+            } catch (e) {
+              if (stopped) return;
+              // 断线要说出来（以前 load 静默吞掉，看起来像"没反应"）。
+              push([{ id: "err:follow", kind: "note", text: `连接断了：${e instanceof Error ? e.message : '未知原因'}，正在重试…` }]);
+              on(items, true);
+              await new Promise(r => setTimeout(r, 1500));
+              continue;
+            }
+            items = items.filter(x => x.id !== "err:follow");
+            const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+            let buf = '';
+            for (;;) {
+              const { value, done } = await reader.read().catch(() => ({ value: '', done: true }));
+              if (done) break;
+              buf += value;
+              let cut: number;
+              while ((cut = buf.indexOf('\n\n')) >= 0) {
+                const block = buf.slice(0, cut); buf = buf.slice(cut + 2);
+                const data = block.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('\n');
+                if (!data) continue;
+                let frame: { seq?: number; action?: string; payload?: Record<string, unknown>; state?: string; done?: boolean };
+                try { frame = JSON.parse(data); } catch { continue; }
+                if (typeof frame.seq === 'number') {
+                  after = Math.max(after, frame.seq);
+                  push(mapExploreEvent({ seq: frame.seq, action: String(frame.action ?? ''), payload: frame.payload ?? {} }));
+                }
+                if (frame.state) on(items, !['completed', 'failed', 'cancelled', 'interrupted'].includes(frame.state));
+                if (frame.done) { stopped = true; return; }
+              }
+            }
+            if (stopped) return;
+            // 服务端主动收尾（超时/重启）：稍后按 last seq 重连一次，页面看得到断点也会自愈。
+            await new Promise(r => setTimeout(r, 800));
+          }
+        } finally {
+          stopIt();
         }
       }
+
       return {
         async load() {
           stopped = false;
-          const { runs = [] } = await api(`/v1/kernel/dossiers/${enc(dossierId)}/runs`) as { runs?: { id: string; mode?: string }[] };
-          const last = runs.find(r => r.mode === 'explore');
-          if (last) await follow(last.id); else on(items, false);
+          try {
+            const { runs = [] } = await api(`/v1/kernel/dossiers/${enc(dossierId)}/runs`) as { runs?: { id: string; mode?: string }[] };
+            const last = runs.find(r => r.mode === 'explore');
+            if (last) await follow(last.id);
+            else on(items, false);
+          } catch (e) {
+            // 读历史失败要看得见，不要静默成"空对话"。
+            push([{ id: "err:load", kind: "note", text: `读对话历史失败：${e instanceof Error ? e.message : '未知原因'}` }]);
+            on(items, false);
+          }
         },
         async send(text, refIds) {
           stopped = false;
