@@ -1,6 +1,7 @@
 import type { ExplorePlan, RefImage, Stop, WeatherView } from '../../../../../packages/contracts/src/explore';
 import { center, stopLabels } from './overlays';
 import { dateToLocal, dayLight, hm, horizonAt, localToDate, sunPos } from './sunlive';
+import { guidanceLines } from './guidance';
 
 export const KIND_TEXT: Record<Stop['kind'], string> = { spot: '固定机位', area: '一片街区', waypoint: '顺路点' };
 
@@ -85,7 +86,7 @@ export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople }: {
           {stop.focal?.length ? <div><dt>焦段</dt><dd>{stop.focal.map(f => `${f}mm`).join(' · ')}</dd></div> : null}
         </dl>
       </section>
-      {hasPeople && d.guidance?.length ? <section><h3>引导词</h3><ol className="ex-lines">{d.guidance.map(x => <li key={x}>{x}</li>)}</ol></section> : null}
+      {hasPeople && d.guidance?.length ? <section><h3>引导词</h3><ol className="ex-lines">{guidanceLines(d).map(g => <li key={g.id}>{g.text}</li>)}</ol></section> : null}
       {hasPeople && d.outfit ? <section><h3>服饰</h3>{d.outfit.palette && <span className="ex-palette">{d.outfit.palette.map(c => <i key={c} style={{ background: c }} title={c} />)}</span>}{d.outfit.notes && <p>{d.outfit.notes}</p>}</section> : null}
       <section><h3>参考 · {mine.length}</h3>
         {mine.length === 0 ? <p><em>还没有参考图</em></p> : <div className="exl-refs">{mine.map(r => <RefTile key={r.id} r={r} />)}</div>}

@@ -2,6 +2,7 @@ import type { ExplorePlan, RefImage, Stop, WeatherView } from '../../../../../pa
 import { center, stopLabels } from './overlays';
 import { KIND_TEXT, RefTile } from './StopPanel';
 import { dateToLocal, dayLight, hm } from './sunlive';
+import { firstGuidance, guidanceLines } from './guidance';
 
 // 计划书网页（契约 7.1 的结构）：精简 / 详细两版，同一份计划修订。手机宽度单栏；「打印」只打印这一块（A4）。
 // PDF 由 DSH 生成，这里不排 PDF，只负责网页和打印。
@@ -39,7 +40,7 @@ export default function BookView({ plan, title, refs, weather, variant, onVarian
 
   const timetable = <table className="ex-table"><thead><tr><th>#</th><th>停留点</th><th>时段</th><th>焦段</th><th>要点</th></tr></thead><tbody>
     {stops.map(s => <tr key={s.id}><td><b>{labels[s.id]}</b></td><td><b>{s.name}</b><small>{KIND_TEXT[s.kind]}</small></td><td>{win(s, tz)}</td><td>{s.focal?.length ? s.focal.map(f => `${f}`).join('/') + 'mm' : '—'}</td>
-      <td>{s.detail?.guidance?.[0] ?? s.detail?.composition ?? s.reason ?? '—'}</td></tr>)}
+      <td>{firstGuidance(s.detail) ?? s.detail?.composition ?? s.reason ?? '—'}</td></tr>)}
   </tbody></table>;
 
   const facts = <div className="ex-book-facts">
@@ -72,7 +73,7 @@ export default function BookView({ plan, title, refs, weather, variant, onVarian
             <div><dt>光线</dt><dd>{s.light?.lit ? (s.light.lit.length ? `地形见光 ${s.light.lit.map(x => `${hm(dateToLocal(x.start, s.day, tz))}–${hm(dateToLocal(x.end, s.day, tz))}`).join('，')}` : '全天被山挡') : unknown}</dd></div>
             <div><dt>构图</dt><dd>{s.detail?.composition ?? unknown}{s.facing !== undefined ? ` · 朝向 ${Math.round(s.facing)}°` : ''}</dd></div>
             <div><dt>焦段</dt><dd>{s.focal?.length ? s.focal.map(f => `${f}mm`).join(' · ') : unknown}</dd></div>
-            {people.length > 0 && <div><dt>引导词</dt><dd>{s.detail?.guidance?.length ? <ol className="ex-lines">{s.detail.guidance.map(x => <li key={x}>{x}</li>)}</ol> : unknown}</dd></div>}
+            {people.length > 0 && <div><dt>引导词</dt><dd>{s.detail?.guidance?.length ? <ol className="ex-lines">{guidanceLines(s.detail).map(g => <li key={g.id}>{g.text}</li>)}</ol> : unknown}</dd></div>}
             {people.length > 0 && <div><dt>服饰</dt><dd>{s.detail?.outfit ? <>{s.detail.outfit.palette && <span className="ex-palette">{s.detail.outfit.palette.map(c => <i key={c} style={{ background: c }} />)}</span>}{s.detail.outfit.notes}</> : unknown}</dd></div>}
             <div><dt>天气</dt><dd>{wxLine(s) ?? unknown}</dd></div>
             <div><dt>规定</dt><dd>{s.detail?.rules?.length ? s.detail.rules.map(r => r.text).join('；') : unknown}</dd></div>

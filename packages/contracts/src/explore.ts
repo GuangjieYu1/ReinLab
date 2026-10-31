@@ -50,13 +50,17 @@ export type Stop = {
   focal?: number[];                               // 推荐焦段（只在用户已有器材内）
   light?: StopLight;                              // 服务端算好的山影与见光
   detail?: {                                      // 按需出现，未知就不给
-    composition?: string; guidance?: string[];    // 引导词：有模特才有
+    composition?: string; guidance?: (string | GuidanceLine)[];   // 引导词：有模特才有；第二版每句可带姿势（旧档案是字符串）
+    settings?: ShotSettings; frame?: Frame;        // 第二版：参数行、构图框
     outfit?: { palette?: string[]; notes?: string };
     rules?: { text: string; source?: Source }[];
     fallback?: string;                            // 雨天 / 备选
   };
   refs: string[];                                 // 关联的 RefImage id
   source: 'agent' | 'user';
+  // 第二版：独立模特站位、相机 / 受光高度、街区参考点、双位置受光
+  subjectPoint?: LngLat | null; cameraHeightM?: number; subjectHeightM?: number; areaRef?: LngLat;
+  light2?: StopLight2;
 };
 
 export type StopLight = {
@@ -131,7 +135,10 @@ export type WeatherSuggestion = {
 // ── 账户级资料 ─────────────────────────────────────
 export type Profile =
   | { id: string; type: 'model'; revision: number; name: string; height?: number; style?: string; experience?: string; wardrobe?: string; notes?: string[] }
-  | { id: string; type: 'gear'; revision: number; name: string; kind: 'body' | 'lens'; focal?: [number, number]; aperture?: number; notes?: string };
+  | { id: string; type: 'gear'; revision: number; name: string; kind: 'body' | 'lens'; focal?: [number, number]; aperture?: number; notes?: string; sensor?: { wMm: number; hMm: number } | null }
+  | { id: string; type: 'place'; revision: number; name: string; at: LngLat; radiusM: number; standpoint?: string;
+      observedOn: string; season?: string; timeOfDay?: string; text: string;
+      evidence: { photoIds?: string[]; eventIds?: string[]; dossierId: string }; confirmedBy: 'user' };
 export type ProfileSnapshot = { profileId: string; revision: number; data: Profile; deleted?: boolean };   // 资料删了，快照还在
 
 // ── 用量 ──────────────────────────────────────────
@@ -180,3 +187,133 @@ export type Op =
   | { op: 'canvas.undo' }                                     // 撤回最近一笔画布改动（规则见下），服务端生成反向动作
   // 视野（只记最后视野，不进 revision）
   | { op: 'view.save'; viewport: Viewport; basemap: Basemap };
+
+// ───────── 第二版（design/prd/10-explore-v2-contract.md）─────────
+// ── 停留点细节扩展（旧数据兼容：guidance 允许旧的 string[]，前端读到 string 当 { id, text, pose: null }）──
+export type Pose = 'walk' | 'look-back' | 'lean' | 'touch' | 'pockets' | 'scarf' | 'step' | 'stand' | 'sit' | 'squat';
+export type GuidanceLine = { id: string; text: string; pose: Pose | null };
+export type ShotSettings = {
+  bodyId?: string; lensId?: string; snapshot?: { body?: string; lens?: string };   // 资料引用 + 当时名称
+  focalMm: number | null; aperture: number | null; shutterS: number | null; iso: number | null;   // 建议起点，未知为 null
+};
+export type Frame = {                                   // 构图意图（0–1 归一化，原点左上）
+  orientation: 'landscape' | 'portrait';         // 横 3:2 / 竖 2:3
+  subject: { x: number; y: number; w: number; h: number } | null;   // 中心点 + 宽高；无人物为 null
+  horizon: number | null;                        // 地平线高度（0 顶 – 1 底）
+};
+// Stop.detail 新增：guidance?: (GuidanceLine | string)[]; settings?: ShotSettings; frame?: Frame
+// Stop 新增（经 stop.update patch 修改，正常编辑规则）：
+//   subjectPoint?: LngLat | null    独立模特站位；null = 不设（风光）
+//   cameraHeightM?: number          默认 1.5
+//   subjectHeightM?: number         受光采样高度，默认 1.5（显示为假设）
+//   areaRef?: LngLat                街区要算光时选的参考点
+// Profile(gear, kind:'body') 新增 sensor?: { wMm: number; hMm: number } | null   —— 缺则前端显示"按全画幅假设"
+
+// ── 双位置受光（替代第一版 StopLight，旧字段保留只读）──
+export type LightState = 'night' | 'terrain' | 'building' | 'maybe_lit' | 'unknown';
+export type LightSegment = { start: string; end: string; state: LightState; cause?: { buildingIds?: string[]; note?: string } };
+export type PositionLight = {
+  point: LngLat; heightM: number; heightAssumed: boolean;
+  segments: LightSegment[];                      // 覆盖当天，按时间连续
+  litWindows: { start: string; end: string }[];  // 已知数据下预计见光（maybe_lit 的合并）
+  missing: string[];                             // 缺项说明，如 "西侧 1 km 外楼高未知"
+};
+export type StopLight2 = { version: number; computedAt: string; sceneId: string | null; radiusM: number;
+  camera: PositionLight; subject: PositionLight | null; dem: string };
+// Stop 新增 light2?: StopLight2（服务端算，异步；变化时推 explore.light）
+
+// ── 建筑场景（白模与楼影同源）──
+export type Building = {
+  id: string; osm: string;                       // 如 'way/123'
+  footprint: [number, number][];                 // 局部米制坐标（以 scene.origin 为原点，x 东 y 北），闭合环
+  holes?: [number, number][][];
+  baseM: number | null;                          // 基底海拔（相对 origin 地面），未知 null
+  heightM: number | null; minHeightM: number;    // 未知高度 null：只画轮廓 + 未知标记
+  heightSource: 'tag' | 'levels' | 'unknown'; basis: string;   // 如 "building:levels=6 × 3 m"
+};
+export type BuildingScene = {
+  id: string; version: number; origin: LngLat; radiusM: number; fetchedAt: string; source: string;
+  buildings: Building[];
+  coverage: { status: 'ok' | 'partial' | 'empty' | 'failed'; note: string };   // empty 不代表没有楼
+};
+
+// ── 现场记录（独立于计划 revision）──
+export type FieldEventKind = 'arrived' | 'shot' | 'note' | 'situation' | 'correction';
+export type FieldEvent = {
+  clientId: string;                              // 设备生成，幂等键
+  kind: FieldEventKind;
+  stopId: string | null; stopName: string | null;            // 当时的名称（点被删后仍可显示）
+  planRevision: number;                          // 记录时设备上的计划修订
+  at: string; tz: string;                        // 设备记录时间（带偏移）+ IANA 时区
+  text?: string;                                 // note / situation 的内容；situation 带按钮标签
+  situation?: 'rain' | 'late' | 'crowd' | 'light' | 'other';
+  position?: { at: LngLat; accuracyM: number };
+  refersTo?: string;                             // correction 指向的 clientId
+  correction?: { action: 'retract' } | { action: 'edit'; text: string } | { action: 'relink'; stopId: string };
+};
+export type FieldEventRecord = FieldEvent & {
+  serverId: string; receivedAt: string;
+  status: 'ok' | 'orphan' | 'retracted';         // orphan = 点已不在当前计划，待重新关联
+  effectiveText?: string;                        // 叠加更正后的内容
+};
+
+// ── 照片 ──
+export type PhotoStatus = 'uploading' | 'processing' | 'ready' | 'failed';
+export type Photo = {
+  id: string; batchId: string; fileName: string; bytes: number; sha256: string; status: PhotoStatus; error?: string;
+  exif: {
+    dateTimeOriginal: string | null;             // 原文，不带解释
+    offset: string | null;                       // OffsetTimeOriginal
+    subSec: string | null; gpsTime: string | null; gps: LngLat | null;
+    body: string | null; lens: string | null; focalMm: number | null; aperture: number | null;
+    shutterS: number | null; iso: number | null; orientation: number | null;
+  };
+  cameraGroupId: string | null;
+  time: { corrected: string | null; basis: 'offset_tag' | 'gps' | 'clock_fix' | 'unknown'; trust: 'certain' | 'estimated' | 'pending' };
+  placement: { stopId: string | null; basis: 'gps' | 'event' | 'plan_time' | 'manual' | 'unplanned' | 'pending'; at: LngLat | null };
+  ai: { mark: 'recommend' | 'alternate' | null; reason?: string; inspected: 'none' | 'preview' | 'detail' } ;
+  picked: boolean;                               // 用户精选（与 ai 分开）
+  thumb: string; preview: string;                // /v1/... 派生图地址
+};
+export type UploadBatch = { id: string; createdAt: string; files: number; bytes: number;
+  uploaded: number; processed: number; failed: number; unsupported: { fileName: string; reason: string }[] };
+export type CameraGroup = {
+  id: string; label: string;                     // 机身型号；序列号不展示
+  photos: number; timezone: string | null; timezoneBasis: 'offset_tag' | 'plan' | 'user' | null;
+  offsetSec: number | null; residualSec: number | null;
+  status: 'auto' | 'needs_anchor' | 'inconsistent' | 'confirmed';
+  anchors: { photoId: string; eventClientId?: string; time?: string; deltaSec: number }[];
+  suggestion?: { photoId: string; eventClientId: string; note: string };   // 推荐让用户确认的锚点
+};
+
+// ── 回顾成果 ──
+export type Comparison = { revisionUsed: number; items: {
+  stopId: string; stopName: string;
+  evidence: 'shot' | 'arrived_only' | 'none_found';   // none_found ≠ 没去
+  plannedStart: string | null; actualStart: string | null; lateMin: number | null;   // 对时不准则 null
+  light: string | null; notes: string[]; photoIds: string[];
+}[]; unplannedPhotoIds: string[] };
+export type Travelogue = { id: string; revision: number; markdown: string; photoIds: string[]; sources: Source[]; updatedAt: string };
+
+// ── 地点经验（账户级资料新类型，与模特 / 器材同一套 /v1/profiles）──
+// Profile 增加 | { id; type: 'place'; revision; name; at: LngLat; radiusM: number; standpoint?: string;
+//                 observedOn: string; season?: string; timeOfDay?: string; text: string;
+//                 evidence: { photoIds?: string[]; eventIds?: string[]; dossierId: string }; confirmedBy: 'user' }
+export type ExperienceProposal = { approvalId: string; target: 'model' | 'place'; profileId?: string; title: string;
+  text: string; evidence: { photoIds?: string[]; eventIds?: string[]; dossierId: string }; summary: string };
+
+export type OfflineManifest = {
+  packId: string; day: string; planRevision: number; createdAt: string;
+  area: { corridorM: 500; stopRadiusM: 1000; bounds: [[number, number], [number, number]] };
+  tiles: { z: number; x: number; y: number; url: string }[];     // url 为 /v1/explore/offline-tiles/...
+  tileTemplate: string;                          // 如 /v1/explore/offline-tiles/<packId>/{z}/{x}/{y}
+  tileZoom: { min: number; max: number };
+  glyphTemplate: string;                         // 如 /v1/explore/offline-glyphs/{fontstack}/{range}.pbf
+  tileBytes: number; limit: { maxTiles: 3000; maxBytes: 52428800; withinLimit: boolean; note?: string };
+  style: { vectorTilejson: string };             // 前端改写为离线源
+  glyphs: { url: string }[];                     // 只含拉丁 / 标点区段；中文用设备本地字体渲染（第一版已如此）
+  scenes: { stopId: string; url: string }[];     // BuildingScene
+  plan: string;                                  // GET 计划快照的地址（固定修订）
+  light: string; weather: string; refs: { id: string; thumb: string }[];
+  unknowns: string[];                            // 如 "D 点楼高缺失"、"天气是 10/31 01:17 的快照"
+};

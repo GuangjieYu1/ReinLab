@@ -9,7 +9,8 @@ type Draft = { type: 'model'; name: string; height: string; style: string; exper
 const blank = (type: 'model' | 'gear'): Draft => type === 'model'
   ? { type, name: '', height: '', style: '', experience: '', wardrobe: '' } : { type, name: '', kind: 'lens', focal: '', aperture: '' };
 
-const toDraft = (p: Profile): Draft => p.type === 'model'
+type PersonOrGear = Extract<Profile, { type: 'model' | 'gear' }>;
+const toDraft = (p: PersonOrGear): Draft => p.type === 'model'
   ? { type: 'model', name: p.name, height: p.height ? String(p.height) : '', style: p.style ?? '', experience: p.experience ?? '', wardrobe: p.wardrobe ?? '' }
   : { type: 'gear', name: p.name, kind: p.kind, focal: p.focal ? (p.focal[0] === p.focal[1] ? String(p.focal[0]) : `${p.focal[0]}-${p.focal[1]}`) : '', aperture: p.aperture ? String(p.aperture) : '' };
 
@@ -20,7 +21,7 @@ function fromDraft(d: Draft): Omit<Profile, 'id' | 'revision'> {
 }
 
 export default function ProfilesPanel({ type, items, plan, onSave, onDelete, onToggle, onRefresh }: {
-  type: 'model' | 'gear'; items: Profile[]; plan: ExplorePlan;
+  type: 'model' | 'gear'; items: PersonOrGear[]; plan: ExplorePlan;
   onSave: (p: Omit<Profile, 'id' | 'revision'> & { id?: string; revision?: number }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onToggle: (id: string, on: boolean) => void;

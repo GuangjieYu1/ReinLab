@@ -147,6 +147,9 @@ type OfflineManifest = {
   packId: string; day: string; planRevision: number; createdAt: string;
   area: { corridorM: 500; stopRadiusM: 1000; bounds: [[number, number], [number, number]] };
   tiles: { z: number; x: number; y: number; url: string }[];     // url 为 /v1/explore/offline-tiles/...
+  tileTemplate: string;                          // 如 /v1/explore/offline-tiles/<packId>/{z}/{x}/{y}，离线地图源用它
+  tileZoom: { min: number; max: number };        // 清单实际覆盖的级别；更高缩放用最高级放大
+  glyphTemplate: string;                         // 如 /v1/explore/offline-glyphs/{fontstack}/{range}.pbf（服务端代取 OpenFreeMap 字形）
   tileBytes: number; limit: { maxTiles: 3000; maxBytes: 52428800; withinLimit: boolean; note?: string };
   style: { vectorTilejson: string };             // 前端改写为离线源
   glyphs: { url: string }[];                     // 只含拉丁 / 标点区段；中文用设备本地字体渲染（第一版已如此）
