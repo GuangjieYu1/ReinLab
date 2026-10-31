@@ -35,7 +35,8 @@
     "react-dom": "^19.0.0",
     "subset-font": "^2.9.0",
     "suncalc": "^1.9.0",
-    "three": "^0.180.0"
+    "three": "^0.180.0",
+    "tus-js-client": "^4.0.0"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",

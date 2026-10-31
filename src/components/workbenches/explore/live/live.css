@@ -164,3 +164,6 @@
 .exw-frame .h1, .exw-frame .h2 { left: 0; right: 0; height: 1px; } .exw-frame .h1 { top: 33.33%; } .exw-frame .h2 { top: 66.67%; }
 .exw-time { width: 100%; accent-color: #ff7a1a; }
 .exw-note { margin: 0; font: 500 11px/1.5 var(--rh-f-mono); color: #6b6865; } .exw-note b { color: #b84d00; }
+.exl-prof-item { display: grid; gap: 2px; padding: 6px 8px; border: 1px solid #14121322; background: #fbfbf9; font-size: 12.5px; }
+.exl-prof-item p { margin: 2px 0; line-height: 1.5; } .exl-prof-item small { font: 500 10.5px/1.4 var(--rh-f-mono); color: #6b6865; }
+.exl-prof-form textarea { font: 500 12.5px/1.45 var(--rh-f-ui); border: 1px solid #14121355; padding: 4px 6px; background: #fff; }

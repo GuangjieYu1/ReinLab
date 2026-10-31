@@ -4,6 +4,8 @@ import AgentDock, { type DockEvent } from '../../AgentDock';
 import Explorer, { type ExplorerSection, type ExplorerViewDef } from '../../engineering/Explorer';
 import { RichBlocks } from '../../richText';
 import LiveField from './field/LiveField';
+import ReviewFace, { type ReviewFocus } from './review/ReviewFace';
+import ChatPhotos from './review/ChatPhotos';
 import type { BenchProps } from '../../WorkbenchStudio';
 import type { Basemap, LngLat, PendingChange, PlanUsage, Profile, Stop, Viewport, WeatherSuggestion, WeatherView } from '../../../../../packages/contracts/src/explore';
 import { ExploreError, type ChatItem, type ExploreAdapter, type MapConfig, type Place } from './adapter';
@@ -14,6 +16,7 @@ import LiveDayLine from './LiveDayLine';
 import { StopAside, StopCard, StopDetail, KIND_TEXT, RefTile } from './StopPanel';
 import BookView from './BookView';
 import ProfilesPanel from './ProfilesPanel';
+import PlacesPanel from './PlacesPanel';
 import { renderSnapshot, neededKeys } from './snapshots';
 import { center, stopLabels } from './overlays';
 import { dateToLocal, dayLight, hm, horizonAt } from './sunlive';
@@ -22,7 +25,7 @@ import '../explore.css';
 import './live.css';
 
 // 探索台真实模式（design/prd/06-explore.md、07-explore-contract.md）。
-// 计划面：真实地图 + 时间线 + 计划书；机位面：选中停留点详情（不含白模）；现场 / 回顾第一版置灰。
+// 计划面：真实地图 + 时间线 + 计划书；机位面：停留点详情与白模；现场：离线可用；回顾：照片、对时、对照、游记（第二版）。
 // 地图、对话候选卡、时间线读同一份计划；页面点击即授权，Agent 改已确认内容走审批卡。
 
 type Face = 'plan' | 'spot' | 'field' | 'review';
@@ -36,6 +39,8 @@ const FIELD: Record<string, string> = { name: '名称', kind: '类型', geometry
 export default function LiveExplore({ file, reduced, chrome, dossier, adapter }: BenchProps & { adapter: ExploreAdapter }) {
   const x = useExplore(adapter);
   const [face, setFace] = useState<Face>('plan');
+  const [reviewFocus, setReviewFocus] = useState<ReviewFocus>(null);
+  const openReview = (part: NonNullable<ReviewFocus>['part'], photoIds?: string[]) => { setFace('review'); setReviewFocus(f => ({ part, photoIds, n: (f?.n ?? 0) + 1 })); };
   const [view, setView] = useState<'map' | 'doc'>('map');
   const [variant, setVariant] = useState<'brief' | 'full'>('brief');
   const [sel, setSel] = useState<string | null>(null);
@@ -206,6 +211,13 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
       else if (c.kind === 'malformed') out.push([n, { id: c.id, kind: 'card', body: <div className="exl-malformed"><span>这一轮助手的工具参数没写对，什么都没改。</span>{lastUser && <button className="rh-btn" disabled={busy} onClick={() => send(lastUser)}>重试</button>}</div> }]);
       else if (c.kind === 'tool') { if (c.name) out.push([n, { id: c.id, kind: 'tool', action: c.name, label: c.label, state: c.state }]); }
       else if (c.kind === 'pending') out.push([n, approvalOf(c.change)]);
+      else if (c.kind === 'photos') out.push([n, { id: c.id, kind: 'card', body: <ChatPhotos api={adapter.review} ids={c.photoIds} onOpen={() => openReview('photos', c.photoIds)} /> }]);
+      else if (c.kind === 'review') out.push([n, { id: c.id, kind: 'card', body: <button className="rh-btn" onClick={() => openReview(c.part)}>{c.part === 'comparison' ? '打开「计划 vs 实际」' : '打开游记'} →</button> }]);
+      else if (c.kind === 'experience') { const e = c.proposal;
+        out.push([n, { id: `ap:${e.approvalId}`, kind: 'approval', action: e.target === 'place' ? '记成地点经验' : '记进模特资料', title: e.title, risk: 'write',
+          state: decided[e.approvalId] ?? (openApprovals && !openApprovals.has(e.approvalId) ? 'approved' : 'pending'),
+          effects: [e.text, `依据：${[e.evidence.photoIds?.length && `${e.evidence.photoIds.length} 张照片`, e.evidence.eventIds?.length && `${e.evidence.eventIds.length} 条现场记录`].filter(Boolean).join('、') || '这次回顾'}`, '确认后写进资料，下次规划时助手会读到；之后可以在资料里改或删'],
+          onApprove: () => void decide(e.approvalId, true), onReject: () => void decide(e.approvalId, false) }]); }
       else if (c.kind === 'refs') out.push([n, { id: c.id, kind: 'card', body: <div className="exl-refs is-chat">{x.snap!.refs.filter(r => c.refIds.includes(r.id)).map(r => <RefTile key={r.id} r={r} />)}</div> }]);
       else if (c.kind === 'stops') out.push([n, { id: c.id, kind: 'card', body: <div className="exl-stops">{c.stopIds.map(id => plan.stops.find(s => s.id === id)).filter((s): s is Stop => !!s)
         .map(s => <StopCard key={s.id} plan={plan} stop={s} tz={tz} compact onKeep={() => keep(s.id)} onDrop={() => drop(s.id)} onOpen={() => { setSel(s.id); setFace('spot'); }} />)}
@@ -242,6 +254,8 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const sections: ExplorerSection[] = xpView === 'profiles' ? [
     { id: 'm', title: '模特', count: profiles.filter(p => p.type === 'model').length, body: <ProfilesPanel type="model" items={profiles.filter(p => p.type === 'model')} plan={plan} {...profileHandlers('people')} /> },
     { id: 'g', title: '器材', count: profiles.filter(p => p.type === 'gear').length, grow: true, body: <ProfilesPanel type="gear" items={profiles.filter(p => p.type === 'gear')} plan={plan} {...profileHandlers('gear')} /> },
+    { id: 'pl', title: '地点经验', count: profiles.filter(p => p.type === 'place').length, body: <PlacesPanel items={profiles.filter((p): p is Extract<Profile, { type: 'place' }> => p.type === 'place')}
+      onSave={async p => { await adapter.saveProfile(p); setProfiles(await adapter.profiles()); }} onDelete={async id => { await adapter.deleteProfile(id); setProfiles(await adapter.profiles()); }} /> },
   ] : [
     { id: 'stops', title: '停留点', count: plan.stops.length, grow: true, body: <div className="ex-list">
       {confirmed.map(s => <button key={s.id} aria-current={s.id === sel || undefined} onClick={() => setSel(s.id)}><em>{labels[s.id]}</em><span><b>{s.name}</b><small>{KIND_TEXT[s.kind]} · {s.window ? `${hm(dateToLocal(s.window.start, s.day, tz))}` : '时段未定'}</small></span></button>)}
@@ -311,14 +325,15 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     {plan.conflicts.length > 0 && <ul className="dm-msg exl-notice exl-conflicts">{plan.conflicts.map(c => <li key={c.stopId}>{c.text}</li>)}</ul>}
   </div>;
 
-  return <BenchFrame code="EXPL" section="006" file={file} reduced={reduced} chrome={chrome} face={face} onFace={id => { if (id === 'plan' || id === 'spot' || id === 'field') setFace(id); }}
-    faces={[{ id: 'plan', label: '计划', en: 'PLAN' }, { id: 'spot', label: '机位', en: 'SPOT', badge: confirmed.length || undefined }, { id: 'field', label: '现场', en: 'FIELD' }, { id: 'review', label: '回顾 · 下一版', en: 'REVIEW', locked: true }]}
+  return <BenchFrame code="EXPL" section="006" file={file} reduced={reduced} chrome={chrome} face={face} onFace={id => { if (id === 'plan' || id === 'spot' || id === 'field' || id === 'review') setFace(id); }}
+    faces={[{ id: 'plan', label: '计划', en: 'PLAN' }, { id: 'spot', label: '机位', en: 'SPOT', badge: confirmed.length || undefined }, { id: 'field', label: '现场', en: 'FIELD' }, { id: 'review', label: '回顾', en: 'REVIEW' }]}
     strip={<>{plan.destination?.name ?? '目的地未定'} <i>·</i> {day} <i>·</i> {dl?.sunrise != null ? `日出 ${hm(dl.sunrise)}` : ''} <i>·</i> {dl?.sunset != null ? `日落 ${hm(dl.sunset)}` : ''} <i>·</i> {confirmed.length} 个已确认 · {candidates.length} 个候选</>}
     shutterLines={f => [`> open plan · ${plan.destination?.name ?? 'new'}`, `> ${f.en.toLowerCase()} · rev ${plan.revision}`, '> ready']}
     status={<><span><i className="en-sq" />{dossier?.title ?? '探索计划'}</span><span>{stateText}</span><span>已确认 {confirmed.length}</span><span>候选 {candidates.length}</span><span>太阳为真实计算 · 天气 {weather?.source.name ?? '—'}</span></>}>
     <div className="ex" data-face={face}>
       <Explorer code="EXPL" open={xpOpen} view={xpView} onView={setXpView} onToggle={() => setXpOpen(v => !v)} views={VIEWS} key={xpView} title="plan/" sections={sections} />
-      {face === 'field' ? <div className="ex-center exl-fieldwrap"><LiveField plan={plan} title={dossier?.title ?? '探索计划'} weather={weather} adapter={adapter} accountId={currentAccountId() ?? ''} dossierId={dossier?.id ?? ''} mapCfg={cfg} offlinePack={null} serverRevision={plan.revision} onSituation={send} /></div>
+      {face === 'review' ? <ReviewFace adapter={adapter} plan={plan} day={day} tz={tz} dossierId={dossier?.id ?? ''} focus={reviewFocus} />
+      : face === 'field' ? <div className="ex-center exl-fieldwrap"><LiveField plan={plan} title={dossier?.title ?? '探索计划'} weather={weather} adapter={adapter} accountId={currentAccountId() ?? ''} dossierId={dossier?.id ?? ''} mapCfg={cfg} offlinePack={null} serverRevision={plan.revision} onSituation={send} /></div>
       : face === 'plan' ? <div className="ex-center ex-plan exl-plan" data-view={view}>
         {head}
         {banners}

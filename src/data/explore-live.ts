@@ -2,6 +2,9 @@
 import type { Op, PendingChange, Profile, RefImage, Viewport, Basemap } from '../../packages/contracts/src/explore';
 import { ExploreError, type ChatItem, type ExploreAdapter, type ExploreEvent, type ExploreSnapshot } from '../components/workbenches/explore/live/adapter';
 import { api, decide, readEventStream, request, upload } from './research-live';
+import * as tus from 'tus-js-client';
+import type { Photo } from '../../packages/contracts/src/explore';
+import type { ReviewApi } from '../components/workbenches/explore/live/adapter';
 
 const enc = encodeURIComponent;
 /** 服务端给的资源地址是 /v1/...，页面要经同源前缀 /backend 访问。 */
@@ -39,7 +42,12 @@ export function mapExploreEvent(e: KernelEvent): ChatItem[] {
       const failed = !!d.error || !!d.message?.isError || !!r?.error;
       const out: ChatItem[] = [{ id, kind: 'tool', name: '', label: '', state: failed ? 'failed' : 'done' }];
       if (Array.isArray(r?.stopIds) && r.stopIds.length) out.push({ id: `${id}:s`, kind: 'stops', stopIds: r.stopIds.map(String) });
-      if (r?.pending?.approvalId) out.push({ id: `${id}:p`, kind: 'pending', change: r.pending as PendingChange });
+      if (r?.pending?.approvalId) out.push(r.pending.kind === 'experience'
+        ? { id: `${id}:p`, kind: 'experience', proposal: r.pending }
+        : { id: `${id}:p`, kind: 'pending', change: r.pending as PendingChange });
+      if (Array.isArray(r?.photoIds) && r.photoIds.length) out.push({ id: `${id}:ph`, kind: 'photos', photoIds: r.photoIds.map(String) });
+      if (r?.comparison === true) out.push({ id: `${id}:c`, kind: 'review', part: 'comparison' });
+      if (typeof r?.travelogueId === 'string') out.push({ id: `${id}:tl`, kind: 'review', part: 'travelogue' });
       if (Array.isArray(r?.refIds) && r.refIds.length) out.push({ id: `${id}:r`, kind: 'refs', refIds: r.refIds.map(String) });
       return out;
     }
@@ -51,6 +59,52 @@ export function mapExploreEvent(e: KernelEvent): ChatItem[] {
 const TOOL_LABEL: Record<string, string> = {
   web_search: '搜索', web_fetch: '读网页', bash: 'bash',
 };
+
+const fixPhoto = (p: Photo): Photo => ({ ...p, thumb: viaBackend(p.thumb), preview: viaBackend(p.preview) });
+
+/** 回顾：照片 / 对时 / 实际 / 游记（10-explore-v2-contract.md 第 2.3–2.5 节）。 */
+function liveReview(base: string): ReviewApi {
+  return {
+    createBatch: files => call('POST', `${base}/photo-batches`, { files }),
+    batch: async id => { const r = await call<any>('GET', `${base}/photo-batches/${enc(id)}`); return r.batch ?? r; },   // 包不包 {batch} 都接
+    upload(file, batchId, uploadUrl, on) {
+      const up = new tus.Upload(file, {
+        endpoint: viaBackend(uploadUrl), chunkSize: 8 * 1024 * 1024, retryDelays: [0, 1000, 3000, 5000],
+        headers: { 'X-ReinLab-CSRF': '1' },
+        metadata: { batchId, filename: file.name, lastModified: String(file.lastModified) },
+        fingerprint: async f => ['reinlab-photo', batchId, (f as File).name, f.size, (f as File).lastModified].join(':'),
+        removeFingerprintOnSuccess: true,
+        onProgress: (sent, total) => on.progress(sent, total),
+        onSuccess: () => on.done(),
+        onError: e => on.error(e.message.split('\n')[0]),
+      });
+      return {
+        start() { up.findPreviousUploads().then(prev => { if (prev.length) up.resumeFromPreviousUpload(prev[0]); up.start(); }, () => up.start()); },
+        pause() { void up.abort(); },
+        abort() { void up.abort(true); },
+      };
+    },
+    async photos(q = {}) {
+      const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString();
+      const r = await call<{ items: Photo[]; cursor: string | null }>('GET', `${base}/photos${qs ? '?' + qs : ''}`);
+      return { items: r.items.map(fixPhoto), cursor: r.cursor };
+    },
+    async assign(photoIds, stopId) { await call('POST', `${base}/photos/assign`, { photoIds, stopId, basis: 'manual' }); },
+    async pick(photoIds, picked) { await call('POST', `${base}/photos/pick`, { photoIds, picked }); },
+    async remove(id) { await call('DELETE', `${base}/photos/${enc(id)}`); },
+    storage: () => call('GET', `${base}/storage`),
+    clock: async () => (await call<{ groups: never[] }>('GET', `${base}/clock`)).groups,
+    async anchor(g, a) { await call('POST', `${base}/clock/${enc(g)}/anchor`, a); },
+    async confirmClock(g, timezone, offsetSec) { await call('POST', `${base}/clock/${enc(g)}/confirm`, { timezone, offsetSec }); },
+    async split(g, beforePhotoId) { await call('POST', `${base}/clock/${enc(g)}/split`, { beforePhotoId }); },
+    actual: async rev => (await call<{ items: never[] }>('GET', `${base}/actual${rev ? `?revision=${rev}` : ''}`)).items,
+    get: () => call('GET', `${base}/review`),
+    saveTravelogue: (baseRevision, markdown) => call('PUT', `${base}/review/travelogue`, { baseRevision, markdown }),
+    exportUrl: f => viaBackend(`${base}/review/travelogue/export?format=${f}`),
+    media: viaBackend,
+    cropUrl: (pid, r) => viaBackend(`${base}/photos/${enc(pid)}/crop?x=${r.x.toFixed(4)}&y=${r.y.toFixed(4)}&w=${r.w.toFixed(4)}&h=${r.h.toFixed(4)}`),
+  };
+}
 
 export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
   const base = `/v1/explore/plans/${enc(dossierId)}`;
@@ -93,6 +147,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
     fieldEvents: async () => (await call<{ items: never[] }>('GET', `${base}/field-events`)).items,
     revision: rev => call('GET', `${base}/revisions/${rev}`),
     scene: stopId => call('GET', `${base}/scene?stopId=${enc(stopId)}`),
+    review: liveReview(base),
     async recomputeLight(stopId) { await call('POST', `${base}/light/recompute`, { stopId }); },
     async ping() {
       try { const r = await fetch('/backend/v1/explore/map-config', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(4000) }); return r.status < 500; }

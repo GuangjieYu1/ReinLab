@@ -2,6 +2,7 @@
 // live 接控制面，memory 是本地内存版（没有后端时看界面用，不调模型）。
 import type {
   FieldEvent, FieldEventRecord, OfflineManifest, BuildingScene,
+  Photo, UploadBatch, CameraGroup, Comparison, Travelogue, ExperienceProposal,
   AppliedOp, Basemap, CanvasObject, ExplorePlan, LngLat, Op, PendingChange, PlanUsage, Profile,
   RefImage, Source, Viewport, WeatherSuggestion, WeatherView,
 } from '../../../../../packages/contracts/src/explore';
@@ -29,7 +30,14 @@ export type ExploreEvent =
   | { type: 'explore.camera'; dossierId: string; runId: string; viewport: Viewport; basemap?: Basemap }
   | { type: 'explore.weather'; dossierId: string; checkedAt: string; state: WeatherView['state']; suggestionId?: string }
   | { type: 'explore.book'; dossierId: string; jobId: string; state: 'done' | 'failed'; artifactId?: string; message?: string }
-  | { type: 'explore.snapshots_needed'; dossierId: string; revision: number; keys: string[] };
+  | { type: 'explore.snapshots_needed'; dossierId: string; revision: number; keys: string[] }
+  // 第二版
+  | { type: 'explore.field'; dossierId: string; planRevision: number }
+  | { type: 'explore.photos'; dossierId: string; batchId: string; uploaded: number; processed: number; failed: number }
+  | { type: 'explore.clock'; dossierId: string; groupId: string; status: CameraGroup['status'] }
+  | { type: 'explore.review'; dossierId: string; part: 'comparison' | 'travelogue' | 'picks' }
+  | { type: 'explore.light'; dossierId: string; stopId: string; version: number }
+  | { type: 'explore.scene'; dossierId: string; stopId: string; sceneId: string; status: string };
 
 /** 右侧对话里的一条。卡片按 id 引用计划里的对象，不在消息里复制一份。 */
 export type ChatItem =
@@ -41,7 +49,11 @@ export type ChatItem =
   | { id: string; kind: 'refs'; refIds: string[] }
   | { id: string; kind: 'note'; text: string }
   /** 模型这一轮吐了非法的工具参数，什么都没发生：显示一行提示 + 重试（重发同一句）。 */
-  | { id: string; kind: 'malformed' };
+  | { id: string; kind: 'malformed' }
+  // 第二版回顾：工具结果里带 photoIds / comparison / travelogueId / 经验提议时
+  | { id: string; kind: 'photos'; photoIds: string[] }
+  | { id: string; kind: 'review'; part: 'comparison' | 'travelogue' }
+  | { id: string; kind: 'experience'; proposal: ExperienceProposal };
 
 export type ChatSession = {
   load(): Promise<void>;
@@ -85,7 +97,37 @@ export interface ExploreAdapter {
   // ── 第二版：白模与楼影（第 2.6 节）──
   scene(stopId: string): Promise<BuildingScene>;
   recomputeLight(stopId: string): Promise<void>;
+  // ── 第二版：照片与回顾（第 2.3–2.5 节）──
+  review: ReviewApi;
   /** ReinLab 服务可不可达（离线判断用，和互联网分开）。 */
   ping(): Promise<boolean>;
   chat(on: (items: ChatItem[], busy: boolean) => void): ChatSession;
 }
+
+// ── 第二版回顾 ──
+export type ActualItem =
+  | { type: 'event'; record: FieldEventRecord }
+  | { type: 'cluster'; stopId: string | null; start: string; end: string; photoIds: string[]; basis: Photo['placement']['basis'] };
+export type UploadHandle = { start(): void; pause(): void; abort(): void };
+export type ReviewApi = {
+  createBatch(files: { name: string; bytes: number; lastModified: number }[]): Promise<{ batch: UploadBatch; uploadUrl: string; space: { freeBytes: number; needBytes: number; ok: boolean } }>;
+  batch(id: string): Promise<UploadBatch>;
+  /** tus 续传：指纹 = 批次 + 文件名 + 大小 + 修改时间，刷新后重新选同一个文件会接着传。 */
+  upload(file: File, batchId: string, uploadUrl: string, on: { progress(sent: number, total: number): void; done(): void; error(msg: string): void }): UploadHandle;
+  photos(q?: { cursor?: string; stopId?: string; group?: string }): Promise<{ items: Photo[]; cursor: string | null }>;
+  assign(photoIds: string[], stopId: string | null): Promise<void>;
+  pick(photoIds: string[], picked: boolean): Promise<void>;
+  remove(photoId: string): Promise<void>;
+  storage(): Promise<{ dossierBytes: number; freeBytes: number }>;
+  clock(): Promise<CameraGroup[]>;
+  anchor(groupId: string, a: { photoId: string; eventClientId?: string; time?: string }): Promise<void>;
+  confirmClock(groupId: string, timezone: string, offsetSec: number): Promise<void>;
+  split(groupId: string, beforePhotoId: string): Promise<void>;
+  actual(revision?: number): Promise<ActualItem[]>;
+  get(): Promise<{ comparison: Comparison | null; travelogue: Travelogue | null }>;
+  saveTravelogue(baseRevision: number, markdown: string): Promise<Travelogue>;
+  exportUrl(format: 'md' | 'html'): string;
+  /** 照片派生图 /v1/... → 页面可用地址；crop 用 0–1 比例。 */
+  media(path: string): string;
+  cropUrl(photoId: string, r: { x: number; y: number; w: number; h: number }): string;
+};

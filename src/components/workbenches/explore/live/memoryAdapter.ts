@@ -1,6 +1,7 @@
 // 本地内存版：演示模式下 ?explore=memory 才用，用来看真实界面（真实地图瓦片，不连后端、不调模型）。
 // 预置一份小计划；修改按契约规则在内存里生效（原子批次、修订 +1、结果带回）。
 import type { AppliedOp, CanvasObject, ExplorePlan, Op, Profile, RefImage, Stop } from '../../../../../packages/contracts/src/explore';
+import { createMemoryReview } from './memoryReview';
 import { ExploreError, type ChatItem, type ExploreAdapter, type ExploreEvent, type ExploreSnapshot } from './adapter';
 
 const iso = (day: string, hhmm: string) => `${day}T${hhmm}:00+08:00`;
@@ -25,7 +26,12 @@ function seed(): ExploreSnapshot {
 
 export function createMemoryExploreAdapter(): ExploreAdapter {
   let snap = seed(), n = 100;
-  const profiles: Profile[] = [];
+  const profiles: Profile[] = [
+    // 本地预览示例：回顾确认后的一条地点经验
+    { id: 'pl1', type: 'place', revision: 1, name: '外滩观景平台', at: [121.4905, 31.2397], radiusM: 150, standpoint: '陈毅像南侧台阶',
+      observedOn: '2026-10-12', season: '秋', timeOfDay: '日落前后', text: '16:30 后人很多，台阶上拍得到不挡人的角度；风大，长发要扎。（本地预览示例）',
+      evidence: { photoIds: ['p1', 'p4'], dossierId: 'memory' }, confirmedBy: 'user' },
+  ];
   const subs = new Set<(e: ExploreEvent) => void>();
   const id = (p: string) => `${p}${++n}`;
 
@@ -87,9 +93,18 @@ export function createMemoryExploreAdapter(): ExploreAdapter {
     async offlinePack() { throw new ExploreError('本地预览不做离线包', 'NOT_AVAILABLE'); },
     async getOfflinePack() { throw new ExploreError('本地预览不做离线包', 'NOT_AVAILABLE'); },
     async postFieldEvents(events) { return { results: events.map(e => ({ clientId: e.clientId, serverId: 'm' + e.clientId, status: 'ok' as const })), planRevision: snap.plan.revision }; },
-    async fieldEvents() { return []; },
+    async fieldEvents() {   // 本地预览示例：一条到达打卡（回顾对时用）
+      const s1 = snap.plan.stops.find(s => s.id === 's1');
+      return s1 ? [{ clientId: 'e1', kind: 'arrived' as const, stopId: 's1', stopName: s1.name, planRevision: snap.plan.revision, at: `${s1.day}T16:40:00+08:00`, tz: 'Asia/Shanghai', serverId: 'se1', receivedAt: `${s1.day}T16:40:05+08:00`, status: 'ok' as const }] : [];
+    },
     async revision() { return structuredClone(snap); },
     async ping() { return true; },
+    review: createMemoryReview(() => snap.plan, part => {
+      const ev: ExploreEvent = part === 'photos' ? { type: 'explore.photos', dossierId: 'memory', batchId: '', uploaded: 0, processed: 0, failed: 0 }
+        : part === 'clock' ? { type: 'explore.clock', dossierId: 'memory', groupId: '', status: 'confirmed' }
+        : { type: 'explore.review', dossierId: 'memory', part };
+      subs.forEach(f => f(ev));
+    }),
     async scene(stopId) {
       // 本地预览示例：几块楼，其中一块高度未知。不是真实建筑数据。
       const st = snap.plan.stops.find(s => s.id === stopId);
