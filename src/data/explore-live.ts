@@ -133,9 +133,14 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
        * 服务端会把每一步事件（含 step/start 这类活性事件）与状态帧推过来；
        * 断线后按 last seq 重连，漏的会在重连时补齐。
        */
+      // 当前打开的事件流：stop() 要真正断开它。运行停在「等你回答」时服务端不会收尾，
+      // 只置 stopped 不断开，每次切页面都会留下一条长连接，攒满浏览器同站 6 条上限后整页卡住。
+      let active: AbortController | null = null;
       async function follow(runId: string) {
         let after = 0;
+        active?.abort();
         const ctl = new AbortController();
+        active = ctl;
         const stopIt = () => ctl.abort();
         try {
           while (!stopped) {
@@ -202,7 +207,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
           items = items.filter(x => !x.id.startsWith('local-'));
           await follow(run.id);
         },
-        stop() { stopped = true; },
+        stop() { stopped = true; active?.abort(); active = null; },
       };
     },
   };

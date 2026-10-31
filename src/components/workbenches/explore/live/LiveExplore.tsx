@@ -51,6 +51,11 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const [showUsage, setShowUsage] = useState(false);
   const [chat, setChat] = useState<ChatItem[]>([]);
   const [busy, setBusy] = useState(false);
+  // 忙时的一行状态：正在调哪个工具 / 想了多久（每秒更新）
+  const [busySince, setBusySince] = useState<number | null>(null);
+  const [, tick] = useState(0);
+  useEffect(() => { setBusySince(b => busy ? (b ?? Date.now()) : null); }, [busy]);
+  useEffect(() => { if (!busySince) return; const t = window.setInterval(() => tick(n => n + 1), 1000); return () => window.clearInterval(t); }, [busySince]);
   const [attach, setAttach] = useState<{ id: string; src: string }[]>([]);
   const [pop, setPop] = useState<{ at: LngLat; x: number; y: number } | null>(null);
   const [pdf, setPdf] = useState<{ variant: 'brief' | 'full'; state: 'working' | 'done' | 'failed'; text: string } | null>(null);
@@ -64,6 +69,8 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   // 对话里的审批卡：还在待批的才显示按钮；处理过的按本页记下的结果显示（重开页面时统一算已处理）
   const [openApprovals, setOpenApprovals] = useState<Set<string> | null>(null);
   const [decided, setDecided] = useState<Record<string, 'approved' | 'rejected'>>({});
+  // 助手在问你（clarify 提问）：显示在对话里，你的下一句就是回答
+  const [question, setQuestion] = useState<{ id: string; text: string } | null>(null);
   const plan = x.snap?.plan;
   const tz = plan?.destination?.timezone ?? browserTz();
   const day = plan?.days[dayIdx] ?? plan?.days[0] ?? new Date().toISOString().slice(0, 10);
@@ -99,15 +106,26 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const chatLen = chat.length;
   useEffect(() => {
     if (adapter.kind !== 'live') return;
-    void api('/v1/approvals?state=pending').then((r: { items?: { id: string }[] }) => setOpenApprovals(new Set((r.items ?? []).map(i => i.id))), () => {});
+    void api('/v1/approvals?state=pending').then((r: { items?: { id: string; kind?: string; title?: string; source?: { dossierId?: string } }[] }) => {
+      const items = r.items ?? [];
+      setOpenApprovals(new Set(items.map(i => i.id)));
+      const q = items.find(i => i.kind === 'question' && i.source?.dossierId === dossier?.id);
+      setQuestion(q ? { id: q.id, text: String(q.title ?? '') } : null);
+    }, () => {});
     // 重开页面时本页记录是空的：被驳回的照实标「没有执行」
     void api('/v1/approvals?state=rejected').then((r: { items?: { id: string }[] }) => setDecided(d => ({ ...Object.fromEntries((r.items ?? []).map(i => [i.id, 'rejected' as const])), ...d })), () => {});
-  }, [chatLen, x.snap?.plan.revision, adapter.kind]);
+  }, [chatLen, busy, x.snap?.plan.revision, adapter.kind]); // eslint-disable-line react-hooks/exhaustive-deps
   // 对话
   const session = useMemo(() => adapter.chat((items, b) => { setChat([...items]); setBusy(b); }), [adapter]);
   useEffect(() => { void session.load().catch(() => {}); return () => session.stop(); }, [session]);
   const send = (text: string) => {
     setErr(null);
+    // 有待回答的提问：这句话就是回答，回答后这一轮接着跑
+    if (question) {
+      const q = question; setQuestion(null); setBusy(true);
+      void api(`/v1/kernel/approvals/${q.id}/answer`, { text }).then(() => session.load(), e => { setBusy(false); setErr(e instanceof Error ? e.message : '回答没有发出去'); setQuestion(q); });
+      return;
+    }
     const refIds = attach.map(a => a.id); setAttach([]);
     void session.send(text, refIds).catch(e => { setBusy(false); setErr(e instanceof Error ? e.message : '没有发出去'); });
   };
@@ -194,8 +212,16 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     }
     for (const l of x.log) out.push([seen(`l:${l.id}`), { id: `l:${l.id}`, kind: 'note', text: `${l.actor === 'agent' ? '助手' : '你'} · ${l.text}`, at: '' }]);
     for (const p of x.pending) out.push([seen(`p:${p.approvalId}`), approvalOf(p)]);
-    return out.sort((a, b) => a[0] - b[0]).map(e => e[1]);
-  }, [chat, x.log, x.pending, plan, busy, decided, openApprovals]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (question) out.push([seen(`q:${question.id}`), { id: `q:${question.id}`, kind: 'agent', text: <><RichBlocks text={question.text} /><p className="exl-ask">↳ 直接在下面回复，这句就是回答</p></>, at: '' }]);
+    const sorted = out.sort((a, b) => a[0] - b[0]).map(e => e[1]);
+    if (question) sorted.push({ id: 'busy-status', kind: 'note', text: '等你回答上面的问题', at: '' });
+    else if (busy && busySince) {
+      const running = [...chat].reverse().find((c): c is Extract<ChatItem, { kind: 'tool' }> => c.kind === 'tool' && c.state === 'running' && !!c.name);
+      const secs = Math.max(0, Math.round((Date.now() - busySince) / 1000));
+      sorted.push({ id: 'busy-status', kind: 'note', text: running ? `正在调 ${running.label || running.name}… ${secs}s` : `正在想… ${secs}s`, at: '' });
+    }
+    return sorted;
+  }, [chat, x.log, x.pending, plan, busy, busySince, decided, openApprovals, question, Math.floor(Date.now() / 1000)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!x.snap || !plan) return <BenchFrame code="EXPL" section="006" file={file} reduced={reduced} chrome={chrome} face="plan" onFace={() => {}} faces={[{ id: 'plan', label: '计划', en: 'PLAN' }]} strip={<>读取中</>} status={<span>读取中</span>} shutterLines={() => ['> open plan', '> ready']}>
     <div className="de"><p>{x.error ?? '正在读取计划…'}</p>{x.error && <button className="rh-btn" onClick={() => void x.reload()}>重试</button>}</div>
@@ -308,7 +334,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
             ...(stop ? [{ id: 'when', label: `「${stop.name}」几点拍最好`, onClick: () => send(`「${stop.name}」几点拍最好？`) }] : []),
             { id: 'weather', label: '天气会影响哪些点', onClick: () => send('现在的预报会影响哪些停留点？') },
           ]}
-          events={events} busy={busy} onSend={send}
+          events={events} busy={busy && !question} onSend={send}
           placeholder="说说想去哪、哪天、拍什么；图片可以直接粘贴或拖进来"
           footnote="页面上点的直接生效 · 助手改已确认的内容会先问你" />
         {attach.length > 0 && <div className="exl-attach">{attach.map(a => <span key={a.id}><img src={a.src} alt="" /><button aria-label="移除" onClick={() => setAttach(l => l.filter(y => y.id !== a.id))}>×</button></span>)}<small>{attach.length} 张参考图，随下一句发给助手</small></div>}
