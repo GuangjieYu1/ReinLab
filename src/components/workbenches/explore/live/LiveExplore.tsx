@@ -74,13 +74,15 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const loadWeather = () => adapter.weather().then(setWeather, () => setWeather(w => w ?? { state: 'failed', byStop: [], destination: null, fetchedAt: null, source: { name: '—' }, nextCheckAt: null }));
   useEffect(() => { void loadWeather(); adapter.profiles().then(setProfiles, () => {}); adapter.suggestions().then(setSugs, () => {}); }, [adapter]); // eslint-disable-line react-hooks/exhaustive-deps
   const seeded = useRef(false);
-  useEffect(() => { if (x.snap && !seeded.current) { seeded.current = true; setBasemap(x.snap.basemap); } }, [x.snap]);
+  // 上次存的底图是卫星、但这一版没有卫星：退回矢量
+  useEffect(() => { if (x.snap && cfg && !seeded.current) { seeded.current = true; setBasemap(x.snap.basemap === 'satellite' && !cfg.satellite ? 'vector' : x.snap.basemap); } }, [x.snap, cfg]);
   // 选中停留点时把播放头移到它的时段中间
   useEffect(() => { if (stop?.window) setT(Math.round((dateToLocal(stop.window.start, day, tz) + dateToLocal(stop.window.end, day, tz)) / 2)); }, [sel]); // eslint-disable-line react-hooks/exhaustive-deps
   // 已确认停留点变了，天气也要按新位置重取
   // 目的地、日期、停留点（含候选）变了都重取：一开始没目的地时取到的是失败
   const stopKey = `${plan?.state}|${plan?.destination?.name ?? ''}|${plan?.days.join() ?? ''}|${plan?.stops.map(s => s.id + s.state + s.day).join() ?? ''}`;
-  useEffect(() => { if (plan) void loadWeather(); }, [stopKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 防抖：助手连着写停留点时只在停下来后取一次（频繁取会和服务端写快照撞锁）
+  useEffect(() => { if (!plan) return; const t = window.setTimeout(() => void loadWeather(), 1500); return () => window.clearTimeout(t); }, [stopKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 天气 / 计划书 / 快照请求事件
   const handled = useRef(0);
@@ -251,7 +253,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const mapArea = cfg ? <div className="ex-mapwrap exl-mapwrap">
     <LiveMap cfg={cfg} plan={plan} canvas={x.snap.canvas} basemap={basemap} selected={sel} onSelect={id => { setSel(id); setPop(null); }}
       day={day} tz={tz} minutes={t} horizonAlt={(id, az) => horizonAt(plan.stops.find(s => s.id === id)?.light?.horizon, az)} initialView={x.snap.lastViewport} camera={x.camera}
-      following={following} onFollow={setFollowing} onBasemap={b => setBasemap(b)}
+      following={following} onFollow={setFollowing} onBasemap={b => { if (b === 'vector' || cfg.satellite) setBasemap(b); }}
       focus={focus} onView={(v: Viewport) => { lastView.current = v; adapter.saveView(v, basemap); }} onMapClick={(at, s) => setPop({ at, x: s.x, y: s.y })} />
     <div className="exl-maptools">
       {cfg.satellite && cfg.basemaps?.satellite !== false && <div className="ex-seg"><button aria-pressed={basemap === 'vector'} onClick={() => setBasemap('vector')}>矢量</button><button aria-pressed={basemap === 'satellite'} title="历史影像，不是实时" onClick={() => setBasemap('satellite')}>卫星</button></div>}
@@ -279,7 +281,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
       <div><button className="rh-btn is-solid" onClick={() => void decide(s.id, true)}>应用</button><button className="rh-btn" onClick={() => void decide(s.id, false)}>不用</button></div>
     </div>)}
     {x.notice && <p className="dm-msg exl-notice" role="status">{x.notice}<button className="dm-link" onClick={() => x.setNotice(null)}>知道了</button></p>}
-    {plan.conflicts.length > 0 && <p className="dm-msg exl-notice">{plan.conflicts.map(c => c.text).join('；')}</p>}
+    {plan.conflicts.length > 0 && <ul className="dm-msg exl-notice exl-conflicts">{plan.conflicts.map(c => <li key={c.stopId}>{c.text}</li>)}</ul>}
   </div>;
 
   return <BenchFrame code="EXPL" section="006" file={file} reduced={reduced} chrome={chrome} face={face} onFace={id => { if (id === 'plan' || id === 'spot') setFace(id); }}

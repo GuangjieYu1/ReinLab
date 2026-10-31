@@ -42,6 +42,15 @@ export default function LiveDayLine({ plan, day, tz, selected, onSelect, t, onT,
   const hours = (group?.hours ?? []).map(w => ({ w, m: dateToLocal(w.at, day, tz) })).filter(x => x.m >= T0 && x.m < T1);
   const labels = stopLabels(plan);
   const stops = plan.stops.filter(s => s.window && s.day === day).sort((a, b) => a.window!.start.localeCompare(b.window!.start));
+  // 时段重叠的停留点分行排开（候选常常挤在同一段），最多 3 行
+  const lanes = new Map<string, number>(), ends: number[] = [];
+  for (const st of stops) {
+    const a = dateToLocal(st.window!.start, day, tz), b = Math.max(dateToLocal(st.window!.end, day, tz), a + 10);
+    let lane = ends.findIndex(e => e <= a);
+    if (lane < 0) lane = ends.length < 3 ? ends.length : ends.indexOf(Math.min(...ends));
+    ends[lane] = b; lanes.set(st.id, lane);
+  }
+  const laneCount = Math.max(1, ends.length);
   const hours24 = Array.from({ length: (T1 - T0) / 60 + 1 }, (_, i) => T0 + i * 60);
 
   return <div className="dl exl-dl" ref={box}
@@ -68,9 +77,9 @@ export default function LiveDayLine({ plan, day, tz, selected, onSelect, t, onT,
             </span>)}
       </div>
       <div className="dl-spots">
-        {stops.map(s => { const a = dateToLocal(s.window!.start, day, tz), b = dateToLocal(s.window!.end, day, tz);
+        {stops.map(s => { const a = dateToLocal(s.window!.start, day, tz), b = dateToLocal(s.window!.end, day, tz), lane = lanes.get(s.id) ?? 0;
           return <button key={s.id} className="dl-spot" data-kind={s.kind === 'spot' ? 'portrait' : 'street'} data-cand={s.state === 'candidate' || undefined} aria-pressed={s.id === selected}
-            style={{ left: X(a), width: W(Math.max(10, b - a)) }} onClick={() => { onSelect(s.id); onT(Math.round((a + b) / 2)); }} title={`${labels[s.id]} ${s.name} · ${hm(a)}–${hm(b)}`}>
+            style={{ left: X(a), width: W(Math.max(10, b - a)), top: `calc(${lane} * 100% / ${laneCount} + 2px)`, bottom: 'auto', height: `calc(100% / ${laneCount} - 4px)` }} onClick={() => { onSelect(s.id); onT(Math.round((a + b) / 2)); }} title={`${labels[s.id]} ${s.name} · ${hm(a)}–${hm(b)}`}>
             <b>{labels[s.id]}</b><span>{s.name}</span></button>; })}
         {plan.conflicts.map(c => { const s = plan.stops.find(x => x.id === c.stopId); if (!s?.window) return null; return <em key={c.stopId} className="dl-change exl-conflict" style={{ left: X(dateToLocal(s.window.start, day, tz)) }} title={c.text}>!</em>; })}
       </div>

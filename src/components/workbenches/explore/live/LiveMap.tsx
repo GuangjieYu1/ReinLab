@@ -108,7 +108,7 @@ export default function LiveMap(p: Props) {
     map.on('zoomend', refresh);
     // 用户自己动了地图：不再跟随助手（助手的视野变化没有 originalEvent）
     map.on('movestart', e => { if ((e as { originalEvent?: unknown }).originalEvent) latest.current.onFollow(false); });
-    map.on('moveend', () => { const c = map.getCenter(); latest.current.onView({ center: [c.lng, c.lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() }); });
+    map.on('moveend', () => { const c = map.getCenter(); if (box.current) box.current.dataset.center = `${c.lng.toFixed(4)},${c.lat.toFixed(4)},${map.getZoom().toFixed(1)}`; latest.current.onView({ center: [c.lng, c.lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() }); });
     map.on('click', e => {
       const hit = map.queryRenderedFeatures(e.point, { layers: ['stop-pt', 'stop-no', 'area-fill'] })[0];
       if (hit?.properties?.id) latest.current.onSelect(String(hit.properties.id));
@@ -155,6 +155,14 @@ export default function LiveMap(p: Props) {
     if (!p.following) return;
     map.easeTo({ center: c.viewport.center, zoom: c.viewport.zoom, bearing: c.viewport.bearing, pitch: c.viewport.pitch, duration: 800 });
   }, [p.camera?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 重新点「跟随助手」：立刻飞到助手最后一次设定的视野
+  const wasFollowing = useRef(p.following);
+  useEffect(() => {
+    const map = mapRef.current, c = p.camera;
+    if (map && p.following && !wasFollowing.current && c) map.easeTo({ center: c.viewport.center, zoom: c.viewport.zoom, bearing: c.viewport.bearing, pitch: c.viewport.pitch, duration: 800 });
+    wasFollowing.current = p.following;
+  }, [p.following]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 搜索结果：飞过去，到了在那个位置弹出「问助手 / 加笔记」
   useEffect(() => {
