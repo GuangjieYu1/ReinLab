@@ -16,14 +16,37 @@ import { buildBookPdf, missingSnapshots, type BookVariant, type SnapshotRecord }
 import { loadPlan } from "./service";
 import { listRefs, type ExploreStorage } from "./refs";
 import { sunDay } from "./sun";
+import { existsSync } from "node:fs";
 
 type Client = pg.PoolClient;
 
 export const SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
 
-/** 默认字体：Noto Sans SC（开源黑体，SIL OFL）。可由配置覆盖。 */
+/**
+ * 默认字体：Noto Sans SC 的**静态** TrueType（开源黑体，SIL OFL）。可由配置覆盖。
+ *
+ * 不能用可变字体（-VF）：pdf-lib/fontkit 对它做子集化会掉字形，
+ * 中文和部分数字字母变空白；整份嵌入又能到 11 MB、超出体积上限。
+ * 静态实例（wght=400/700）子集化正常，一份计划书只有几十 KB。
+ * 静态文件用 fontTools 从 -VF 生成：
+ *   python3 -m fontTools.varLib.instancer NotoSansSC-VF.ttf wght=400 -o NotoSansSC-Regular.ttf
+ */
+export function pdfFontCandidates(): string[] {
+  const dir = path.join(homedir(), ".local/state/reinlab/fonts");
+  return [path.join(dir, "NotoSansSC-Regular.ttf"), path.join(dir, "NotoSansSC-Bold.ttf"), path.join(dir, "NotoSansSC-VF.ttf")];
+}
+
+/** 选第一个存在的候选；都没有就返回静态 Regular 的路径（调用方会报缺字体）。 */
 export function defaultFontFile(): string {
-  return path.join(homedir(), ".local/state/reinlab/fonts/NotoSansSC-VF.ttf");
+  const candidates = pdfFontCandidates();
+  for (const file of candidates) {
+    try {
+      if (existsSync(file)) return file;
+    } catch {
+      /* 继续试下一个 */
+    }
+  }
+  return candidates[0];
 }
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);

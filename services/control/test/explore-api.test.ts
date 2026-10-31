@@ -670,7 +670,13 @@ describe("停留点天气与太阳", () => {
     if (planState === "ready") {
       expect(typeof body.nextCheckAt).toBe("string");
       expect(new Date(body.nextCheckAt).getTime()).toBeGreaterThan(Date.now());
-      expect(body.nextCheckAt).toMatch(/T(08|16|23):00:00/);
+      // 值是 UTC ISO：按账户时区看应当是 08 / 16 / 23 点整（不能拿 UTC 字符串直接匹配）。
+      const localHour = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Tokyo",
+        hour: "2-digit",
+        hour12: false,
+      }).format(new Date(body.nextCheckAt));
+      expect(["08", "16", "23"]).toContain(localHour);
     } else {
       // 没进待执行就不排：如实给 null。
       expect(body.nextCheckAt).toBeNull();

@@ -73,4 +73,38 @@ describe("账户容器生命周期", () => {
     ).rejects.toThrow(/LEAKS_HOST_PATH/);
     expect(docker.starts).toHaveLength(0);
   });
+
+  it("镜像更新了、账户没任务在跑：重建容器（老账户不能一直用旧插件）", async () => {
+    const docker = fakeDocker({
+      isRunning: async () => true,
+      containerImageId: async () => "sha256:old",
+      imageId: async () => "sha256:new",
+    });
+    const result = await ensureAccountContainer(input, { docker, busy: false });
+    expect(result.created).toBe(true);
+    expect(docker.removes).toHaveLength(1);
+    expect(docker.starts).toHaveLength(1);
+  });
+
+  it("镜像更新了但有任务在跑：先沿用旧容器，不打断", async () => {
+    const docker = fakeDocker({
+      isRunning: async () => true,
+      containerImageId: async () => "sha256:old",
+      imageId: async () => "sha256:new",
+    });
+    const result = await ensureAccountContainer(input, { docker, busy: true });
+    expect(result.created).toBe(false);
+    expect(docker.starts).toHaveLength(0);
+  });
+
+  it("镜像没变：照常复用，不为重建而重建", async () => {
+    const docker = fakeDocker({
+      isRunning: async () => true,
+      containerImageId: async () => "sha256:same",
+      imageId: async () => "sha256:same",
+    });
+    const result = await ensureAccountContainer(input, { docker });
+    expect(result.created).toBe(false);
+    expect(docker.starts).toHaveLength(0);
+  });
 });

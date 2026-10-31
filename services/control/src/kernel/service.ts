@@ -219,6 +219,19 @@ export class KernelService {
       if (layout.shimMode === "docker" && layout.container) {
         // dsh 要在 HOME 下建 profile：先在账户卷里把它建好。
         await layout.io.mkdir(layout.home + "/accounts/" + account + "/home");
+        // 这个账户还有别的任务在跑吗？有就别重建它的容器。
+        const busy = await this.dependencies.db
+          .withAccount(account, async (client) => {
+            const rows = (
+              await client.query(
+                `select 1 from run
+                  where account_id=$1 and id<>$2 and state in ('running','waiting') limit 1`,
+                [account, runId],
+              )
+            ).rowCount;
+            return (rows ?? 0) > 0;
+          })
+          .catch(() => false);
         await ensureAccountContainer({
           account,
           image: layout.container.image,
@@ -232,7 +245,7 @@ export class KernelService {
           ...(process.getuid && process.getgid
             ? { user: process.getuid() + ":" + process.getgid() }
             : {}),
-        });
+        }, { busy });
       }
     } catch (error) {
       await this.failBeforeRun(account, prepared.dossierId, prepared.sessionId, runId);

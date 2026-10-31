@@ -78,7 +78,8 @@ export const OpsBody = z
   .object({
     // -1 是页面「不管修订」的写法（拖动视野时用）；负值不做冲突判断。
     baseRevision: z.number().int().optional(),
-    ops: z.array(OpInput).min(1).max(200),
+    // 一次别塞太多动作：大批量参数更容易被模型写成非法 JSON（验收时踩过）。
+    ops: z.array(OpInput).min(1).max(20),
     authorization: z.object({ messageId: z.string().min(1).max(200) }).strict().optional(),
   })
   .strict();

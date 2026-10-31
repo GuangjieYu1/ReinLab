@@ -224,7 +224,7 @@ export function apply(ctx, config) {
       defineTool({
         name: "explore_ops",
         description:
-          "改当前这份旅拍计划。一次调用是一批，要么全生效要么都不生效。会改动已确认行程的动作需要用户同意：服务端会自动核对用户这句话——明确要求了就直接生效，没说清就出一张计划修改卡并返回 pending，这时别说已经改好。" +
+          "改当前这份旅拍计划。一次调用是一批，要么全生效要么都不生效。一次最多 20 个动作，正常一次 3–6 个即可（参数太长时你更容易写出非法 JSON，写废了这次调用就作废）。会改动已确认行程的动作需要用户同意：服务端会自动核对用户这句话——明确要求了就直接生效，没说清就出一张计划修改卡并返回 pending，这时别说已经改好。" +
           "注意：一次只做用户这句话真的要求的那几步。用户说「留下这三个点」不等于「确认整份计划」，别顺手把别的候选也转正或删除。" +
           "每个 op 的确切形状（只能用这些名字，别的名字会被拒）：\n" +
           'stop.add {op:"stop.add", stop:{kind:"spot"|"area"|"waypoint", name, geometry:{type:"Point",coordinates:[经度,纬度]} 或 {type:"Polygon",coordinates:[[[经度,纬度],…]]}, day:"YYYY-MM-DD", window:{start:"2026-11-15T07:00:00+09:00",end:"…"} 或 null, reason?, facing?, focal?:[85], refs?:[], state?:"candidate"|"confirmed", detail?:{composition?:string, guidance?:string[], outfit?:{palette?:string[],notes?:string}, rules?:{text:string,source?:{name:string,url?:string}}[], fallback?:string}}}\n' +
@@ -338,7 +338,7 @@ export function apply(ctx, config) {
       defineTool({
         name: "explore_profile_write",
         description:
-          "新增/修改/删除账户里的模特或器材。只能写用户自己说过的内容：他的原话里要同时点到「这条资料」和「记住/加上/改成/删掉」。没得到明确要求时服务端会退回 needs_user_confirmation——那就先在对话里问一句，别自己编。",
+          "新增/修改/删除账户里的模特或器材。只能写用户自己说过的内容：服务端会核对他那句话是不是同时点到「这条资料」和「记下/保存/改成/删掉」这类动作。知道那句原话的消息 id 就带上 authorization，不带就按这一轮用户消息核。没得到明确要求时会退回 needs_user_confirmation——那就先在对话里问一句，别自己编。",
         parameters: {
           action: { type: "string", description: "add | update | delete。" },
           type: { type: "string", description: "model | gear。" },
@@ -349,6 +349,7 @@ export function apply(ctx, config) {
           experience: { type: "string" },
           wardrobe: { type: "string" },
           notes: { type: "string" },
+          authorization: { type: "string", description: "可选：用户那句原话的消息 id（只有真正的 id 才算，贴原话无效）。" },
           kind: { type: "string", description: "器材：body | lens。" },
           focal: { type: "array", items: { type: "number" }, description: "镜头焦段范围，比如 [85, 85]。" },
           aperture: { type: "number", description: "最大光圈，比如 1.8。" },

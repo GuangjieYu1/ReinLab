@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { getuid } from "node:process";
 import { mkdir, statfs, lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -19,6 +20,23 @@ import { bootstrapLocalDatabase, reconcileAfterBootstrap } from "../../services/
 
 import { realModelMode } from "./real-models";
 import { ensureNode22 } from "./runtime";
+
+/** 镜像里那些「内容一变就要重建」的文件：Dockerfile 与它 COPY 进去的东西。 */
+async function accountImageContentKey(): Promise<string> {
+  const inputs = [
+    "infra/account/Dockerfile",
+    "services/control/src/kernel/dsh/shim.mjs",
+    "plugins/reinlab-read-plugin/index.js",
+    "plugins/reinlab-read-plugin/restrict.patch.yml",
+    "plugins/reinlab-read-plugin/container.patch.yml",
+  ];
+  const hash = createHash("sha256");
+  for (const file of inputs) {
+    hash.update(file);
+    hash.update(await readFile(resolve(file)));
+  }
+  return hash.digest("hex").slice(0, 16);
+}
 
 // 固定跑在项目工具链的 Node 22 上：Electron 直接报错，PATH 上的 node 不作为依据。
 const scriptPath = resolve("tooling/local/up.ts");
@@ -147,17 +165,30 @@ try {
   const accountImage = "reinlab-account:local";
   if (kernelTransport === "container") {
     step("LOCAL_ACCOUNT_IMAGE_CHECKING");
-    const exists = await quietCommand("docker", ["image", "inspect", accountImage], {
-      env: cliEnvironment,
-      timeoutMs: 20000,
-    })
-      .then(() => true)
-      .catch(() => false);
-    if (!exists) {
+    // 镜像里装的是插件与内核 shim：内容一变就必须重建，否则老账户会一直用旧插件
+    // （第一轮验收就踩过：容器里一个探索工具都没有）。
+    const contentKey = await accountImageContentKey();
+    const currentKey = await quietCommand(
+      "docker",
+      ["image", "inspect", "-f", '{{index .Config.Labels "reinlab.content"}}', accountImage],
+      { env: cliEnvironment, timeoutMs: 20000 },
+    )
+      .then((out) => out.trim())
+      .catch(() => "");
+    if (currentKey !== contentKey) {
       step("LOCAL_ACCOUNT_IMAGE_BUILDING");
       await quietCommand(
         "docker",
-        ["build", "-f", "infra/account/Dockerfile", "-t", accountImage, "."],
+        [
+          "build",
+          "-f",
+          "infra/account/Dockerfile",
+          "--label",
+          `reinlab.content=${contentKey}`,
+          "-t",
+          accountImage,
+          ".",
+        ],
         { env: cliEnvironment, timeoutMs: 900000 },
       );
     }

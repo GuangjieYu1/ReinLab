@@ -162,7 +162,15 @@ configureGeoProviders({
   ...(config.ORS_BASE_URL ? { orsBaseUrl: config.ORS_BASE_URL } : {}),
 });
 
+// 计划书字体：显式配置优先；没配就用静态 Noto Sans SC（不要可变字体，子集化会掉字形）。
 const pdfFontFile = config.REINLAB_PDF_FONT_FILE;
+if (pdfFontFile && /-?VF\.ttf$/i.test(pdfFontFile))
+  console.error(
+    JSON.stringify({
+      code: "PDF_FONT_VARIABLE",
+      message: "REINLAB_PDF_FONT_FILE 指向可变字体，子集化会掉字形；改用静态 TTF（如 NotoSansSC-Regular.ttf）。",
+    }),
+  );
 /** 助手要求生成计划书时用它点火：和页面按钮走同一套排版与存放。 */
 const bookEngine = (account: string, dossier: string, plan: import("./explore/book-job").BookPlan) => {
   void generateBook(

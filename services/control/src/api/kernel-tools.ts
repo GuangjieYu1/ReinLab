@@ -1051,15 +1051,52 @@ async function exploreTool(
           ? existing.find((profile) => profile.name === args.name)
           : undefined;
     const name = String(args.name ?? target?.name ?? "");
+    // 和 explore_ops 一样：能带用户原话的消息 id 就按那条核，不带就用这一轮用户消息。
+    const uuidLike = (value: unknown): value is string =>
+      typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+    const messageId =
+      uuidLike(args.authorization)
+        ? args.authorization
+        : args.authorization && typeof args.authorization === "object" && uuidLike((args.authorization as { messageId?: unknown }).messageId)
+          ? (args.authorization as { messageId: string }).messageId
+          : undefined;
     const verdict = await userSaidClearly(client, {
       account: input.account,
       dossier: input.dossier,
       run: input.run,
+      ...(messageId ? { messageId } : {}),
       targets: [name],
+      // 动作词放宽到「把资料记下来/存起来」的各种说法：用户换个词不该被拒。
       verbs:
         action === "delete"
-          ? ["删", "去掉", "移除", "不要"]
-          : ["记住", "加上", "加进", "改成", "更新", "我有", "存进", "记一下", "记进", "记到", "存到", "保存", "存下", "记下"],
+          ? ["删", "去掉", "移除", "不要", "拿掉", "取消", "别要", "清除"]
+          : [
+              "记住",
+              "记下",
+              "记一下",
+              "记进",
+              "记到",
+              "记录",
+              "保存",
+              "存下",
+              "存进",
+              "存到",
+              "存起来",
+              "写上",
+              "写进",
+              "加上",
+              "加进",
+              "添加",
+              "录入",
+              "我有一条",
+              "我有一支",
+              "我有一台",
+              "我用的是",
+              "改成",
+              "改成这个",
+              "更新",
+              "换成",
+            ],
     });
     if (!verdict.ok)
       return {
