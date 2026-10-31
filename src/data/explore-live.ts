@@ -1,9 +1,12 @@
 // 探索台 live 适配器：控制面 /v1/explore/*（design/prd/07-explore-contract.md）。
 import type { Op, PendingChange, Profile, RefImage, Viewport, Basemap } from '../../packages/contracts/src/explore';
-import { ExploreError, type ChatItem, type ExploreAdapter, type ExploreEvent } from '../components/workbenches/explore/live/adapter';
+import { ExploreError, type ChatItem, type ExploreAdapter, type ExploreEvent, type ExploreSnapshot } from '../components/workbenches/explore/live/adapter';
 import { api, decide, readEventStream, request, upload } from './research-live';
 
 const enc = encodeURIComponent;
+/** 服务端给的资源地址是 /v1/...，页面要经同源前缀 /backend 访问。 */
+const viaBackend = (src: string) => (src.startsWith('/v1/') ? '/backend' + src : src);
+const fixRef = (r: RefImage): RefImage => (r.image ? { ...r, image: { ...r.image, src: viaBackend(r.image.src) } } : r);
 const CHANGE_PREFIX = '档案变动：';
 
 /** 服务端错误 → ExploreError，保留 code 给页面分支用。 */
@@ -54,7 +57,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
   let viewTimer: number | undefined;
   return {
     kind: 'live',
-    load: () => call('GET', base),
+    async load() { const s = await call<ExploreSnapshot>('GET', base); return { ...s, refs: s.refs.map(fixRef) }; },
     async ops(baseRevision: number, ops: Op[]) {
       return call('POST', `${base}/ops`, { baseRevision, ops });
     },
@@ -73,7 +76,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
     async deleteProfile(id) { await call('DELETE', `/v1/profiles/${enc(id)}`); },
     async uploadRef(file, kind) {
       const f = new FormData(); f.append('file', file); f.append('kind', kind);
-      return upload(`${base}/refs`, f) as Promise<RefImage>;
+      return fixRef(await upload(`${base}/refs`, f) as RefImage);
     },
     async removeRef(id) { await call('DELETE', `${base}/refs/${enc(id)}`); },
     async uploadSnapshot(key, revision, png, attribution) {
