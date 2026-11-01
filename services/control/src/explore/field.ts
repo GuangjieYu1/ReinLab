@@ -11,7 +11,8 @@
 import type pg from "pg";
 import type { FieldEventRecord, LngLat } from "@reinlab/contracts";
 import { canonical } from "../api/context";
-import type { PlanDocument } from "./plan";
+/** 只用到「当前计划里有哪些停留点」；修订快照也能直接喂进来。 */
+type StopsOf = { stops: { id: string }[] };
 
 type Client = pg.PoolClient;
 
@@ -149,7 +150,7 @@ function sameEvent(row: Row, input: FieldEventInput): boolean {
   );
 }
 
-const stopKnown = (document: PlanDocument, stopId: string | null) =>
+const stopKnown = (document: StopsOf, stopId: string | null) =>
   !stopId || document.stops.some((stop) => stop.id === stopId);
 
 /**
@@ -158,7 +159,7 @@ const stopKnown = (document: PlanDocument, stopId: string | null) =>
  */
 export async function appendFieldEvents(
   client: Client,
-  input: { account: string; dossier: string; document: PlanDocument; events: FieldEventInput[] },
+  input: { account: string; dossier: string; document: StopsOf; events: FieldEventInput[] },
 ): Promise<{ results: FieldResult[]; inserted: number }> {
   const { account, dossier, document, events } = input;
   const results: FieldResult[] = [];
@@ -235,7 +236,7 @@ export async function appendFieldEvents(
  */
 export async function listFieldEvents(
   client: Client,
-  input: { account: string; dossier: string; document: PlanDocument },
+  input: { account: string; dossier: string; document: StopsOf },
 ): Promise<FieldEventRecord[]> {
   const rows = (
     await client.query(

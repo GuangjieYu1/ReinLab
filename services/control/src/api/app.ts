@@ -23,6 +23,9 @@ import { registerKernelRuns } from "./kernel-runs";
 import { registerApprovalInbox, registerReports, decideInboxCard } from "./inbox-approvals";
 import { registerDossierApi } from "./dossier-api";
 import { publishOps, registerExploreApi } from "./explore-api";
+import { createUploads, type Uploads } from "../explore/uploads";
+import { localPhotoStore, type PhotoStore } from "../explore/photo-store";
+import { publishAccountEvent } from "../dossier/service";
 import type { OpsOutcome } from "../explore/service";
 import type { MapConfig } from "../explore/map-config";
 import { registerKernelTools, type KernelToolCall } from "./kernel-tools";
@@ -53,6 +56,16 @@ export async function createApp(options: {
   pdfFontFile?: string;
   /** 离线包代取瓦片/字形的取数通道；缺省真实 fetch，测试可注入。 */
   offlineFetch?: import("../explore/offline").OfflineFetch;
+  /** 照片存放根目录（通常是 kernelHome）；没给也没有 photoStore 时上传明确不可用。 */
+  photoRoot?: string;
+  /** 照片存放端口；测试注入临时目录更方便。 */
+  photoStore?: PhotoStore;
+  /** 档案所在磁盘剩余字节；缺省按未知处理（空间检查照实说不够）。 */
+  photoFreeBytes?: () => Promise<number>;
+  /** 读图结论的模型通道（回顾看片）；没有就只能给统计提示。 */
+  photoReader?: import("../explore/photo-reader").PhotoReader;
+  /** 看图的峰值费率（每百万 token 人民币）；没配就只记用量、不估价。 */
+  reviewPricing?: { inputPerMillion: number; outputPerMillion: number };
   /** 网图抓取通道；缺省用真实 fetch，测试可注入。 */
   refTransport?: import("../explore/refs").WeatherLikeTransport;
   realModelsEnabled?: boolean;
@@ -82,18 +95,23 @@ export async function createApp(options: {
   const tooLarge = (c: any) =>
     c.json({ code: "PAYLOAD_TOO_LARGE", message: "请求内容过大。" }, 413);
   const smallBody = bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge });
+  // 照片续传是分块流式接收：tus 自己按 8 MB 分片处理，这里不能再按整包截断。
+  const isUploadsPath = (pathname: string) => /^\/v1\/explore\/uploads(\/|$)/.test(pathname);
   // 参考图上传要能收几 MB 的图；其余接口仍然只收 1MB。
   const imageBody = bodyLimit({ maxSize: 8 * 1024 * 1024, onError: tooLarge });
   app.use("/v1/*", (c, next) => {
     const pathname = new URL(c.req.url).pathname;
+    if (isUploadsPath(pathname)) return next();
     if (c.req.method === "POST" && /^\/v1\/explore\/plans\/[^/]+\/refs$/.test(pathname))
       return imageBody(c, next);
     return smallBody(c, next);
   });
   app.use("/v1/*", async (c, next) => {
     // 全部业务接口（含 SSE）只认 HttpOnly 会话 Cookie；写操作另校验同源 + 防伪造头。
+    const pathname0 = new URL(c.req.url).pathname;
     c.set("accountId", await requireAccount(c, sessions));
-    if (c.req.method !== "GET" && c.req.method !== "HEAD")
+    // 上传走 tus：Origin 由浏览器决定，改由 tus 钩子校验会话 + X-ReinLab-CSRF。
+    if (c.req.method !== "GET" && c.req.method !== "HEAD" && !isUploadsPath(pathname0))
       assertSameOriginWrite(c);
     const exists = await database.withAccount(c.get("accountId"), (client) =>
       client.query("select id from account where id=$1", [c.get("accountId")]),
@@ -106,7 +124,8 @@ export async function createApp(options: {
       c.req.method === "DELETE" &&
       !/^\/v1\/dossiers\/[^/]+\/artifacts\/[^/]+$/.test(pathname) &&
       !/^\/v1\/profiles\/[^/]+$/.test(pathname) &&
-      !/^\/v1\/explore\/plans\/[^/]+\/refs\/[^/]+$/.test(pathname)
+      !/^\/v1\/explore\/plans\/[^/]+\/refs\/[^/]+$/.test(pathname) &&
+      !/^\/v1\/explore\/plans\/[^/]+\/photos\/[^/]+$/.test(pathname)
     )
       throw new ApiFailure("SCOPE_DENIED", 403, "危险删除操作不开放。");
     await next();
@@ -143,8 +162,28 @@ export async function createApp(options: {
   registerApprovalInbox(app, database, options.kernel ? (id) => options.kernel!.isLive(id) : undefined);
   registerReports(app, database);
   registerDossierApi(app, database);
+  // 照片目录：默认由宿主给根目录，测试可以直接注入一个临时目录。
+  const photoStore = options.photoStore ?? (options.photoRoot ? localPhotoStore(options.photoRoot) : undefined);
+  let uploads: Uploads | null = null;
+  if (photoStore)
+    uploads = createUploads({
+      db: database,
+      sessions,
+      store: photoStore,
+      deps: {
+        store: photoStore,
+        ...(options.photoFreeBytes ? { freeBytes: options.photoFreeBytes } : {}),
+      },
+      publish: (account, event) => publishAccountEvent(account, "exploration", event as never),
+    });
+  if (uploads)
+    for (const path of ["/v1/explore/uploads", "/v1/explore/uploads/*"] as const)
+      app.all(path, (c) => uploads!.handle(c.req.raw));
+
   registerExploreApi(app, database, {
     mapConfig: options.mapConfig,
+    ...(photoStore ? { photoStore } : {}),
+    ...(options.photoFreeBytes ? { photoFreeBytes: options.photoFreeBytes } : {}),
     weatherTransport: options.weatherTransport,
     weatherJudge: options.weatherJudge,
     exploreStorage: options.exploreStorage,
@@ -180,6 +219,9 @@ export async function createApp(options: {
       // 网图入档和页面上传用同一个存放目录。
       ...(options.exploreStorage ? { exploreStorage: options.exploreStorage } : {}),
       ...(options.refTransport ? { refTransport: options.refTransport } : {}),
+      ...(options.photoReader ? { photoReader: options.photoReader } : {}),
+      ...(photoStore ? { photoStore } : {}),
+      ...(options.reviewPricing ? { reviewPricing: options.reviewPricing } : {}),
     });
   app.notFound((c) =>
     c.json({ code: "NOT_FOUND", message: "接口不存在。" }, 404),

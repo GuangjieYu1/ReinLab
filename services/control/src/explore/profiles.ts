@@ -11,7 +11,7 @@ import type { Profile, ProfileSnapshot } from "@reinlab/contracts";
 import { ApiFailure } from "../api/errors";
 
 type Client = pg.PoolClient;
-export type ProfileType = "model" | "gear";
+export type ProfileType = "model" | "gear" | "place";
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -44,12 +44,71 @@ export type ProfileData =
       focal?: [number, number];
       aperture?: number;
       notes?: string;
+    }
+  | {
+      /** 地点经验：账户级、带观察日期与依据，不当成全年规律。 */
+      type: "place";
+      name: string;
+      at: [number, number];
+      radiusM: number;
+      standpoint?: string;
+      observedOn: string;
+      season?: string;
+      timeOfDay?: string;
+      text: string;
+      evidence: { photoIds?: string[]; eventIds?: string[]; dossierId: string };
+      confirmedBy: "user";
     };
 
 /** 只收契约里有的字段；客户端塞别的（id、revision、accountId）一律不认。 */
 export function normalizeProfile(type: ProfileType, raw: Record<string, unknown>): ProfileData {
   const name = text(raw.name, 80);
-  if (!name) throw invalid(type === "model" ? "模特要有称呼。" : "器材要有名称。");
+  if (!name) throw invalid(type === "model" ? "模特要有称呼。" : type === "place" ? "地点经验要有地点名。" : "器材要有名称。");
+  if (type === "place") {
+    const at = raw.at;
+    if (
+      !Array.isArray(at) ||
+      at.length !== 2 ||
+      !at.every((value) => typeof value === "number" && Number.isFinite(value)) ||
+      Math.abs(Number(at[0])) > 180 ||
+      Math.abs(Number(at[1])) > 90
+    )
+      throw invalid("地点经验要有坐标 [经度, 纬度]。");
+    const radiusM =
+      typeof raw.radiusM === "number" && Number.isFinite(raw.radiusM)
+        ? Math.min(5000, Math.max(30, Math.round(raw.radiusM)))
+        : 300;
+    const observedOn = text(raw.observedOn, 10);
+    if (!observedOn || !/^\d{4}-\d{2}-\d{2}$/.test(observedOn))
+      throw invalid("地点经验要有观察日期（YYYY-MM-DD）。");
+    const body = text(raw.text, 4000);
+    if (!body) throw invalid("地点经验要有正文。");
+    const evidenceRaw = (raw.evidence ?? {}) as Record<string, unknown>;
+    const dossierId = typeof evidenceRaw.dossierId === "string" ? evidenceRaw.dossierId : "";
+    if (!isUuid(dossierId)) throw invalid("地点经验要说明来自哪份档案。");
+    const list = (value: unknown) =>
+      Array.isArray(value) ? value.filter((item) => typeof item === "string").map(String).slice(0, 100) : undefined;
+    const photoIds = list(evidenceRaw.photoIds);
+    const eventIds = list(evidenceRaw.eventIds);
+    return {
+      type: "place",
+      name,
+      at: [Number(at[0]), Number(at[1])],
+      radiusM,
+      ...(text(raw.standpoint, 200) ? { standpoint: text(raw.standpoint, 200) } : {}),
+      observedOn,
+      ...(text(raw.season, 20) ? { season: text(raw.season, 20) } : {}),
+      ...(text(raw.timeOfDay, 40) ? { timeOfDay: text(raw.timeOfDay, 40) } : {}),
+      text: body,
+      evidence: {
+        ...(photoIds?.length ? { photoIds } : {}),
+        ...(eventIds?.length ? { eventIds } : {}),
+        dossierId,
+      },
+      // 只有用户确认过才会写进来；来源不是模型自己说的。
+      confirmedBy: "user",
+    };
+  }
   if (type === "model") {
     const height = typeof raw.height === "number" && Number.isFinite(raw.height) ? raw.height : undefined;
     if (height !== undefined && (height < 50 || height > 250)) throw invalid("身高超出范围。");
@@ -92,6 +151,20 @@ export function normalizeProfile(type: ProfileType, raw: Record<string, unknown>
 export function profileOf(row: any): Profile {
   const data = (row.data ?? {}) as Record<string, unknown>;
   const base = { id: row.id, revision: Number(row.revision), name: String(data.name ?? "未命名") };
+  if (row.type === "place")
+    return {
+      ...base,
+      type: "place",
+      at: Array.isArray(data.at) ? (data.at as [number, number]) : [0, 0],
+      radiusM: typeof data.radiusM === "number" ? data.radiusM : 300,
+      ...(typeof data.standpoint === "string" ? { standpoint: data.standpoint } : {}),
+      observedOn: String(data.observedOn ?? ""),
+      ...(typeof data.season === "string" ? { season: data.season } : {}),
+      ...(typeof data.timeOfDay === "string" ? { timeOfDay: data.timeOfDay } : {}),
+      text: String(data.text ?? ""),
+      evidence: (data.evidence as Record<string, unknown>) ?? { dossierId: "" },
+      confirmedBy: "user",
+    } as Profile;
   if (row.type === "model")
     return {
       ...base,
@@ -113,7 +186,7 @@ export function profileOf(row: any): Profile {
 }
 
 export async function listProfiles(client: Client, account: string, type?: string): Promise<Profile[]> {
-  const wanted = type === "model" || type === "gear" ? type : null;
+  const wanted = type === "model" || type === "gear" || type === "place" ? type : null;
   const rows = (
     await client.query(
       `select id,type,revision,data from account_profile
@@ -126,8 +199,9 @@ export async function listProfiles(client: Client, account: string, type?: strin
 }
 
 export async function createProfile(client: Client, account: string, raw: Record<string, unknown>): Promise<Profile> {
-  const type: ProfileType = raw.type === "gear" ? "gear" : raw.type === "model" ? "model" : (null as never);
-  if (!type) throw invalid("资料要么是模特，要么是器材。");
+  const type: ProfileType =
+    raw.type === "gear" ? "gear" : raw.type === "model" ? "model" : raw.type === "place" ? "place" : (null as never);
+  if (!type) throw invalid("资料要么是模特、器材，要么是地点经验。");
   const data = normalizeProfile(type, raw);
   const { name: _name, type: _type, ...rest } = data as any;
   const created = (

@@ -484,6 +484,154 @@ export function apply(ctx, config) {
         },
       }),
     );
+
+    // ── 回顾：照片与对时（10-explore-v2-contract.md §2.3–2.5）──
+    register(
+      defineTool({
+        name: "explore_photos",
+        description:
+          "列这次回来的照片：按落位与线索给每一项的 id、文件名、校正后时间、落位依据（gps / event / plan_time / manual / unplanned / pending）、AI 标记与统计提示。这只给统计，不代表你看过照片；要看对焦/曝光得用 explore_contact_sheet 或 explore_photo_view。",
+        parameters: {
+          stopId: { type: "string", description: "只看落位到某个停留点的照片。" },
+          group: { type: "string", description: "unplanned（计划外）| pending（待确认）。" },
+          cursor: { type: "string", description: "翻页用，上一页返回的 cursor。" },
+          limit: { type: "number", description: "一次最多多少张，默认 60。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "photos", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_field_events",
+        description:
+          "读这次现场记录：到了 / 拍到了 / 笔记 / 情况变了，带设备时间、停留点与更正后的内容。打卡可能晚于快门，也可能只是路过，写时间时别把它当拍摄时刻。",
+        parameters: {},
+        output,
+        async execute() {
+          return unwrap(await call("explore", "field_events", {}));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_contact_sheet",
+        description:
+          "把一组照片拼成一张联系表看一眼（按顺序从左到右、上到下一次对应每张照片的 id）。适合先快速过一遍再挑。返回每张照片的初步结论（对焦 sharp/soft/unknown、曝光 ok/dark/bright、一句话说明、是否 uncertain）。联系表是缩略图，看不清细节；要确认闭眼或纹理就再用 explore_photo_view。",
+        parameters: {
+          stopId: { type: "string", description: "只看某个停留点的照片。" },
+          photoIds: { type: "array", items: { type: "string" }, description: "指定照片 id（最多 20 张）。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "photo_contact_sheet", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_photo_view",
+        description:
+          "仔细看一两张照片（最多 4 张）：默认看 1600px 预览；给 region（0–1 的比例）就看那块原图局部。返回对焦、曝光、一句话说明与是否 uncertain。看过之后才能在标记里说「细看过」。",
+        parameters: {
+          photoIds: { type: "array", items: { type: "string" }, required: true, description: "照片 id，1–4 张。" },
+          region: {
+            type: "object",
+            additionalProperties: true,
+            description: '要看局部时给 {"x":0.3,"y":0.2,"w":0.4,"h":0.4}（0–1 比例）。',
+          },
+          ask: { type: "string", description: "你这次想确认什么（例如「有没有闭眼」）。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "photo_view", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_photo_mark",
+        description:
+          "给照片打 AI 标记：recommend（推荐）或 alternate（备选），null 表示取消标记；reason 写清楚为什么（一句话）。这是你的建议，不等于用户精选——用户自己还能改。inspected 要照实：只看了联系表就写 preview，看过局部才写 detail。",
+        parameters: {
+          photoIds: { type: "array", items: { type: "string" }, required: true, description: "照片 id。" },
+          mark: { type: "string", required: true, description: "recommend | alternate | null。" },
+          reason: { type: "string", description: "为什么选它，一句话。" },
+          inspected: { type: "string", description: "preview | detail。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "photo_mark", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_compare",
+        description:
+          "生成「计划 vs 实际」：每个停留点有没有拍摄证据、实际开始时间、迟到多少分钟、当天的见光、笔记与照片 id。none_found 只是没找到拍摄证据，不等于没去；lateMin 为 null 表示对时不准，别自己算一个。",
+        parameters: {
+          revision: { type: "number", description: "对照哪一版计划；不传就用当前版。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "compare", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_travelogue",
+        description:
+          "保存一版游记（Markdown）：正文里用真实碎片（打卡、照片、笔记、天气快照）和照片 id，没有素材的地方不要补。会存成新的一版，用户能在页面上接着改。",
+        parameters: {
+          markdown: { type: "string", required: true, description: "游记正文（Markdown）。" },
+          baseRevision: { type: "number", description: "在用户看到的那一版上改时传它的修订号；不传就基于最新一版。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "travelogue", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
+        name: "explore_experience",
+        description:
+          "提出一条经验，让用户确认后存进资料：target=place 存成账户级地点经验（name/at/radiusM/observedOn/text，可选 standpoint/season/timeOfDay），target=model 追加到某位模特的资料（要给 profileId）。只写这一次观察到的（带日期、站位、依据），不要升级成全年规律，也不要把推测写成事实。返回 pending，等用户点确认才算存下。",
+        parameters: {
+          target: { type: "string", required: true, description: "place | model。" },
+          title: { type: "string", required: true, description: "这条经验的一句话标题。" },
+          text: { type: "string", required: true, description: "正文：观察到的具体事实。" },
+          profileId: { type: "string", description: "target=model 时必填：模特资料 id。" },
+          name: { type: "string", description: "target=place 时的地点名。" },
+          at: { type: "array", items: { type: "number" }, description: "target=place 时的坐标 [经度, 纬度]。" },
+          radiusM: { type: "number", description: "地点经验的适用范围半径（米）。" },
+          standpoint: { type: "string", description: "站位描述。" },
+          observedOn: { type: "string", description: "观察日期 YYYY-MM-DD。" },
+          season: { type: "string", description: "季节。" },
+          timeOfDay: { type: "string", description: "时段。" },
+          evidence: {
+            type: "object",
+            additionalProperties: true,
+            description: '依据：{"photoIds":["…"],"eventIds":["…"]}',
+          },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "experience", args));
+        },
+      }),
+    );
   }
 
   // 第 7 节：档案工具。七个台的最小侧边会话都靠这组工具；和页面调同一组服务函数。

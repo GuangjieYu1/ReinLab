@@ -5,7 +5,7 @@
  * 写请求都要求 Idempotency-Key（由 mutate 保证），同一批 ops 重放返回原收据。
  */
 import { Hono } from "hono";
-import type { Op } from "@reinlab/contracts";
+import type { CameraGroup, Op } from "@reinlab/contracts";
 import { mutate } from "./context";
 import type { ApiContext, ApiEnv } from "./context";
 import type { Database } from "../db/database";
@@ -15,6 +15,13 @@ import {
   OpsBody,
   OfflinePackBody,
   FieldEventsBody,
+  PhotoBatchBody,
+  AssignBody,
+  PickBody,
+  AnchorBody,
+  ConfirmClockBody,
+  SplitClockBody,
+  TravelogueBody,
   ProfileBody,
   ProfilePatchBody,
   SettingsBody,
@@ -61,6 +68,27 @@ import { publishAccountEvent } from "../dossier/service";
 import { appendFieldEvents, listFieldEvents } from "../explore/field";
 import { readRevision, snapshotRevision } from "../explore/revisions";
 import {
+  createBatch,
+  assignPhotos,
+  cropOf,
+  deletePhoto,
+  listPhotos,
+  photoRow,
+  pickPhotos,
+  readBatch,
+  storageUsage,
+  type PhotoDeps,
+} from "../explore/photos";
+import type { PhotoStore } from "../explore/photo-store";
+import { actualTimeline, addAnchor, cameraGroups, confirmGroup, splitGroup } from "../explore/clock";
+import {
+  buildComparison,
+  latestTravelogue,
+  registerTravelogueArtifact,
+  renderExport,
+  saveTravelogue,
+} from "../explore/review";
+import {
   createOfflinePack,
   defaultOfflineFetch,
   lightSnapshot,
@@ -85,6 +113,10 @@ export type ExploreApiOptions = {
   pdfFontFile?: string;
   /** 离线包代取瓦片/字形的取数通道；缺省真实 fetch，测试可注入。 */
   offlineFetch?: OfflineFetch;
+  /** 照片原图与派生图的存放端口；没有就明确失败，不假装存好了。 */
+  photoStore?: PhotoStore;
+  /** 档案所在磁盘剩余字节（空间检查用）。 */
+  photoFreeBytes?: () => Promise<number>;
 };
 
 /** 批次生效后推给页面：页面本地修订 +1 时直接应用，否则重拉。 */
@@ -315,6 +347,334 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
       const day = c.req.query("day") || plan.document.days[0];
       if (!day) throw new ApiFailure("OFFLINE_NO_STOPS", 409, "这份计划还没有拍摄日。");
       return c.json({ planRevision: plan.revision, ...lightSnapshot(plan.document, day) });
+    }),
+  );
+
+  // ── 照片与回顾（第二版第 3 批，契约 §2.3–2.5）────────────────────
+  const photoDeps = (): PhotoDeps => ({
+    store: options.photoStore ?? unavailablePhotoStore(),
+    ...(options.photoFreeBytes ? { freeBytes: options.photoFreeBytes } : {}),
+  });
+
+  app.post("/v1/explore/plans/:dossierId/photo-batches", (c) =>
+    mutate(c, database, PhotoBatchBody, async (client, input) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      await loadPlan(client, account, dossier);
+      const created = await createBatch(client, account, dossier, input, photoDeps());
+      // 给页面的端点要是绝对地址：tus 客户端拿它当 base 解析 Location，相对地址会直接抛错。
+      return {
+        status: 201,
+        body: {
+          ...created,
+          uploadUrl: `${requestOrigin(c)}/backend${created.uploadUrl}`,
+        },
+      };
+    }),
+  );
+
+  app.get("/v1/explore/plans/:dossierId/photo-batches/:batchId", (c) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) =>
+      c.json({
+        batch: await readBatch(
+          client,
+          c.get("accountId"),
+          c.req.param("dossierId"),
+          c.req.param("batchId"),
+        ),
+      }),
+    ),
+  );
+
+  app.get("/v1/explore/plans/:dossierId/photos", (c) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) =>
+      c.json(
+        await listPhotos(client, {
+          account: c.get("accountId"),
+          dossier: c.req.param("dossierId"),
+          ...(c.req.query("cursor") ? { cursor: c.req.query("cursor") } : {}),
+          ...(c.req.query("stopId") ? { stopId: c.req.query("stopId") } : {}),
+          ...(c.req.query("group") ? { group: c.req.query("group") } : {}),
+        }),
+      ),
+    ),
+  );
+
+  app.post("/v1/explore/plans/:dossierId/photos/assign", (c) =>
+    mutate(c, database, AssignBody, async (client, input) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      const { plan } = await loadPlan(client, account, dossier);
+      const changed = await assignPhotos(client, {
+        account,
+        dossier,
+        photoIds: input.photoIds,
+        stopId: input.stopId,
+        document: plan.document,
+      });
+      return { status: 200, body: { changed } };
+    }),
+  );
+
+  app.post("/v1/explore/plans/:dossierId/photos/pick", (c) =>
+    mutate(c, database, PickBody, async (client, input) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      await loadPlan(client, account, dossier);
+      const changed = await pickPhotos(client, {
+        account,
+        dossier,
+        photoIds: input.photoIds,
+        picked: input.picked,
+      });
+      return { status: 200, body: { changed } };
+    }),
+  );
+
+  const media = (kind: "thumb" | "preview" | "original") => (c: any) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) => {
+      const dossier = c.req.param("dossierId");
+      const account = c.get("accountId");
+      const row = await photoRow(client, account, dossier, c.req.param("pid"));
+      const store = options.photoStore ?? unavailablePhotoStore();
+      const name = kind === "original" ? "original.jpg" : `${kind}.jpg`;
+      const bytes = row.status === "ready" ? await store.read(dossier, row.id, name) : null;
+      if (!bytes) throw new ApiFailure("PHOTO_MEDIA_MISSING", 404, "这张照片的图还没生成好。");
+      return new Response(bytes, {
+        headers: {
+          "content-type": "image/jpeg",
+          "content-length": String(bytes.length),
+          // 派生图会随重算变，短缓存就够；原图只读，长一点。
+          "cache-control": kind === "original" ? "private, max-age=86400" : "private, max-age=300",
+          ...(kind === "original" ? { "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(row.file_name)}` } : {}),
+          "x-content-type-options": "nosniff",
+        },
+      });
+    });
+  app.get("/v1/explore/plans/:dossierId/photos/:pid/thumb", media("thumb"));
+  app.get("/v1/explore/plans/:dossierId/photos/:pid/preview", media("preview"));
+  app.get("/v1/explore/plans/:dossierId/photos/:pid/original", media("original"));
+
+  // 细看用的原图裁切：x/y/w/h 都是画框 0–1 的比例。
+  app.get("/v1/explore/plans/:dossierId/photos/:pid/crop", (c) =>
+    database.withAccountSnapshot(c.get("accountId"), async (client) => {
+      const number = (value: string | undefined, fallback: number) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : fallback;
+      };
+      const rect = {
+        x: number(c.req.query("x"), 0),
+        y: number(c.req.query("y"), 0),
+        w: number(c.req.query("w"), 0.25) || 0.25,
+        h: number(c.req.query("h"), 0.25) || 0.25,
+      };
+      const dossier = c.req.param("dossierId");
+      const row = await photoRow(client, c.get("accountId"), dossier, c.req.param("pid"));
+      if (row.status !== "ready") throw new ApiFailure("PHOTO_MEDIA_MISSING", 404, "这张照片还没处理好。");
+      const store = options.photoStore ?? unavailablePhotoStore();
+      const bytes = await cropOf(store.originalPath(dossier, row.id), rect);
+      return new Response(bytes, {
+        headers: {
+          "content-type": "image/jpeg",
+          "content-length": String(bytes.length),
+          "cache-control": "private, max-age=60",
+          "x-content-type-options": "nosniff",
+        },
+      });
+    }),
+  );
+
+  app.delete("/v1/explore/plans/:dossierId/photos/:pid", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      await deletePhoto(
+        client,
+        { account: c.get("accountId"), dossier: c.req.param("dossierId"), photoId: c.req.param("pid") },
+        photoDeps(),
+      );
+      return c.body(null, 204);
+    }),
+  );
+
+  app.get("/v1/explore/plans/:dossierId/storage", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      await loadPlan(client, c.get("accountId"), c.req.param("dossierId"));
+      return c.json(await storageUsage(photoDeps(), c.req.param("dossierId")));
+    }),
+  );
+
+  app.get("/v1/explore/plans/:dossierId/clock", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      const { plan } = await loadPlan(client, c.get("accountId"), c.req.param("dossierId"));
+      return c.json({
+        groups: await cameraGroups(client, {
+          account: c.get("accountId"),
+          dossier: c.req.param("dossierId"),
+          document: plan.document,
+        }),
+      });
+    }),
+  );
+
+  const publishClock = (account: string, dossier: string, groups: CameraGroup[]) => {
+    for (const group of groups)
+      publishAccountEvent(account, "exploration", {
+        type: "explore.clock",
+        dossierId: dossier,
+        groupId: group.id,
+        status: group.status,
+      });
+  };
+
+  app.post("/v1/explore/plans/:dossierId/clock/:groupId/anchor", async (c) => {
+    const account = c.get("accountId");
+    const dossier = c.req.param("dossierId");
+    const groupId = c.req.param("groupId");
+    let groups: CameraGroup[] | null = null;
+    const response = await mutate(c, database, AnchorBody, async (client, input) => {
+      const { plan } = await loadPlan(client, account, dossier);
+      const group = await addAnchor(client, {
+        account,
+        dossier,
+        groupId,
+        photoId: input.photoId,
+        ...(input.eventClientId ? { eventClientId: input.eventClientId } : {}),
+        ...(input.time ? { time: input.time } : {}),
+        document: plan.document,
+      });
+      groups = await cameraGroups(client, { account, dossier, document: plan.document });
+      return { status: 200, body: { group } };
+    });
+    if (groups) publishClock(account, dossier, groups);
+    return response;
+  });
+
+  app.post("/v1/explore/plans/:dossierId/clock/:groupId/confirm", async (c) => {
+    const account = c.get("accountId");
+    const dossier = c.req.param("dossierId");
+    const groupId = c.req.param("groupId");
+    let groups: CameraGroup[] | null = null;
+    const response = await mutate(c, database, ConfirmClockBody, async (client, input) => {
+      const { plan } = await loadPlan(client, account, dossier);
+      const group = await confirmGroup(client, {
+        account,
+        dossier,
+        groupId,
+        timezone: input.timezone,
+        offsetSec: input.offsetSec,
+        document: plan.document,
+      });
+      groups = await cameraGroups(client, { account, dossier, document: plan.document });
+      return { status: 200, body: { group } };
+    });
+    if (groups) publishClock(account, dossier, groups);
+    return response;
+  });
+
+  app.post("/v1/explore/plans/:dossierId/clock/:groupId/split", async (c) => {
+    const account = c.get("accountId");
+    const dossier = c.req.param("dossierId");
+    const groupId = c.req.param("groupId");
+    let groups: CameraGroup[] | null = null;
+    const response = await mutate(c, database, SplitClockBody, async (client, input) => {
+      const { plan } = await loadPlan(client, account, dossier);
+      groups = await splitGroup(client, {
+        account,
+        dossier,
+        groupId,
+        beforePhotoId: input.beforePhotoId,
+        document: plan.document,
+      });
+      return { status: 200, body: { groups } };
+    });
+    if (groups) publishClock(account, dossier, groups);
+    return response;
+  });
+
+  app.get("/v1/explore/plans/:dossierId/actual", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      const { plan } = await loadPlan(client, account, dossier);
+      const revisionParam = Number(c.req.query("revision"));
+      let document = plan.document;
+      if (Number.isInteger(revisionParam) && revisionParam > 0) {
+        // 看的是某一版计划的对照：用那个修订的停留点，其它（照片、记录）还是现在的事实。
+        const snapshot = await readRevision(client, account, dossier, revisionParam).catch(() => null);
+        if (snapshot) document = { ...document, stops: snapshot.plan.stops };
+      }
+      return c.json({ items: await actualTimeline(client, { account, dossier, document }) });
+    }),
+  );
+
+  app.get("/v1/explore/plans/:dossierId/review", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      const { plan } = await loadPlan(client, account, dossier);
+      return c.json({
+        comparison: await buildComparison(client, {
+          account,
+          dossier,
+          revision: plan.revision,
+          document: plan.document,
+        }),
+        travelogue: await latestTravelogue(client, account, dossier),
+      });
+    }),
+  );
+
+  app.put("/v1/explore/plans/:dossierId/review/travelogue", (c) =>
+    mutate(c, database, TravelogueBody, async (client, input) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      await loadPlan(client, account, dossier);
+      const travelogue = await saveTravelogue(client, {
+        account,
+        dossier,
+        baseRevision: input.baseRevision,
+        markdown: input.markdown,
+      });
+      return { status: 200, body: travelogue };
+    }),
+  );
+
+  app.get("/v1/explore/plans/:dossierId/review/travelogue/export", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      const account = c.get("accountId");
+      const dossier = c.req.param("dossierId");
+      const format = c.req.query("format") === "html" ? "html" : "md";
+      const revisionParam = Number(c.req.query("revision"));
+      const travelogue = await latestTravelogue(client, account, dossier);
+      if (!travelogue) throw new ApiFailure("TRAVELOGUE_MISSING", 404, "还没有游记可以导出。");
+      const wanted = Number.isInteger(revisionParam) && revisionParam > 0 ? revisionParam : travelogue.revision;
+      const row = (
+        await client.query(
+          "select revision,markdown,photo_ids,sources,created_at from explore_travelogue where account_id=$1 and dossier_id=$2 and revision=$3",
+          [account, dossier, wanted],
+        )
+      ).rows[0];
+      if (!row) throw new ApiFailure("TRAVELOGUE_MISSING", 404, "找不到这一版游记。");
+      const title = `${(await client.query("select title from dossier where account_id=$1 and id=$2", [account, dossier])).rows[0]?.title ?? "游记"} · 游记`;
+      const rendered = renderExport(
+        {
+          id: `${dossier}:${row.revision}`,
+          revision: Number(row.revision),
+          markdown: row.markdown,
+          photoIds: row.photo_ids ?? [],
+          sources: row.sources ?? [],
+          updatedAt: new Date(row.created_at).toISOString(),
+        },
+        format,
+        { title, dossierId: dossier },
+      );
+      await registerTravelogueArtifact(client, { account, dossier, revision: wanted, format });
+      return new Response(rendered.bytes, {
+        headers: {
+          "content-type": rendered.mime,
+          "content-length": String(rendered.bytes.length),
+          "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(rendered.fileName)}`,
+        },
+      });
     }),
   );
 
@@ -629,6 +989,23 @@ function unavailableStorage(): ExploreStorage {
     readPackAsset: fail,
     saveFontAsset: fail,
     readFontAsset: fail,
+  };
+}
+
+/** 没配置照片目录时：上传与派生图明确失败，不假装存好了。 */
+function unavailablePhotoStore(): PhotoStore {
+  const fail = () => {
+    throw new ApiFailure("STORAGE_UNAVAILABLE", 503, "照片存放目录还没准备好。");
+  };
+  return {
+    uploadsDir: fail,
+    photoDir: fail,
+    adoptUpload: fail,
+    write: fail,
+    read: fail,
+    originalPath: fail,
+    remove: fail,
+    usedBytes: fail,
   };
 }
 

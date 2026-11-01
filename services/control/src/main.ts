@@ -8,7 +8,7 @@ import nodeProcess from "node:process";
 import { createApp } from "./api/app";
 import { Database } from "./db/database";
 import { readLocalLoginAlias } from "./local-login";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, statfs, writeFile } from "node:fs/promises";
 import { ensureKernelAuth } from "./kernel/auth";
 import { KernelService } from "./kernel/service";
 import { createHarnessFactory, resolveDshModule } from "./kernel/dsh/harness";
@@ -20,6 +20,8 @@ import { recordUsage } from "./run/usage";
 import { readRuntimeConfiguration } from "./configuration";
 import { mapConfigFrom } from "./explore/map-config";
 import { localExploreStorage } from "./explore/storage";
+import { localPhotoStore } from "./explore/photo-store";
+import { createPhotoReader } from "./explore/photo-reader";
 import { configureGeoProviders } from "./explore/providers";
 import { generateBook } from "./explore/book-job";
 import { createWeatherJudge } from "./explore/weather-judge";
@@ -62,6 +64,12 @@ const kernelHome =
   config.REINLAB_KERNEL_HOME ?? path.join(homedir(), ".local/state/reinlab/kernel");
 // 参考图、地图快照、计划书 PDF 都存在档案自己的目录下。
 const exploreStorage = localExploreStorage(kernelHome);
+// 照片原图与派生图在同一份档案目录下的 photos/ 里，原图只读不改。
+const photoStore = localPhotoStore(kernelHome);
+const photoFreeBytes = async () => {
+  const info = await statfs(kernelHome);
+  return info.bavail * info.bsize;
+};
 const kernelAuth = await ensureKernelAuth(
   config.REINLAB_KERNEL_SIGNING_KEY_FILE ??
     path.join(homedir(), ".config/reinlab/mcp/kernel.pem"),
@@ -216,6 +224,22 @@ const weatherJudge = providerKey
     })
   : undefined;
 
+// 回顾看片：真调用，按真实 token 记用量；token 拿不到就记未知。
+const photoReader = providerKey
+  ? createPhotoReader({
+      baseUrl: "https://api.deepseek.com/anthropic",
+      apiKey: providerKey,
+      model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
+    })
+  : undefined;
+
+// 峰值费率（每百万 token）：配了就能在花之前估一次，没配就照实说估不了。
+const reviewPricing = (() => {
+  const input = Number(config.MODEL_INPUT_CNY_PER_MILLION ?? Number.NaN);
+  const output = Number(config.MODEL_OUTPUT_CNY_PER_MILLION ?? Number.NaN);
+  return Number.isFinite(input) && Number.isFinite(output) ? { inputPerMillion: input, outputPerMillion: output } : undefined;
+})();
+
 // 读图 → 想要的感觉：带图开跑前由服务端读一次，写成计划上的感觉卡。
 const feelReader = providerKey
   ? createFeelReader({
@@ -271,6 +295,10 @@ const app = await createApp({
   weatherJudge,
   // 参考图、以后的计划书 PDF 都存在档案自己的目录下。
   exploreStorage,
+  photoStore,
+  photoFreeBytes,
+  ...(photoReader ? { photoReader } : {}),
+  ...(reviewPricing ? { reviewPricing } : {}),
   // 中文 PDF 用的开源黑体；可用 REINLAB_PDF_FONT_FILE 指到别处。
   pdfFontFile,
   realModelsEnabled: realModels,

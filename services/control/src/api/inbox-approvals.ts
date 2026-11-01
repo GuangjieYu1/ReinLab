@@ -9,6 +9,7 @@ import { mutate, canonical, type ApiEnv, type ApiContext } from "./context";
 import { ApiFailure, denied } from "./errors";
 import { applyConfirmation } from "../dossier/service";
 import { applyOps, type OpsOutcome } from "../explore/service";
+import { createProfile, updateProfile } from "../explore/profiles";
 
 const Decision = z
   .object({
@@ -422,6 +423,71 @@ export async function decideInboxCard(
         }
         throw error;
       }
+    }
+    // 地点 / 模特经验：批准才写进账户资料（用户确认就是授权），驳回就只留提案记录。
+    if (effectKind === "explore.experience") {
+      const effects = effectOf as any;
+      const approved = input.decision === "approve";
+      const marked = await client.query(
+        `update approval set state=$3, decided_at=now(), decided_scope='once'
+          where account_id=$1 and id=$2 and state='pending'`,
+        [account, id.data, approved ? "approved" : "rejected"],
+      );
+      if (!marked.rowCount) throw conflict();
+      if (!approved) {
+        if (row.run_state === "waiting")
+          resume?.(
+            account,
+            row.run_id,
+            `用户没有采纳这条${effects.target === "model" ? "模特" : "地点"}经验（审批 ${row.id}），没有写进资料。不要重复提同一件事。`,
+          );
+        return { status: 200, body: { state: "rejected" } } as any;
+      }
+      const payload = (effects.payload ?? {}) as Record<string, unknown>;
+      if (effects.target === "model") {
+        const profileId = typeof effects.profileId === "string" ? effects.profileId : "";
+        if (!profileId) throw new ApiFailure("PROFILE_REQUIRED", 409, "这条模特经验要指定是哪位模特。");
+        const current = (
+          await client.query(
+            "select id,type,revision,data from account_profile where account_id=$1 and id=$2 and deleted_at is null",
+            [account, profileId],
+          )
+        ).rows[0];
+        if (!current) throw new ApiFailure("PROFILE_NOT_FOUND", 404, "找不到这条模特资料。");
+        const data = (current.data ?? {}) as Record<string, unknown>;
+        const merged = [String(data.experience ?? ""), String(payload.text ?? "")].filter(Boolean).join("\n");
+        await updateProfile(client, account, profileId, {
+          ...data,
+          type: "model",
+          experience: merged.slice(0, 300),
+          baseRevision: Number(current.revision),
+        });
+      } else {
+        const existing = typeof effects.profileId === "string" && effects.profileId ? effects.profileId : null;
+        if (existing) {
+          const current = (
+            await client.query(
+              "select id,revision,data from account_profile where account_id=$1 and id=$2 and deleted_at is null",
+              [account, existing],
+            )
+          ).rows[0];
+          if (!current) throw new ApiFailure("PROFILE_NOT_FOUND", 404, "找不到这条地点经验。");
+          await updateProfile(client, account, existing, {
+            ...payload,
+            type: "place",
+            baseRevision: Number(current.revision),
+          });
+        } else {
+          await createProfile(client, account, { ...payload, type: "place" });
+        }
+      }
+      if (row.run_state === "waiting")
+        resume?.(
+          account,
+          row.run_id,
+          `用户确认了这条${effects.target === "model" ? "模特" : "地点"}经验（审批 ${row.id}），已经写进资料。以后相关规划会自动带上它。`,
+        );
+      return { status: 200, body: { state: "approved" } } as any;
     }
     // 天气调整建议：批准就在当时最新的计划上应用那几处改动；不批准就保留原安排。
     if (effectKind === "explore.weatherSuggestion") {

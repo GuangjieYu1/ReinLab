@@ -8,6 +8,9 @@ import { announceDossierChanged, nameFromPaper, publishAccountEvent } from "../d
 import { applyOps, loadPlan, readPlan, stopCenter, weatherView, type OpsOutcome } from "../explore/service";
 import { createProfile, deleteProfile, listProfiles, updateProfile } from "../explore/profiles";
 import { addWebRef, fetchWebRef, listRefs, type ExploreStorage, type WeatherLikeTransport } from "../explore/refs";
+import { reviewTool, REVIEW_TOOLS } from "../explore/review-tools";
+import type { PhotoStore } from "../explore/photo-store";
+import type { PhotoReader } from "../explore/photo-reader";
 import { searchPlaces, stopPoint, walkingRoute } from "../explore/providers";
 import { computeStopLight } from "../explore/terrain";
 import { planUsage } from "../explore/usage";
@@ -158,6 +161,15 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   explore: [
     "get",
     "ops",
+    // 回顾：列组、看片、标推荐、对照、游记、经验提案（第二版第 3 批）。
+    "photos",
+    "photo_contact_sheet",
+    "photo_view",
+    "photo_mark",
+    "field_events",
+    "compare",
+    "travelogue",
+    "experience",
     "view",
     "undo",
     "weather",
@@ -216,6 +228,12 @@ export type KernelToolDependencies = {
   bookEngine?: (account: string, dossier: string, plan: import("../explore/book-job").BookPlan) => void;
   /** 网图入档要存副本；没有就只记来源。 */
   exploreStorage?: ExploreStorage;
+  /** 照片原图与派生图（回顾看片要用）。 */
+  photoStore?: PhotoStore;
+  /** 读图模型通道（回顾看片）；没有就只给统计提示，不假装看过。 */
+  photoReader?: PhotoReader;
+  /** 看图计价的峰值费率。 */
+  reviewPricing?: { inputPerMillion: number; outputPerMillion: number };
   /** 抓取通道：缺省用真实 fetch。 */
   refTransport?: WeatherLikeTransport;
   /** Executes an allowed tool against the business layer. */
@@ -361,6 +379,9 @@ export function registerKernelTools(
             {
               storage: dependencies.exploreStorage,
               refTransport: dependencies.refTransport,
+              ...(dependencies.photoStore ? { photoStore: dependencies.photoStore } : {}),
+              ...(dependencies.photoReader ? { photoReader: dependencies.photoReader } : {}),
+              ...(dependencies.reviewPricing ? { reviewPricing: dependencies.reviewPricing } : {}),
             },
           );
           if (settledNow.publish) settled = settledNow.publish;
@@ -804,9 +825,22 @@ function publishSettled(
 async function exploreTool(
   client: pg.PoolClient,
   input: { account: string; dossier: string; run: string; tool: string; args: Record<string, unknown> },
-  deps: { storage?: ExploreStorage; refTransport?: WeatherLikeTransport } = {},
+  deps: {
+    storage?: ExploreStorage;
+    refTransport?: WeatherLikeTransport;
+    photoStore?: PhotoStore;
+    photoReader?: PhotoReader;
+    reviewPricing?: { inputPerMillion: number; outputPerMillion: number };
+  } = {},
 ): Promise<{ status: number; body: Record<string, unknown>; publish?: ExploreSettlement }> {
   const args = input.args ?? {};
+  if (REVIEW_TOOLS.includes(input.tool))
+    return reviewTool(client, input, {
+      ...(deps.photoStore ? { store: deps.photoStore } : {}),
+      ...(deps.photoReader ? { reader: deps.photoReader } : {}),
+      ...(deps.reviewPricing ? { pricing: deps.reviewPricing } : {}),
+      publish: (account, event) => publishAccountEvent(account, "exploration", event as never),
+    });
 
   if (input.tool === "light") {
     const { plan } = await loadPlan(client, input.account, input.dossier);

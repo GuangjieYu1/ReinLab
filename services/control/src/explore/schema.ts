@@ -143,8 +143,50 @@ export const OfflinePackBody = z
  * 模特 / 器材：字段按契约给，服务端只认这些键。
  * 具体的数值范围与「机身还是镜头」由资料层再校验一次。
  */
-export const ProfileBody = z
+/** 页面保存资料时会把整条资料带回来（含 id / revision / confirmedBy）：认下但不用。 */
+const profileCarried = {
+  id: z.string().max(64).optional(),
+  revision: z.number().int().min(0).optional(),
+  confirmedBy: z.literal("user").optional(),
+};
+
+const profileFields = {
+  name: z.string().min(1).max(80),
+  height: z.number().finite().min(50).max(250).optional(),
+  style: z.string().max(200).optional(),
+  experience: z.string().max(300).optional(),
+  wardrobe: z.string().max(500).optional(),
+  notes: z.union([z.array(z.string().max(200)).max(20), z.string().max(300)]).optional(),
+  kind: z.enum(["body", "lens"]).optional(),
+  focal: z.tuple([z.number().finite().positive(), z.number().finite().positive()]).optional(),
+  aperture: z.number().finite().positive().max(64).optional(),
+};
+
+/** 地点经验：账户级资料的新类型（契约 §2.5）。 */
+const placeFields = {
+  type: z.literal("place"),
+  name: z.string().min(1).max(80),
+  at: position,
+  radiusM: z.number().finite().min(30).max(5000).optional(),
+  standpoint: z.string().max(200).optional(),
+  observedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  season: z.string().max(20).optional(),
+  timeOfDay: z.string().max(40).optional(),
+  text: z.string().min(1).max(4000),
+  evidence: z
+    .object({
+      photoIds: z.array(z.string().uuid()).max(100).optional(),
+      eventIds: z.array(z.string().min(1).max(100)).max(100).optional(),
+      dossierId: z.string().uuid(),
+    })
+    .strict()
+    .optional(),
+};
+
+export const ProfileBody = z.union([
+  z
   .object({
+    ...profileCarried,
     type: z.enum(["model", "gear"]),
     name: z.string().min(1).max(80),
     height: z.number().finite().min(50).max(250).optional(),
@@ -156,11 +198,15 @@ export const ProfileBody = z
     focal: z.tuple([z.number().finite().positive(), z.number().finite().positive()]).optional(),
     aperture: z.number().finite().positive().max(64).optional(),
   })
-  .strict();
+    .strict(),
+  z.object({ ...profileCarried, ...placeFields }).strict(),
+]);
 
 /** 修改：带 baseRevision（乐观并发），其余字段可选。 */
-export const ProfilePatchBody = z
+export const ProfilePatchBody = z.union([
+  z
   .object({
+    ...profileCarried,
     baseRevision: z.number().int().nonnegative(),
     name: z.string().min(1).max(80).optional(),
     height: z.number().finite().min(50).max(250).optional(),
@@ -172,7 +218,16 @@ export const ProfilePatchBody = z
     focal: z.tuple([z.number().finite().positive(), z.number().finite().positive()]).optional(),
     aperture: z.number().finite().positive().max(64).optional(),
   })
-  .strict();
+    .strict(),
+  z
+    .object({
+      ...profileCarried,
+      baseRevision: z.number().int().nonnegative(),
+      ...placeFields,
+    })
+    .partial({ type: true, name: true, at: true, observedOn: true, text: true })
+    .strict(),
+]);
 
 /** geometry 的导出形状给引擎类型用。 */
 export const geometrySchema = geometry;
@@ -187,3 +242,61 @@ export function isIanaTimezone(value: string): boolean {
     return false;
   }
 }
+
+// ── 第二版第 3 批：照片、对时、回顾（契约 §2.3–2.5）──
+
+export const PhotoBatchBody = z
+  .object({
+    files: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1).max(300),
+            bytes: z.number().int().min(0).max(1_000_000_000),
+            lastModified: z.number().int().min(0).max(1_000_000_000_000_000),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(2000),
+  })
+  .strict();
+
+const photoIds = z.array(z.string().uuid()).min(1).max(500);
+
+export const AssignBody = z
+  .object({
+    photoIds,
+    stopId: z.string().min(1).max(64).nullable(),
+    basis: z.literal("manual").optional(),
+  })
+  .strict();
+
+export const PickBody = z.object({ photoIds, picked: z.boolean() }).strict();
+
+export const AnchorBody = z
+  .object({
+    photoId: z.string().uuid(),
+    eventClientId: z.string().min(1).max(100).optional(),
+    time: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict()
+  .refine((value) => Boolean(value.eventClientId || value.time), {
+    message: "锚点要给一次打卡，或一个已知时刻。",
+  });
+
+export const ConfirmClockBody = z
+  .object({
+    timezone: z.string().min(1).max(64),
+    offsetSec: z.number().int().min(-400 * 86_400).max(400 * 86_400),
+  })
+  .strict();
+
+export const SplitClockBody = z.object({ beforePhotoId: z.string().uuid() }).strict();
+
+export const TravelogueBody = z
+  .object({
+    baseRevision: z.number().int().min(0),
+    markdown: z.string().min(1).max(200_000),
+  })
+  .strict();
