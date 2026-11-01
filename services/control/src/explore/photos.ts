@@ -273,7 +273,7 @@ export async function parseExif(bytes: Buffer): Promise<ParsedExif> {
       reviveValues: false,
       translateValues: false,
       sanitize: false,
-    })) as Record<string, unknown>;
+    })) as Record<string, unknown> | undefined ?? {};   // 没有 EXIF 时解析库返回 undefined
   } catch {
     raw = {};
   }

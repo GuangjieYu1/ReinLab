@@ -51,7 +51,7 @@ export default function ReviewFace({ adapter, plan, day, tz, dossierId, focus }:
     let t = 0;
     const later = (f: () => void) => { window.clearTimeout(t); t = window.setTimeout(f, 800); };
     const off = adapter.subscribe(ev => {
-      if (ev.type === 'explore.photos') later(() => { void loadPhotos().catch(() => {}); void loadActual(); api.storage().then(setStorage, () => {}); });
+      if (ev.type === 'explore.photos') later(() => { void loadPhotos().catch(() => {}); void loadClock(); void loadActual(); api.storage().then(setStorage, () => {}); });
       else if (ev.type === 'explore.clock') { void loadClock(); void loadPhotos().catch(() => {}); void loadActual(); }
       else if (ev.type === 'explore.review') { if (ev.part === 'picks') void loadPhotos().catch(() => {}); else void loadReview(); }
       else if (ev.type === 'explore.field') { adapter.fieldEvents().then(setEvents, () => {}); void loadActual(); }
@@ -81,7 +81,7 @@ export default function ReviewFace({ adapter, plan, day, tz, dossierId, focus }:
     </header>
     {err && <p className="exr-warn">{err}</p>}
     <div className="exr-body" ref={body}>
-      <section><h3>上传原图</h3><Upload api={api} dossierId={dossierId} onUploaded={() => { void loadPhotos().catch(() => {}); }} /></section>
+      <section><h3>上传原图</h3><Upload api={api} dossierId={dossierId} onUploaded={() => { void loadPhotos().catch(() => {}); void loadClock(); void loadActual(); api.storage().then(setStorage, () => {}); }} /></section>
       <section><h3>对时</h3><Clock api={api} groups={groups} photos={photos} events={events} tz={tz} onChanged={changed} /></section>
       <section ref={refs.photos} className="is-wide"><h3>照片{photoFocus && <button className="dm-link" onClick={() => setPhotoFocus(null)}>看全部</button>}</h3>
         <Photos api={api} plan={plan} photos={photos} focus={photoFocus} onChanged={changed} /></section>
@@ -97,13 +97,17 @@ export default function ReviewFace({ adapter, plan, day, tz, dossierId, focus }:
 }
 
 /** 实际时间线：计划一轨、实际一轨（打卡、照片簇、笔记）；推定的用虚线。 */
-function ActualTrack({ plan, items, day, tz }: { plan: ExplorePlan; items: ActualItem[]; day: string; tz: string }) {
+function ActualTrack({ plan, items: all, day, tz }: { plan: ExplorePlan; items: ActualItem[]; day: string; tz: string }) {
   const labels = stopLabels(plan);
   const mins = (iso: string) => dateToLocal(iso, day, tz);
+  // 只画拍摄日当天的；别的日子的记录（比如出发前的试用）单独说一句
+  const onDay = (iso: string) => { const m = mins(iso); return m >= 0 && m < 1440; };
+  const items = all.filter(i => i.type === 'event' ? onDay(i.record.at) : onDay(i.start) || onDay(i.end));
+  const other = all.length - items.length;
   const planned = plan.stops.filter(s => s.window && (!s.day || s.day === day));
   const ts = [...planned.flatMap(s => [mins(s.window!.start), mins(s.window!.end)]),
     ...items.flatMap(i => i.type === 'event' ? [mins(i.record.at)] : [mins(i.start), mins(i.end)])];
-  if (!ts.length) return <p className="exr-hint">还没有打卡和对上时间的照片。</p>;
+  if (!ts.length) return <p className="exr-hint">还没有打卡和对上时间的照片。{other ? `另有 ${other} 条不在 ${day} 这一天。` : ''}</p>;
   const lo = Math.floor((Math.min(...ts) - 30) / 60) * 60, hi = Math.ceil((Math.max(...ts) + 30) / 60) * 60;
   const x = (m: number) => `${((m - lo) / (hi - lo)) * 100}%`, w = (a: number, b: number) => `${Math.max(0.6, ((b - a) / (hi - lo)) * 100)}%`;
   const hours = Array.from({ length: (hi - lo) / 60 + 1 }, (_, i) => lo + i * 60);
@@ -118,7 +122,7 @@ function ActualTrack({ plan, items, day, tz }: { plan: ExplorePlan; items: Actua
       return <i key={k} className="is-actual" data-estimated={it.basis === 'plan_time' || it.basis === 'pending' || undefined} style={{ left: x(a), width: w(a, b) }}
         title={`${it.stopId ? labels[it.stopId] ?? '已删的点' : '计划外'} · ${it.photoIds.length} 张 · ${hm(a)}–${hm(b)} · ${BASIS[it.basis]}`}>{it.photoIds.length}</i>;
     })}</div>
-    <p className="exr-hint">竖线是打卡和笔记；色块是照片簇（数字是张数），虚线框是按时间推定的。</p>
+    <p className="exr-hint">竖线是打卡和笔记；色块是照片簇（数字是张数），虚线框是按时间推定的。{other ? ` 另有 ${other} 条不在 ${day} 这一天，没画。` : ''}</p>
   </div>;
 }
 

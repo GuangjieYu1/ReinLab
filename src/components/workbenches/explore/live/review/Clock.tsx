@@ -47,7 +47,8 @@ export default function Clock({ api, groups, photos, events, tz, onChanged }: {
           const p = photos.find(x => x.id === a.photoId), e = events.find(x => x.clientId === a.eventClientId);
           return <li key={a.photoId}>{p?.fileName ?? a.photoId} = {e ? `${evHm(e.at)} ${e.kind === 'arrived' ? '到了' : '拍到了'} · ${e.stopName ?? '行程外'}` : a.time ?? '—'}（{offsetText(a.deltaSec)}）</li>;
         })}</ul>}
-        {(g.status === 'needs_anchor' || g.status === 'inconsistent') && <div className="exr-suggest">
+        {mine.length > 0 && mine.every(p => !p.exif.dateTimeOriginal && !p.exif.gpsTime) ? <p className="exr-hint">这组照片里没有拍摄时间（可能是导出或截图），对不了时；请在下面照片里手动归到停留点。</p>
+        : (g.status === 'needs_anchor' || g.status === 'inconsistent') && <div className="exr-suggest">
           {sug && sugPhoto && sugEvent && g.anchors.length === 0 && <div className="exr-sug">
             <img src={api.media(sugPhoto.thumb)} alt="" />
             <div><b>这张 = {evHm(sugEvent.at)} 的"{sugEvent.kind === 'arrived' ? '到了' : '拍到了'} · {sugEvent.stopName ?? '行程外'}"？</b><small>{sug.note}</small>
@@ -64,7 +65,7 @@ export default function Clock({ api, groups, photos, events, tz, onChanged }: {
           </div>}
           {!anchorable.length && <p className="exr-hint">这次没有现场打卡可对照。可以在对话里告诉助手某张照片大概几点拍的。</p>}
         </div>}
-        {g.status !== 'confirmed' && g.offsetSec !== null && <div className="exr-row">
+        {g.status !== 'confirmed' && g.offsetSec !== null && mine.some(p => p.exif.dateTimeOriginal) && <div className="exr-row">
           <button className="rh-btn is-solid" disabled={!!busy} onClick={() => void act(g.id, () => api.confirmClock(g.id, g.timezone ?? tz, g.offsetSec!))}>{busy === g.id ? '正在应用…' : '确认，按这个校正'}</button>
           <small className="exr-hint">会重算这组照片的时间和归属；你手动归过的不动。</small>
         </div>}

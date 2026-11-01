@@ -1,7 +1,7 @@
 // 人工验收驱动：起一个录屏的浏览器，开本地 HTTP 口让 Claude 一步步操作（像真人一样用），关闭时出录像。
 // 用法：PLAYWRIGHT_MODULE=… node scripts/walkthrough/driver.mjs --out <目录> [--port 7788]
 // 接口（POST JSON）：/goto {url} /click {text|sel, nth?} /fill {sel, value} /press {key} /type {text}
-//   /wait {ms|sel} /shot {name} /text {sel} /eval {js} /caption {html} /offline {on} /reload /close
+//   /wait {ms|sel} /shot {name} /text {sel} /eval {js} /caption {html} /files {sel, paths} /offline {on} /reload /close
 // 视口：--w 1180 --h 820（iPad 横屏）；--mobile 模拟手机触屏
 import http from 'node:http';
 import { mkdirSync, readdirSync, renameSync } from 'node:fs';
@@ -31,6 +31,7 @@ const ops = {
   text: b => page.locator(b.sel ?? 'body').first().innerText({ timeout: 5000 }).then(t => t.slice(-(b.tail ?? 3000))),
   count: b => page.locator(b.sel).count(),
   eval: b => page.evaluate(b.js),
+  files: b => page.locator(b.sel).nth(b.nth ?? 0).setInputFiles(b.paths),
   offline: b => ctx.setOffline(!!b.on).then(() => !!b.on),
   logs: () => logs.splice(0).join('\n'),
   reload: () => page.reload({ waitUntil: 'domcontentloaded' }),
