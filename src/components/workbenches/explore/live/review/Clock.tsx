@@ -35,10 +35,11 @@ export default function Clock({ api, groups, photos, events, tz, onChanged }: {
     {groups.map(g => {
       const mine = photos.filter(p => p.cameraGroupId === g.id);
       const sample = mine[0];
+      const noTime = mine.length > 0 && mine.every(p => !p.exif.dateTimeOriginal && !p.exif.gpsTime);
       const sug = g.suggestion, sugPhoto = sug && photos.find(p => p.id === sug.photoId), sugEvent = sug && events.find(e => e.clientId === sug.eventClientId);
       return <div key={g.id} className="exr-group" data-status={g.status}>
         <div className="exr-group-head">
-          <b>{g.label}</b><span>{g.photos} 张</span><span className="exr-chip" data-status={g.status}>{STATUS[g.status]}</span>
+          <b>{g.label}</b><span>{g.photos} 张</span><span className="exr-chip" data-status={noTime ? undefined : g.status}>{noTime ? '没有拍摄时间' : STATUS[g.status]}</span>
           <span>{offsetText(g.offsetSec)}{g.residualSec !== null && g.offsetSec !== null ? `（误差约 ${Math.abs(g.residualSec)} 秒）` : ''}</span>
           <span>{g.timezone ? `时区 ${g.timezone}${g.timezoneBasis === 'offset_tag' ? '（照片自带）' : g.timezoneBasis === 'plan' ? '（按计划所在地）' : g.timezoneBasis === 'user' ? '（你定的）' : ''}` : '时区未知'}</span>
         </div>
@@ -47,7 +48,7 @@ export default function Clock({ api, groups, photos, events, tz, onChanged }: {
           const p = photos.find(x => x.id === a.photoId), e = events.find(x => x.clientId === a.eventClientId);
           return <li key={a.photoId}>{p?.fileName ?? a.photoId} = {e ? `${evHm(e.at)} ${e.kind === 'arrived' ? '到了' : '拍到了'} · ${e.stopName ?? '行程外'}` : a.time ?? '—'}（{offsetText(a.deltaSec)}）</li>;
         })}</ul>}
-        {mine.length > 0 && mine.every(p => !p.exif.dateTimeOriginal && !p.exif.gpsTime) ? <p className="exr-hint">这组照片里没有拍摄时间（可能是导出或截图），对不了时；请在下面照片里手动归到停留点。</p>
+        {noTime ? <p className="exr-hint">这组照片里没有拍摄时间（可能是导出或截图），对不了时；请在下面照片里手动归到停留点。</p>
         : (g.status === 'needs_anchor' || g.status === 'inconsistent') && <div className="exr-suggest">
           {sug && sugPhoto && sugEvent && g.anchors.length === 0 && <div className="exr-sug">
             <img src={api.media(sugPhoto.thumb)} alt="" />

@@ -69,7 +69,9 @@ export default function ReviewFace({ adapter, plan, day, tz, dossierId, focus }:
 
   const changed = () => { void loadPhotos().catch(fail); void loadClock(); void loadActual(); };
   const pending = photos.filter(p => p.status === 'uploading' || p.status === 'processing').length;
-  const needClock = groups.filter(g => g.status === 'needs_anchor' || g.status === 'inconsistent').length;
+  // 整组都没有拍摄时间的对不了时，不算"没对上"
+  const timed = (g: CameraGroup) => photos.some(p => p.cameraGroupId === g.id && (p.exif.dateTimeOriginal || p.exif.gpsTime));
+  const needClock = groups.filter(g => (g.status === 'needs_anchor' || g.status === 'inconsistent') && timed(g)).length;
 
   return <div className="ex-center exr">
     <header className="exr-head">

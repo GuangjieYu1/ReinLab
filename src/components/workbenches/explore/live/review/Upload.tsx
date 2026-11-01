@@ -10,6 +10,14 @@ type Plan = { batch: UploadBatch; uploadUrl: string; space: { freeBytes: number;
 const keyOf = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
 const mb = (b: number) => b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`;
 const CONCURRENCY = 2;
+/** tus 的报错是给开发者看的，换成一句人话；已传的部分在服务端留着，重试会接着传。 */
+function humanError(m: string) {
+  const code = /response code: (\d{3})/.exec(m)?.[1];
+  if (!code) return '网断了或连不上 ReinLab，联网后点「重试失败的」接着传';
+  if (code === '413') return '文件太大或空间不够';
+  if (code === '401' || code === '403') return '登录过期了，重新登录后再选同一批文件接着传';
+  return `服务端出错（${code}），稍后重试`;
+}
 
 export default function Upload({ api, dossierId, onUploaded }: { api: ReviewApi; dossierId: string; onUploaded: () => void }) {
   const store = `reinlab-upload:${dossierId}`;
@@ -50,7 +58,7 @@ export default function Upload({ api, dossierId, onUploaded }: { api: ReviewApi;
       it.h = api.upload(it.file, plan.batch.id, plan.uploadUrl, {
         progress: sent => { it.sent = sent; sync(); },
         done: () => { it.state = 'done'; it.sent = it.file.size; sync(); onUploaded(); pump(); if (live.current.every(i => i.state === 'done')) localStorage.removeItem(store); },
-        error: m => { it.state = 'failed'; it.err = m; sync(); pump(); },
+        error: m => { it.state = 'failed'; it.err = humanError(m); sync(); pump(); },
       });
       it.h.start();
     }
