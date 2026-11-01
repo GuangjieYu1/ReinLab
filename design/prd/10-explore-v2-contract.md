@@ -273,3 +273,16 @@ type OfflineManifest = {
 1. **局域网主机名：** 我倾向用 `reinlab.local` 加固定端口（mDNS），手机和电脑都能用同一个 origin。如果路由器不支持 mDNS，退回固定局域网 IP 也行，但要选定一个之后不再改，否则离线缓存会丢。
 2. **字形：** 地图中文用设备本地字体，离线包只带拉丁字形区段。iOS Safari 的本地中文字体能正常渲染（第一版在桌面验过，手机要在 V1 里确认）。
 3. **Service Worker 只在构建版本里启用**：`--lan` 模式要服务构建后的前端，开发模式不注册，避免热更新和缓存打架。
+
+## 7. DSH 回执（后端已实现的口径，B1–B3）
+
+1. **局域网入口**：`pnpm local:up22 --lan` 固定 `https://reinlab.local:8443`（dns-sd 广播局域网 IP，证书 SAN 里另带本机 `.local` 名与局域网 IP），输出里给 `ca.pem` 路径和设备装证书的说明；`/backend` 同源反代，`/v1` 也认。
+2. **字形**：清单只带 `0-255` / `256-511` 两个区段 × `Noto Sans Regular/Bold`，中文靠设备本地字体；样式里的 fontstack 改名要告诉我。
+3. **Service Worker**：只在 `--lan` 的构建产物里启用，`pnpm dev` 不注册。
+4. **tus**：`POST photo-batches` 的 `uploadUrl` 与上传后的 `Location` 都是**绝对地址**（带 `/backend` 前缀）——`tus-js-client` 用 `new URL(location, endpoint)` 解析，相对 base 会抛 `Invalid URL`。每个请求都按 Cookie 会话校验同账户档案，写请求要 `X-ReinLab-CSRF: 1`。
+5. **资料 PATCH**：页面把整条资料带回时，`id` / `revision` / `confirmedBy` 认下但不用；其它未知字段仍拒绝。
+6. **用量**：`PlanUsage.byPurpose` 仍是 4 种，回顾看图记 `vision`。要区分「挑片 / 对照 / 游记 / 经验」得先改 contracts 加用途。
+7. **对时建议**：没有计划时区时不给 `suggestion`（宁可不建议，也不给没依据的对应）；锚点取中位数，残差 > 120 秒标 `inconsistent`。
+8. **看的等级**：联系表 = `preview`，看局部 = `detail`；模型声称细看过但实际没看过局部时会被降成 `preview`。
+9. **对照口径**：`none_found` 只表示没找到拍摄证据；只有「时间可信的照片」或「拍到了」打卡才给 `lateMin`，只「到了」给实际到达时间但不给迟到分钟。
+10. **回顾工具**：`explore_photos`、`explore_contact_sheet`、`explore_photo_view`、`explore_photo_mark`、`explore_field_events`、`explore_compare`、`explore_travelogue`、`explore_experience`；结果里分别带 `photoIds` / `comparison` / `travelogueId` / `pending.kind='experience'`。看图在 `--real-models` 起栈时才接通（没授权不花钱）。
