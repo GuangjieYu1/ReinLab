@@ -202,8 +202,11 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
       // 当前打开的事件流：stop() 要真正断开它。运行停在「等你回答」时服务端不会收尾，
       // 只置 stopped 不断开，每次切页面都会留下一条长连接，攒满浏览器同站 6 条上限后整页卡住。
       let active: AbortController | null = null;
-      async function follow(runId: string) {
+      let gen = 0;   // 每次 load 一代：开发模式下 effect 会跑两次，旧的那次要让路，不能和新的互相掐断
+      /** history=true：只把一轮已结束的回放进来（读到 done 就返回，不动 stopped）。 */
+      async function follow(runId: string, history = false) {
         let after = 0;
+        const tag = runId.slice(0, 8) + ':';   // 每轮的 seq 从头数，加前缀免得不同轮的条目撞 id
         active?.abort();
         const ctl = new AbortController();
         active = ctl;
@@ -214,7 +217,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
             try {
               response = await readEventStream(`/v1/kernel/runs/${runId}/stream?after=${after}`, ctl.signal, after);
             } catch (e) {
-              if (stopped) return;
+              if (stopped || history) return;   // 回放旧轮次失败就跳过，不卡住
               // 断线要说出来（以前 load 静默吞掉，看起来像"没反应"）。
               push([{ id: "err:follow", kind: "note", text: `连接断了：${e instanceof Error ? e.message : '未知原因'}，正在重试…` }]);
               on(items, true);
@@ -237,13 +240,13 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
                 try { frame = JSON.parse(data); } catch { continue; }
                 if (typeof frame.seq === 'number') {
                   after = Math.max(after, frame.seq);
-                  push(mapExploreEvent({ seq: frame.seq, action: String(frame.action ?? ''), payload: frame.payload ?? {} }));
+                  push(mapExploreEvent({ seq: frame.seq, action: String(frame.action ?? ''), payload: frame.payload ?? {} }).map(x => ({ ...x, id: tag + x.id })));
                 }
-                if (frame.state) on(items, !['completed', 'failed', 'cancelled', 'interrupted'].includes(frame.state));
-                if (frame.done) { stopped = true; return; }
+                if (frame.state && !history) on(items, !['completed', 'failed', 'cancelled', 'interrupted'].includes(frame.state));
+                if (frame.done) { if (!history) stopped = true; return; }
               }
             }
-            if (stopped) return;
+            if (stopped || history) return;
             // 服务端主动收尾（超时/重启）：稍后按 last seq 重连一次，页面看得到断点也会自愈。
             await new Promise(r => setTimeout(r, 800));
           }
@@ -255,9 +258,14 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
       return {
         async load() {
           stopped = false;
+          const my = ++gen;
           try {
             const { runs = [] } = await api(`/v1/kernel/dossiers/${enc(dossierId)}/runs`) as { runs?: { id: string; mode?: string }[] };
-            const last = runs.find(r => r.mode === 'explore');
+            // 每句话是一轮：先按时间顺序回放之前几轮（卡片也要在），再跟住最新一轮
+            const mine = runs.filter(r => r.mode === 'explore');
+            const last = mine[0];
+            for (const r of mine.slice(1, 12).reverse()) { if (stopped || my !== gen) return; await follow(r.id, true); }
+            if (my !== gen) return;
             if (last) await follow(last.id);
             else on(items, false);
           } catch (e) {

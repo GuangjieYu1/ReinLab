@@ -160,7 +160,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     void x.run([{ op: 'plan.confirm' }], s => s.plan.state === 'draft');
   };
   const decide = async (approvalId: string, approve: boolean) => {
-    try { await adapter.decide(approvalId, approve); setDecided(d => ({ ...d, [approvalId]: approve ? 'approved' : 'rejected' })); await x.reload(); adapter.suggestions().then(setSugs, () => {}); }
+    try { await adapter.decide(approvalId, approve); setDecided(d => ({ ...d, [approvalId]: approve ? 'approved' : 'rejected' })); window.dispatchEvent(new Event('reinlab:inbox-refresh')); await x.reload(); adapter.suggestions().then(setSugs, () => {}); }
     catch (e) { setErr(e instanceof Error ? e.message : '没有成功'); }
   };
 
@@ -203,6 +203,10 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const events: DockEvent[] = useMemo(() => {
     if (!plan) return [];
     const out: [number, DockEvent][] = [];
+    // 看片时每次看图都带照片 ID：一轮回答里只留最后一条照片条（通常是标记结果），不刷屏
+    const keepPhotos = new Set<string>(); let lastPh: string | null = null;
+    for (const c of chat) { if (c.kind === 'user') { if (lastPh) keepPhotos.add(lastPh); lastPh = null; } else if (c.kind === 'photos') lastPh = c.id; }
+    if (lastPh) keepPhotos.add(lastPh);
     for (const c of chat) {
       const n = seen(`c:${c.id}`);
       if (c.kind === 'user') out.push([n, { id: c.id, kind: 'user', text: c.text, at: '' }]);
@@ -211,7 +215,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
       else if (c.kind === 'malformed') out.push([n, { id: c.id, kind: 'card', body: <div className="exl-malformed"><span>这一轮助手的工具参数没写对，什么都没改。</span>{lastUser && <button className="rh-btn" disabled={busy} onClick={() => send(lastUser)}>重试</button>}</div> }]);
       else if (c.kind === 'tool') { if (c.name) out.push([n, { id: c.id, kind: 'tool', action: c.name, label: c.label, state: c.state }]); }
       else if (c.kind === 'pending') out.push([n, approvalOf(c.change)]);
-      else if (c.kind === 'photos') out.push([n, { id: c.id, kind: 'card', body: <ChatPhotos api={adapter.review} ids={c.photoIds} onOpen={() => openReview('photos', c.photoIds)} /> }]);
+      else if (c.kind === 'photos') { if (keepPhotos.has(c.id)) out.push([n, { id: c.id, kind: 'card', body: <ChatPhotos api={adapter.review} ids={c.photoIds} onOpen={() => openReview('photos', c.photoIds)} /> }]); }
       else if (c.kind === 'review') out.push([n, { id: c.id, kind: 'card', body: <button className="rh-btn" onClick={() => openReview(c.part)}>{c.part === 'comparison' ? '打开「计划 vs 实际」' : '打开游记'} →</button> }]);
       else if (c.kind === 'experience') { const e = c.proposal;
         out.push([n, { id: `ap:${e.approvalId}`, kind: 'approval', action: e.target === 'place' ? '记成地点经验' : '记进模特资料', title: e.title, risk: 'write',

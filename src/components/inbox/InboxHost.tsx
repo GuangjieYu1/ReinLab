@@ -40,7 +40,12 @@ export default function InboxHost({ autoOpen, adapter = defaultAdapter(), button
   const { n, setN, refresh } = useInboxCount(adapter);
   const opened = useRef(false), hiddenAt = useRef<number | null>(null);
 
-  useEffect(() => { if (autoOpen && !opened.current && !autoOpened && n !== null && n > 0) { opened.current = true; autoOpened = true; setOpen(true); } }, [autoOpen, n]);
+  // 只在到达终端时看第一次的数字；之后待办变多不弹（§13：不是每来一条就打扰）
+  useEffect(() => {
+    if (!autoOpen || opened.current || autoOpened || n === null) return;
+    opened.current = true; autoOpened = true;
+    if (n > 0) setOpen(true);
+  }, [autoOpen, n]);
   useEffect(() => {
     const onVis = () => {
       if (document.hidden) { hiddenAt.current = Date.now(); return; }

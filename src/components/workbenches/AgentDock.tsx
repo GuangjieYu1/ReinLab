@@ -91,7 +91,7 @@ function Event({ e }: { e: DockEvent }) {
   );
   if (e.kind === 'approval') return (
     <div className="ad-approval rh-approval rh-enter" data-state={e.state}>
-      <span className="rh-micro">待审批 · {RISK_LABEL[e.risk]}</span>
+      <span className="rh-micro">{e.state === 'pending' ? '待审批' : '审批'} · {RISK_LABEL[e.risk]}</span>
       <strong>{e.title}</strong>
       <ul>{e.effects.map(x => <li key={x}>{x}</li>)}</ul>
       <code className="rh-micro">{e.action}</code>

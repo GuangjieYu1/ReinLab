@@ -49,6 +49,9 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
   const [answers, setAnswers] = useState<Record<string, string[][]>>({});
   const sheet = useRef<HTMLElement>(null);
 
+  const [rev, setRev] = useState(0);
+  // 别处（比如工作台对话里的审批卡）处理了待办：重新取，不显示已经处理过的
+  useEffect(() => { const on = () => setRev(r => r + 1); window.addEventListener('reinlab:inbox-refresh', on); return () => window.removeEventListener('reinlab:inbox-refresh', on); }, []);
   useEffect(() => {
     let live = true;
     adapter.load().then(({ promotions, approvals }) => {
@@ -56,10 +59,10 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
       const order = Object.keys(BENCH);
       const ps = [...promotions].sort((a, b) => order.indexOf(a.source.bench) - order.indexOf(b.source.bench) || Date.parse(a.expiresAt) - Date.parse(b.expiresAt));
       const list: Entry[] = [...ps.map(p => ({ kind: 'promotion' as const, p })), ...approvals.map(a => ({ kind: 'approval' as const, a }))];
-      setEntries(list); setSel(list[0] ? idOf(list[0]) : null);
+      setEntries(list); setSel(cur => cur && list.some(e => idOf(e) === cur) ? cur : list[0] ? idOf(list[0]) : null);
     }).catch(() => live && setError('收件箱暂时打不开，稍后会再试。'));
     return () => { live = false; };
-  }, [adapter]);
+  }, [adapter, rev]);
   useEffect(() => { sheet.current?.focus(); }, [entries === null]);
 
   const pending = useMemo(() => (entries ?? []).filter(e => !done[idOf(e)] && !(e.kind === 'approval' && e.a.state === 'indeterminate')), [entries, done]);
