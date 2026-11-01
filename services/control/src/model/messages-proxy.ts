@@ -45,17 +45,6 @@ export type MessagesProxyDependencies = {
   providerBaseUrl: string;
   providerKey: string;
   provider?: string;
-  /**
-   * 花钱之前的闸门：拿这次请求的预估金额去比本月可用额度。
-   * 没有这个函数（或没有单价）就不拦——那就没有可比的数，不假装守住了。
-   */
-  guard?: (input: { account: string; dossier: string; estimateCny: number }) => Promise<{
-    ok: boolean;
-    availableCny?: number;
-    message?: string;
-  }>;
-  /** 预估金额：从请求体估输入、从 max_tokens 估输出（峰值费率）。 */
-  estimate?: (body: string, maxTokens: number) => number | null;
 };
 
 export const tokenOf = (request: Request) => {
@@ -139,31 +128,6 @@ export function registerMessagesProxy(
       return c.json({ error: "MESSAGES_BODY_INVALID" }, 400);
     }
     const model = typeof parsed.model === "string" ? parsed.model : "";
-    const maxTokens = Number((parsed as { max_tokens?: unknown }).max_tokens);
-    // 预算闸门：估一次再放行；不够就明确拒绝，而不是先花完再说。
-    if (dependencies.guard && dependencies.estimate) {
-      const estimateCny = dependencies.estimate(body, maxTokens);
-      if (estimateCny !== null) {
-        const verdict = await dependencies.guard({
-          account: claims.account,
-          dossier: claims.dossier,
-          estimateCny,
-        });
-        if (!verdict.ok)
-          return c.json(
-            {
-              type: "error",
-              error: {
-                type: "budget_exceeded",
-                message:
-                  verdict.message ??
-                  `本月可用额度不够这一次调用（预估 ¥${estimateCny.toFixed(3)}，可用 ¥${(verdict.availableCny ?? 0).toFixed(2)}）。`,
-              },
-            },
-            429,
-          );
-      }
-    }
     // 只把「真正在首次读这几张图」的那一笔算读图：请求里**最后一条消息**带图片内容块才算。
     // 后续步骤会把历史里的图一起回传，那些只是在延续思考，按编排记。
     const purpose = lastMessageHasImage(parsed) ? ("vision" as const) : ("planning" as const);

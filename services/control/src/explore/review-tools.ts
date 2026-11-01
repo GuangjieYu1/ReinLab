@@ -13,7 +13,6 @@ import type pg from "pg";
 import sharp from "sharp";
 import type { ExperienceProposal, LngLat } from "@reinlab/contracts";
 import { ApiFailure } from "../api/errors";
-import { monthlyBudgetSnapshot } from "../budget";
 import { recordSpend } from "../budget/spend";
 import { recordUsage } from "../run/usage";
 import { requestApproval } from "../run/approval";
@@ -75,27 +74,6 @@ const photoBrief = (row: PhotoRow) => ({
   picked: row.picked,
   stats: statsOf(row),
 });
-
-/** 一次看图预估花多少：按峰值费率保守估，超预算就拒绝。 */
-function estimateCny(images: number, deps: ReviewToolDeps): number | null {
-  if (!deps.pricing) return null;
-  // 一张 1600px 预览大约 1200–1600 输入 token；输出最多 1600。
-  const inputTokens = images * 1600 + 800;
-  return (inputTokens * deps.pricing.inputPerMillion + 1600 * deps.pricing.outputPerMillion) / 1_000_000;
-}
-
-async function guardBudget(client: Client, images: number, deps: ReviewToolDeps) {
-  const estimate = estimateCny(images, deps);
-  if (estimate === null) return;
-  const snapshot = await monthlyBudgetSnapshot(client);
-  const available = Number(snapshot.availableCny);
-  if (Number.isFinite(available) && estimate > available)
-    throw new ApiFailure(
-      "REVIEW_BUDGET_EXCEEDED",
-      409,
-      `本月可用额度只剩 ¥${available.toFixed(2)}，这次看图预估要 ¥${estimate.toFixed(3)}；先不要继续看片，或调小范围。`,
-    );
-}
 
 async function recordVision(
   client: Client,
@@ -278,7 +256,6 @@ export async function reviewTool(
     if (!sheet) throw new ApiFailure("PHOTO_MEDIA_MISSING", 404, "缩略图还没生成好。");
     if (!deps.reader)
       throw new ApiFailure("REVIEW_READER_UNAVAILABLE", 503, "读图的模型通道没配置，看不了片子。");
-    await guardBudget(client, 1, deps);
     const legend = rows
       .map((row, index) => `${index + 1}. id=${row.id}｜${row.file_name}｜${row.corrected_ts ? new Date(row.corrected_ts).toISOString().slice(11, 16) : "时间未知"}`)
       .join("\n");
@@ -359,7 +336,6 @@ export async function reviewTool(
       });
     }
     if (!images.length) throw new ApiFailure("PHOTO_MEDIA_MISSING", 404, "这张照片的图还没生成好。");
-    await guardBudget(client, images.length, deps);
     const viewed = await deps.reader({ images, ask: typeof args.ask === "string" ? args.ask : undefined });
     await recordVision(
       client,

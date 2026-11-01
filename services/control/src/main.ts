@@ -30,8 +30,7 @@ import { applyOps, readPlan } from "./explore/service";
 import { publishOps } from "./api/explore-api";
 import { createWeatherScheduler } from "./explore/schedule";
 import { runWeatherCheck } from "./explore/weather-check";
-import { costOf, estimateRequestCost, recordSpend } from "./budget/spend";
-import { monthlyBudgetSnapshot } from "./budget";
+import { costOf, recordSpend } from "./budget/spend";
 import { publishAccountEvent } from "./dossier/service";
 
 // dsh will not boot inside Electron. The local stack entry sets
@@ -347,26 +346,7 @@ if (realModels && providerKey) {
         );
       });
     },
-    // 花钱之前先估一次：不够就明确拒绝（这条路径原来完全没有拦截）。
-    ...(reviewPricing
-      ? {
-          estimate: (body: string, maxTokens: number) => estimateRequestCost(reviewPricing, body, maxTokens),
-          guard: async (input: { account: string; dossier: string; estimateCny: number }) => {
-            const snapshot = await database.withAccountSnapshot(input.account, (client) =>
-              monthlyBudgetSnapshot(client),
-            );
-            const available = Number(snapshot.availableCny);
-            if (!Number.isFinite(available)) return { ok: true };
-            return available >= input.estimateCny
-              ? { ok: true }
-              : {
-                  ok: false,
-                  availableCny: available,
-                  message: `本月可用额度只剩 ¥${available.toFixed(2)}，这一次调用预估 ¥${input.estimateCny.toFixed(3)}；先不要继续，等下月或调低用量。`,
-                };
-          },
-        }
-      : {}),
+    // 按用户 2026-11-01 的要求：不设上限拦截（只记账，不拒绝调用）。
     now: () => Math.floor(Date.now() / 1000),
     providerBaseUrl: "https://api.deepseek.com/anthropic",
     providerKey,
