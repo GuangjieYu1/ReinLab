@@ -225,7 +225,8 @@ const weatherJudge = providerKey
   : undefined;
 
 // 回顾看片：真调用，按真实 token 记用量；token 拿不到就记未知。
-const photoReader = providerKey
+// 只有显式用 --real-models 起栈时才接上看图通道：没授权就不该悄悄花钱。
+const photoReader = realModels && providerKey
   ? createPhotoReader({
       baseUrl: "https://api.deepseek.com/anthropic",
       apiKey: providerKey,
