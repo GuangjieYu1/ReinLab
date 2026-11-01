@@ -17,6 +17,7 @@ const page = await ctx.newPage();
 const logs = [];
 page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.type() + ': ' + m.text()); });
 page.on('pageerror', e => logs.push('pageerror: ' + e.message));
+page.on('response', r => { if (r.status() >= 400) logs.push(`http ${r.status()} ${r.request().method()} ${r.url()}`); });
 page.on('requestfailed', r => logs.push('failed: ' + r.url() + ' ' + (r.failure()?.errorText ?? '')));
 const loc = b => b.sel ? page.locator(b.sel).nth(b.nth ?? 0) : page.getByText(b.text, { exact: !!b.exact }).nth(b.nth ?? 0);
 const caption = h => page.evaluate(h => { let el = document.getElementById('wt-cap'); if (!el) { el = document.createElement('div'); el.id = 'wt-cap'; el.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:2147483647;pointer-events:none;max-width:1100px;padding:10px 16px;background:#141213ee;color:#f0eeea;font:500 15px/1.5 system-ui,sans-serif;border-left:4px solid #ff7a1a'; document.body.appendChild(el); } el.innerHTML = h; el.style.display = h ? 'block' : 'none'; }, h).catch(() => {});

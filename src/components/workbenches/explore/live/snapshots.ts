@@ -9,7 +9,8 @@ import { boundsOf, center, dest } from './overlays';
 
 const SIZE = { overview: [1600, 1000], stop: [1200, 900] } as const;
 
-export async function renderSnapshot(cfg: MapConfig, plan: ExplorePlan, key: string): Promise<Blob> {
+/** ratio：像素倍数。默认 2（打印清楚）；密集城区 PNG 可能超过服务端 4 MB 上限，调用方会降到 1.4 重出。 */
+export async function renderSnapshot(cfg: MapConfig, plan: ExplorePlan, key: string, ratio = 2): Promise<Blob> {
   const stop = key === 'overview' ? undefined : plan.stops.find(s => s.id === key);
   if (key !== 'overview' && !stop) throw Error(`计划里没有这个停留点：${key}`);
   const [w, h] = stop ? SIZE.stop : SIZE.overview;
@@ -22,7 +23,7 @@ export async function renderSnapshot(cfg: MapConfig, plan: ExplorePlan, key: str
     bounds = stop.geometry.type === 'Polygon' ? boundsOf(stop.geometry.coordinates[0] as [number, number][]) : boundsOf([dest(c, 315, 350), dest(c, 135, 350)]);
   }
   const map = new maplibregl.Map({
-    container: div, style: rhineStyle(cfg, 'vector'), transformRequest: withKey(cfg), pixelRatio: 2, interactive: false, attributionControl: false,
+    container: div, style: rhineStyle(cfg, 'vector'), transformRequest: withKey(cfg), pixelRatio: ratio, interactive: false, attributionControl: false,
     canvasContextAttributes: { preserveDrawingBuffer: true },
     // 点名标在点的右侧：右边多留，靠边的点名不被截（地图宽 800 / 600 CSS 像素）
     ...(bounds ? { bounds, fitBoundsOptions: { padding: { top: 60, bottom: 60, left: 60, right: stop ? 200 : 240 }, maxZoom: 17 } } : { center: plan.destination?.center ?? [0, 0], zoom: 13 }),

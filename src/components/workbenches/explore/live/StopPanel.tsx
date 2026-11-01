@@ -71,7 +71,7 @@ function SceneSection({ plan, stop, day, tz, minutes, onMinutes, loadScene }: {
   const [scene, setScene] = useState<BuildingScene | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => { setScene(null); setErr(null); }, [stop.id]);
-  useEffect(() => { if (open && !scene && !err) loadScene(stop.id).then(setScene, e => setErr(e instanceof Error ? e.message : '取不到建筑数据')); }, [open, scene, err, stop.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open && !scene && !err) loadScene(stop.id).then(setScene, e => setErr((e as { code?: string })?.code === 'NOT_FOUND' ? '建筑数据还没接上（白模要等后端这一批）' : e instanceof Error ? e.message : '取不到建筑数据')); }, [open, scene, err, stop.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const body = plan.gear.map(g => g.data).find((g): g is Extract<typeof g, { type: 'gear' }> => g.type === 'gear' && g.kind === 'body');
   const focal = stop.detail?.settings?.focalMm ?? stop.focal?.[0] ?? null;
   return <section><h3>白模 · 机位视角</h3>

@@ -97,12 +97,12 @@ export async function createApp(options: {
   const smallBody = bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge });
   // 照片续传是分块流式接收：tus 自己按 8 MB 分片处理，这里不能再按整包截断。
   const isUploadsPath = (pathname: string) => /^\/v1\/explore\/uploads(\/|$)/.test(pathname);
-  // 参考图上传要能收几 MB 的图；其余接口仍然只收 1MB。
+  // 参考图、计划书地图快照（自身上限 4 MB）要能收几 MB 的图；其余接口仍然只收 1MB。
   const imageBody = bodyLimit({ maxSize: 8 * 1024 * 1024, onError: tooLarge });
   app.use("/v1/*", (c, next) => {
     const pathname = new URL(c.req.url).pathname;
     if (isUploadsPath(pathname)) return next();
-    if (c.req.method === "POST" && /^\/v1\/explore\/plans\/[^/]+\/refs$/.test(pathname))
+    if (c.req.method === "POST" && /^\/v1\/explore\/plans\/[^/]+\/(refs|snapshots)$/.test(pathname))
       return imageBody(c, next);
     return smallBody(c, next);
   });

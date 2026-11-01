@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import BenchFrame from '../../BenchFrame';
 import AgentDock, { type DockEvent } from '../../AgentDock';
 import Explorer, { type ExplorerSection, type ExplorerViewDef } from '../../engineering/Explorer';
-import { RichBlocks } from '../../richText';
+import { PhotoRef, RichBlocks } from '../../richText';
 import LiveField from './field/LiveField';
 import ReviewFace, { type ReviewFocus } from './review/ReviewFace';
 import ChatPhotos from './review/ChatPhotos';
@@ -40,6 +40,8 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   const x = useExplore(adapter);
   const [face, setFace] = useState<Face>('plan');
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>(null);
+  // 游记 / 对话里的照片引用 ![说明](photo:<id>) → 这份档案的预览图
+  const photoSrc = useMemo(() => (id: string) => adapter.review.media(`/v1/explore/plans/${encodeURIComponent(dossier?.id ?? '')}/photos/${encodeURIComponent(id)}/preview`), [adapter, dossier?.id]);
   const openReview = (part: NonNullable<ReviewFocus>['part'], photoIds?: string[]) => { setFace('review'); setReviewFocus(f => ({ part, photoIds, n: (f?.n ?? 0) + 1 })); };
   const [view, setView] = useState<'map' | 'doc'>('map');
   const [variant, setVariant] = useState<'brief' | 'full'>('brief');
@@ -167,7 +169,13 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
   // 计划书 PDF：先补齐本修订缺的快照，再生成
   async function uploadSnapshots(keys: string[], revision: number) {
     if (!cfg || !x.snap) return;
-    for (const k of keys) { const png = await renderSnapshot(cfg, x.snap.plan, k); await adapter.uploadSnapshot(k, revision, png, cfg.vector.attribution); }
+    const LIMIT = 3.9 * 1024 * 1024;   // 服务端上限 4 MB，留点余量
+    for (const k of keys) {
+      let png = await renderSnapshot(cfg, x.snap.plan, k);
+      if (png.size > LIMIT) png = await renderSnapshot(cfg, x.snap.plan, k, 1.4);
+      if (png.size > LIMIT) png = await renderSnapshot(cfg, x.snap.plan, k, 1);
+      await adapter.uploadSnapshot(k, revision, png, cfg.vector.attribution);
+    }
   }
   const makePdf = async (v: 'brief' | 'full') => {
     if (!plan || !cfg) return;
@@ -204,9 +212,20 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     if (!plan) return [];
     const out: [number, DockEvent][] = [];
     // 看片时每次看图都带照片 ID：一轮回答里只留最后一条照片条（通常是标记结果），不刷屏
-    const keepPhotos = new Set<string>(); let lastPh: string | null = null;
-    for (const c of chat) { if (c.kind === 'user') { if (lastPh) keepPhotos.add(lastPh); lastPh = null; } else if (c.kind === 'photos') lastPh = c.id; }
-    if (lastPh) keepPhotos.add(lastPh);
+    // 一轮里有多次"标记"（explore_photo_mark）时，合成一条照片条显示全部被标的照片
+    const toolName = new Map(chat.filter((c): c is Extract<ChatItem, { kind: 'tool' }> => c.kind === 'tool' && !!c.name).map(c => [c.id, c.name]));
+    const keepPhotos = new Set<string>(), merged = new Map<string, string[]>();
+    let lastPh: string | null = null, marks: { id: string; ids: string[] }[] = [];
+    const close = () => {
+      if (marks.length > 1) { const last = marks[marks.length - 1].id; keepPhotos.add(last); merged.set(last, [...new Set(marks.flatMap(m => m.ids))]); }
+      else if (lastPh) keepPhotos.add(lastPh);
+      lastPh = null; marks = [];
+    };
+    for (const c of chat) {
+      if (c.kind === 'user') close();
+      else if (c.kind === 'photos') { lastPh = c.id; if (toolName.get(c.id.replace(/:ph$/, '')) === 'explore_photo_mark') marks.push({ id: c.id, ids: c.photoIds }); }
+    }
+    close();
     for (const c of chat) {
       const n = seen(`c:${c.id}`);
       if (c.kind === 'user') out.push([n, { id: c.id, kind: 'user', text: c.text, at: '' }]);
@@ -215,7 +234,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
       else if (c.kind === 'malformed') out.push([n, { id: c.id, kind: 'card', body: <div className="exl-malformed"><span>这一轮助手的工具参数没写对，什么都没改。</span>{lastUser && <button className="rh-btn" disabled={busy} onClick={() => send(lastUser)}>重试</button>}</div> }]);
       else if (c.kind === 'tool') { if (c.name) out.push([n, { id: c.id, kind: 'tool', action: c.name, label: c.label, state: c.state }]); }
       else if (c.kind === 'pending') out.push([n, approvalOf(c.change)]);
-      else if (c.kind === 'photos') { if (keepPhotos.has(c.id)) out.push([n, { id: c.id, kind: 'card', body: <ChatPhotos api={adapter.review} ids={c.photoIds} onOpen={() => openReview('photos', c.photoIds)} /> }]); }
+      else if (c.kind === 'photos') { if (keepPhotos.has(c.id)) out.push([n, { id: c.id, kind: 'card', body: <ChatPhotos api={adapter.review} ids={merged.get(c.id) ?? c.photoIds} onOpen={() => openReview('photos', merged.get(c.id) ?? c.photoIds)} /> }]); }
       else if (c.kind === 'review') out.push([n, { id: c.id, kind: 'card', body: <button className="rh-btn" onClick={() => openReview(c.part)}>{c.part === 'comparison' ? '打开「计划 vs 实际」' : '打开游记'} →</button> }]);
       else if (c.kind === 'experience') { const e = c.proposal;
         out.push([n, { id: `ap:${e.approvalId}`, kind: 'approval', action: e.target === 'place' ? '记成地点经验' : '记进模特资料', title: e.title, risk: 'write',
@@ -334,6 +353,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     strip={<>{plan.destination?.name ?? '目的地未定'} <i>·</i> {day} <i>·</i> {dl?.sunrise != null ? `日出 ${hm(dl.sunrise)}` : ''} <i>·</i> {dl?.sunset != null ? `日落 ${hm(dl.sunset)}` : ''} <i>·</i> {confirmed.length} 个已确认 · {candidates.length} 个候选</>}
     shutterLines={f => [`> open plan · ${plan.destination?.name ?? 'new'}`, `> ${f.en.toLowerCase()} · rev ${plan.revision}`, '> ready']}
     status={<><span><i className="en-sq" />{dossier?.title ?? '探索计划'}</span><span>{stateText}</span><span>已确认 {confirmed.length}</span><span>候选 {candidates.length}</span><span>太阳为真实计算 · 天气 {weather?.source.name ?? '—'}</span></>}>
+    <PhotoRef.Provider value={photoSrc}>
     <div className="ex" data-face={face}>
       <Explorer code="EXPL" open={xpOpen} view={xpView} onView={setXpView} onToggle={() => setXpOpen(v => !v)} views={VIEWS} key={xpView} title="plan/" sections={sections} />
       {face === 'review' ? <ReviewFace adapter={adapter} plan={plan} day={day} tz={tz} dossierId={dossier?.id ?? ''} focus={reviewFocus} />
@@ -377,6 +397,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
         </>}
         <button className="rh-btn" onClick={() => setShowUsage(false)}>关闭</button></div>}
     </div>
+    </PhotoRef.Provider>
   </BenchFrame>;
 }
 

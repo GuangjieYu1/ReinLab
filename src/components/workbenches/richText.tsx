@@ -1,16 +1,21 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 
-// 助手消息里的轻量 Markdown：只认链接 [文字](http…) 和加粗 **…**，其余原样显示。
-// 不用 innerHTML，链接只放行 http/https，新窗口打开。
-const TOKEN = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*/g;
+// 助手消息里的轻量 Markdown：只认链接 [文字](http…)、加粗 **…**、照片引用 ![说明](photo:<id>)，其余原样显示。
+// 不用 innerHTML，链接只放行 http/https，新窗口打开；照片只认本档案的照片 id，由宿主给出图片地址。
+const TOKEN = /!\[([^\]]*)\]\(photo:([\w-]+)\)|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*/g;
+
+/** 照片 id → 图片地址。没有宿主时照片引用显示成文字。 */
+export const PhotoRef = createContext<((id: string) => string) | null>(null);
 
 export function RichText({ text }: { text: string }) {
+  const photo = useContext(PhotoRef);
   const out: ReactNode[] = [];
   let last = 0, k = 0;
   for (const m of text.matchAll(TOKEN)) {
     if (m.index! > last) out.push(text.slice(last, m.index));
-    if (m[1]) out.push(<a key={k++} href={m[2]} target="_blank" rel="noopener noreferrer">{m[1]}</a>);
-    else out.push(<b key={k++}>{m[3]}</b>);
+    if (m[2]) out.push(photo ? <figure key={k++} className="rt-photo"><img src={photo(m[2])} alt={m[1]} loading="lazy" />{m[1] && <figcaption>{m[1]}</figcaption>}</figure> : <span key={k++}>［照片：{m[1] || m[2].slice(0, 8)}］</span>);
+    else if (m[3]) out.push(<a key={k++} href={m[4]} target="_blank" rel="noopener noreferrer">{m[3]}</a>);
+    else out.push(<b key={k++}>{m[5]}</b>);
     last = m.index! + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
