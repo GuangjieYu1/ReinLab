@@ -167,7 +167,11 @@ export function queueLightRefresh(account: string, dossier: string, stopIds: str
   const options = configured;
   if (!options || !stopIds.length) return;
   void (async () => {
+    let first = true;
     for (const stopId of [...new Set(stopIds)].slice(0, 8)) {
+      // 对公共 Overpass 客气一点：连续几个点之间隔一下，别一口气打完。
+      if (!first) await new Promise((resolve) => setTimeout(resolve, 1_200));
+      first = false;
       await refreshStopLight2(options, { account, dossier, stopId }).catch((error) => {
         console.error(
           JSON.stringify({

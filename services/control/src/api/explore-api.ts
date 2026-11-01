@@ -726,6 +726,13 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
       if (!stop) throw new ApiFailure("STOP_NOT_FOUND", 404, "计划里还没有停留点，先加一个机位再来取建筑。");
       if (wanted && !stop) throw new ApiFailure("STOP_NOT_FOUND", 404, "计划里没有这个停留点。");
       const loaded = await loadScene(lightDeps(), { at: cameraPointOf(stop) });
+      // 打开了机位面但还没算过受光（新加的点、或换了位置）：顺手排一次重算，算完推 explore.light。
+      if (!stop.light2 || stop.light2.sceneId !== loaded.scene.id)
+        void refreshStopLight2(lightDeps(), {
+          account: c.get("accountId"),
+          dossier,
+          stopId: stop.id,
+        }).catch(() => undefined);
       return c.json(loaded.scene);
     }),
   );

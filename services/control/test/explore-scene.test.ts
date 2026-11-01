@@ -157,11 +157,24 @@ describe("取数与缓存", () => {
     expect(second.scene.coverage.status).toBe("empty");
   });
 
+  it("Overpass 满载（502）等两秒再试一次，第二次成功就用它", async () => {
+    let calls = 0;
+    const transport: OverpassTransport = async () => {
+      calls += 1;
+      if (calls === 1) return { ok: false, status: 502, text: async () => "at capacity" };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ elements: [] }) };
+    };
+    const result = await sceneFor({ origin: ORIGIN, transport });
+    expect(calls).toBe(2);
+    expect(result.scene.coverage.status).toBe("empty");
+  });
+
   it("取数失败给 failed 场景，不拿空场景冒充没有楼", async () => {
     const transport: OverpassTransport = async () => ({ ok: false, status: 429, text: async () => "" });
     const result = await sceneFor({ origin: ORIGIN, transport });
     expect(result.scene.coverage.status).toBe("failed");
     expect(result.scene.coverage.note).toContain("楼影按未知处理");
+    expect(result.scene.coverage.note).toContain("公共实例");
     expect(result.scene.buildings).toEqual([]);
   });
 

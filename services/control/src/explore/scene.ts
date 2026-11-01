@@ -19,6 +19,15 @@ export const SCENE_RADIUS_M = 1000;
 /** 楼很少变：缓存一周，过期再取。 */
 export const SCENE_TTL_MS = 7 * 24 * 3600_000;
 const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
+/** 公共实例忙的时候可以换一个（OVERPASS_URL）；默认仍是官方的 overpass-api.de。 */
+let endpoint = OVERPASS_ENDPOINT;
+export function configureOverpassEndpoint(url?: string | null) {
+  const clean = (url ?? "").trim();
+  endpoint = /^https?:\/\//.test(clean) ? clean : OVERPASS_ENDPOINT;
+}
+export const overpassEndpoint = () => endpoint;
+/** 公共实例满载 / 限流时的状态码：值得等一下再试一次。 */
+const TRANSIENT_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 const USER_AGENT = "ReinLab/1.0 (local travel-plan; building scene; +https://openstreetmap.org)";
 const MAX_BUILDINGS = 3000;
 const METERS_PER_DEGREE = 111_320;
@@ -37,7 +46,8 @@ const realTransport: OverpassTransport = (url, body) =>
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": USER_AGENT },
     body,
-    signal: AbortSignal.timeout(30_000),
+    // 密集城区（胡同、陆家嘴）一次 1 km 查询实测 30–40 秒：给足时间，别在快回来时把连接掐了。
+    signal: AbortSignal.timeout(45_000),
   }) as unknown as Promise<OverpassResponse>;
 
 /** 经纬度 → 以 origin 为原点的局部米制（x 东、y 北）。 */
@@ -282,7 +292,14 @@ export function buildingsFromOverpass(payload: unknown, origin: LngLat): ParsedS
     }
   }
 
-  const buildings = [...partBuildings, ...wholeBuildings].slice(0, MAX_BUILDINGS);
+  // 楼太多时按「离机位近的先留」截断：远处的楼对遮挡影响小，但必须写进覆盖说明，别悄悄丢。
+  const all = [...partBuildings, ...wholeBuildings];
+  const distance = (building: Building) =>
+    Math.hypot(centroidOf(building.footprint)[0], centroidOf(building.footprint)[1]);
+  const truncated = all.length > MAX_BUILDINGS;
+  const buildings = truncated
+    ? [...all].sort((a, b) => distance(a) - distance(b)).slice(0, MAX_BUILDINGS)
+    : all;
   const unknownHeight = buildings.filter((building) => building.heightM === null).length;
   if (!buildings.length)
     return {
@@ -299,12 +316,13 @@ export function buildingsFromOverpass(payload: unknown, origin: LngLat): ParsedS
     unknownHeight ? `${unknownHeight} 栋楼高未知（只画轮廓，不参与确定性无遮挡结论）` : "",
     "基底高程统一按机位处 Copernicus GLO-90（约 90 m 分辨率）取，属近似",
     partialCoverage ? "部分楼栋的 building:part 只覆盖了一部分轮廓，整体轮廓也保留（可能有重叠）" : "",
+    truncated ? `这一圈超过 ${MAX_BUILDINGS} 栋，只保留离机位最近的 ${MAX_BUILDINGS} 栋（更远的楼没算进来）` : "",
     partial ? "部分 relation 的成员几何缺失，这份数据不完整" : "",
   ].filter(Boolean);
   return {
     buildings,
     coverage: {
-      status: partial || partialCoverage || unknownHeight > 0 ? "partial" : "ok",
+      status: partial || partialCoverage || truncated || unknownHeight > 0 ? "partial" : "ok",
       note: notes.join("；"),
     },
     stats: { elements: elements.length, parts: parts.length, unknownHeight, skipped },
@@ -349,9 +367,14 @@ export function localSceneStore(root: string): SceneStore {
   };
 }
 
+/**
+ * 缓存键：按约 1 km 的格子取整——同一天的机位往往只隔几百米，用同一份场景就够
+ * （局部坐标以场景 origin 为基准，几百米的偏移不影响白模与受光）。这也是对公共
+ * Overpass 的礼貌：不该为每条街重新拉一次。
+ */
 export const sceneKey = (origin: LngLat, radiusM: number): string =>
   createHash("sha256")
-    .update([origin[0].toFixed(3), origin[1].toFixed(3), radiusM].join("|"))
+    .update([origin[0].toFixed(2), origin[1].toFixed(2), radiusM].join("|"))
     .digest("hex")
     .slice(0, 16);
 
@@ -398,12 +421,26 @@ export async function sceneFor(input: {
   const transport = input.transport ?? defaultTransport ?? realTransport;
   const body = `data=${encodeURIComponent(overpassQuery(input.origin, radiusM))}`;
   let payload: unknown;
-  try {
-    const response = await transport(OVERPASS_ENDPOINT, body);
-    const text = await response.text();
-    if (!response.ok) throw new Error(`Overpass 返回 ${response.status}`);
-    payload = JSON.parse(text);
-  } catch (error) {
+  let lastError = "";
+  // 公共实例会满载（502）或限流（429）：等两秒再试一次，仍不行就照实说，不编。
+  for (let attempt = 0; attempt < 2 && payload === undefined; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
+    try {
+      const response = await transport(endpoint, body);
+      const text = await response.text();
+      if (!response.ok) {
+        lastError = `Overpass 返回 ${response.status}`;
+        if (TRANSIENT_STATUS.has(response.status) && attempt === 0) continue;
+        throw new Error(lastError);
+      }
+      payload = JSON.parse(text);
+    } catch (error) {
+      // 超时 / 网络错误不重试：再等一遍只会让页面更久，留给用户点重算。
+      lastError = String((error as Error)?.message ?? error).slice(0, 140);
+      break;
+    }
+  }
+  if (payload === undefined) {
     const scene: BuildingScene = {
       id: key,
       version: (cached?.version ?? 0) + 1,
@@ -414,7 +451,7 @@ export async function sceneFor(input: {
       buildings: [],
       coverage: {
         status: "failed",
-        note: `没取到建筑数据：${String((error as Error)?.message ?? error).slice(0, 120)}；楼影按未知处理。`,
+        note: `没取到建筑数据：${lastError || "没有响应"}；Overpass 是公共实例，忙的时候会这样，稍后再点一次重算即可；这次楼影按未知处理。`,
       },
     };
     return { scene, cached: false };

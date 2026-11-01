@@ -27,7 +27,7 @@ import { generateBook } from "./explore/book-job";
 import { createWeatherJudge } from "./explore/weather-judge";
 import { createFeelReader } from "./explore/feel";
 import { applyOps, readPlan } from "./explore/service";
-import { localSceneStore } from "./explore/scene";
+import { configureOverpassEndpoint, localSceneStore } from "./explore/scene";
 import { configureLightJobs } from "./explore/light-job";
 import { publishOps } from "./api/explore-api";
 import { createWeatherScheduler } from "./explore/schedule";
@@ -264,6 +264,9 @@ const feelReader = providerKey
       model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
     })
   : undefined;
+
+// 公共 Overpass 忙的时候可以在 local.env 里配 OVERPASS_URL 换一个实例（默认官方站点）。
+configureOverpassEndpoint(localSecrets.OVERPASS_URL ?? null);
 
 // 地点搜索与步行路线：国内高德、海外 ORS。密钥只在进程里，不发给浏览器。
 configureGeoProviders({
