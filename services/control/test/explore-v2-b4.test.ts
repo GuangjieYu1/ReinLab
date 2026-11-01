@@ -457,6 +457,8 @@ describe("示意字段", () => {
     const settings = (await readPlan()).plan.stops.find((row: any) => row.id === stopId).detail.settings;
     expect(settings.focalMm).toBe(23);
     expect(settings.iso).toBe(400);
+    // 只给了资料 id：服务端写入时按计划所选器材补一份名称快照（PDF 不查库，只认这份）。
+    expect(settings.snapshot?.lens).toBe("23mm F2");
   });
 });
 

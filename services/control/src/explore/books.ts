@@ -149,6 +149,23 @@ const emit = (value: string) => {
   if (collector) collector(value);
 };
 
+/** 「建议起点」里的机身 / 镜头名：先认快照，再按计划所选器材的 id 取名字。 */
+export function gearNamesOf(
+  settings: { bodyId?: string; lensId?: string; snapshot?: { body?: string; lens?: string } },
+  gear: StoredPlan["document"]["gear"],
+): { body?: string; lens?: string } {
+  const nameOf = (id?: string): string | undefined =>
+    id ? (gear.find((row) => row.profileId === id)?.data as { name?: string } | undefined)?.name : undefined;
+  return {
+    ...(settings.snapshot?.body ?? nameOf(settings.bodyId)
+      ? { body: settings.snapshot?.body ?? nameOf(settings.bodyId) }
+      : {}),
+    ...(settings.snapshot?.lens ?? nameOf(settings.lensId)
+      ? { lens: settings.snapshot?.lens ?? nameOf(settings.lensId) }
+      : {}),
+  };
+}
+
 export async function buildBookPdf(
   input: BookInput & { collect?: (text: string) => void; dryRun?: boolean },
 ): Promise<Uint8Array> {
@@ -178,6 +195,41 @@ export async function buildBookPdf(
       borderLineCap: LineCapStyle.Round,
     });
     return 50 * scale;
+  };
+
+  /**
+   * 一整行引导词：有姿势就在左边画小人，右边排文字。
+   * 行高按「小人和文字谁高取谁」，否则几个小人会叠在一起、压住下一块标题。
+   */
+  const guidanceRow = (
+    cursor: Cursor,
+    body: string,
+    pose: string | null,
+    options: { size?: number; indent?: number; gap?: number } = {},
+  ) => {
+    const size = options.size ?? 9.5;
+    const lineHeight = size + 3;
+    const indent = options.indent ?? (pose ? 32 : 0);
+    const glyphScale = 0.42; // 约 21pt 高，一行半字高，够看清又不抢行
+    const glyphHeight = pose ? 50 * glyphScale : 0;
+    const lines = wrap(body, font, size, CONTENT - indent);
+    const rowHeight = Math.max(glyphHeight, lines.length * lineHeight);
+    if (cursor.y - rowHeight < MARGIN + 20) return false;
+    const top = cursor.y;
+    if (pose && !input.dryRun) poseGlyph(cursor.page, pose, MARGIN + 1, top - 1, glyphScale);
+    lines.forEach((line, index) => {
+      emit(line);
+      if (!input.dryRun)
+        cursor.page.drawText(line, {
+          x: MARGIN + indent,
+          y: top - lineHeight * (index + 1),
+          size,
+          font,
+          color: INK,
+        });
+    });
+    cursor.y = top - rowHeight - (options.gap ?? 1);
+    return true;
   };
 
   /** 受光状态一句话：此刻（计划开拍时）+ 下一次见光；未知就写原因。 */
@@ -416,10 +468,8 @@ export async function buildBookPdf(
           const body = typeof line === "string" ? line : line.text;
           const pose = typeof line === "string" ? null : line.pose;
           if (!body) continue;
-          const top = cursor.y;
-          if (pose && !input.dryRun) poseGlyph(cursor.page, pose, MARGIN + 2, top - 4, 0.6);
-          if (!text(cursor, `${pose ? `${POSE_LABEL[pose]} ` : ""}${body}`, { size: 9.5, indent: pose ? 32 : 0, gap: 1 }))
-            break;
+          // 姿势名放在文字开头（小人只是示意，别让读者去猜）
+          if (!guidanceRow(cursor, pose ? `${POSE_LABEL[pose]} ${body}` : body, pose)) break;
         }
       }
 
@@ -435,7 +485,8 @@ export async function buildBookPdf(
               ? `${settings.shutterS}s`
               : `1/${Math.round(1 / settings.shutterS)}s`;
         const iso = settings.iso !== null ? `ISO ${settings.iso}` : "—";
-        const gear = [settings.snapshot?.body, settings.snapshot?.lens].filter(Boolean).join(" + ");
+        const names = gearNamesOf(settings, input.plan.document.gear);
+        const gear = [names.body, names.lens].filter(Boolean).join(" + ");
         text(cursor, "建议起点", { size: 11, gap: 1 });
         text(cursor, `${mm} · ${aperture} · ${shutter} · ${iso}${gear ? ` · ${gear}` : ""}`, { size: 9.5 });
       }

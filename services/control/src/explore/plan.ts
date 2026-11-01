@@ -312,6 +312,25 @@ export function assertSettingsAgainstGear(settings: ShotSettings, document: Plan
   }
 }
 
+/**
+ * 参数里的机身 / 镜头：名字在写入时就存一份快照（之后资料改名或删掉，旧计划仍显示当时的名字）。
+ * 页面按 id 取名字；计划书 PDF 不查库，只认这份快照，所以这里必须补上。
+ */
+export function withGearSnapshotNames(settings: ShotSettings, document: PlanDocument): ShotSettings {
+  const nameOf = (id?: string): string | undefined =>
+    id ? (document.gear.find((row) => row.profileId === id)?.data as { name?: string } | undefined)?.name : undefined;
+  const existing = settings.snapshot ?? {};
+  const body = existing.body ?? nameOf(settings.bodyId);
+  const lens = existing.lens ?? nameOf(settings.lensId);
+  const same =
+    (body ?? undefined) === existing.body && (lens ?? undefined) === existing.lens;
+  if (same) return settings;
+  return {
+    ...settings,
+    ...(body || lens ? { snapshot: { ...(body ? { body } : {}), ...(lens ? { lens } : {}) } } : {}),
+  };
+}
+
 /** 服务端维护、不能由 patch 改写的停留点字段。 */
 const SERVER_OWNED_STOP_KEYS = new Set(["id", "state", "source", "light", "light2", "revision"]);
 
@@ -622,7 +641,10 @@ export function applyBatch(input: BatchInput): Batch {
     switch (op.op) {
       case "stop.add": {
         const stop = normalizeStop(op.stop, input.actor, newId);
-        if (stop.detail?.settings) assertSettingsAgainstGear(stop.detail.settings, document);
+        if (stop.detail?.settings) {
+          assertSettingsAgainstGear(stop.detail.settings, document);
+          stop.detail.settings = withGearSnapshotNames(stop.detail.settings, document);
+        }
         document.stops.push(stop);
         business = true;
         applied.push({
@@ -678,7 +700,10 @@ export function applyBatch(input: BatchInput): Batch {
           if (value === undefined) delete patch.subjectHeightM;
           else patch.subjectHeightM = value;
         }
-        if (patch.detail?.settings) assertSettingsAgainstGear(patch.detail.settings, document);
+        if (patch.detail?.settings) {
+          assertSettingsAgainstGear(patch.detail.settings, document);
+          patch.detail.settings = withGearSnapshotNames(patch.detail.settings, document);
+        }
         const before = previousValues(stop, patch);
         Object.assign(stop, patch);
         business = true;

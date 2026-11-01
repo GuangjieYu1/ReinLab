@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createApp } from "../src/api/app";
 import { generateBook } from "../src/explore/book-job";
-import { orderedStops } from "../src/explore/books";
+import { gearNamesOf, orderedStops } from "../src/explore/books";
 import { KernelAuth } from "../src/kernel/auth";
 import { generateKeyPairSync } from "node:crypto";
 import { Database } from "../src/db/database";
@@ -198,6 +198,36 @@ afterAll(async () => {
   await pool.end();
   await admin.end();
   if (storageRoot) await rm(storageRoot, { recursive: true, force: true });
+});
+
+describe("计划书里的器材名", () => {
+  const gear = [
+    {
+      profileId: "b1",
+      revision: 1,
+      data: { id: "b1", type: "gear" as const, revision: 1, name: "X100V", kind: "body" as const },
+    },
+    {
+      profileId: "l1",
+      revision: 1,
+      data: { id: "l1", type: "gear" as const, revision: 1, name: "23mm F2", kind: "lens" as const },
+    },
+  ];
+
+  it("有快照就用快照（当时那一版名字）", () => {
+    expect(gearNamesOf({ bodyId: "b1", lensId: "l1", snapshot: { body: "旧机身", lens: "旧镜头" } }, gear)).toEqual({
+      body: "旧机身",
+      lens: "旧镜头",
+    });
+  });
+
+  it("只有资料 id 时按计划所选器材取名字", () => {
+    expect(gearNamesOf({ bodyId: "b1", lensId: "l1" }, gear)).toEqual({ body: "X100V", lens: "23mm F2" });
+  });
+
+  it("资料已经不在计划里就不编名字", () => {
+    expect(gearNamesOf({ bodyId: "gone" }, gear)).toEqual({});
+  });
 });
 
 describe("地图快照与两版计划书", () => {
