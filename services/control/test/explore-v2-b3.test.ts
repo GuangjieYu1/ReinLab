@@ -566,6 +566,21 @@ describe("对话里的回顾工具", () => {
     expect(after.picked).toBe(false);
   });
 
+  it("照片分页不漏不重（游标带库里的精确时间）", async () => {
+    const all: string[] = [];
+    let cursor: string | undefined;
+    for (let guard = 0; guard < 40; guard += 1) {
+      const page = await tool("photos", { limit: 2, ...(cursor ? { cursor } : {}) });
+      expect(page.status).toBe(200);
+      all.push(...page.body.result.photoIds);
+      cursor = page.body.result.cursor ?? undefined;
+      if (!cursor) break;
+    }
+    const expected = (await readPhotos()).items.length;
+    expect(new Set(all).size).toBe(all.length);
+    expect(all.length).toBe(expected);
+  });
+
   it("对照与游记工具把结果交给页面出卡", async () => {
     const compared = await tool("compare", {});
     expect(compared.status).toBe(200);

@@ -849,7 +849,8 @@ export async function listPhotos(
   input: { account: string; dossier: string; cursor?: string; stopId?: string; group?: string; limit?: number },
 ): Promise<{ items: Photo[]; cursor: string | null }> {
   const limit = Math.min(200, Math.max(1, input.limit ?? 60));
-  const after = input.cursor ? new Date(input.cursor) : null;
+  // 游标用库里带微秒的时间文本：换成 JS 的毫秒 ISO 会把精度截掉。
+  const afterTime = input.cursor ?? "";
   const params: unknown[] = [input.account, input.dossier];
   const where = ["account_id=$1", "dossier_id=$2", "deleted_at is null"];
   if (input.stopId === "__none") where.push("placement_stop_id is null");
@@ -859,25 +860,24 @@ export async function listPhotos(
   }
   if (input.group === "unplanned") where.push("placement_basis='unplanned'");
   else if (input.group === "pending") where.push("placement_basis='pending'");
-  if (after) {
-    params.push(after.toISOString());
+  if (afterTime) {
+    params.push(afterTime);
     where.push(`created_at > $${params.length}::timestamptz`);
   }
   params.push(limit + 1);
   const rows = (
     await client.query(
-      `select ${PHOTO_COLUMNS} from explore_photo where ${where.join(" and ")}
+      `select ${PHOTO_COLUMNS}, created_at::text as cursor_at from explore_photo
+        where ${where.join(" and ")}
         order by created_at asc limit $${params.length}`,
       params,
     )
-  ).rows as PhotoRow[];
+  ).rows as (PhotoRow & { cursor_at: string })[];
   const items = rows.slice(0, limit);
+  const last = items[items.length - 1];
   return {
     items: items.map((row) => photoOf(input.dossier, row)),
-    cursor:
-      rows.length > limit && items.length
-        ? new Date(items[items.length - 1].created_at).toISOString()
-        : null,
+    cursor: rows.length > limit && last ? last.cursor_at : null,
   };
 }
 
