@@ -448,6 +448,10 @@ const stopFieldLabel = (key: string): string =>
     focal: "焦段",
     detail: "细节",
     refs: "参考图",
+    subjectPoint: "模特站位",
+    cameraHeightM: "相机离地高度",
+    subjectHeightM: "模特受光高度",
+    areaRef: "片区参考点",
   })[key] ?? key;
 
 const canvasVerb = (kind: CanvasObject["kind"]): string =>

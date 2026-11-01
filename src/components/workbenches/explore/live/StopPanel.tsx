@@ -63,33 +63,85 @@ export function StopAside({ plan, stop, day, tz, minutes, weather, refs, onKeep,
 
 const WhiteModel = lazy(() => import('./WhiteModel'));
 
-/** 白模区：按需取建筑场景（Three.js 懒加载，只在机位面打开时下载）。 */
-function SceneSection({ plan, stop, day, tz, minutes, onMinutes, loadScene }: {
-  plan: ExplorePlan; stop: Stop; day: string; tz: string; minutes: number; onMinutes: (m: number) => void; loadScene: (stopId: string) => Promise<BuildingScene>;
+/** 机位面里白模要用的后端能力（取场景、重算受光、听场景事件、改停留点）。 */
+export type SceneApi = {
+  scene: (stopId: string) => Promise<BuildingScene>;
+  recompute: (stopId: string) => Promise<void>;
+  onScene: (f: (stopId: string) => void) => () => void;
+  patch: (p: Partial<Stop>) => void;
+};
+// 场景 JSON 可能一两 MB：按停留点缓存，切回来不重取（收到 explore.scene 才换）
+const sceneCache = new Map<string, BuildingScene>();
+
+/** 此刻挡光的楼：机位 / 模特当前段是 building 时的 buildingIds。 */
+function blockingAt(stop: Stop, at: number) {
+  const ids: string[] = [];
+  for (const pl of [stop.light2?.camera, stop.light2?.subject]) {
+    const seg = pl?.segments.find(x => Date.parse(x.start) <= at && at < Date.parse(x.end));
+    if (seg?.state === 'building') ids.push(...(seg.cause?.buildingIds ?? []));
+  }
+  return [...new Set(ids)];
+}
+
+/** 白模区：按需取建筑场景（Three.js 懒加载，只在机位面打开时下载）。第一次取密集城区要半分钟以上。 */
+function SceneSection({ plan, stop, day, tz, minutes, onMinutes, api }: {
+  plan: ExplorePlan; stop: Stop; day: string; tz: string; minutes: number; onMinutes: (m: number) => void; api: SceneApi;
 }) {
+  const key = `${plan.dossierId}:${stop.id}`;
   const [open, setOpen] = useState(false);
-  const [scene, setScene] = useState<BuildingScene | null>(null);
+  const [scene, setScene] = useState<BuildingScene | null>(sceneCache.get(key) ?? null);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { setScene(null); setErr(null); }, [stop.id]);
-  useEffect(() => { if (open && !scene && !err) loadScene(stop.id).then(setScene, e => setErr((e as { code?: string })?.code === 'NOT_FOUND' ? '建筑数据还没接上（白模要等后端这一批）' : e instanceof Error ? e.message : '取不到建筑数据')); }, [open, scene, err, stop.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [waited, setWaited] = useState(0);
+  const [pick, setPick] = useState<'subject' | 'area' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = (force = false) => {
+    if (!force && sceneCache.has(key)) { setScene(sceneCache.get(key)!); return; }
+    setErr(null); setWaited(0);
+    api.scene(stop.id).then(sc => { sceneCache.set(key, sc); setScene(sc); },
+      e => setErr((e as { code?: string })?.code === 'NOT_FOUND' ? '建筑数据还没接上' : e instanceof Error ? e.message : '取不到建筑数据'));
+  };
+  useEffect(() => { setScene(sceneCache.get(key) ?? null); setErr(null); setPick(null); }, [key]);
+  useEffect(() => { if (open && !scene && !err) load(); }, [open, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!open || scene || err) return; const t = window.setInterval(() => setWaited(w => w + 1), 1000); return () => window.clearInterval(t); }, [open, scene, err]);
+  useEffect(() => api.onScene(id => { if (id === stop.id && open) { sceneCache.delete(key); load(true); } }), [api, stop.id, open, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const recompute = async () => { setBusy(true); try { await api.recompute(stop.id); sceneCache.delete(key); load(true); } catch (e) { setErr(e instanceof Error ? e.message : '重算没成功'); } finally { setBusy(false); } };
+
   const body = plan.gear.map(g => g.data).find((g): g is Extract<typeof g, { type: 'gear' }> => g.type === 'gear' && g.kind === 'body');
-  const focal = stop.detail?.settings?.focalMm ?? stop.focal?.[0] ?? null;
-  return <section><h3>白模 · 机位视角</h3>
+  const focals = [...new Set([...(stop.detail?.settings?.focalMm ? [stop.detail.settings.focalMm] : []), ...(stop.focal ?? [])])];
+  const at = localToDate(day, minutes, tz).getTime();
+  const num = (v: string) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 500 ? n : null; };
+  return <section className="is-wide"><h3>白模 · 机位视角</h3>
+    <div className="exw-pos">
+      <label>相机离地 <input type="number" step={0.5} min={0} max={500} defaultValue={stop.cameraHeightM ?? 1.5} key={`c${stop.id}${stop.cameraHeightM}`}
+        onBlur={e => { const n = num(e.target.value); if (n !== null && n !== (stop.cameraHeightM ?? 1.5)) api.patch({ cameraHeightM: n }); }} /> m</label>
+      <label>模特离地 <input type="number" step={0.1} min={0} max={500} defaultValue={stop.subjectHeightM ?? 1.5} key={`s${stop.id}${stop.subjectHeightM}`}
+        onBlur={e => { const n = num(e.target.value); if (n !== null && n !== (stop.subjectHeightM ?? 1.5)) api.patch({ subjectHeightM: n }); }} /> m</label>
+      <button className="rh-btn" aria-pressed={pick === 'subject'} onClick={() => { setOpen(true); setPick(p => p === 'subject' ? null : 'subject'); }}>{stop.subjectPoint ? '挪模特站位' : '放模特站位'}</button>
+      {stop.subjectPoint && <button className="dm-link" onClick={() => api.patch({ subjectPoint: null })}>不单独设模特站位</button>}
+      {stop.kind === 'area' && <button className="rh-btn" aria-pressed={pick === 'area'} onClick={() => { setOpen(true); setPick(p => p === 'area' ? null : 'area'); }}>{stop.areaRef ? '换片区参考点' : '选片区参考点'}</button>}
+      {stop.kind === 'area' && !stop.areaRef && <small className="exw-warn">片区要先选一个参考点才算得出受光</small>}
+    </div>
     {!open ? <button className="rh-btn" onClick={() => setOpen(true)}>打开白模</button>
-      : err ? <p className="dm-msg">{err} <button className="dm-link" onClick={() => setErr(null)}>重试</button></p>
-      : !scene ? <p><em>正在取周边建筑…</em></p>
+      : err ? <p className="dm-msg">{err} <button className="dm-link" onClick={() => load(true)}>再取一次</button></p>
+      : !scene ? <p><em>正在取周边建筑… {waited}s{waited >= 5 ? '（第一次取密集城区要半分钟以上，之后会快）' : ''}</em></p>
       : <Suspense fallback={<p><em>正在加载白模…</em></p>}>
           <WhiteModel key={stop.id} scene={scene} stop={stop} day={day} tz={tz} minutes={minutes} onMinutes={onMinutes}
-            focalMm={focal} sensor={body?.sensor ?? null} orientation={stop.detail?.frame?.orientation ?? 'landscape'}
-            cameraHeightM={stop.cameraHeightM ?? 1.5} subjectHeightM={stop.subjectHeightM ?? 1.5} />
+            focals={focals.length ? focals : [35]} sensor={body?.sensor ?? null} orientation={stop.detail?.frame?.orientation ?? 'landscape'}
+            cameraHeightM={stop.cameraHeightM ?? 1.5} subjectHeightM={stop.subjectHeightM ?? 1.5}
+            highlight={blockingAt(stop, at)} pick={pick}
+            onPick={p => { api.patch(pick === 'area' ? { areaRef: p } : { subjectPoint: p }); setPick(null); }} />
+          <p className="exw-note">
+            {stop.light2 ? `受光第 ${stop.light2.version} 版 · ${new Date(stop.light2.computedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 算 · ` : '受光还在算（算完会自动刷新）· '}
+            <button className="dm-link" disabled={busy} onClick={() => void recompute()}>{busy ? '正在重算…' : '重算受光'}</button>
+          </p>
         </Suspense>}
   </section>;
 }
 
 /** 机位面：选中停留点的全部信息。 */
-export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople, onFrame, onMinutes, loadScene }: {
+export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople, onFrame, onMinutes, sceneApi }: {
   plan: ExplorePlan; stop: Stop; day: string; tz: string; minutes: number; refs: RefImage[]; hasPeople: boolean;
-  onFrame?: (f: Frame) => void; onMinutes?: (m: number) => void; loadScene?: (stopId: string) => Promise<BuildingScene>;
+  onFrame?: (f: Frame) => void; onMinutes?: (m: number) => void; sceneApi?: SceneApi;
 }) {
   const label = stopLabels(plan)[stop.id], c = center(stop), dl = dayLight(day, tz, c[0], c[1]), l = lightAt(stop, day, tz, minutes);
   const mine = refs.filter(r => stop.refs.includes(r.id));
@@ -115,9 +167,9 @@ export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople, onFr
           {stop.focal?.length ? <div><dt>焦段</dt><dd>{stop.focal.map(f => `${f}mm`).join(' · ')}</dd></div> : null}
         </dl>
       </section>
-      {loadScene && onMinutes && <SceneSection plan={plan} stop={stop} day={day} tz={tz} minutes={minutes} onMinutes={onMinutes} loadScene={loadScene} />}
+      {sceneApi && onMinutes && <SceneSection plan={plan} stop={stop} day={day} tz={tz} minutes={minutes} onMinutes={onMinutes} api={sceneApi} />}
       {hasPeople && d.guidance?.length ? <section><h3>引导词</h3><ol className="exd-lines">{guidanceLines(d).map(g => <li key={g.id}>{g.pose ? <PoseFigure pose={g.pose} title /> : <span />}<span>{g.text}</span></li>)}</ol></section> : null}
-      {(d.settings || d.frame || onFrame) && <section><h3>参数与构图</h3><SettingsRow s={d.settings} />
+      {(d.settings || d.frame || onFrame) && <section><h3>参数与构图</h3><SettingsRow s={d.settings} names={Object.fromEntries(plan.gear.map(g => [g.profileId, g.data.name]))} />
         {d.frame ? <FrameBox key={stop.id} frame={d.frame} onChange={onFrame} />
           : onFrame ? <button className="rh-btn" onClick={() => onFrame({ orientation: hasPeople ? 'portrait' : 'landscape', subject: hasPeople ? { x: 0.33, y: 0.62, w: 0.22, h: 0.55 } : null, horizon: 0.66 })}>画构图框</button> : null}</section>}
       {hasPeople && d.outfit ? <section><h3>服饰</h3>{d.outfit.palette && <span className="ex-palette">{d.outfit.palette.map(c => <i key={c} style={{ background: c }} title={c} />)}</span>}{d.outfit.notes && <p>{d.outfit.notes}</p>}</section> : null}

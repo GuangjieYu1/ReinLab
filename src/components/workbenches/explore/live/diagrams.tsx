@@ -13,27 +13,33 @@ export function PoseFigure({ pose, title }: { pose: Pose; title?: boolean }) {
 
 const shutter = (s: number) => s >= 1 ? `${s}s` : `1/${Math.round(1 / s)}`;
 /** 参数行：建议起点，不冒充实际相机设置；未知写"—"。 */
-export function SettingsRow({ s }: { s: ShotSettings | undefined }) {
+export function SettingsRow({ s, names }: { s: ShotSettings | undefined; names?: Record<string, string> }) {
   if (!s) return null;
+  // 没带快照名称时，按资料 id 从计划里选中的器材取名字
+  const body = s.snapshot?.body ?? (s.bodyId ? names?.[s.bodyId] : undefined), lens = s.snapshot?.lens ?? (s.lensId ? names?.[s.lensId] : undefined);
   const cells: [string, string][] = [
     ['焦段', s.focalMm ? `${s.focalMm}mm` : '—'], ['光圈', s.aperture ? `f/${s.aperture}` : '—'],
     ['快门', s.shutterS ? shutter(s.shutterS) : '—'], ['ISO', s.iso ? String(s.iso) : '—'],
   ];
-  return <div className="exd-settings"><span className="exd-k">建议起点{s.snapshot?.body || s.snapshot?.lens ? ` · ${[s.snapshot?.body, s.snapshot?.lens].filter(Boolean).join(' + ')}` : ''}</span>
+  return <div className="exd-settings"><span className="exd-k">建议起点{body || lens ? ` · ${[body, lens].filter(Boolean).join(' + ')}` : ''}</span>
     <div>{cells.map(([k, v]) => <span key={k}><small>{k}</small><b>{v}</b></span>)}</div></div>;
 }
 
 /** 构图框：横 3:2 / 竖 2:3 + 三分线；人物框和地平线可拖，松手时回调（写回 detail.frame）。不改地理站位。 */
 export function FrameBox({ frame, onChange }: { frame: Frame | undefined; onChange?: (f: Frame) => void }) {
-  const [f, setF] = useState<Frame>(frame ?? { orientation: 'portrait', subject: { x: 0.33, y: 0.62, w: 0.22, h: 0.55 }, horizon: 0.66 });
+  const [f, setFState] = useState<Frame>(frame ?? { orientation: 'portrait', subject: { x: 0.33, y: 0.62, w: 0.22, h: 0.55 }, horizon: 0.66 });
+  // 松手时要拿到最后一次拖动的位置（快速拖时最后一次 setState 还没渲染），所以另存一份最新值
+  const latest = useRef(f);
+  const setF = (u: Frame | ((cur: Frame) => Frame)) => setFState(cur => { const n = typeof u === 'function' ? u(cur) : u; latest.current = n; return n; });
   const box = useRef<HTMLDivElement>(null), drag = useRef<'subject' | 'horizon' | null>(null);
   const rel = (e: React.PointerEvent) => { const r = box.current!.getBoundingClientRect(); return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) }; };
   const move = (e: React.PointerEvent) => {
     if (!drag.current || !onChange) return;
     const p = rel(e);
-    setF(cur => drag.current === 'horizon' ? { ...cur, horizon: p.y } : cur.subject ? { ...cur, subject: { ...cur.subject, x: p.x, y: p.y } } : cur);
+    const cur = latest.current;
+    setF(drag.current === 'horizon' ? { ...cur, horizon: p.y } : cur.subject ? { ...cur, subject: { ...cur.subject, x: p.x, y: p.y } } : cur);
   };
-  const end = () => { if (drag.current && onChange) onChange(f); drag.current = null; };
+  const end = () => { if (drag.current && onChange) onChange(latest.current); drag.current = null; };
   const s = f.subject;
   return <div className="exd-frame-wrap">
     <div className="exd-frame" ref={box} data-o={f.orientation} onPointerMove={move} onPointerUp={end} onPointerLeave={end}>

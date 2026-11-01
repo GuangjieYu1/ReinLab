@@ -167,6 +167,10 @@ const stopFieldText = (key: string): string =>
     refs: "参考图",
     detail: "细节",
     geometry: "位置",
+    subjectPoint: "模特站位",
+    cameraHeightM: "相机离地高度",
+    subjectHeightM: "模特受光高度",
+    areaRef: "片区参考点",
   })[key] ?? key;
 
 /** 卡片能力名：kernel 卡取 effects[0].capability，档案确认卡取 effects.kind。 */

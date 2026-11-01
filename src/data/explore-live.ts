@@ -126,7 +126,8 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
     places: async (q, near) => (await call<{ items: never[] }>('GET', `/v1/explore/places?q=${enc(q)}${near ? `&near=${near[0]},${near[1]}` : ''}`)).items,
     mapConfig: () => call('GET', '/v1/explore/map-config'),
     profiles: async () => (await call<{ items: Profile[] }>('GET', '/v1/profiles')).items,
-    saveProfile: p => p.id ? call('PATCH', `/v1/profiles/${enc(p.id)}`, { ...p, baseRevision: p.revision }) : call('POST', '/v1/profiles', p),
+    // PATCH 不收 type（类型不能改）；id / revision 走路径和 baseRevision
+    saveProfile: p => { if (!p.id) return call('POST', '/v1/profiles', p); const { id, revision, type: _t, ...rest } = p as typeof p & { type: string }; return call('PATCH', `/v1/profiles/${enc(id!)}`, { ...rest, baseRevision: revision }); },
     async deleteProfile(id) { await call('DELETE', `/v1/profiles/${enc(id)}`); },
     async uploadRef(file, kind) {
       const f = new FormData(); f.append('file', file); f.append('kind', kind);
@@ -204,7 +205,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
       let active: AbortController | null = null;
       let gen = 0;   // 每次 load 一代：开发模式下 effect 会跑两次，旧的那次要让路，不能和新的互相掐断
       /** history=true：只把一轮已结束的回放进来（读到 done 就返回，不动 stopped）。 */
-      async function follow(runId: string, history = false) {
+      async function follow(runId: string, history = false, my = gen) {
         let after = 0;
         const tag = runId.slice(0, 8) + ':';   // 每轮的 seq 从头数，加前缀免得不同轮的条目撞 id
         active?.abort();
@@ -212,7 +213,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
         active = ctl;
         const stopIt = () => ctl.abort();
         try {
-          while (!stopped) {
+          while (!stopped && my === gen) {   // 换代了（又 load 了一次，或发了新消息）就让路
             let response: Response;
             try {
               response = await readEventStream(`/v1/kernel/runs/${runId}/stream?after=${after}`, ctl.signal, after);
@@ -246,7 +247,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
                 if (frame.done) { if (!history) stopped = true; return; }
               }
             }
-            if (stopped || history) return;
+            if (stopped || history || my !== gen) return;
             // 服务端主动收尾（超时/重启）：稍后按 last seq 重连一次，页面看得到断点也会自愈。
             await new Promise(r => setTimeout(r, 800));
           }
@@ -264,9 +265,9 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
             // 每句话是一轮：先按时间顺序回放之前几轮（卡片也要在），再跟住最新一轮
             const mine = runs.filter(r => r.mode === 'explore');
             const last = mine[0];
-            for (const r of mine.slice(1, 12).reverse()) { if (stopped || my !== gen) return; await follow(r.id, true); }
+            for (const r of mine.slice(1, 12).reverse()) { if (stopped || my !== gen) return; await follow(r.id, true, my); }
             if (my !== gen) return;
-            if (last) await follow(last.id);
+            if (last) await follow(last.id, false, my);
             else on(items, false);
           } catch (e) {
             // 读历史失败要看得见，不要静默成"空对话"。
@@ -279,7 +280,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
           push([{ id: `local-${Date.now()}`, kind: 'user', text }]); on(items, true);
           const run = await api('/v1/kernel/runs', { dossierId, query: text, mode: 'explore', ...(refIds?.length ? { refIds } : {}) }, crypto.randomUUID()) as { id: string };
           items = items.filter(x => !x.id.startsWith('local-'));
-          await follow(run.id);
+          await follow(run.id, false, ++gen);   // 新的一代：还在回放的历史 / 旧的跟随都让路
         },
         stop() { stopped = true; active?.abort(); active = null; },
       };

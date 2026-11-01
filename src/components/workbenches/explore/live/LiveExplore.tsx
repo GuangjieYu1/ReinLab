@@ -13,7 +13,7 @@ import { api, currentAccountId } from '../../../../data/research-live';
 import { useExplore } from './state';
 import LiveMap from './LiveMap';
 import LiveDayLine from './LiveDayLine';
-import { StopAside, StopCard, StopDetail, KIND_TEXT, RefTile } from './StopPanel';
+import { StopAside, StopCard, StopDetail, KIND_TEXT, RefTile, type SceneApi } from './StopPanel';
 import BookView from './BookView';
 import ProfilesPanel from './ProfilesPanel';
 import PlacesPanel from './PlacesPanel';
@@ -34,12 +34,13 @@ const VIEWS: ExplorerViewDef[] = [
   { id: 'profiles', label: '资料', icon: <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5" /><path d="M5 20c1-4 4-6 7-6s6 2 7 6" /></svg> },
 ];
 const browserTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
-const FIELD: Record<string, string> = { name: '名称', kind: '类型', geometry: '位置', day: '日期', window: '时段', reason: '理由', facing: '朝向', focal: '焦段', detail: '细节', refs: '参考' };
+const FIELD: Record<string, string> = { name: '名称', kind: '类型', geometry: '位置', day: '日期', window: '时段', reason: '理由', facing: '朝向', focal: '焦段', detail: '细节', refs: '参考', subjectPoint: '模特站位', cameraHeightM: '相机离地高度', subjectHeightM: '模特受光高度', areaRef: '片区参考点' };
 
 export default function LiveExplore({ file, reduced, chrome, dossier, adapter }: BenchProps & { adapter: ExploreAdapter }) {
   const x = useExplore(adapter);
   const [face, setFace] = useState<Face>('plan');
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>(null);
+  const sceneSubs = useRef(new Set<(stopId: string) => void>());
   // 游记 / 对话里的照片引用 ![说明](photo:<id>) → 这份档案的预览图
   const photoSrc = useMemo(() => (id: string) => adapter.review.media(`/v1/explore/plans/${encodeURIComponent(dossier?.id ?? '')}/photos/${encodeURIComponent(id)}/preview`), [adapter, dossier?.id]);
   const openReview = (part: NonNullable<ReviewFocus>['part'], photoIds?: string[]) => { setFace('review'); setReviewFocus(f => ({ part, photoIds, n: (f?.n ?? 0) + 1 })); };
@@ -105,6 +106,8 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     for (const ev of x.events.slice(handled.current)) {
       if (ev.type === 'explore.weather') { void loadWeather(); adapter.suggestions().then(setSugs, () => {}); }
       if (ev.type === 'explore.book') setPdf(p => ({ variant: p?.variant ?? 'brief', state: ev.state, text: ev.state === 'done' ? '已生成，在档案菜单「成果」里打开' : `没生成：${ev.message ?? '原因未知'}` }));
+      if (ev.type === 'explore.light') void x.reload();   // light2 是服务端异步算的：算完再取计划
+      if (ev.type === 'explore.scene') sceneSubs.current.forEach(f => f(ev.stopId));
       if (ev.type === 'explore.snapshots_needed' && cfg && x.snap && ev.revision === x.snap.plan.revision) void uploadSnapshots(ev.keys, ev.revision);
     }
     handled.current = x.events.length;
@@ -154,6 +157,12 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
     catch (e) { setFound(null); setErr(e instanceof Error ? e.message : '没搜到'); }
   };
   // —— 页面动作（点击即授权）——
+  const sceneApiFor = (st: Stop): SceneApi => ({
+    scene: id => adapter.scene(id),
+    recompute: id => adapter.recomputeLight(id),
+    onScene: f => { sceneSubs.current.add(f); return () => { sceneSubs.current.delete(f); }; },
+    patch: p => void x.run([{ op: 'stop.update', id: st.id, patch: p }], sn => sn.plan.stops.some(s2 => s2.id === st.id)),
+  });
   const keep = (id: string) => void x.run([{ op: 'stop.confirm', ids: [id] }], s => s.plan.stops.some(st => st.id === id && st.state === 'candidate'));
   const drop = (id: string) => void x.run([{ op: 'stop.remove', id }], s => s.plan.stops.some(st => st.id === id));
   const confirmAll = async () => {
@@ -364,7 +373,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
         {view === 'map' ? mapArea : <BookView plan={plan} title={dossier?.title ?? '探索计划'} refs={x.snap.refs} weather={weather} variant={variant} onVariant={setVariant} onPdf={v => void makePdf(v)} pdfState={pdf} />}
         <LiveDayLine plan={plan} day={day} tz={tz} selected={sel} onSelect={setSel} t={t} onT={setT} weather={weather} />
       </div>
-      : stop ? <StopDetail plan={plan} stop={stop} day={day} tz={tz} minutes={t} refs={x.snap.refs} hasPeople={hasPeople} onMinutes={setT} loadScene={id => adapter.scene(id)}
+      : stop ? <StopDetail plan={plan} stop={stop} day={day} tz={tz} minutes={t} refs={x.snap.refs} hasPeople={hasPeople} onMinutes={setT} sceneApi={sceneApiFor(stop)}
           onFrame={f => void x.run([{ op: 'stop.update', id: stop.id, patch: { detail: { ...(stop.detail ?? {}), frame: f } } }], s => s.plan.stops.some(st => st.id === stop.id))} />
       : <div className="ex-center"><div className="de"><p>先在计划面的地图或左边列表里选一个停留点。</p></div></div>}
       <div className="exl-dock" onPaste={e => { if (e.clipboardData.files.length) { e.preventDefault(); void addFiles(e.clipboardData.files); } }}

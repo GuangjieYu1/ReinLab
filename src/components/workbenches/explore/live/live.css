@@ -167,3 +167,13 @@
 .exl-prof-item { display: grid; gap: 2px; padding: 6px 8px; border: 1px solid #14121322; background: #fbfbf9; font-size: 12.5px; }
 .exl-prof-item p { margin: 2px 0; line-height: 1.5; } .exl-prof-item small { font: 500 10.5px/1.4 var(--rh-f-mono); color: #6b6865; }
 .exl-prof-form textarea { font: 500 12.5px/1.45 var(--rh-f-ui); border: 1px solid #14121355; padding: 4px 6px; background: #fff; }
+.exl-detail-body section.is-wide { grid-column: 1 / -1; }
+.exw-pos { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 12.5px; }
+.exw-pos input { width: 64px; font: 500 12.5px/1.2 var(--rh-f-mono); padding: 4px; border: 1px solid #141213; background: #fff; }
+.exw-pos .rh-btn[aria-pressed='true'] { background: #ff7a1a; border-color: #ff7a1a; color: #141213; }
+.exw-warn { color: #b84d00; font: 500 11px/1.3 var(--rh-f-mono); }
+.exw-tools select { font: 500 11px/1.2 var(--rh-f-mono); padding: 2px 4px; border: 1px solid #141213; background: #fff; }
+.exw-stage[data-pick] canvas { cursor: crosshair; }
+.exw-pickhint { position: absolute; left: 8px; top: 8px; z-index: 2; background: #ff7a1a; color: #141213; font: 600 11.5px/1.3 var(--rh-f-mono); padding: 4px 8px; pointer-events: none; }
+.exw-info { position: absolute; right: 8px; top: 8px; z-index: 2; max-width: 260px; display: grid; gap: 2px; background: #fbfbf9; border: 1px solid #141213; padding: 6px 8px; font-size: 12px; }
+.exw-info small { font: 500 10.5px/1.4 var(--rh-f-mono); color: #6b6865; }
