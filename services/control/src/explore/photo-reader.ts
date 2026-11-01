@@ -19,6 +19,11 @@ export type PhotoObservation = {
 export type PhotoReader = (input: {
   images: { photoId: string; data: string; mimeType: string; label?: string }[];
   ask?: string;
+  /**
+   * 一次调用里允许被认领的照片 id（联系表是一张图对多张照片：图里按顺序列出这些 id）。
+   * 不给就只认 images 里带的 photoId。
+   */
+  photoIds?: string[];
 }) => Promise<{
   observations: PhotoObservation[];
   summary: string;
@@ -106,7 +111,10 @@ export function createPhotoReader(options: {
       ? payload.content.filter((block) => block?.type === "text").map((block) => block.text ?? "").join("")
       : "";
     const parsed = extractJson(text);
-    const observations = normalizeObservations(parsed, input.images.map((image) => image.photoId));
+    const observations = normalizeObservations(
+      parsed,
+      input.photoIds?.length ? input.photoIds : input.images.map((image) => image.photoId),
+    );
     if (!parsed || typeof parsed !== "object")
       throw new Error("photo reader: 没有可解析的结论");
     return {

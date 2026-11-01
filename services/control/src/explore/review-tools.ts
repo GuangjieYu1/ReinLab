@@ -285,12 +285,14 @@ export async function reviewTool(
     const viewed = await deps.reader({
       images: [
         {
-          photoId: rows[0].id,
+          photoId: "contact-sheet",
           data: sheet.toString("base64"),
           mimeType: "image/jpeg",
           label: "联系表（左到右、上到下依次是下面这些）",
         },
       ],
+      // 一张联系表对应多张照片：按顺序的 id 都要能被认领，只认图里那个 id 会把其余结论全丢掉。
+      photoIds: rows.map((row) => row.id),
       ask: `这是一张联系表，每格按顺序对应下面的一张照片。请按 photoId 逐个给结论（看不清就说 uncertain）：\n${legend}`,
     });
     await recordVision(

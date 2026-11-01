@@ -22,6 +22,7 @@ import { localPhotoStore } from "../src/explore/photo-store";
 import type { PhotoReader } from "../src/explore/photo-reader";
 import { createWeatherJudge } from "../src/explore/weather-judge";
 import { withDossierContext, splitInjected } from "../src/dossier/deliver";
+import { normalizeObservations } from "../src/explore/photo-reader";
 
 const admin = new pg.Pool({
   connectionString: process.env.TEST_DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/reinlab_test",
@@ -713,6 +714,17 @@ describe("对话里的回顾工具", () => {
     } finally {
       client.release();
     }
+  });
+
+  it("联系表一次看多张时，每张照片的结论都不会被筛掉", async () => {
+    const ids = (await readPhotos()).items.slice(0, 3).map((row: any) => row.id);
+    const observations = normalizeObservations(
+      { photos: ids.map((id) => ({ photoId: id, focus: "soft", exposure: "ok", note: "略糊", uncertain: true })) },
+      ids,
+    );
+    expect(observations.map((row) => row.photoId)).toEqual(ids);
+    // 不在名单里的 id 仍然丢掉（不认没给过的照片）。
+    expect(normalizeObservations({ photos: [{ photoId: randomUUID(), focus: "sharp" }] }, ids)).toEqual([]);
   });
 
   it("天气判断的用量带上金额（不再是 token 有、钱没有）", async () => {
