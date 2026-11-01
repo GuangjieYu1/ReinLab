@@ -205,7 +205,7 @@ export async function buildBookPdf(
     cursor: Cursor,
     body: string,
     pose: string | null,
-    options: { size?: number; indent?: number; gap?: number } = {},
+    options: { size?: number; indent?: number; gap?: number; overflow?: (cursor: Cursor) => boolean } = {},
   ) => {
     const size = options.size ?? 9.5;
     const lineHeight = size + 3;
@@ -214,7 +214,7 @@ export async function buildBookPdf(
     const glyphHeight = pose ? 50 * glyphScale : 0;
     const lines = wrap(body, font, size, CONTENT - indent);
     const rowHeight = Math.max(glyphHeight, lines.length * lineHeight);
-    if (cursor.y - rowHeight < MARGIN + 20) return false;
+    if (cursor.y - rowHeight < MARGIN + 20 && !options.overflow?.(cursor)) return false;
     const top = cursor.y;
     if (pose && !input.dryRun) poseGlyph(cursor.page, pose, MARGIN + 1, top - 1, glyphScale);
     lines.forEach((line, index) => {
@@ -260,12 +260,21 @@ export async function buildBookPdf(
   const text = (
     cursor: Cursor,
     value: string,
-    options: { size?: number; color?: typeof INK; gap?: number; indent?: number } = {},
+    options: {
+      size?: number;
+      color?: typeof INK;
+      gap?: number;
+      indent?: number;
+      /** 空间不够时换到续页；给了就续着写，不给就照旧停下（第一个参数返回 false）。 */
+      overflow?: (cursor: Cursor) => boolean;
+    } = {},
   ) => {
     const size = options.size ?? 10;
     const indent = options.indent ?? 0;
     for (const line of wrap(value, font, size, CONTENT - indent)) {
-      if (cursor.y < MARGIN + 28) return false;
+      if (cursor.y < MARGIN + 28) {
+        if (!options.overflow?.(cursor)) return false;
+      }
       cursor.y -= size + 3;
       emit(line);
       if (input.dryRun) continue;
@@ -439,38 +448,56 @@ export async function buildBookPdf(
 
     for (const [index, stop] of stops.entries()) {
       const cursor = newPage();
-      text(cursor, `${index + 1}. ${stop.name}`, { size: 16, gap: 2 });
+      /** 这一点的内容超过一页时续到下一页：页眉写明是哪个点的续页，不丢内容。 */
+      const continued = () => {
+        const page = doc.addPage([PAGE.width, PAGE.height]);
+        pages.push(page);
+        cursor.page = page;
+        cursor.y = PAGE.height - MARGIN;
+        const heading = `${index + 1}. ${stop.name}（续）`;
+        emit(heading);
+        if (!input.dryRun) page.drawText(heading, { x: MARGIN, y: cursor.y - 12, size: 10, font, color: FADED });
+        cursor.y -= 22;
+        return true;
+      };
+      const flow = (value: string, options: Record<string, unknown> = {}): boolean =>
+        text(cursor, value, { ...options, overflow: continued } as never);
+      const guidance = (body: string, pose: string | null) =>
+        guidanceRow(cursor, body, pose, { overflow: continued });
+      flow( `${index + 1}. ${stop.name}`, { size: 16, gap: 2 });
       rule(cursor, RHINE_ORANGE, 1.2);
       await image(cursor, input.snapshots.get(stop.id), 210);
-      text(
-        cursor,
+      flow(
         `类型：${kindText(stop.kind)} · 日期：${stop.day} · 时段：${windowText(stop)}${stop.facing !== undefined ? ` · 朝向 ${stop.facing}°` : ""}`,
         { size: 9.5, gap: 4 },
       );
 
-      text(cursor, "光线", { size: 11, gap: 1 });
+      flow( "光线", { size: 11, gap: 1 });
       if (stop.light?.lit?.length)
-        text(cursor, `地形见光：${stop.light.lit.map((window) => `${clock(window.start)}–${clock(window.end)}`).join("、")}`, { size: 9 });
+        flow( `地形见光：${stop.light.lit.map((window) => `${clock(window.start)}–${clock(window.end)}`).join("、")}`, { size: 9 });
       else
-        text(cursor, "地形见光：未知（没有高程数据，只有天文时段）", { size: 9, color: FADED });
-      text(cursor, stop.light?.basis ? `计算依据：${stop.light.basis.dem} · 半径 ${stop.light.basis.radiusKm}km` : "计算依据：无", {
+        flow( "地形见光：未知（没有高程数据，只有天文时段）", { size: 9, color: FADED });
+      flow( stop.light?.basis ? `计算依据：${stop.light.basis.dem} · 半径 ${stop.light.basis.radiusKm}km` : "计算依据：无", {
         size: 8.5,
         color: FADED,
       });
 
-      if (stop.detail?.composition) text(cursor, `构图：${stop.detail.composition}`, { size: 9.5 });
-      if (stop.focal?.length) text(cursor, `焦段：${stop.focal[0]}–${stop.focal[stop.focal.length - 1]}mm`, { size: 9.5 });
+      if (stop.detail?.composition) flow( `构图：${stop.detail.composition}`, { size: 9.5 });
+      if (stop.focal?.length) flow( `焦段：${stop.focal[0]}–${stop.focal[stop.focal.length - 1]}mm`, { size: 9.5 });
 
       // 引导词：每行前面画姿势小人（有姿势才画），没有字段就整块不出现。
       if (stop.detail?.guidance?.length) {
-        text(cursor, "引导词", { size: 11, gap: 1 });
-        for (const line of stop.detail.guidance.slice(0, 6)) {
+        flow( "引导词", { size: 11, gap: 1 });
+        // 不再截到 6 条：写多少出多少，超过一页就续页（极端长的时候留个保险上限）。
+        for (const line of stop.detail.guidance.slice(0, 60)) {
           const body = typeof line === "string" ? line : line.text;
           const pose = typeof line === "string" ? null : line.pose;
           if (!body) continue;
           // 姿势名放在文字开头（小人只是示意，别让读者去猜）
-          if (!guidanceRow(cursor, pose ? `${POSE_LABEL[pose]} ${body}` : body, pose)) break;
+          if (!guidance(pose ? `${POSE_LABEL[pose]} ${body}` : body, pose)) break;
         }
+        if (stop.detail.guidance.length > 60)
+          flow(`另有 ${stop.detail.guidance.length - 60} 条引导词没排进计划书，见页面。`, { size: 9, color: FADED });
       }
 
       // 参数行：建议起点，未知写「—」，后面带机身 + 镜头。
@@ -487,8 +514,8 @@ export async function buildBookPdf(
         const iso = settings.iso !== null ? `ISO ${settings.iso}` : "—";
         const names = gearNamesOf(settings, input.plan.document.gear);
         const gear = [names.body, names.lens].filter(Boolean).join(" + ");
-        text(cursor, "建议起点", { size: 11, gap: 1 });
-        text(cursor, `${mm} · ${aperture} · ${shutter} · ${iso}${gear ? ` · ${gear}` : ""}`, { size: 9.5 });
+        flow( "建议起点", { size: 11, gap: 1 });
+        flow( `${mm} · ${aperture} · ${shutter} · ${iso}${gear ? ` · ${gear}` : ""}`, { size: 9.5 });
       }
 
       // 构图框：按画幅画 3:2 / 2:3，加三分线、主体框、地平线；没有 frame 就不画。
@@ -497,8 +524,9 @@ export async function buildBookPdf(
         const landscape = frame.orientation === "landscape";
         const boxW = landscape ? 168 : 112;
         const boxH = landscape ? 112 : 168;
-        if (cursor.y - boxH - 26 > MARGIN + 20) {
-          text(cursor, `构图框（${landscape ? "横 3:2" : "竖 2:3"}）`, { size: 11, gap: 1 });
+        if (cursor.y - boxH - 26 <= MARGIN + 20) continued();
+        {
+          flow( `构图框（${landscape ? "横 3:2" : "竖 2:3"}）`, { size: 11, gap: 1 });
           const left = MARGIN;
           const top = cursor.y - 4;
           const bottom = top - boxH;
@@ -556,32 +584,30 @@ export async function buildBookPdf(
       // 受光提示框：机位 / 模特分两行，写此刻状态、下一次见光、未知原因。
       if (stop.light2) {
         const reference = stop.window?.start ? Date.parse(stop.window.start) : input.generatedAt.getTime();
-        text(cursor, "受光（已知数据下的估算）", { size: 11, gap: 1 });
+        flow( "受光（已知数据下的估算）", { size: 11, gap: 1 });
         for (const [label, entry] of [
           ["机位", stop.light2.camera],
           ["模特", stop.light2.subject],
         ] as const) {
           if (!entry) continue;
           const detail = lightTextOf(entry, reference);
-          text(
-            cursor,
+          flow(
             `${label}：${detail.label} · ${detail.when}${detail.assumed ? ` · ${detail.assumed}` : ""}${detail.reason ? ` · ${detail.reason}` : ""}`,
             { size: 9 },
           );
         }
         const missing = [...new Set([...stop.light2.camera.missing, ...(stop.light2.subject?.missing ?? [])])];
-        if (missing.length) text(cursor, `缺项：${missing.slice(0, 3).join("；")}`, { size: 8.5, color: FADED });
+        if (missing.length) flow( `缺项：${missing.slice(0, 3).join("；")}`, { size: 8.5, color: FADED });
       }
       if (stop.detail?.outfit)
-        text(
-          cursor,
+        flow(
           `服饰：${[stop.detail.outfit.palette?.join(" / "), stop.detail.outfit.notes].filter(Boolean).join(" · ") || "未知"}`,
           { size: 9.5 },
         );
 
       const refs = input.refs.filter((ref) => stop.refs.includes(ref.id)).slice(0, 3);
       if (refs.length) {
-        text(cursor, "参考图", { size: 11, gap: 1 });
+        flow( "参考图", { size: 11, gap: 1 });
         for (const ref of refs) {
           const bytes = input.refImages.get(ref.id);
           const png = bytes ? await doc.embedPng(bytes).catch(() => null) : null;
@@ -596,8 +622,7 @@ export async function buildBookPdf(
             });
             cursor.y -= 2;
           }
-          text(
-            cursor,
+          flow(
             `[${ref.kind === "same-spot" ? "该机位实拍" : "风格参考"}] ${ref.author ?? "作者未知"} · ${ref.platform ?? "平台未知"} · ${ref.page?.url ?? "无原网页"}${png ? "" : " · 没拿到图，只有来源"}`,
             { size: 7.5, color: FADED, gap: 3 },
           );
@@ -605,13 +630,12 @@ export async function buildBookPdf(
       }
 
       if (Array.isArray(stop.detail?.rules) && stop.detail.rules.length)
-        text(
-          cursor,
+        flow(
           `规定：${stop.detail.rules.map((entry) => entry.text + (entry.source?.name ? `（${entry.source.name}）` : "")).join("；")}`,
           { size: 9.5 },
         );
-      else text(cursor, "规定：未知", { size: 9.5, color: FADED });
-      text(cursor, `雨天备选：${stop.detail?.fallback ?? "未知"}`, { size: 9.5 });
+      else flow( "规定：未知", { size: 9.5, color: FADED });
+      flow( `雨天备选：${stop.detail?.fallback ?? "未知"}`, { size: 9.5 });
     }
 
     const last = newPage();

@@ -13,6 +13,9 @@ import { Database } from "../src/db/database";
 import { applyMigrations } from "../src/db/migrate";
 import { localExploreStorage } from "../src/explore/storage";
 import { defaultFontFile } from "../src/explore/book-job";
+import { renderBookPdf } from "../src/explore/books";
+import { readFile } from "node:fs/promises";
+import type { StoredPlan } from "../src/explore/plan";
 import { pdfPages } from "../src/mcp/papers";
 import { publishAccountEvent, subscribe } from "../src/dossier/service";
 
@@ -198,6 +201,103 @@ afterAll(async () => {
   await pool.end();
   await admin.end();
   if (storageRoot) await rm(storageRoot, { recursive: true, force: true });
+});
+
+describe("一个点超过一页时续页，不静默丢内容", () => {
+  const buildPlan = (guidanceCount: number): StoredPlan => ({
+    revision: 5,
+    state: "ready",
+    updatedAt: new Date().toISOString(),
+    document: {
+      destination: { name: "北京故宫", center: [116.397, 39.916], timezone: "Asia/Shanghai" },
+      days: ["2026-11-03"],
+      kinds: ["portrait"],
+      feel: null,
+      people: [],
+      gear: [],
+      stops: [
+        {
+          id: "s1",
+          kind: "spot",
+          state: "confirmed",
+          name: "太和门广场 · 内金水桥",
+          geometry: { type: "Point", coordinates: [116.39099, 39.91344] },
+          day: "2026-11-03",
+          window: { start: "2026-11-03T07:10:00+08:00", end: "2026-11-03T08:30:00+08:00" },
+          refs: [],
+          source: "agent",
+          detail: {
+            guidance: Array.from({ length: guidanceCount }, (_, index) => ({
+              id: `g${index + 1}`,
+              text: `第 ${index + 1} 句：站定等檐角的逆光扫过肩膀`,
+              pose: "stand" as const,
+            })),
+            settings: { focalMm: 23, aperture: 2, shutterS: 1 / 250, iso: 200 },
+            frame: { orientation: "portrait" as const, subject: { x: 0.5, y: 0.42, w: 0.36, h: 0.62 }, horizon: 0.58 },
+          },
+          light2: {
+            version: 1,
+            computedAt: new Date().toISOString(),
+            sceneId: "scene",
+            radiusM: 1000,
+            dem: "Copernicus GLO-90（测试）",
+            camera: {
+              point: [116.39099, 39.91344],
+              heightM: 1.5,
+              heightAssumed: true,
+              segments: [
+                { start: "2026-11-03T00:00:00+08:00", end: "2026-11-03T23:59:00+08:00", state: "building" as const },
+              ],
+              litWindows: [],
+              missing: [],
+            },
+            subject: {
+              point: [116.39103, 39.91347],
+              heightM: 1.62,
+              heightAssumed: false,
+              segments: [
+                { start: "2026-11-03T00:00:00+08:00", end: "2026-11-03T23:59:00+08:00", state: "maybe_lit" as const },
+              ],
+              litWindows: [{ start: "2026-11-03T07:20:00+08:00", end: "2026-11-03T16:40:00+08:00" }],
+              missing: [],
+            },
+          },
+        },
+      ],
+      routes: [],
+      conflicts: [],
+      canvas: [],
+      lastViewport: null,
+      basemap: "vector",
+    },
+  });
+
+  const render = async (guidanceCount: number) =>
+    renderBookPdf({
+      dossierTitle: "故宫深秋人像",
+      plan: buildPlan(guidanceCount),
+      variant: "full",
+      snapshots: new Map(),
+      refs: [],
+      refImages: new Map(),
+      weather: null,
+      sun: null,
+      fontBytes: await readFile(defaultFontFile()),
+      generatedAt: new Date(),
+      version: 5,
+    });
+
+  it("内容放得下时不额外加页", async () => {
+    const bytes = Buffer.from(await render(3));
+    expect((await pdfPages(bytes)).length).toBe(3); // 总览 + 停留点页 + 末页
+  });
+
+  it("引导词多到一页放不下就续页（原来第 7 条起被静默丢掉）", async () => {
+    const bytes = Buffer.from(await render(24));
+    // 多出一页续页：内容不丢，页数自己会变。
+    expect((await pdfPages(bytes)).length).toBeGreaterThanOrEqual(4);
+    expect(bytes.length).toBeGreaterThan(10_000);
+  });
 });
 
 describe("计划书里的器材名", () => {
