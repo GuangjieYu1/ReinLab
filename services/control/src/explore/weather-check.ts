@@ -11,6 +11,7 @@ import type { Stop, WeatherHour } from "@reinlab/contracts";
 import { canonical } from "../api/context";
 import { ApiFailure } from "../api/errors";
 import { recordUsage } from "../run/usage";
+import { recordSpend } from "../budget/spend";
 import { currentSlot, nextCheckAt, type CheckReason, type CheckSlot } from "./schedule";
 import { accountTimezone, loadPlan, weatherView } from "./service";
 import type { WeatherTransport } from "./weather";
@@ -263,8 +264,10 @@ export async function runWeatherCheck(
         outputTokens: usage.outputTokens ?? null,
         cacheReadTokens: usage.cacheReadTokens ?? null,
         cacheWriteTokens: usage.cacheWriteTokens ?? null,
-        costCny: null,
+        costCny: usage.costCny ?? null,
       });
+    if (usage.costCny)
+      await recordSpend(client, { account, dossier, costCny: usage.costCny }).catch(() => undefined);
     return finish("failed", `天气判断没成功：${String((error as Error)?.message ?? error).slice(0, 160)}`, {
       detail: { changed: judgeInput.stops.map((stop) => stop.stopId) },
       ...(usage ? { judgeUsage: { model: usage.model, known: usage.known === true } } : {}),
@@ -283,8 +286,10 @@ export async function runWeatherCheck(
     outputTokens: judged.usage.outputTokens,
     cacheReadTokens: judged.usage.cacheReadTokens,
     cacheWriteTokens: judged.usage.cacheWriteTokens,
-    costCny: null,
+    costCny: judged.usage.costCny,
   });
+  // 花了多少就记到这份档案本月的账上：可用额度会真的变少。
+  await recordSpend(client, { account, dossier, costCny: judged.usage.costCny }).catch(() => undefined);
 
   if (!judged.judgement.material)
     return finish("checked", judged.judgement.summary, {

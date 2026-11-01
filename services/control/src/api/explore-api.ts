@@ -665,7 +665,7 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
           updatedAt: new Date(row.created_at).toISOString(),
         },
         format,
-        { title, dossierId: dossier },
+        { title, dossierId: dossier, origin: requestOrigin(c) },
       );
       await registerTravelogueArtifact(client, { account, dossier, revision: wanted, format });
       return new Response(rendered.bytes, {

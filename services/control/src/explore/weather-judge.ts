@@ -5,6 +5,8 @@
  * 模型只输出结构化结论与要改的字段；写入计划仍走「建议 → 用户应用」。
  * 用量由调用方记到这份计划上（用途 weather_judge），未知就记未知，不写 0。
  */
+import { costOf } from "../budget/spend";
+
 export type WeatherJudgeStop = {
   stopId: string;
   name: string;
@@ -28,6 +30,8 @@ export type WeatherJudgeUsage = {
   outputTokens: number | null;
   cacheReadTokens: number | null;
   cacheWriteTokens: number | null;
+  /** 按峰值费率算出来的金额；没有单价或 token 未知就是 null（不是 0）。 */
+  costCny: string | null;
 };
 
 export type WeatherJudge = (input: {
@@ -147,6 +151,8 @@ export function createWeatherJudge(options: {
   maxTokens?: number;
   timeoutMs?: number;
   transport?: (request: Request) => Promise<Response>;
+  /** 峰值费率（每百万 token 人民币）：给了才算金额，没给就照实给 null。 */
+  pricing?: { inputPerMillion: number; outputPerMillion: number };
 }): WeatherJudge {
   const forward = options.transport ?? ((request: Request) => fetch(request, { redirect: "error" }));
   return async (input) => {
@@ -205,6 +211,7 @@ export function createWeatherJudge(options: {
       outputTokens,
       cacheReadTokens: count(usage?.cache_read_input_tokens),
       cacheWriteTokens: count(usage?.cache_creation_input_tokens),
+      costCny: known ? costOf(options.pricing, inputTokens, outputTokens) : null,
     };
     if (!response.ok) {
       const detail = String(

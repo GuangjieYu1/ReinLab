@@ -14,11 +14,12 @@ import sharp from "sharp";
 import type { ExperienceProposal, LngLat } from "@reinlab/contracts";
 import { ApiFailure } from "../api/errors";
 import { monthlyBudgetSnapshot } from "../budget";
+import { recordSpend } from "../budget/spend";
 import { recordUsage } from "../run/usage";
 import { requestApproval } from "../run/approval";
 import { listFieldEvents } from "./field";
 import { loadPlan, stopCenter } from "./service";
-import { markPhotos, photoRow, listPhotos, type PhotoRow } from "./photos";
+import { countPhotos, markPhotos, photoRow, listPhotos, type PhotoRow } from "./photos";
 import { cameraGroups } from "./clock";
 import { buildComparison, latestTravelogue, saveTravelogue } from "./review";
 import type { PhotoStore } from "./photo-store";
@@ -122,6 +123,10 @@ async function recordVision(
     cacheWriteTokens: null,
     costCny: cost,
   });
+  // 花了就记到这份档案本月的账上：可用额度会真的变少，下一次看图才会被拦。
+  await recordSpend(client, { account: input.account, dossier: input.dossier, costCny: cost }).catch(
+    () => undefined,
+  );
 }
 
 async function loadRows(
@@ -194,6 +199,22 @@ export async function reviewTool(
       ...(typeof args.group === "string" ? { group: args.group } : {}),
       limit: Math.min(120, Math.max(1, Number(args.limit) || 60)),
     });
+    const total = await countPhotos(client, {
+      account: input.account,
+      dossier: input.dossier,
+      ...(typeof args.stopId === "string" ? { stopId: args.stopId } : {}),
+      ...(typeof args.group === "string" ? { group: args.group } : {}),
+    });
+    // 这一页之后还剩多少张：拿游标位置数，别把「这一页之外」和「后面还没看的」混成一个数。
+    const remaining = listed.cursor
+      ? await countPhotos(client, {
+          account: input.account,
+          dossier: input.dossier,
+          ...(typeof args.stopId === "string" ? { stopId: args.stopId } : {}),
+          ...(typeof args.group === "string" ? { group: args.group } : {}),
+          after: listed.cursor,
+        })
+      : 0;
     const rows: PhotoRow[] = [];
     for (const item of listed.items) rows.push(await photoRow(client, input.account, input.dossier, item.id));
     const groups = await cameraGroups(client, {
@@ -208,9 +229,15 @@ export async function reviewTool(
           items: rows.map(photoBrief),
           photoIds: rows.map((row) => row.id),
           cursor: listed.cursor,
+          total,
+          returned: listed.items.length,
+          hasMore: Boolean(listed.cursor),
+          remaining,
           // 对时状态先看一眼：时间不准的时候，落位与对照都不该说得太死。
           clock: groups.map((group) => ({ id: group.id, label: group.label, status: group.status, offsetSec: group.offsetSec })),
-          note: "列表只给统计和落位依据；要看清楚对焦/曝光，得用 photo_contact_sheet 或 photo_view。",
+          note: listed.cursor
+            ? `后面还有 ${remaining} 张没列出来（这一页 ${listed.items.length} 张，共 ${total} 张）：要接着看就把 cursor 原样传回来翻页；没列出来的那些你没看过，别说成「全部看完了」。`
+            : "列表只给统计和落位依据；要看清楚对焦/曝光，得用 photo_contact_sheet 或 photo_view。",
         },
       },
     };

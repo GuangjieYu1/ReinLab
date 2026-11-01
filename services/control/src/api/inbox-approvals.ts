@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import type pg from "pg";
 import { z } from "zod";
 import type { Hono } from "hono";
 import type { JsonValue } from "@reinlab/contracts";
@@ -332,6 +333,34 @@ export function registerCourses(app: Hono<ApiEnv>, db: Database) {
   );
 }
 
+/**
+ * 把一次决定记成「档案事实」，下一条消息会以「档案变动：…」注记带进会话。
+ * 不写成用户消息：页面上不会显示成用户说的话，模型下一轮也一定能看到。
+ */
+async function noteDecision(
+  client: pg.PoolClient,
+  input: { account: string; dossier: string; approvalId: string; text: string },
+) {
+  await client.query(
+    `insert into event(account_id,dossier_id,kind,action,payload,dedupe_key)
+     values($1,$2,'user_op','decision',$3,$4) on conflict do nothing`,
+    [
+      input.account,
+      input.dossier,
+      JSON.stringify({
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        dossierId: input.dossier,
+        actor: "user",
+        via: "user",
+        action: "decision",
+        text: input.text,
+      }),
+      "approval-decision:" + input.approvalId,
+    ],
+  );
+}
+
 /** Called by the runtime route for `/v1/approvals/:id/decide`. */
 export async function decideInboxCard(
   c: ApiContext,
@@ -434,13 +463,18 @@ export async function decideInboxCard(
         [account, id.data, approved ? "approved" : "rejected"],
       );
       if (!marked.rowCount) throw conflict();
+      const target = effects.target === "model" ? "模特" : "地点";
       if (!approved) {
+        // 结果要告诉模型，但入口不能是「用户说的话」：记成决定事实，
+        // 下一轮由 withDossierContext 以「档案变动：」注记带进去（页面显示成注记，不是用户气泡）。
+        await noteDecision(client, {
+          account,
+          dossier: String(effects.dossierId ?? row.dossier_id),
+          approvalId: row.id,
+          text: `用户没有采纳这条${target}经验（审批 ${row.id}），没有写进资料`,
+        });
         if (row.run_state === "waiting")
-          resume?.(
-            account,
-            row.run_id,
-            `用户没有采纳这条${effects.target === "model" ? "模特" : "地点"}经验（审批 ${row.id}），没有写进资料。不要重复提同一件事。`,
-          );
+          void resume?.(account, row.run_id, "继续。");
         return { status: 200, body: { state: "rejected" } } as any;
       }
       const payload = (effects.payload ?? {}) as Record<string, unknown>;
@@ -481,12 +515,13 @@ export async function decideInboxCard(
           await createProfile(client, account, { ...payload, type: "place" });
         }
       }
-      if (row.run_state === "waiting")
-        resume?.(
-          account,
-          row.run_id,
-          `用户确认了这条${effects.target === "model" ? "模特" : "地点"}经验（审批 ${row.id}），已经写进资料。以后相关规划会自动带上它。`,
-        );
+      await noteDecision(client, {
+        account,
+        dossier: String(effects.dossierId ?? row.dossier_id),
+        approvalId: row.id,
+        text: `用户确认了这条${target}经验（审批 ${row.id}），已经写进资料，以后相关规划会带上它`,
+      });
+      if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
       return { status: 200, body: { state: "approved" } } as any;
     }
     // 天气调整建议：批准就在当时最新的计划上应用那几处改动；不批准就保留原安排。

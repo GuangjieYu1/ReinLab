@@ -881,6 +881,30 @@ export async function listPhotos(
   };
 }
 
+/** 这个筛选下一共有多少张（列表分页时用来告诉模型「后面还有」）。 */
+export async function countPhotos(
+  client: Client,
+  input: { account: string; dossier: string; stopId?: string; group?: string; after?: string },
+): Promise<number> {
+  const params: unknown[] = [input.account, input.dossier];
+  const where = ["account_id=$1", "dossier_id=$2", "deleted_at is null"];
+  if (input.stopId === "__none") where.push("placement_stop_id is null");
+  else if (input.stopId) {
+    params.push(input.stopId);
+    where.push(`placement_stop_id=$${params.length}`);
+  }
+  if (input.group === "unplanned") where.push("placement_basis='unplanned'");
+  else if (input.group === "pending") where.push("placement_basis='pending'");
+  if (input.after) {
+    params.push(input.after);
+    where.push(`created_at > $${params.length}::timestamptz`);
+  }
+  const row = (
+    await client.query(`select count(*)::int n from explore_photo where ${where.join(" and ")}`, params)
+  ).rows[0];
+  return Number(row?.n ?? 0);
+}
+
 export async function photoRow(client: Client, account: string, dossier: string, photoId: string): Promise<PhotoRow> {
   if (!/^[0-9a-f-]{36}$/i.test(photoId)) throw new ApiFailure("PHOTO_NOT_FOUND", 404, "找不到这张照片。");
   const row = (

@@ -20,6 +20,8 @@ import { applyMigrations } from "../src/db/migrate";
 import { KernelAuth } from "../src/kernel/auth";
 import { localPhotoStore } from "../src/explore/photo-store";
 import type { PhotoReader } from "../src/explore/photo-reader";
+import { createWeatherJudge } from "../src/explore/weather-judge";
+import { withDossierContext, splitInjected } from "../src/dossier/deliver";
 
 const admin = new pg.Pool({
   connectionString: process.env.TEST_DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/reinlab_test",
@@ -170,6 +172,9 @@ async function finishUpload(upload: Upload, bytes: Buffer, from: number) {
   return patched;
 }
 
+/** 和 main.ts 一样的算法：每百万 token 单价 × token。测试里费率是 2 / 8。 */
+const expectedSpend = (input: number, output: number) => (input * 2 + output * 8) / 1_000_000;
+
 let manualId: string | null = null;
 
 const readPhotos = async (query = "") =>
@@ -204,7 +209,10 @@ const tool = async (name: string, args: Record<string, unknown> = {}) => {
 
 beforeAll(async () => {
   await applyMigrations(admin, resolve("infra/supabase/migrations"));
-  await admin.query("insert into account(id,display_name) values($1,'A'),($2,'B')", [A, B]);
+  await admin.query(
+    "insert into account(id,display_name,monthly_budget_cny) values($1,'A',5),($2,'B',5)",
+    [A, B],
+  );
   await admin.query(
     "insert into dossier(id,account_id,bench,title,workspace_path) values($1::uuid,$2,'exploration',$3,$4)",
     [dossierA, A, "呼伦贝尔秋日", "/data/dossiers/" + dossierA],
@@ -227,8 +235,10 @@ beforeAll(async () => {
     photoReader: (async () => ({
       observations: [],
       summary: "",
-      usage: { inputTokens: null, outputTokens: null, model: "fixture" },
+      // 真 token：看图花费要能算出来并记到账上。
+      usage: { inputTokens: 1200, outputTokens: 300, model: "fixture" },
     })) as unknown as PhotoReader,
+    reviewPricing: { inputPerMillion: 2, outputPerMillion: 8 },
   });
   await new Promise<void>((ready) => {
     server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" }, () => ready());
@@ -511,6 +521,30 @@ describe("落位、对时与回顾", () => {
     expect(artifacts.rows.map((row) => row.title)).toContain("游记 · 第 1 版（MD）");
   });
 
+  it("游记用约定写法引用照片：正文存原样，photoIds 记下来，导出换成真图片地址", async () => {
+    const photo = (await readPhotos()).items[0];
+    const saved = await (
+      await api("PUT", `/v1/explore/plans/${dossierA}/review/travelogue`, {
+        baseRevision: 1,
+        markdown: `## 傍晚\n\n![落日](photo:${photo.id})\n\n- 风大，压了石头`,
+      })
+    ).json();
+    expect(saved.revision).toBe(2);
+    expect(saved.photoIds).toEqual([photo.id]);
+    // 正文原样保存：页面要能自己认出 photo:<id> 并渲染成图片。
+    expect(saved.markdown).toContain(`](photo:${photo.id})`);
+
+    const md = await (await api("GET", `/v1/explore/plans/${dossierA}/review/travelogue/export?format=md`)).text();
+    expect(md).toContain("](http://127.0.0.1");
+    expect(md).toContain(`/backend/v1/explore/plans/${dossierA}/photos/${photo.id}/preview)`);
+    expect(md).not.toContain("photo:");
+    const html = await (
+      await api("GET", `/v1/explore/plans/${dossierA}/review/travelogue/export?format=html`)
+    ).text();
+    expect(html).toContain(`/photos/${photo.id}/preview`);
+    expect(html).toContain('<img alt="落日"');
+  });
+
   it("地点经验走 /v1/profiles（type=place），可改可删", async () => {
     const created = await api("POST", "/v1/profiles", {
       type: "place",
@@ -566,12 +600,21 @@ describe("对话里的回顾工具", () => {
     expect(after.picked).toBe(false);
   });
 
-  it("照片分页不漏不重（游标带库里的精确时间）", async () => {
+  it("照片分页不漏不重，并且告诉模型后面还有多少张", async () => {
     const all: string[] = [];
     let cursor: string | undefined;
     for (let guard = 0; guard < 40; guard += 1) {
       const page = await tool("photos", { limit: 2, ...(cursor ? { cursor } : {}) });
       expect(page.status).toBe(200);
+      const result = page.body.result;
+      if (result.hasMore) {
+        // 翻页时模型必须知道「还有没列出来的」，不能把这一页当成全部。
+        expect(result.remaining).toBeGreaterThan(0);
+        expect(result.note).toContain("还有");
+        expect(result.total).toBeGreaterThan(result.returned);
+      } else {
+        expect(result.remaining).toBe(0);
+      }
       all.push(...page.body.result.photoIds);
       cursor = page.body.result.cursor ?? undefined;
       if (!cursor) break;
@@ -590,7 +633,23 @@ describe("对话里的回顾工具", () => {
     const travelogue = await tool("travelogue", { markdown: "# 第二天\n\n又去了一号机位。" });
     expect(travelogue.status).toBe(200);
     expect(typeof travelogue.body.result.travelogueId).toBe("string");
-    expect(travelogue.body.result.revision).toBe(2);
+    expect(travelogue.body.result.revision).toBeGreaterThan(1);
+  });
+
+  it("看图的花费记到这份档案本月的账上，可用额度真的变少", async () => {
+    const before = await (await api("GET", "/v1/me")).json();
+    const photo = (await readPhotos()).items[0];
+    const viewed = await tool("photo_view", { photoIds: [photo.id] });
+    expect(viewed.status).toBe(200);
+    const after = await (await api("GET", "/v1/me")).json();
+    const spent = expectedSpend(1200, 300);
+    expect(Number(after.budget.availableCny)).toBeLessThan(Number(before.budget.availableCny));
+    expect(Number(before.budget.availableCny) - Number(after.budget.availableCny)).toBeCloseTo(spent, 6);
+    const rows = await admin.query(
+      "select coalesce(sum(spent_cny),0)::text total from budget_allocation where account_id=$1",
+      [A],
+    );
+    expect(Number(rows.rows[0].total)).toBeGreaterThan(0);
   });
 
   it("经验提案只出 pending，用户批准后才写进资料", async () => {
@@ -619,6 +678,65 @@ describe("对话里的回顾工具", () => {
     expect(decided.status).toBe(200);
     const after = await (await api("GET", "/v1/profiles?type=place")).json();
     expect(after.items.some((row: any) => row.name === "一号机位")).toBe(true);
+
+    // 结果要告诉模型：记成档案事实，下一轮由「档案变动：」注记带进会话（不是用户气泡）。
+    const noted = await admin.query(
+      "select payload->>'text' text from event where account_id=$1 and dossier_id=$2 and kind='user_op' and action='decision'",
+      [A, dossierA],
+    );
+    expect(noted.rows.map((row) => row.text).join("；")).toContain("用户确认了这条地点经验");
+
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      await client.query("select set_config('app.account_id',$1,true)", [A]);
+      await client.query(
+        `insert into dsh_session(account_id,dossier_id,session_id,home_path,mode)
+         values($1,$2,$3,'/tmp','explore') on conflict do nothing`,
+        [A, dossierA, "ds-fixture"],
+      );
+      const prompt = await withDossierContext(client, {
+        account: A,
+        dossier: dossierA,
+        sessionId: "ds-fixture",
+        prompt: "继续。",
+      });
+      expect(prompt.startsWith("档案变动：")).toBe(true);
+      expect(prompt).toContain("用户确认了这条地点经验");
+      expect(prompt.endsWith("继续。")).toBe(true);
+      // 拆出来之后，页面看到的是注记 + 用户那句话，而不是「用户说了一整段审批结果」。
+      const pieces = splitInjected({ type: "user/message", data: { content: [{ type: "text", text: prompt }] } });
+      expect(pieces).toHaveLength(2);
+      expect((pieces[0].data as any).content[0].text.startsWith("档案变动：")).toBe(true);
+      expect((pieces[1].data as any).content[0].text).toBe("继续。");
+      await client.query("rollback");
+    } finally {
+      client.release();
+    }
+  });
+
+  it("天气判断的用量带上金额（不再是 token 有、钱没有）", async () => {
+    const judge = createWeatherJudge({
+      baseUrl: "https://provider.example/anthropic",
+      apiKey: "test-key",
+      model: "judge-fixture",
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      transport: async () =>
+        new Response(
+          JSON.stringify({
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ material: false, summary: "没有明显影响", changes: [] }),
+              },
+            ],
+            usage: { input_tokens: 1000, output_tokens: 250 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    });
+    const { usage } = await judge({ timezone: TZ, destination: "呼伦贝尔", revision: 1, stops: [] });
+    expect(usage.costCny).toBe(expectedSpend(1000, 250).toFixed(6));
   });
 
   it("别的账户读不到这些照片", async () => {

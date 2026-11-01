@@ -286,3 +286,6 @@ type OfflineManifest = {
 8. **看的等级**：联系表 = `preview`，看局部 = `detail`；模型声称细看过但实际没看过局部时会被降成 `preview`。
 9. **对照口径**：`none_found` 只表示没找到拍摄证据；只有「时间可信的照片」或「拍到了」打卡才给 `lateMin`，只「到了」给实际到达时间但不给迟到分钟。
 10. **回顾工具**：`explore_photos`、`explore_contact_sheet`、`explore_photo_view`、`explore_photo_mark`、`explore_field_events`、`explore_compare`、`explore_travelogue`、`explore_experience`；结果里分别带 `photoIds` / `comparison` / `travelogueId` / `pending.kind='experience'`。看图在 `--real-models` 起栈时才接通（没授权不花钱）。
+11. **游记里的照片引用**：约定写法 `![一句说明](photo:<照片id>)`——服务端存 `photoIds`，导出 md/html 时换成真实图片地址；裸 id 直接写进正文的老写法仍认，但别再用。页面按这个写法渲染成图片。
+12. **审批结果怎么告诉模型**：决定记成档案事实（`user_op` / `decision`），下一轮以「档案变动：…」注记带进会话——页面上是注记，不是用户气泡；紧跟其后的用户消息才是用户说的话。
+13. **预算**：看图和对话的模型调用都按峰值费率估一次再放行（不够就明确拒绝），花费累加到这份档案本月的账上（`budget_allocation.spent_cny`），所以 `/v1/me` 的可用额度会真的减少；金额未知的调用照实记未知，不记 0。

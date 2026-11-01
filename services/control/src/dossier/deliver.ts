@@ -28,7 +28,7 @@ export async function withDossierContext(
       `select seq, payload->>'text' text from event
         where account_id=$1 and dossier_id=$2 and kind='user_op' and seq > $3
           and action in ('create','rename','edit_intent','complete','archive',
-                         'unarchive','delete','attach','detach')
+                         'unarchive','delete','attach','detach','decision')
         order by seq limit 50`,
       [input.account, input.dossier, cursor],
     )

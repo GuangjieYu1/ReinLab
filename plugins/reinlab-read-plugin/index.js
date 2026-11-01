@@ -490,7 +490,7 @@ export function apply(ctx, config) {
       defineTool({
         name: "explore_photos",
         description:
-          "列这次回来的照片：按落位与线索给每一项的 id、文件名、校正后时间、落位依据（gps / event / plan_time / manual / unplanned / pending）、AI 标记与统计提示。这只给统计，不代表你看过照片；要看对焦/曝光得用 explore_contact_sheet 或 explore_photo_view。",
+          "列这次回来的照片：按落位与线索给每一项的 id、文件名、校正后时间、落位依据（gps / event / plan_time / manual / unplanned / pending）、AI 标记与统计提示。返回里带 total / returned / hasMore / remaining：hasMore 为 true 说明后面还有照片没列出来，要接着看就把 cursor 原样传回来翻页。这只给统计，不代表你看过照片；没列出来的那些别说成「全部看完了」。",
         parameters: {
           stopId: { type: "string", description: "只看落位到某个停留点的照片。" },
           group: { type: "string", description: "unplanned（计划外）| pending（待确认）。" },
@@ -591,7 +591,7 @@ export function apply(ctx, config) {
       defineTool({
         name: "explore_travelogue",
         description:
-          "保存一版游记（Markdown）：正文里用真实碎片（打卡、照片、笔记、天气快照）和照片 id，没有素材的地方不要补。会存成新的一版，用户能在页面上接着改。",
+          "保存一版游记（Markdown）：正文里用真实碎片（打卡、照片、笔记、天气快照），没有素材的地方不要补。要插图就用约定写法 ![一句说明](photo:<照片id>)——页面会渲染成图片，导出时自动换成真实图片地址；别把裸 id 直接写进正文。会存成新的一版，用户能在页面上接着改。",
         parameters: {
           markdown: { type: "string", required: true, description: "游记正文（Markdown）。" },
           baseRevision: { type: "number", description: "在用户看到的那一版上改时传它的修订号；不传就基于最新一版。" },

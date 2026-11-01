@@ -141,9 +141,20 @@ export async function latestTravelogue(client: Client, account: string, dossier:
   return row ? travelogueOf(dossier, row) : null;
 }
 
+/** 正文里的照片引用：`![说明](photo:<id>)` 是约定写法；正文里直接写 id 的老写法也认。 */
+export function photoRefsOf(markdown: string): string[] {
+  const ids = [
+    ...(markdown.match(/!?\[[^\]]*\]\(photo:([0-9a-f-]{36})\)/gi) ?? []).map(
+      (match) => /photo:([0-9a-f-]{36})/i.exec(match)?.[1] ?? "",
+    ),
+    ...(markdown.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) ?? []),
+  ];
+  return [...new Set(ids.filter(Boolean).map((id) => id.toLowerCase()))];
+}
+
 /** 正文里提到哪些照片与外部链接：只留真存在的照片 id。 */
 async function references(client: Client, account: string, dossier: string, markdown: string) {
-  const ids = [...new Set(markdown.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) ?? [])];
+  const ids = photoRefsOf(markdown);
   const photoIds = ids.length
     ? (
         await client.query(
@@ -197,11 +208,18 @@ export async function saveTravelogue(
 export function renderExport(
   travelogue: Travelogue,
   format: "md" | "html",
-  meta: { title: string; dossierId: string },
+  meta: { title: string; dossierId: string; origin?: string },
 ): { bytes: Buffer; mime: string; fileName: string } {
+  // 正文里写的是 `![说明](photo:<id>)`（约定写法，页面能认）；导出时换成真图片地址。
+  const origin = (meta.origin ?? "").replace(/\/+$/, "");
+  const withImages = travelogue.markdown.replace(
+    /\[([^\]]*)\]\(photo:([0-9a-f-]{36})\)/gi,
+    (_match, alt: string, id: string) =>
+      `[${alt}](${origin}/backend/v1/explore/plans/${meta.dossierId}/photos/${id}/preview)`,
+  );
   if (format === "md")
     return {
-      bytes: Buffer.from(travelogue.markdown, "utf8"),
+      bytes: Buffer.from(withImages, "utf8"),
       mime: "text/markdown; charset=UTF-8",
       fileName: `${meta.title}.md`,
     };
@@ -219,7 +237,7 @@ export function renderExport(
     if (list.length) blocks.push(`<ul>${list.map((item) => `<li>${inline(item)}</li>`).join("")}</ul>`);
     list = [];
   };
-  for (const raw of travelogue.markdown.split(/\r?\n/)) {
+  for (const raw of withImages.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) {
       flushList();

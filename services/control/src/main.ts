@@ -30,6 +30,8 @@ import { applyOps, readPlan } from "./explore/service";
 import { publishOps } from "./api/explore-api";
 import { createWeatherScheduler } from "./explore/schedule";
 import { runWeatherCheck } from "./explore/weather-check";
+import { costOf, estimateRequestCost, recordSpend } from "./budget/spend";
+import { monthlyBudgetSnapshot } from "./budget";
 import { publishAccountEvent } from "./dossier/service";
 
 // dsh will not boot inside Electron. The local stack entry sets
@@ -98,6 +100,7 @@ const kernel = new KernelService({
       });
       if (!next.observations.length) return null;
       // 这次读图也是真花钱的调用：按「读图」记一笔，别让它从用量里消失。
+      const feelCost = costOf(reviewPricing, usage.inputTokens, usage.outputTokens);
       await recordUsage(client, {
         account,
         dossier,
@@ -110,8 +113,9 @@ const kernel = new KernelService({
         outputTokens: usage.outputTokens,
         cacheReadTokens: null,
         cacheWriteTokens: null,
-        costCny: null,
+        costCny: feelCost,
       });
+      await recordSpend(client, { account, dossier, costCny: feelCost }).catch(() => undefined);
       return applyOps(client, account, dossier, {
         ops: [{ op: "feel.set", feel: { ...next, refIds: refIds.slice(0, 4) } } as never],
         actor: "agent",
@@ -215,12 +219,20 @@ const localSecrets: Readonly<Record<string, string>> = (() => {
 const providerKey = localSecrets.DEEPSEEK_API_KEY;
 if (realModels && (!providerKey || /[\r\n]/.test(providerKey)))
   throw Error("LOCAL_MODEL_KEY_UNAVAILABLE");
+// 峰值费率（每百万 token）：配了就能在花之前估一次，没配就照实说估不了。
+const reviewPricing = (() => {
+  const input = Number(config.MODEL_INPUT_CNY_PER_MILLION ?? Number.NaN);
+  const output = Number(config.MODEL_OUTPUT_CNY_PER_MILLION ?? Number.NaN);
+  return Number.isFinite(input) && Number.isFinite(output) ? { inputPerMillion: input, outputPerMillion: output } : undefined;
+})();
+
 const weatherJudge = providerKey
   ? createWeatherJudge({
       baseUrl: "https://api.deepseek.com/anthropic",
       apiKey: providerKey,
       model: config.REINLAB_WEATHER_JUDGE_MODEL ?? config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
       provider: "deepseek-official",
+      ...(reviewPricing ? { pricing: reviewPricing } : {}),
     })
   : undefined;
 
@@ -233,13 +245,6 @@ const photoReader = realModels && providerKey
       model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
     })
   : undefined;
-
-// 峰值费率（每百万 token）：配了就能在花之前估一次，没配就照实说估不了。
-const reviewPricing = (() => {
-  const input = Number(config.MODEL_INPUT_CNY_PER_MILLION ?? Number.NaN);
-  const output = Number(config.MODEL_OUTPUT_CNY_PER_MILLION ?? Number.NaN);
-  return Number.isFinite(input) && Number.isFinite(output) ? { inputPerMillion: input, outputPerMillion: output } : undefined;
-})();
 
 // 读图 → 想要的感觉：带图开跑前由服务端读一次，写成计划上的感觉卡。
 const feelReader = providerKey
@@ -334,10 +339,34 @@ if (realModels && providerKey) {
           (usage.inputTokens * inRate + usage.outputTokens * outRate) /
           1_000_000
         ).toFixed(6);
-      await database.withAccount(usage.account, (client) =>
-        recordUsage(client, { ...usage, reasoningTokens: null, costCny: cost }),
-      );
+      await database.withAccount(usage.account, async (client) => {
+        await recordUsage(client, { ...usage, reasoningTokens: null, costCny: cost });
+        // 花了多少就记到这份档案本月的账上：可用额度会真的变少，不用人去盯用量表。
+        await recordSpend(client, { account: usage.account, dossier: usage.dossier, costCny: cost }).catch(
+          () => undefined,
+        );
+      });
     },
+    // 花钱之前先估一次：不够就明确拒绝（这条路径原来完全没有拦截）。
+    ...(reviewPricing
+      ? {
+          estimate: (body: string, maxTokens: number) => estimateRequestCost(reviewPricing, body, maxTokens),
+          guard: async (input: { account: string; dossier: string; estimateCny: number }) => {
+            const snapshot = await database.withAccountSnapshot(input.account, (client) =>
+              monthlyBudgetSnapshot(client),
+            );
+            const available = Number(snapshot.availableCny);
+            if (!Number.isFinite(available)) return { ok: true };
+            return available >= input.estimateCny
+              ? { ok: true }
+              : {
+                  ok: false,
+                  availableCny: available,
+                  message: `本月可用额度只剩 ¥${available.toFixed(2)}，这一次调用预估 ¥${input.estimateCny.toFixed(3)}；先不要继续，等下月或调低用量。`,
+                };
+          },
+        }
+      : {}),
     now: () => Math.floor(Date.now() / 1000),
     providerBaseUrl: "https://api.deepseek.com/anthropic",
     providerKey,
