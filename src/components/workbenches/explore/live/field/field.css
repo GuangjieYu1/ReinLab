@@ -1,7 +1,8 @@
 /* 探索台现场：手机单栏 / iPad 横屏三栏（09-explore-v2.md 第 1 节；10-explore-v2-contract.md 第 4.1 节）。莱茵视觉沿用。 */
 .exf { display: grid; gap: 10px; padding: 12px; overflow: auto; min-height: 0; background: #f0eeea; color: #141213;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(260px, 0.9fr);
-  grid-template-areas: "status status status" "map now log" "map light log" "map guide log" "map act log"; align-content: start; }
+  grid-template-areas: "status status status" "map now log" "map light log" "map guide log" "map act log" "scene scene scene"; align-content: start; }
+.exf-scene { grid-area: scene; display: grid; gap: 6px; }
 .exf-status { grid-area: status; display: flex; flex-wrap: wrap; gap: 6px; }
 .exf-status span { font: 500 10.5px/1 var(--rh-f-mono); padding: 5px 7px; border: 1px solid #14121333; background: #fbfbf9; color: #6b6865; }
 .exf-status span[data-ok] { color: #141213; border-color: #141213; } .exf-status span[data-warn] { color: #b84d00; border-color: #ff7a1a; }
@@ -41,18 +42,18 @@
 /* 按现场区域自身宽度排版（工作台里两侧有栏，比屏幕窄得多） */
 .exl-fieldwrap { container-type: inline-size; }
 @container (max-width: 1000px) and (min-width: 600px) {
-  .exf { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "status status" "now map" "light map" "guide map" "act act" "log log"; }
+  .exf { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "status status" "now map" "light map" "guide map" "act act" "scene scene" "log log"; }
   .exf-map { min-height: 340px; }
 }
 @container (max-width: 599px) {
-  .exf { grid-template-columns: 1fr; grid-template-areas: "status" "now" "light" "guide" "act" "map" "log"; padding: 8px; gap: 8px; }
+  .exf { grid-template-columns: 1fr; grid-template-areas: "status" "now" "light" "guide" "act" "map" "scene" "log"; padding: 8px; gap: 8px; }
   .exf-map { min-height: 0; display: none; } .exf-map[data-open] { display: block; min-height: 320px; }
   .exf-mapbtn { display: inline-flex; }
 }
 
 /* 手机：单栏，信息少而大；地图收起成按钮 */
 @media (max-width: 767px) {
-  .exf { grid-template-columns: 1fr; grid-template-areas: "status" "now" "light" "guide" "act" "map" "log"; padding: 8px; gap: 8px; }
+  .exf { grid-template-columns: 1fr; grid-template-areas: "status" "now" "light" "guide" "act" "map" "scene" "log"; padding: 8px; gap: 8px; }
   .exf-now h2 { font-size: 30px; } .exf-guide li { font-size: 20px; }
   .exf-map { min-height: 0; display: none; } .exf-map[data-open] { display: block; min-height: 320px; }
   .exf-mapbtn { display: inline-flex; }

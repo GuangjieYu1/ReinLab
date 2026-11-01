@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { WeatherView } from '../../../../../../packages/contracts/src/explore';
+import type { Stop, WeatherView } from '../../../../../../packages/contracts/src/explore';
 import type { MapConfig } from '../adapter';
 import { db, type PackRecord, type SnapshotRecord } from '../offline/db';
 import { offlineMapConfig } from '../offline/pack';
@@ -29,12 +29,17 @@ export default function OfflineFieldPage() {
   if (state === 'missing') return <div className="de"><p>这台设备上没有这个离线包（或已被浏览器清理）。能连上 ReinLab 时回到现场页重新准备。</p><a className="rh-btn" href="/">回到入口</a></div>;
 
   const { pack, snap } = state, m = pack.manifest;
+  // 受光（light2）和站位高度在离线包的 light 里：并进计划快照（快照取的是修订那一刻，受光是之后异步算的）
+  const extra = new Map(((snap.light as { stops?: (Partial<Stop> & { stopId: string })[] } | null)?.stops ?? []).map(x => [x.stopId, x]));
+  const plan = { ...snap.snap.plan, stops: snap.snap.plan.stops.map(st => { const x = extra.get(st.id); return x ? { ...st,
+    ...(x.light2 ? { light2: x.light2 } : {}), ...(x.cameraHeightM != null ? { cameraHeightM: x.cameraHeightM } : {}), ...(x.subjectHeightM != null ? { subjectHeightM: x.subjectHeightM } : {}),
+    ...(x.subjectPoint !== undefined ? { subjectPoint: x.subjectPoint } : {}), ...(x.areaRef ? { areaRef: x.areaRef } : {}) } : st; }) };
   const off = offlineMapConfig(m);
   const mapCfg: MapConfig = { vector: { tilejson: '', glyphs: off.glyphs, attribution: '© OpenMapTiles © OpenStreetMap contributors · OpenFreeMap', tiles: off.tiles, minzoom: off.minzoom, maxzoom: off.maxzoom }, satellite: null, contours: null, publicKey: null };
   return <main className="wb wb-exploration exl-fieldpage exl-offline">
     <header className="wb-strip" data-wb-bar><a className="wb-back" href="/">←</a><span className="wb-strip-bench"><b>EXPL</b>离线现场 · {pack.title}</span></header>
     <div className="wb-body exl-fieldwrap">
-      <LiveField plan={snap.snap.plan} title={pack.title} weather={(snap.weather as WeatherView | null) ?? null} adapter={null}
+      <LiveField plan={plan} title={pack.title} weather={(snap.weather as WeatherView | null) ?? null} adapter={null}
         accountId={pack.accountId} dossierId={pack.dossierId} mapCfg={mapCfg} offlinePack={pack} serverRevision={null} />
     </div>
   </main>;

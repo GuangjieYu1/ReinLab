@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ExplorePlan, Stop, WeatherView } from '../../../../../../packages/contracts/src/explore';
 import type { ExploreAdapter, MapConfig } from '../adapter';
+import FieldScene from './FieldScene';
 import LiveMap from '../LiveMap';
 import { center, stopLabels } from '../overlays';
 import { KIND_TEXT, lightAt } from '../StopPanel';
@@ -154,6 +155,8 @@ export default function LiveField(p: FieldProps) {
       {guidance.length === 0 ? <p className="exf-hint">这个点没有引导词</p>
         : <ol>{guidance.map(g => <li key={g.id}>{g.pose ? <PoseFigure pose={g.pose} /> : <span />}<span>{g.text}</span></li>)}</ol>}
     </section>}
+
+    {current && <FieldScene plan={plan} stop={current} day={day} tz={tz} nowMinutes={Math.max(300, Math.min(1260, Math.round(minutes)))} adapter={p.adapter} pack={p.offlinePack} />}
 
     <section className="exf-act">
       <button className="exf-big" disabled={!current} onClick={() => current && void log.add({ kind: 'arrived', stopId: current.id, stopName: current.name, ...(loc.fix ? { position: { at: loc.fix.at, accuracyM: loc.fix.accuracyM } } : {}) })}>到了</button>

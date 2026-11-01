@@ -3,6 +3,7 @@ import type { BuildingScene, ExplorePlan, Frame, RefImage, Stop, WeatherView } f
 import { center, stopLabels } from './overlays';
 import { dateToLocal, dayLight, hm, horizonAt, localToDate, sunPos } from './sunlive';
 import { guidanceLines } from './guidance';
+import SafeBox from './SafeBox';
 import { FrameBox, LightCallout, PoseFigure, SettingsRow } from './diagrams';
 
 export const KIND_TEXT: Record<Stop['kind'], string> = { spot: '固定机位', area: '一片街区', waypoint: '顺路点' };
@@ -124,7 +125,7 @@ function SceneSection({ plan, stop, day, tz, minutes, onMinutes, api }: {
     {!open ? <button className="rh-btn" onClick={() => setOpen(true)}>打开白模</button>
       : err ? <p className="dm-msg">{err} <button className="dm-link" onClick={() => load(true)}>再取一次</button></p>
       : !scene ? <p><em>正在取周边建筑… {waited}s{waited >= 5 ? '（第一次取密集城区要半分钟以上，之后会快）' : ''}</em></p>
-      : <Suspense fallback={<p><em>正在加载白模…</em></p>}>
+      : <SafeBox fallback={e => <p className="dm-msg">白模没能加载：{e.message}</p>}><Suspense fallback={<p><em>正在加载白模…</em></p>}>
           <WhiteModel key={stop.id} scene={scene} stop={stop} day={day} tz={tz} minutes={minutes} onMinutes={onMinutes}
             focals={focals.length ? focals : [35]} sensor={body?.sensor ?? null} orientation={stop.detail?.frame?.orientation ?? 'landscape'}
             cameraHeightM={stop.cameraHeightM ?? 1.5} subjectHeightM={stop.subjectHeightM ?? 1.5}
@@ -134,7 +135,7 @@ function SceneSection({ plan, stop, day, tz, minutes, onMinutes, api }: {
             {stop.light2 ? `受光第 ${stop.light2.version} 版 · ${new Date(stop.light2.computedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 算 · ` : '受光还在算（算完会自动刷新）· '}
             <button className="dm-link" disabled={busy} onClick={() => void recompute()}>{busy ? '正在重算…' : '重算受光'}</button>
           </p>
-        </Suspense>}
+        </Suspense></SafeBox>}
   </section>;
 }
 

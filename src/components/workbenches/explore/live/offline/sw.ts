@@ -10,6 +10,7 @@ export async function cacheShell() {
   const reg = await navigator.serviceWorker?.ready.catch(() => null);
   if (!reg?.active) return false;
   await import('../field/OfflineFieldPage').catch(() => null);
+  await import('../WhiteModel').catch(() => null);   // 离线看白模要用（含 three.js）
   // 资源计时缓冲区可能已满（准备离线包时请求很多），再从 DOM 里的脚本 / 样式 / 预加载链接补一遍
   const fromDom = [...document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>('script[src], link[href]')].map(e => 'src' in e && e.src ? e.src : (e as HTMLLinkElement).href);
   const urls = ['/', ...[...performance.getEntriesByType('resource').map(e => e.name), ...fromDom].map(n => new URL(n, location.href)).filter(u => u.origin === location.origin && !u.pathname.startsWith('/backend')).map(u => u.pathname)];
