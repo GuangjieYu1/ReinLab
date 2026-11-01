@@ -410,13 +410,15 @@ export async function decideInboxCard(
           "update approval set state='rejected', decided_at=now(), decided_scope='once' where account_id=$1 and id=$2",
           [account, id.data],
         );
-        // 驳回也要送回原会话：不送回去，下一轮助手还以为「那张卡在等你点」。
-        if (row.run_state === "waiting")
-          resume?.(
-            account,
-            row.run_id,
-            `用户驳回了这次计划修改（审批 ${row.id}），计划没有被改动。这一项已被拒绝：除非用户在这之后又明确提出，不要再提交它，也不要把它打包进别的修改里。如果他问原因，照实说明这次为什么被退回。`,
-          );
+        // 结果要告诉模型：记成档案事实，下一轮以「档案变动：」注记带进去；
+        // 会话还在等就立刻续接（入口是注记 +「继续。」，不是一整段用户气泡）。
+        await noteDecision(client, {
+          account,
+          dossier: String((effectOf as any)?.dossierId ?? row.dossier_id),
+          approvalId: row.id,
+          text: `用户驳回了这次计划修改（审批 ${row.id}），计划没有被改动；这一项已被拒绝，别再重复提交，也别打包进别的修改`,
+        });
+        if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
         return { status: 200, body: { state: "rejected" } } as any;
       }
       const effects = effectOf as any;
@@ -435,12 +437,13 @@ export async function decideInboxCard(
           approved: { approvalId: id.data },
         });
         onApplied?.(outcome);
-        if (row.run_state === "waiting")
-          resume?.(
-            account,
-            row.run_id,
-            `用户已批准这次计划修改（审批 ${row.id}），已经生效。不要重复提交同一批改动，用一两句话说明改了什么。`,
-          );
+        await noteDecision(client, {
+          account,
+          dossier: String(effects.dossierId ?? row.dossier_id),
+          approvalId: row.id,
+          text: `用户批准了这次计划修改（审批 ${row.id}），已经生效（第 ${outcome.revision} 版）；不要重复提交同一批改动`,
+        });
+        if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
         return { status: 200, body: { state: "approved", revision: outcome.revision } } as any;
       } catch (error) {
         if (error instanceof ApiFailure && STALE_PLAN_CODES.has(error.code)) {
@@ -448,6 +451,13 @@ export async function decideInboxCard(
             "update approval set state='expired', decided_at=now() where account_id=$1 and id=$2",
             [account, id.data],
           );
+          await noteDecision(client, {
+            account,
+            dossier: String(effects.dossierId ?? row.dossier_id),
+            approvalId: row.id,
+            text: `这次计划修改已经不能套用了：计划在卡片之后被改过（${error.message}）`,
+          });
+          if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
           return { status: 200, body: { state: "stale", reason: error.message } } as any;
         }
         throw error;
@@ -536,12 +546,13 @@ export async function decideInboxCard(
       if (!marked.rowCount) throw conflict();
       if (!approved) {
         // 天气调整建议被驳回：同样送回会话，别让助手下一轮还说「等你确认」。
-        if (row.run_state === "waiting")
-          resume?.(
-            account,
-            row.run_id,
-            `用户没有采纳这条天气调整建议（审批 ${row.id}），计划保持原样。不要重复提交同一批改动。`,
-          );
+        await noteDecision(client, {
+          account,
+          dossier: String(effects.dossierId ?? row.dossier_id),
+          approvalId: row.id,
+          text: `用户没有采纳这条天气调整建议（审批 ${row.id}），计划保持原样；别再重复提交同一批改动`,
+        });
+        if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
         return { status: 200, body: { state: "rejected" } } as any;
       }
       try {
@@ -552,6 +563,13 @@ export async function decideInboxCard(
           approved: { approvalId: id.data },
         });
         onApplied?.(outcome);
+        await noteDecision(client, {
+          account,
+          dossier: String(effects.dossierId ?? row.dossier_id),
+          approvalId: row.id,
+          text: `用户采纳了这条天气调整建议（审批 ${row.id}），已经生效（第 ${outcome.revision} 版）`,
+        });
+        if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
         return { status: 200, body: { state: "approved", revision: outcome.revision } } as any;
       } catch (error) {
         if (error instanceof ApiFailure && STALE_PLAN_CODES.has(error.code)) {
@@ -559,6 +577,13 @@ export async function decideInboxCard(
             "update approval set state='expired', decided_at=now() where account_id=$1 and id=$2",
             [account, id.data],
           );
+          await noteDecision(client, {
+            account,
+            dossier: String(effects.dossierId ?? row.dossier_id),
+            approvalId: row.id,
+            text: `这次计划修改已经不能套用了：计划在卡片之后被改过（${error.message}）`,
+          });
+          if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
           return { status: 200, body: { state: "stale", reason: error.message } } as any;
         }
         throw error;

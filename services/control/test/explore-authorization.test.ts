@@ -357,7 +357,14 @@ describe("确认整份计划的授权语义", () => {
     expect(await decided.json()).toMatchObject({ state: "rejected" });
     const delivered = resumed.filter((row) => row.runId === waitingRun);
     expect(delivered).toHaveLength(1);
-    expect(delivered[0].prompt).toContain("驳回");
+    // 续接只送一句「继续。」：具体结果记成档案事实，下一轮以「档案变动：」注记带进会话，
+    // 页面上不会显示成用户说的话。
+    expect(delivered[0].prompt).toBe("继续。");
+    const noted = await admin.query(
+      "select payload->>'text' text from event where account_id=$1 and dossier_id=$2 and kind='user_op' and action='decision'",
+      [A, fresh],
+    );
+    expect(noted.rows.map((row) => row.text).join("；")).toContain("驳回了这次计划修改");
     // 计划没变
     const after = await (await app.request(`/v1/explore/plans/${fresh}`, { headers: headers() })).json();
     expect(after.plan.stops).toHaveLength(1);
