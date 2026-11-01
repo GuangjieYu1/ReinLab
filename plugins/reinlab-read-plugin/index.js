@@ -274,6 +274,21 @@ export function apply(ctx, config) {
 
     register(
       defineTool({
+        name: "explore_scene",
+        description:
+          "取停留点周围 1 km 的真实建筑场景（OpenStreetMap building / building:part）：楼块轮廓、高度来源（tag=height 标签、levels=层数×3 m、unknown 只画轮廓不参与遮挡）、覆盖状态 ok/partial/empty/failed。空查询不代表现场没有楼；楼高缺失时不能当成没遮挡。只给统计，不给整份几何（几何由页面白模用）。",
+        parameters: {
+          stopId: { type: "string", description: "哪个停留点；不传就用第一个已确认的点。" },
+        },
+        output,
+        async execute(args) {
+          return unwrap(await call("explore", "scene", args));
+        },
+      }),
+    );
+
+    register(
+      defineTool({
         name: "explore_light",
         description:
           "算某个停留点的山体遮挡：取周围真实高程（Copernicus GLO-90，约 90 米）估地平线曲线和「山后见光」时段，并写回这份计划（页面与计划书直接读）。取不到高程就返回未知和原因——别默认没遮挡，也别把天文日出当成能拍到光。不传 stopId 就依次算前几个停留点。",
@@ -441,7 +456,7 @@ export function apply(ctx, config) {
       defineTool({
         name: "explore_sun",
         description:
-          "算真实太阳时刻与方向：日出日落、正午、金色时刻（太阳高度 −4°～6°）、蓝调（−6°～−4°），停留点拍摄时段两端的太阳方位（真北 0° 顺时针）与高度角；有地形数据时连同每个点的山后见光时段一起给。方位和时刻按停留点位置与拍摄地点时区。",
+          "算真实太阳时刻与方向：日出日落、正午、金色时刻（太阳高度 −4°～6°）、蓝调（−6°～−4°），停留点拍摄时段两端的太阳方位（真北 0° 顺时针）与高度角；有地形数据时连同每个点的山后见光时段一起给；同时给双位置受光 light2（机位点与模特点分开，state 是 night / terrain / building / maybe_lit / unknown，楼挡时带 buildingIds，未知原因写在 missing）。方位和时刻按停留点位置与拍摄地点时区。只下这几档结论：没有「确定有光」。",
         parameters: {
           stopId: { type: "string", description: "只算某个停留点；不传就算全部停留点（没有停留点时按目的地算）。" },
         },

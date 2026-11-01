@@ -7,7 +7,8 @@
  * 未知的规定、备选、天气一律写「未知」，不编造。
  */
 import type { RefImage, Stop, WeatherHour } from "@reinlab/contracts";
-import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { LineCapStyle, PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { POSE_LABEL, POSE_PATHS } from "@reinlab/contracts";
 import fontkit from "@pdf-lib/fontkit";
 import subsetFont from "subset-font";
 import type { StoredPlan } from "./plan";
@@ -161,6 +162,39 @@ export async function buildBookPdf(
   const stops = orderedStops(confirmed.length ? confirmed : input.plan.document.stops);
   const destination = input.plan.document.destination;
   const days = input.plan.document.days;
+
+  /** 姿势小人：只描边、墨色、线宽 2、圆头（和页面同一份路径）。 */
+  const poseGlyph = (page: PDFPage, pose: string, x: number, top: number, scale = 0.5) => {
+    const path = (POSE_PATHS as Record<string, string>)[pose];
+    if (!path) return 0;
+    page.drawSvgPath(path, {
+      x,
+      // SVG 的 y 向下：把 40×50 的视框整体放到这一行文字的上方。
+      y: top,
+      scale,
+      borderColor: INK,
+      // 线宽按视框单位给 2（和页面同一份路径同一个观感）。
+      borderWidth: 2,
+      borderLineCap: LineCapStyle.Round,
+    });
+    return 50 * scale;
+  };
+
+  /** 受光状态一句话：此刻（计划开拍时）+ 下一次见光；未知就写原因。 */
+  const lightTextOf = (entry: NonNullable<Stop["light2"]>["camera"], at: number) => {
+    const state = { night: "夜间", terrain: "山挡", building: "楼挡", maybe_lit: "预计有光", unknown: "未知" } as const;
+    const segment = entry.segments.find((row) => {
+      const start = Date.parse(row.start);
+      const end = Date.parse(row.end);
+      return Number.isFinite(start) && Number.isFinite(end) && at >= start && at < end;
+    });
+    const label = state[(segment?.state ?? "unknown") as keyof typeof state] ?? "未知";
+    const next = entry.litWindows.find((window) => Date.parse(window.end) > at);
+    const when = next ? `下次见光 ${clock(next.start)}–${clock(next.end)}` : "今天没有预计见光时段";
+    const assumed = entry.heightAssumed ? `按离地 ${entry.heightM} 米假设` : "";
+    const reason = segment?.cause?.note ?? (label === "楼挡" ? `被 ${segment?.cause?.buildingIds?.length ?? 0} 栋楼挡住` : "");
+    return { label, when, assumed, reason };
+  };
 
   const pages: PDFPage[] = [];
   const newPage = (): Cursor => {
@@ -374,8 +408,119 @@ export async function buildBookPdf(
 
       if (stop.detail?.composition) text(cursor, `构图：${stop.detail.composition}`, { size: 9.5 });
       if (stop.focal?.length) text(cursor, `焦段：${stop.focal[0]}–${stop.focal[stop.focal.length - 1]}mm`, { size: 9.5 });
-      if (stop.detail?.guidance?.length && input.plan.document.people.length)
-        text(cursor, `引导词：${stop.detail.guidance.join("；")}`, { size: 9.5 });
+
+      // 引导词：每行前面画姿势小人（有姿势才画），没有字段就整块不出现。
+      if (stop.detail?.guidance?.length) {
+        text(cursor, "引导词", { size: 11, gap: 1 });
+        for (const line of stop.detail.guidance.slice(0, 6)) {
+          const body = typeof line === "string" ? line : line.text;
+          const pose = typeof line === "string" ? null : line.pose;
+          if (!body) continue;
+          const top = cursor.y;
+          if (pose && !input.dryRun) poseGlyph(cursor.page, pose, MARGIN + 2, top - 4, 0.6);
+          if (!text(cursor, `${pose ? `${POSE_LABEL[pose]} ` : ""}${body}`, { size: 9.5, indent: pose ? 32 : 0, gap: 1 }))
+            break;
+        }
+      }
+
+      // 参数行：建议起点，未知写「—」，后面带机身 + 镜头。
+      if (stop.detail?.settings) {
+        const settings = stop.detail.settings;
+        const mm = settings.focalMm !== null ? `${settings.focalMm}mm` : "—";
+        const aperture = settings.aperture !== null ? `f/${settings.aperture}` : "—";
+        const shutter =
+          settings.shutterS === null
+            ? "—"
+            : settings.shutterS >= 1
+              ? `${settings.shutterS}s`
+              : `1/${Math.round(1 / settings.shutterS)}s`;
+        const iso = settings.iso !== null ? `ISO ${settings.iso}` : "—";
+        const gear = [settings.snapshot?.body, settings.snapshot?.lens].filter(Boolean).join(" + ");
+        text(cursor, "建议起点", { size: 11, gap: 1 });
+        text(cursor, `${mm} · ${aperture} · ${shutter} · ${iso}${gear ? ` · ${gear}` : ""}`, { size: 9.5 });
+      }
+
+      // 构图框：按画幅画 3:2 / 2:3，加三分线、主体框、地平线；没有 frame 就不画。
+      if (stop.detail?.frame) {
+        const frame = stop.detail.frame;
+        const landscape = frame.orientation === "landscape";
+        const boxW = landscape ? 168 : 112;
+        const boxH = landscape ? 112 : 168;
+        if (cursor.y - boxH - 26 > MARGIN + 20) {
+          text(cursor, `构图框（${landscape ? "横 3:2" : "竖 2:3"}）`, { size: 11, gap: 1 });
+          const left = MARGIN;
+          const top = cursor.y - 4;
+          const bottom = top - boxH;
+          if (!input.dryRun) {
+            cursor.page.drawRectangle({
+              x: left,
+              y: bottom,
+              width: boxW,
+              height: boxH,
+              borderColor: INK,
+              borderWidth: 0.8,
+            });
+            for (const part of [1 / 3, 2 / 3]) {
+              cursor.page.drawLine({
+                start: { x: left + boxW * part, y: bottom },
+                end: { x: left + boxW * part, y: top },
+                thickness: 0.3,
+                color: FADED,
+              });
+              cursor.page.drawLine({
+                start: { x: left, y: bottom + boxH * part },
+                end: { x: left + boxW, y: top - boxH * (1 - part) },
+                thickness: 0.3,
+                color: FADED,
+              });
+            }
+            if (frame.subject) {
+              const subject = frame.subject;
+              cursor.page.drawRectangle({
+                x: left + (subject.x - subject.w / 2) * boxW,
+                y: bottom + (1 - subject.y - subject.h / 2) * boxH,
+                width: subject.w * boxW,
+                height: subject.h * boxH,
+                borderColor: RHINE_ORANGE,
+                borderWidth: 1.2,
+                opacity: 0,
+                borderOpacity: 1,
+              });
+            }
+            if (frame.horizon !== null) {
+              const y = bottom + (1 - frame.horizon) * boxH;
+              cursor.page.drawLine({
+                start: { x: left - 4, y },
+                end: { x: left + boxW + 4, y },
+                thickness: 1,
+                color: RHINE_ORANGE,
+                dashArray: [3, 2],
+              });
+            }
+          }
+          cursor.y = bottom - 12;
+        }
+      }
+
+      // 受光提示框：机位 / 模特分两行，写此刻状态、下一次见光、未知原因。
+      if (stop.light2) {
+        const reference = stop.window?.start ? Date.parse(stop.window.start) : input.generatedAt.getTime();
+        text(cursor, "受光（已知数据下的估算）", { size: 11, gap: 1 });
+        for (const [label, entry] of [
+          ["机位", stop.light2.camera],
+          ["模特", stop.light2.subject],
+        ] as const) {
+          if (!entry) continue;
+          const detail = lightTextOf(entry, reference);
+          text(
+            cursor,
+            `${label}：${detail.label} · ${detail.when}${detail.assumed ? ` · ${detail.assumed}` : ""}${detail.reason ? ` · ${detail.reason}` : ""}`,
+            { size: 9 },
+          );
+        }
+        const missing = [...new Set([...stop.light2.camera.missing, ...(stop.light2.subject?.missing ?? [])])];
+        if (missing.length) text(cursor, `缺项：${missing.slice(0, 3).join("；")}`, { size: 8.5, color: FADED });
+      }
       if (stop.detail?.outfit)
         text(
           cursor,

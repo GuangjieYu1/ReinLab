@@ -357,9 +357,9 @@ describe("确认整份计划的授权语义", () => {
     expect(await decided.json()).toMatchObject({ state: "rejected" });
     const delivered = resumed.filter((row) => row.runId === waitingRun);
     expect(delivered).toHaveLength(1);
-    // 续接只送一句「继续。」：具体结果记成档案事实，下一轮以「档案变动：」注记带进会话，
-    // 页面上不会显示成用户说的话。
-    expect(delivered[0].prompt).toBe("继续。");
+    // 续接要说明「只是告知」：不然模型会把「继续」当成接着干的指令。
+    // 具体结果记成档案事实，本轮以「档案变动：」注记带进会话，页面上不会显示成用户说的话。
+    expect(delivered[0].prompt).toContain("不是新指令");
     const noted = await admin.query(
       "select payload->>'text' text from event where account_id=$1 and dossier_id=$2 and kind='user_op' and action='decision'",
       [A, fresh],

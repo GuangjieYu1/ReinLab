@@ -434,8 +434,12 @@ export async function createOfflinePack(
   const overTiles = tiles.length >= OFFLINE_LIMITS.maxTiles && truncated;
   const overBytes = estimated && estimate > OFFLINE_LIMITS.maxBytes;
   const unknowns: string[] = [...set.missing];
-  for (const stop of set.stops)
+  for (const stop of set.stops) {
     if (!stop.light?.horizon) unknowns.push(`${stop.name}：没有地形见光数据（高程没取到）`);
+    if (!stop.light2) unknowns.push(`${stop.name}：双位置受光还没算（建筑场景未取或未重算）`);
+    else if (stop.light2.camera.missing.length)
+      unknowns.push(`${stop.name}：${stop.light2.camera.missing.slice(0, 2).join("；")}`);
+  }
   if (estimated)
     unknowns.push(
       `整包大小是按每级抽样估的（约 ${(estimate / 1024 / 1024).toFixed(1)} MB），实际以下载为准`,
@@ -480,8 +484,13 @@ export async function createOfflinePack(
     },
     style: { vectorTilejson: tilejsonPath(packId) },
     glyphs: glyphs.map(({ fontstack, range }) => ({ url: glyphPath(fontstack, range) })),
-    // 建筑场景在第 4 批接上；现在如实给空数组，页面不会假装拿到了白模。
-    scenes: [],
+    // 白模与楼影同源：每个已确认停留点一份建筑场景（离线时要能看白模、看受光）。
+    scenes: set.stops
+      .filter((stop) => stop.state === "confirmed")
+      .map((stop) => ({
+        stopId: stop.id,
+        url: `/v1/explore/plans/${dossier}/scene?stopId=${encodeURIComponent(stop.id)}`,
+      })),
     plan: `/v1/explore/plans/${dossier}/revisions/${input.plan.revision}`,
     light: `/v1/explore/plans/${dossier}/offline-light?day=${encodeURIComponent(input.day)}`,
     weather: `/v1/explore/plans/${dossier}/weather`,
@@ -649,6 +658,7 @@ export function lightSnapshot(document: PlanDocument, day: string) {
   const unknowns: string[] = [];
   const items = stops.map((stop) => {
     if (!stop.light?.horizon) unknowns.push(`${stop.name}：没有地形见光数据`);
+    if (!stop.light2) unknowns.push(`${stop.name}：双位置受光还没算`);
     return {
       stopId: stop.id,
       name: stop.name,
@@ -656,6 +666,12 @@ export function lightSnapshot(document: PlanDocument, day: string) {
       window: stop.window ?? null,
       facing: stop.facing ?? null,
       light: stop.light ?? null,
+      // 第二版：机位 / 模特两个位置的受光，与建筑场景同源。
+      light2: stop.light2 ?? null,
+      cameraHeightM: stop.cameraHeightM ?? null,
+      subjectHeightM: stop.subjectHeightM ?? null,
+      subjectPoint: stop.subjectPoint ?? null,
+      areaRef: stop.areaRef ?? null,
     };
   });
   const digest = createHash("sha256").update(JSON.stringify(items)).digest("hex").slice(0, 16);

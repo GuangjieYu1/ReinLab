@@ -66,6 +66,9 @@ import {
 import { mapConfigFrom, type MapConfig } from "../explore/map-config";
 import { publishAccountEvent } from "../dossier/service";
 import { appendFieldEvents, listFieldEvents } from "../explore/field";
+import { cameraPointOf, loadScene, queueLightRefresh, refreshStopLight2 } from "../explore/light-job";
+import type { OverpassTransport, SceneStore } from "../explore/scene";
+import type { ElevationTransport } from "../explore/terrain";
 import { readRevision, snapshotRevision } from "../explore/revisions";
 import {
   createBatch,
@@ -84,6 +87,7 @@ import { actualTimeline, addAnchor, cameraGroups, confirmGroup, splitGroup } fro
 import {
   buildComparison,
   latestTravelogue,
+  photoRefsOf,
   registerTravelogueArtifact,
   renderExport,
   saveTravelogue,
@@ -113,6 +117,10 @@ export type ExploreApiOptions = {
   pdfFontFile?: string;
   /** 离线包代取瓦片/字形的取数通道；缺省真实 fetch，测试可注入。 */
   offlineFetch?: OfflineFetch;
+  /** 建筑场景缓存与取数通道（B4）。 */
+  sceneStore?: SceneStore;
+  overpass?: OverpassTransport;
+  elevation?: ElevationTransport;
   /** 照片原图与派生图的存放端口；没有就明确失败，不假装存好了。 */
   photoStore?: PhotoStore;
   /** 档案所在磁盘剩余字节（空间检查用）。 */
@@ -122,6 +130,8 @@ export type ExploreApiOptions = {
 /** 批次生效后推给页面：页面本地修订 +1 时直接应用，否则重拉。 */
 export function publishOps(account: string, outcome: OpsOutcome) {
   if (!outcome.applied.length) return;
+  // 位置 / 日期 / 高度改过的停留点：提交之后排队重算双位置受光（不阻塞这次写入）。
+  queueLightRefresh(account, outcome.dossierId, outcome.lightQueue ?? []);
   publishAccountEvent(account, outcome.bench, {
     type: "explore.op",
     dossierId: outcome.dossierId,
@@ -655,18 +665,34 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
       ).rows[0];
       if (!row) throw new ApiFailure("TRAVELOGUE_MISSING", 404, "找不到这一版游记。");
       const title = `${(await client.query("select title from dossier where account_id=$1 and id=$2", [account, dossier])).rows[0]?.title ?? "游记"} · 游记`;
-      const rendered = renderExport(
-        {
-          id: `${dossier}:${row.revision}`,
-          revision: Number(row.revision),
-          markdown: row.markdown,
-          photoIds: row.photo_ids ?? [],
-          sources: row.sources ?? [],
-          updatedAt: new Date(row.created_at).toISOString(),
-        },
-        format,
-        { title, dossierId: dossier, origin: requestOrigin(c) },
-      );
+      const version = {
+        id: `${dossier}:${row.revision}`,
+        revision: Number(row.revision),
+        markdown: row.markdown as string,
+        photoIds: (row.photo_ids ?? []) as string[],
+        sources: (row.sources ?? []) as { name: string; url?: string }[],
+        updatedAt: new Date(row.created_at).toISOString(),
+      };
+      // html 要把图内嵌：按正文引用把预览图读出来（限张数与总量，别把导出撑爆）。
+      const images = new Map<string, { mime: string; bytes: Buffer }>();
+      if (format === "html" && options.photoStore) {
+        let total = 0;
+        for (const id of photoRefsOf(version.markdown).slice(0, 30)) {
+          const bytes = await options.photoStore
+            .read(dossier, id, "preview.jpg")
+            .catch(() => null);
+          if (!bytes) continue;
+          if (total + bytes.length > 12 * 1024 * 1024) break;
+          total += bytes.length;
+          images.set(id, { mime: "image/jpeg", bytes });
+        }
+      }
+      const rendered = renderExport(version, format, {
+        title,
+        dossierId: dossier,
+        origin: requestOrigin(c),
+        ...(images.size ? { images } : {}),
+      });
       await registerTravelogueArtifact(client, { account, dossier, revision: wanted, format });
       return new Response(rendered.bytes, {
         headers: {
@@ -677,6 +703,56 @@ export function registerExploreApi(app: Hono<ApiEnv>, database: Database, option
       });
     }),
   );
+
+  // ── 建筑场景与双位置受光（B4，契约 §2.6）────────────────────────
+  const lightDeps = () => ({
+    db: database,
+    ...(options.sceneStore ? { sceneStore: options.sceneStore } : {}),
+    ...(options.overpass ? { overpass: options.overpass } : {}),
+    ...(options.elevation ? { elevation: options.elevation } : {}),
+    publish: (target: string, event: Record<string, unknown>) =>
+      publishAccountEvent(target, "exploration", event as never),
+  });
+
+  // 白模与楼影同源：这份场景就是射线求交用的几何。
+  app.get("/v1/explore/plans/:dossierId/scene", (c) =>
+    database.withAccount(c.get("accountId"), async (client) => {
+      const dossier = c.req.param("dossierId");
+      const { plan } = await loadPlan(client, c.get("accountId"), dossier);
+      const wanted = c.req.query("stopId");
+      const stop = wanted
+        ? plan.document.stops.find((row) => row.id === wanted)
+        : plan.document.stops.find((row) => row.state === "confirmed") ?? plan.document.stops[0];
+      if (!stop) throw new ApiFailure("STOP_NOT_FOUND", 404, "计划里还没有停留点，先加一个机位再来取建筑。");
+      if (wanted && !stop) throw new ApiFailure("STOP_NOT_FOUND", 404, "计划里没有这个停留点。");
+      const loaded = await loadScene(lightDeps(), { at: cameraPointOf(stop) });
+      return c.json(loaded.scene);
+    }),
+  );
+
+  // 手动重算：位置 / 高度 / 日期改完后页面点一下。算完返回新版本，页面再重取计划。
+  app.post("/v1/explore/plans/:dossierId/light/recompute", async (c) => {
+    const account = c.get("accountId");
+    const dossier = c.req.param("dossierId");
+    const raw = (await c.req.json().catch(() => ({}))) as { stopId?: unknown };
+    const stopId = typeof raw.stopId === "string" ? raw.stopId : "";
+    if (!stopId) throw new ApiFailure("INVALID_INPUT", 400, "要说明重算哪个停留点。");
+    // 先在一个短事务里确认这个点还在（也算过权限），再在外面算：不要把取数放在事务里。
+    await database.withAccount(account, async (client) => {
+      const { plan } = await loadPlan(client, account, dossier);
+      if (!plan.document.stops.some((row) => row.id === stopId))
+        throw new ApiFailure("STOP_NOT_FOUND", 404, "计划里没有这个停留点。");
+    });
+    const outcome = await refreshStopLight2(lightDeps(), { account, dossier, stopId });
+    if (outcome.status !== "ok")
+      throw new ApiFailure("LIGHT_RECOMPUTE_FAILED", 409, outcome.reason ?? "这次没算成，稍后再试。");
+    return c.json({
+      stopId,
+      version: outcome.light2?.version ?? 0,
+      sceneId: outcome.light2?.sceneId ?? null,
+      coverage: outcome.scene?.coverage ?? null,
+    });
+  });
 
   app.get("/v1/explore/plans/:dossierId/weather", (c) =>
     database.withAccount(c.get("accountId"), async (client) => {

@@ -535,14 +535,15 @@ describe("落位、对时与回顾", () => {
     // 正文原样保存：页面要能自己认出 photo:<id> 并渲染成图片。
     expect(saved.markdown).toContain(`](photo:${photo.id})`);
 
+    // md 保留约定写法（页面自己渲染成图），不塞只能在这台机器上打开的地址
     const md = await (await api("GET", `/v1/explore/plans/${dossierA}/review/travelogue/export?format=md`)).text();
-    expect(md).toContain("](http://127.0.0.1");
-    expect(md).toContain(`/backend/v1/explore/plans/${dossierA}/photos/${photo.id}/preview)`);
-    expect(md).not.toContain("photo:");
+    expect(md).toContain(`](photo:${photo.id})`);
+    expect(md).not.toContain("http://");
+    // html 把图内嵌进去：换台机器打开也能看到
     const html = await (
       await api("GET", `/v1/explore/plans/${dossierA}/review/travelogue/export?format=html`)
     ).text();
-    expect(html).toContain(`/photos/${photo.id}/preview`);
+    expect(html).toContain("data:image/jpeg;base64,");
     expect(html).toContain('<img alt="落日"');
   });
 

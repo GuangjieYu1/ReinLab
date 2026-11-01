@@ -334,6 +334,13 @@ export function registerCourses(app: Hono<ApiEnv>, db: Database) {
 }
 
 /**
+ * 会话在等这张卡时，决定下来要把它续起来；但续接不能当成「接着干的指令」——
+ * 结果已经用「档案变动」注记送进去了，这里只说明「这是告知」，让模型自己判断要不要动。
+ */
+const RESUME_AFTER_DECISION =
+  "（只是告知，不是新指令：刚才那张审批卡已经处理完，结果见上方「档案变动」注记。没有新的要求就不用再取数或生成东西，简短说一句即可。）";
+
+/**
  * 把一次决定记成「档案事实」，下一条消息会以「档案变动：…」注记带进会话。
  * 不写成用户消息：页面上不会显示成用户说的话，模型下一轮也一定能看到。
  */
@@ -418,7 +425,7 @@ export async function decideInboxCard(
           approvalId: row.id,
           text: `用户驳回了这次计划修改（审批 ${row.id}），计划没有被改动；这一项已被拒绝，别再重复提交，也别打包进别的修改`,
         });
-        if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
+        if (row.run_state === "waiting") void resume?.(account, row.run_id, RESUME_AFTER_DECISION);
         return { status: 200, body: { state: "rejected" } } as any;
       }
       const effects = effectOf as any;
@@ -443,7 +450,7 @@ export async function decideInboxCard(
           approvalId: row.id,
           text: `用户批准了这次计划修改（审批 ${row.id}），已经生效（第 ${outcome.revision} 版）；不要重复提交同一批改动`,
         });
-        if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
+        if (row.run_state === "waiting") void resume?.(account, row.run_id, RESUME_AFTER_DECISION);
         return { status: 200, body: { state: "approved", revision: outcome.revision } } as any;
       } catch (error) {
         if (error instanceof ApiFailure && STALE_PLAN_CODES.has(error.code)) {
@@ -457,7 +464,7 @@ export async function decideInboxCard(
             approvalId: row.id,
             text: `这次计划修改已经不能套用了：计划在卡片之后被改过（${error.message}）`,
           });
-          if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
+          if (row.run_state === "waiting") void resume?.(account, row.run_id, RESUME_AFTER_DECISION);
           return { status: 200, body: { state: "stale", reason: error.message } } as any;
         }
         throw error;
@@ -484,7 +491,7 @@ export async function decideInboxCard(
           text: `用户没有采纳这条${target}经验（审批 ${row.id}），没有写进资料`,
         });
         if (row.run_state === "waiting")
-          void resume?.(account, row.run_id, "继续。");
+          void resume?.(account, row.run_id, RESUME_AFTER_DECISION);
         return { status: 200, body: { state: "rejected" } } as any;
       }
       const payload = (effects.payload ?? {}) as Record<string, unknown>;
@@ -531,7 +538,7 @@ export async function decideInboxCard(
         approvalId: row.id,
         text: `用户确认了这条${target}经验（审批 ${row.id}），已经写进资料，以后相关规划会带上它`,
       });
-      if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
+      if (row.run_state === "waiting") void resume?.(account, row.run_id, RESUME_AFTER_DECISION);
       return { status: 200, body: { state: "approved" } } as any;
     }
     // 天气调整建议：批准就在当时最新的计划上应用那几处改动；不批准就保留原安排。
@@ -552,7 +559,7 @@ export async function decideInboxCard(
           approvalId: row.id,
           text: `用户没有采纳这条天气调整建议（审批 ${row.id}），计划保持原样；别再重复提交同一批改动`,
         });
-        if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
+        if (row.run_state === "waiting") void resume?.(account, row.run_id, RESUME_AFTER_DECISION);
         return { status: 200, body: { state: "rejected" } } as any;
       }
       try {
@@ -569,7 +576,7 @@ export async function decideInboxCard(
           approvalId: row.id,
           text: `用户采纳了这条天气调整建议（审批 ${row.id}），已经生效（第 ${outcome.revision} 版）`,
         });
-        if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
+        if (row.run_state === "waiting") void resume?.(account, row.run_id, RESUME_AFTER_DECISION);
         return { status: 200, body: { state: "approved", revision: outcome.revision } } as any;
       } catch (error) {
         if (error instanceof ApiFailure && STALE_PLAN_CODES.has(error.code)) {
@@ -583,7 +590,7 @@ export async function decideInboxCard(
             approvalId: row.id,
             text: `这次计划修改已经不能套用了：计划在卡片之后被改过（${error.message}）`,
           });
-          if (row.run_state === "waiting") void resume?.(account, row.run_id, "继续。");
+          if (row.run_state === "waiting") void resume?.(account, row.run_id, RESUME_AFTER_DECISION);
           return { status: 200, body: { state: "stale", reason: error.message } } as any;
         }
         throw error;

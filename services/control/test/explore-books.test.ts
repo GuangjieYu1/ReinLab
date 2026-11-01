@@ -398,4 +398,82 @@ describe("计划书里的停留点顺序", () => {
     ]);
     expect(same.map((stop) => stop.name)).toEqual(["A", "B"]);
   });
+
+  it("详细版带示意：姿势小人、建议参数、构图框、受光提示（没字段就不画）", async () => {
+    const plan = await planOf();
+    const revision = plan.plan.revision;
+    const stops = plan.plan.stops.filter((stop: any) => stop.state === "confirmed");
+    // 快照按当前修订补齐（本用例自己负责，不依赖前面的用例顺序）
+    await uploadSnapshot("overview", revision);
+    for (const stop of stops) await uploadSnapshot(stop.id, revision);
+
+    // light2 是服务端派生字段，接口不开放：这里直接写库，等价于「服务端已经算完」。
+    const stored = await admin.query(
+      "select document from explore_plan where account_id=$1 and dossier_id=$2",
+      [A, dossier],
+    );
+    const document = stored.rows[0].document;
+    const stop = document.stops.find((row: any) => row.state === "confirmed");
+    const day = stop.day;
+    const at = (clock: string) => `${day}T${clock}:00+09:00`;
+    stop.detail = {
+      ...(stop.detail ?? {}),
+      guidance: [
+        { id: "g1", text: "先走两步", pose: "walk" },
+        { id: "g2", text: "回头看一眼", pose: "look-back" },
+        { id: "g3", text: "站定，等光线", pose: null },
+      ],
+      settings: { focalMm: 85, aperture: 1.8, shutterS: 1 / 250, iso: 200, snapshot: { body: "X100V", lens: "23mm F2" } },
+      frame: { orientation: "portrait", subject: { x: 0.5, y: 0.45, w: 0.4, h: 0.7 }, horizon: 0.55 },
+    };
+    const segments = [
+      { start: at("00:00"), end: at("07:30"), state: "night" },
+      { start: at("07:30"), end: at("08:40"), state: "building", cause: { buildingIds: ["way/9"] } },
+      { start: at("08:40"), end: at("16:20"), state: "maybe_lit" },
+      { start: at("16:20"), end: at("23:59"), state: "night" },
+    ];
+    stop.light2 = {
+      version: 2,
+      computedAt: new Date().toISOString(),
+      sceneId: "scene-fixture",
+      radiusM: 1000,
+      dem: "Copernicus GLO-90（测试）",
+      camera: {
+        point: stop.geometry.coordinates,
+        heightM: 1.5,
+        heightAssumed: true,
+        segments,
+        litWindows: [{ start: at("08:40"), end: at("16:20") }],
+        missing: ["2 栋楼高未知，可能有遮挡"],
+      },
+      subject: {
+        point: [stop.geometry.coordinates[0] + 0.0002, stop.geometry.coordinates[1]],
+        heightM: 1.6,
+        heightAssumed: false,
+        segments,
+        litWindows: [{ start: at("08:40"), end: at("16:00") }],
+        missing: [],
+      },
+    };
+    await admin.query(
+      "update explore_plan set document=$3::jsonb where account_id=$1 and dossier_id=$2",
+      [A, dossier, JSON.stringify(document)],
+    );
+
+    const waiting = waitForBook();
+    const response = await requestBook("full", revision);
+    expect(response.status).toBe(202);
+    const created = await response.json();
+    const finished = await waiting;
+    expect(finished.state).toBe("done");
+    const file = await app.request(`/v1/explore/plans/${dossier}/books/${created.jobId}/file`, {
+      headers: headers(),
+    });
+    expect(file.status).toBe(200);
+    const bytes = Buffer.from(await file.arrayBuffer());
+    expect(bytes.subarray(0, 5).toString()).toBe("%PDF-");
+    // 总览 + 停留点页 + 末页，且带上示意图后体积不会是空壳
+    expect((await pdfPages(bytes)).length).toBeGreaterThanOrEqual(3);
+    expect(bytes.length).toBeGreaterThan(15_000);
+  });
 });

@@ -66,6 +66,10 @@ export async function createApp(options: {
   photoReader?: import("../explore/photo-reader").PhotoReader;
   /** 看图的峰值费率（每百万 token 人民币）；没配就只记用量、不估价。 */
   reviewPricing?: { inputPerMillion: number; outputPerMillion: number };
+  /** 建筑场景缓存与 Overpass / 高程取数通道（B4）。 */
+  sceneStore?: import("../explore/scene").SceneStore;
+  overpass?: import("../explore/scene").OverpassTransport;
+  elevation?: import("../explore/terrain").ElevationTransport;
   /** 网图抓取通道；缺省用真实 fetch，测试可注入。 */
   refTransport?: import("../explore/refs").WeatherLikeTransport;
   realModelsEnabled?: boolean;
@@ -182,6 +186,9 @@ export async function createApp(options: {
 
   registerExploreApi(app, database, {
     mapConfig: options.mapConfig,
+    ...(options.sceneStore ? { sceneStore: options.sceneStore } : {}),
+    ...(options.overpass ? { overpass: options.overpass } : {}),
+    ...(options.elevation ? { elevation: options.elevation } : {}),
     ...(photoStore ? { photoStore } : {}),
     ...(options.photoFreeBytes ? { photoFreeBytes: options.photoFreeBytes } : {}),
     weatherTransport: options.weatherTransport,
@@ -222,6 +229,15 @@ export async function createApp(options: {
       ...(options.photoReader ? { photoReader: options.photoReader } : {}),
       ...(photoStore ? { photoStore } : {}),
       ...(options.reviewPricing ? { reviewPricing: options.reviewPricing } : {}),
+      // 白模 / 楼影工具：同一份场景缓存与取数通道。
+      lightOptions: {
+        db: database,
+        ...(options.sceneStore ? { sceneStore: options.sceneStore } : {}),
+        ...(options.overpass ? { overpass: options.overpass } : {}),
+        ...(options.elevation ? { elevation: options.elevation } : {}),
+        publish: (account: string, event: Record<string, unknown>) =>
+          publishAccountEvent(account, "exploration", event as never),
+      },
     });
   app.notFound((c) =>
     c.json({ code: "NOT_FOUND", message: "接口不存在。" }, 404),

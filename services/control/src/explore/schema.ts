@@ -160,6 +160,12 @@ const profileFields = {
   kind: z.enum(["body", "lens"]).optional(),
   focal: z.tuple([z.number().finite().positive(), z.number().finite().positive()]).optional(),
   aperture: z.number().finite().positive().max(64).optional(),
+  // 机身传感器尺寸（毫米）；null = 未知（页面按全画幅假设并标明）。
+  sensor: z
+    .object({ wMm: z.number().finite().positive().max(100), hMm: z.number().finite().positive().max(100) })
+    .strict()
+    .nullable()
+    .optional(),
 };
 
 /** 地点经验：账户级资料的新类型（契约 §2.5）。 */
@@ -187,16 +193,8 @@ export const ProfileBody = z.union([
   z
   .object({
     ...profileCarried,
+    ...profileFields,
     type: z.enum(["model", "gear"]),
-    name: z.string().min(1).max(80),
-    height: z.number().finite().min(50).max(250).optional(),
-    style: z.string().max(200).optional(),
-    experience: z.string().max(300).optional(),
-    wardrobe: z.string().max(500).optional(),
-    notes: z.union([z.array(z.string().max(200)).max(20), z.string().max(300)]).optional(),
-    kind: z.enum(["body", "lens"]).optional(),
-    focal: z.tuple([z.number().finite().positive(), z.number().finite().positive()]).optional(),
-    aperture: z.number().finite().positive().max(64).optional(),
   })
     .strict(),
   z.object({ ...profileCarried, ...placeFields }).strict(),
@@ -207,16 +205,11 @@ export const ProfilePatchBody = z.union([
   z
   .object({
     ...profileCarried,
+    ...profileFields,
     baseRevision: z.number().int().nonnegative(),
-    name: z.string().min(1).max(80).optional(),
-    height: z.number().finite().min(50).max(250).optional(),
-    style: z.string().max(200).optional(),
-    experience: z.string().max(300).optional(),
-    wardrobe: z.string().max(500).optional(),
-    notes: z.union([z.array(z.string().max(200)).max(20), z.string().max(300)]).optional(),
-    kind: z.enum(["body", "lens"]).optional(),
-    focal: z.tuple([z.number().finite().positive(), z.number().finite().positive()]).optional(),
-    aperture: z.number().finite().positive().max(64).optional(),
+    // 修改时所有字段都可选
+    name: profileFields.name.optional(),
+    sensor: profileFields.sensor.optional(),
   })
     .strict(),
   z

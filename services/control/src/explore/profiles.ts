@@ -44,6 +44,8 @@ export type ProfileData =
       focal?: [number, number];
       aperture?: number;
       notes?: string;
+      /** 机身传感器尺寸（毫米）；未知就不给，页面按全画幅假设并标明。 */
+      sensor?: { wMm: number; hMm: number } | null;
     }
   | {
       /** 地点经验：账户级、带观察日期与依据，不当成全年规律。 */
@@ -137,6 +139,19 @@ export function normalizeProfile(type: ProfileType, raw: Record<string, unknown>
     typeof raw.aperture === "number" && Number.isFinite(raw.aperture) && raw.aperture > 0 && raw.aperture <= 64
       ? raw.aperture
       : undefined;
+  const sensorRaw = raw.sensor && typeof raw.sensor === "object" ? (raw.sensor as Record<string, unknown>) : null;
+  const sensor =
+    sensorRaw &&
+    typeof sensorRaw.wMm === "number" &&
+    typeof sensorRaw.hMm === "number" &&
+    sensorRaw.wMm > 0 &&
+    sensorRaw.hMm > 0 &&
+    sensorRaw.wMm <= 100 &&
+    sensorRaw.hMm <= 100
+      ? { wMm: sensorRaw.wMm, hMm: sensorRaw.hMm }
+      : undefined;
+  if (raw.sensor !== undefined && raw.sensor !== null && !sensor)
+    throw invalid("传感器尺寸要给 { wMm, hMm }（毫米）；未知就留空，别猜。");
   return {
     type: "gear",
     name,
@@ -144,6 +159,9 @@ export function normalizeProfile(type: ProfileType, raw: Record<string, unknown>
     ...(focal ? { focal } : {}),
     ...(aperture !== undefined ? { aperture } : {}),
     ...(text(raw.notes, 300) ? { notes: text(raw.notes, 300) } : {}),
+    // 只有机身才有传感器；镜头不给。
+    ...(kind === "body" && sensor ? { sensor } : {}),
+    ...(kind === "body" && raw.sensor === null ? { sensor: null } : {}),
   };
 }
 
@@ -182,6 +200,8 @@ export function profileOf(row: any): Profile {
     ...(Array.isArray(data.focal) ? { focal: data.focal as [number, number] } : {}),
     ...(typeof data.aperture === "number" ? { aperture: data.aperture } : {}),
     ...(typeof data.notes === "string" ? { notes: data.notes } : {}),
+    ...(data.sensor && typeof data.sensor === "object" ? { sensor: data.sensor as { wMm: number; hMm: number } } : {}),
+    ...(data.sensor === null ? { sensor: null } : {}),
   } as Profile;
 }
 

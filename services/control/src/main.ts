@@ -27,6 +27,8 @@ import { generateBook } from "./explore/book-job";
 import { createWeatherJudge } from "./explore/weather-judge";
 import { createFeelReader } from "./explore/feel";
 import { applyOps, readPlan } from "./explore/service";
+import { localSceneStore } from "./explore/scene";
+import { configureLightJobs } from "./explore/light-job";
 import { publishOps } from "./api/explore-api";
 import { createWeatherScheduler } from "./explore/schedule";
 import { runWeatherCheck } from "./explore/weather-check";
@@ -65,6 +67,15 @@ const kernelHome =
   config.REINLAB_KERNEL_HOME ?? path.join(homedir(), ".local/state/reinlab/kernel");
 // 参考图、地图快照、计划书 PDF 都存在档案自己的目录下。
 const exploreStorage = localExploreStorage(kernelHome);
+// 建筑场景：WhiteModel 与楼影射线共用的一份几何，按区域缓存一周。
+const sceneStore = localSceneStore(kernelHome);
+// 拍照受光的后台重算：ops 改过位置/高度/日期之后排队，算完推 explore.light。
+configureLightJobs({
+  db: database,
+  sceneStore,
+  publish: (account, event) => publishAccountEvent(account, "exploration", event as never),
+});
+
 // 照片原图与派生图在同一份档案目录下的 photos/ 里，原图只读不改。
 const photoStore = localPhotoStore(kernelHome);
 const photoFreeBytes = async () => {
@@ -300,6 +311,7 @@ const app = await createApp({
   weatherJudge,
   // 参考图、以后的计划书 PDF 都存在档案自己的目录下。
   exploreStorage,
+  sceneStore,
   photoStore,
   photoFreeBytes,
   ...(photoReader ? { photoReader } : {}),

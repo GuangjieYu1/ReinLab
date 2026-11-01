@@ -208,15 +208,31 @@ export async function saveTravelogue(
 export function renderExport(
   travelogue: Travelogue,
   format: "md" | "html",
-  meta: { title: string; dossierId: string; origin?: string },
+  meta: {
+    title: string;
+    dossierId: string;
+    origin?: string;
+    /** html 导出把图片内嵌成 data URI（离开这台机器也能看）；缺图就退回绝对地址。 */
+    images?: Map<string, { mime: string; bytes: Buffer }>;
+  },
 ): { bytes: Buffer; mime: string; fileName: string } {
-  // 正文里写的是 `![说明](photo:<id>)`（约定写法，页面能认）；导出时换成真图片地址。
+  // 正文写的是 `![说明](photo:<id>)`。md 导出保留这个写法（它本来就是给页面渲染的），
+  // html 导出把图内嵌进去，换台机器打开也能看到。
   const origin = (meta.origin ?? "").replace(/\/+$/, "");
-  const withImages = travelogue.markdown.replace(
-    /\[([^\]]*)\]\(photo:([0-9a-f-]{36})\)/gi,
-    (_match, alt: string, id: string) =>
-      `[${alt}](${origin}/backend/v1/explore/plans/${meta.dossierId}/photos/${id}/preview)`,
-  );
+  const inlineImage = (id: string) => {
+    const found = meta.images?.get(id);
+    if (found)
+      return `data:${found.mime};base64,${found.bytes.toString("base64")}`;
+    // 拿不到图的字节时退回到这台机器上的地址，并且写清是预览图。
+    return `${origin}/backend/v1/explore/plans/${meta.dossierId}/photos/${id}/preview`;
+  };
+  const withImages =
+    format === "md"
+      ? travelogue.markdown
+      : travelogue.markdown.replace(
+          /\[([^\]]*)\]\(photo:([0-9a-f-]{36})\)/gi,
+          (_match, alt: string, id: string) => `[${alt}](${inlineImage(id)})`,
+        );
   if (format === "md")
     return {
       bytes: Buffer.from(withImages, "utf8"),

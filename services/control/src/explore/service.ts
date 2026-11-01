@@ -75,7 +75,14 @@ export type OpsOutcome = {
   plan: ExplorePlan;
   bench: string;
   dossierId: string;
+  /** 位置 / 日期 / 高度变过的停留点：提交后要重算 light2。 */
+  lightQueue: string[];
 };
+
+/** 改了就要重算受光的字段。 */
+const LIGHT_KEYS = ["geometry", "day", "subjectPoint", "areaRef", "cameraHeightM", "subjectHeightM"] as const;
+const lightSignature = (stop: ExplorePlan["stops"][number]) =>
+  JSON.stringify(LIGHT_KEYS.map((key) => (stop as Record<string, unknown>)[key] ?? null));
 
 /** 读一份计划（必要时新建默认草稿）；lock=true 时锁住行，供写批次串行化。 */
 export async function loadPlan(
@@ -274,6 +281,7 @@ async function pendingCard(
     plan: planOf(dossier, plan),
     bench,
     dossierId: dossier,
+    lightQueue: [],
   };
 }
 
@@ -365,6 +373,16 @@ async function commitBatch(
     }
   }
 
+  // 位置 / 日期 / 高度变了：提交后排队重算双位置受光（不阻塞这次写入）。
+  const lightQueue = batch.business
+    ? batch.plan.document.stops
+        .filter((stop) => {
+          const before = plan.document.stops.find((row) => row.id === stop.id);
+          return !before || lightSignature(before) !== lightSignature(stop);
+        })
+        .map((stop) => stop.id)
+    : [];
+
   if (batch.business) {
     // 待执行才监测天气：确认整份计划时排下一次检查（账户时区 08/16/23），
     // 结束/取消就把日程撤掉。
@@ -447,6 +465,7 @@ async function commitBatch(
     plan: planOf(dossier, batch.plan),
     bench,
     dossierId: dossier,
+    lightQueue,
   };
 }
 

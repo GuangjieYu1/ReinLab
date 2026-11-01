@@ -290,3 +290,9 @@ type OfflineManifest = {
 12. **审批结果怎么告诉模型**：决定记成档案事实（`user_op` / `decision`），下一轮以「档案变动：…」注记带进会话——页面上是注记，不是用户气泡；紧跟其后的用户消息才是用户说的话。
 13. **预算**：看图和对话的模型调用都按峰值费率估一次再放行（不够就明确拒绝），花费累加到这份档案本月的账上（`budget_allocation.spent_cny`），所以 `/v1/me` 的可用额度会真的减少；金额未知的调用照实记未知，不记 0。
 14. **预算：不设上限拦截**（用户 2026-11-01 定）。看图和对话都只记用量与金额（用量表 + `budget_allocation.spent_cny`），不会因为额度拒绝调用；`/v1/me` 里的可用额度是「上限减已花」的参考值，不拦人。
+15. **建筑场景（`GET .../scene?stopId=`）**：返回 `BuildingScene`；原点 = 机位点（街区用 `areaRef`，没给就取区域中心并写进 `missing`），半径 1 km，缓存一周（键是取整后的原点 + 半径），`id` 是 16 位哈希、`version` 每次重取 +1。同一栋楼有 `building:part` 且部件面积占整体 60% 以上时只立部件，小于则整体轮廓也保留（`coverage.note` 写清）。
+16. **受光 `light2`**：`stop.add` / `stop.update` 改了 `geometry`、`day`、`subjectPoint`、`areaRef`、`cameraHeightM`、`subjectHeightM` 之后自动排队重算（提交后跑，不阻塞写）；`POST .../light/recompute` 手动重算并同步返回新版本。`POST .../scene` 不写计划，`light2` 是服务端字段，patch 改不了它。
+17. **受光语义**：只有 night / terrain / building / maybe_lit / unknown 五档，**没有「确定有光」**；`maybe_lit` 就是「已知数据下预计见光」，缺项（楼高未知、没有地形、没有建筑数据、区域未选参考点）写进 `missing`，同时 `unknown` 档也会用。山挡优先于楼挡；`min_height` 的楼底部留空隙。
+18. **示意字段**：`detail.guidance` 每行可带 `pose`（只认十种，其它拒绝；`null` = 只有文字；旧字符串仍收）；`detail.settings` 引用的机身 / 镜头必须在所选器材里，焦段落在镜头范围、光圈不小于最大光圈，能力未知就不判；`detail.frame` 全部 0–1。gear 的 `sensor` 只对机身生效，`null` 表示未知（页面按全画幅假设）。
+19. **计划书（详细版）**：每个停留点页可多四块——引导词（有 pose 就画姿势小人，描边墨色线宽 2）、建议起点（焦段/光圈/快门/ISO + 机身镜头，未知写「—」）、构图框（3:2 或 2:3 + 三分线 + 主体框 + 地平线）、受光提示框（机位/模特两行，`heightAssumed` 注明按离地几米假设）。没有对应字段就不画，不留空框；白模不进 PDF。
+20. **离线包**：`scenes` 列已确认停留点的场景地址（`/scene?stopId=`），`offline-light` 里每个点带 `light2`、`cameraHeightM`、`subjectHeightM`、`subjectPoint`、`areaRef`；没算出来的写进 `unknowns`。

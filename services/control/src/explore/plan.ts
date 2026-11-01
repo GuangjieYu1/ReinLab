@@ -19,9 +19,14 @@ import type {
   PlanState,
   ProfileSnapshot,
   RouteLeg,
+  LngLat,
   ShootKind,
   Stop,
   Viewport,
+  Frame,
+  GuidanceLine,
+  Pose,
+  ShotSettings,
 } from "@reinlab/contracts";
 import { ApiFailure } from "../api/errors";
 
@@ -171,8 +176,12 @@ export function normalizeStopDetail(input: unknown): Stop["detail"] | undefined 
   const detail: NonNullable<Stop["detail"]> = {};
   const composition = text(source.composition);
   if (composition) detail.composition = composition;
-  const guidance = list(source.guidance);
-  if (guidance.length) detail.guidance = guidance;
+  const guidance = normalizeGuidance(source.guidance);
+  if (guidance?.length) detail.guidance = guidance;
+  const settings = normalizeSettings(source.settings);
+  if (settings) detail.settings = settings;
+  const frame = normalizeFrame(source.frame);
+  if (frame) detail.frame = frame;
   if (outfitInput) {
     const palette = list(outfitInput.palette);
     const notes = text(outfitInput.notes);
@@ -185,8 +194,126 @@ export function normalizeStopDetail(input: unknown): Stop["detail"] | undefined 
   return Object.keys(detail).length ? detail : undefined;
 }
 
+/**
+ * 引导词：旧档案是字符串数组，第二版每行可以带稳定 id 和姿势。
+ * 姿势只认那 10 种；写成别的直接拒绝；不给姿势就是 null（只显示文字）。
+ */
+export function normalizeGuidance(value: unknown): (string | GuidanceLine)[] | undefined {
+  const items = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+  const out: (string | GuidanceLine)[] = [];
+  for (const item of items) {
+    if (typeof item === "string") {
+      const line = item.trim();
+      if (line) out.push(line.slice(0, 400));
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const text = typeof row.text === "string" ? row.text.trim() : "";
+    if (!text) continue;
+    const poseRaw = row.pose === undefined || row.pose === null ? null : String(row.pose);
+    if (poseRaw !== null && !POSES.has(poseRaw))
+      throw invalid(`pose 只能是这十种：${[...POSES].join("、")}；也可以留空表示只有文字。`);
+    out.push({
+      id: typeof row.id === "string" && row.id.trim() ? row.id.trim().slice(0, 64) : randomUUID(),
+      text: text.slice(0, 400),
+      pose: poseRaw as Pose | null,
+    });
+  }
+  return out.length ? out.slice(0, 20) : undefined;
+}
+
+const numberIn = (value: unknown, min: number, max: number, label: string): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) throw invalid(`${label} 要是数字，未知就给 null。`);
+  if (value < min || value > max) throw invalid(`${label} 超出合理范围（${min}–${max}）。`);
+  return value;
+};
+
+/** 参数行：建议起点，未知为 null；引用机身 / 镜头时带一份当时的名称快照。 */
+export function normalizeSettings(value: unknown): ShotSettings | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const snapshotRaw = raw.snapshot && typeof raw.snapshot === "object" ? (raw.snapshot as Record<string, unknown>) : null;
+  const settings: ShotSettings = {
+    ...(typeof raw.bodyId === "string" && raw.bodyId ? { bodyId: raw.bodyId.slice(0, 64) } : {}),
+    ...(typeof raw.lensId === "string" && raw.lensId ? { lensId: raw.lensId.slice(0, 64) } : {}),
+    ...(snapshotRaw && (typeof snapshotRaw.body === "string" || typeof snapshotRaw.lens === "string")
+      ? {
+          snapshot: {
+            ...(typeof snapshotRaw.body === "string" ? { body: snapshotRaw.body.slice(0, 80) } : {}),
+            ...(typeof snapshotRaw.lens === "string" ? { lens: snapshotRaw.lens.slice(0, 80) } : {}),
+          },
+        }
+      : {}),
+    focalMm: numberIn(raw.focalMm, 1, 2000, "焦段"),
+    aperture: numberIn(raw.aperture, 0.5, 64, "光圈"),
+    shutterS: numberIn(raw.shutterS, 1 / 16_000, 3600, "快门"),
+    iso: numberIn(raw.iso, 25, 409_600, "ISO"),
+  };
+  const empty =
+    !settings.bodyId &&
+    !settings.lensId &&
+    settings.focalMm === null &&
+    settings.aperture === null &&
+    settings.shutterS === null &&
+    settings.iso === null;
+  return empty ? undefined : settings;
+}
+
+/** 构图意图：画幅、主体框、地平线（都按画框 0–1）；它是意图，不改地理站位。 */
+export function normalizeFrame(value: unknown): Frame | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const orientation: Frame["orientation"] = raw.orientation === "portrait" ? "portrait" : "landscape";
+  const inside = (v: unknown, label: string): number => {
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1)
+      throw invalid(`构图里的${label}要是 0–1 之间的数。`);
+    return v;
+  };
+  let subject: Frame["subject"] = null;
+  if (raw.subject && typeof raw.subject === "object") {
+    const box = raw.subject as Record<string, unknown>;
+    subject = {
+      x: inside(box.x, "主体中心 x"),
+      y: inside(box.y, "主体中心 y"),
+      w: inside(box.w, "主体宽"),
+      h: inside(box.h, "主体高"),
+    };
+    if (subject.w <= 0 || subject.h <= 0) throw invalid("主体框的宽高要大于 0。");
+  }
+  const horizon = raw.horizon === null || raw.horizon === undefined ? null : inside(raw.horizon, "地平线高度");
+  return { orientation, subject, horizon };
+}
+
+/**
+ * 参数要对得上所选器材：焦段落在这支镜头的范围里，光圈不能比最大光圈还大。
+ * 器材能力不知道（资料里没写）就不做范围判断——不编。
+ */
+export function assertSettingsAgainstGear(settings: ShotSettings, document: PlanDocument) {
+  const gear = document.gear ?? [];
+  for (const [id, role] of [
+    [settings.bodyId, "机身"],
+    [settings.lensId, "镜头"],
+  ] as const) {
+    if (!id) continue;
+    const snapshot = gear.find((row) => row.profileId === id);
+    if (!snapshot) throw invalid(`参数里引用的${role}不在这次选中的器材里，先在计划里选上它。`);
+    const data = snapshot.data;
+    if (data.type !== "gear") continue;
+    if (role === "镜头" && settings.focalMm !== null && Array.isArray(data.focal)) {
+      const [low, high] = data.focal;
+      if (settings.focalMm < low || settings.focalMm > high)
+        throw invalid(`这支镜头是 ${low}–${high} mm，焦段要落在这个范围里。`);
+    }
+    if (role === "镜头" && settings.aperture !== null && typeof data.aperture === "number" && settings.aperture < data.aperture - 1e-9)
+      throw invalid(`这支镜头最大光圈是 f/${data.aperture}，不能更大。`);
+    if (role === "机身" && data.kind !== "body") throw invalid("参数里引用的机身资料不是机身。");
+  }
+}
+
 /** 服务端维护、不能由 patch 改写的停留点字段。 */
-const SERVER_OWNED_STOP_KEYS = new Set(["id", "state", "source", "light", "revision"]);
+const SERVER_OWNED_STOP_KEYS = new Set(["id", "state", "source", "light", "light2", "revision"]);
 
 /** stop.update 真正允许改的字段（契约 §1 的 Stop）。写别的键会被明确拒掉。 */
 const PATCHABLE_STOP_KEYS = new Set([
@@ -202,6 +329,25 @@ const PATCHABLE_STOP_KEYS = new Set([
   "focal",
   "detail",
   "refs",
+  // 第二版：独立模特站位、相机 / 主体采样高度、街区参考点（light2 由服务端算，不能改）。
+  "subjectPoint",
+  "cameraHeightM",
+  "subjectHeightM",
+  "areaRef",
+]);
+
+/** 十种姿势（09 §8）。未知的姿势明确拒绝，不猜。 */
+export const POSES: ReadonlySet<string> = new Set([
+  "walk",
+  "look-back",
+  "lean",
+  "touch",
+  "pockets",
+  "scarf",
+  "step",
+  "stand",
+  "sit",
+  "squat",
 ]);
 
 /** 改了就要用户同意的停留点字段（名称 / 类型 / 地点 / 日期 / 时段）。 */
@@ -323,6 +469,26 @@ function canvasSummary(object: CanvasObject, prefix = ""): string {
   return `${prefix}${canvasVerb(object.kind)}${text ? `「${text}」` : ""}`;
 }
 
+const pointOrNull = (value: unknown, label: string): LngLat | null => {
+  if (value === null || value === undefined) return null;
+  if (
+    !Array.isArray(value) ||
+    value.length !== 2 ||
+    !value.every((item) => typeof item === "number" && Number.isFinite(item))
+  )
+    throw invalid(`${label}要给 [经度, 纬度]，或者 null。`);
+  const [lng, lat] = value as [number, number];
+  if (Math.abs(lng) > 180 || Math.abs(lat) > 90) throw invalid(`${label}的经纬度超出范围。`);
+  return [lng, lat];
+};
+
+const heightM = (value: unknown, label: string): number | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0.2 || value > 50)
+    throw invalid(`${label}要是 0.2–50 米之间的数。`);
+  return value;
+};
+
 /** 停留点落库前整理成服务端认可的形状：客户端的 id/state/source/light 一律不认。 */
 function normalizeStop(
   draft: Omit<Stop, "id" | "state" | "source"> & { state?: "candidate" | "confirmed" },
@@ -350,6 +516,17 @@ function normalizeStop(
     ...(Number.isFinite(draft.facing) ? { facing: draft.facing } : {}),
     ...(Array.isArray(draft.focal) ? { focal: draft.focal.filter((n) => Number.isFinite(n)) } : {}),
     ...(draft.detail ? { detail: normalizeStopDetail(draft.detail) } : {}),
+    // 第二版：独立模特站位、相机 / 主体采样高度、街区参考点。
+    ...(draft.subjectPoint !== undefined ? { subjectPoint: pointOrNull(draft.subjectPoint, "模特点") } : {}),
+    ...(heightM(draft.cameraHeightM, "相机高度") !== undefined
+      ? { cameraHeightM: heightM(draft.cameraHeightM, "相机高度") }
+      : {}),
+    ...(heightM(draft.subjectHeightM, "主体受光高度") !== undefined
+      ? { subjectHeightM: heightM(draft.subjectHeightM, "主体受光高度") }
+      : {}),
+    ...(draft.areaRef !== undefined && draft.areaRef !== null
+      ? { areaRef: pointOrNull(draft.areaRef, "街区参考点") as LngLat }
+      : {}),
   };
 }
 
@@ -441,6 +618,7 @@ export function applyBatch(input: BatchInput): Batch {
     switch (op.op) {
       case "stop.add": {
         const stop = normalizeStop(op.stop, input.actor, newId);
+        if (stop.detail?.settings) assertSettingsAgainstGear(stop.detail.settings, document);
         document.stops.push(stop);
         business = true;
         applied.push({
@@ -479,6 +657,24 @@ export function applyBatch(input: BatchInput): Batch {
         if (patch.day !== undefined && !dayLike(patch.day)) throw invalid("日期要写成 YYYY-MM-DD。");
         if (patch.name !== undefined && (typeof patch.name !== "string" || !patch.name.trim()))
           throw invalid("名字不能为空。");
+        if ("subjectPoint" in patch)
+          patch.subjectPoint = pointOrNull(patch.subjectPoint, "模特点");
+        if ("areaRef" in patch) {
+          const point = pointOrNull(patch.areaRef, "街区参考点");
+          if (point === null) delete patch.areaRef;
+          else patch.areaRef = point;
+        }
+        if ("cameraHeightM" in patch) {
+          const value = heightM(patch.cameraHeightM, "相机高度");
+          if (value === undefined) delete patch.cameraHeightM;
+          else patch.cameraHeightM = value;
+        }
+        if ("subjectHeightM" in patch) {
+          const value = heightM(patch.subjectHeightM, "主体受光高度");
+          if (value === undefined) delete patch.subjectHeightM;
+          else patch.subjectHeightM = value;
+        }
+        if (patch.detail?.settings) assertSettingsAgainstGear(patch.detail.settings, document);
         const before = previousValues(stop, patch);
         Object.assign(stop, patch);
         business = true;

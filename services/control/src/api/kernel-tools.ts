@@ -9,6 +9,7 @@ import { applyOps, loadPlan, readPlan, stopCenter, weatherView, type OpsOutcome 
 import { createProfile, deleteProfile, listProfiles, updateProfile } from "../explore/profiles";
 import { addWebRef, fetchWebRef, listRefs, type ExploreStorage, type WeatherLikeTransport } from "../explore/refs";
 import { reviewTool, REVIEW_TOOLS } from "../explore/review-tools";
+import { cameraPointOf, computeStopLight2For, loadScene } from "../explore/light-job";
 import type { PhotoStore } from "../explore/photo-store";
 import type { PhotoReader } from "../explore/photo-reader";
 import { searchPlaces, stopPoint, walkingRoute } from "../explore/providers";
@@ -183,6 +184,7 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
     "places",
     "route",
     "light",
+    "scene",
     "pending",
   ],
   // 侧边 Agent 的档案工具：和页面调同一组服务函数，只是 via='agent'。
@@ -234,6 +236,8 @@ export type KernelToolDependencies = {
   photoReader?: PhotoReader;
   /** 看图计价的峰值费率。 */
   reviewPricing?: { inputPerMillion: number; outputPerMillion: number };
+  /** 建筑场景 + 双位置受光（B4）的取数通道与缓存。 */
+  lightOptions?: import("../explore/light-job").LightJobOptions;
   /** 抓取通道：缺省用真实 fetch。 */
   refTransport?: WeatherLikeTransport;
   /** Executes an allowed tool against the business layer. */
@@ -382,6 +386,7 @@ export function registerKernelTools(
               ...(dependencies.photoStore ? { photoStore: dependencies.photoStore } : {}),
               ...(dependencies.photoReader ? { photoReader: dependencies.photoReader } : {}),
               ...(dependencies.reviewPricing ? { reviewPricing: dependencies.reviewPricing } : {}),
+              ...(dependencies.lightOptions ? { lightOptions: dependencies.lightOptions } : {}),
             },
           );
           if (settledNow.publish) settled = settledNow.publish;
@@ -831,6 +836,8 @@ async function exploreTool(
     photoStore?: PhotoStore;
     photoReader?: PhotoReader;
     reviewPricing?: { inputPerMillion: number; outputPerMillion: number };
+    /** 建筑场景 + 双位置受光（B4）：取数通道与缓存。 */
+    lightOptions?: import("../explore/light-job").LightJobOptions;
   } = {},
 ): Promise<{ status: number; body: Record<string, unknown>; publish?: ExploreSettlement }> {
   const args = input.args ?? {};
@@ -859,11 +866,28 @@ async function exploreTool(
         day: stop.day,
       });
       if (computed.light.horizon) stop.light = computed.light;
+      // 双位置受光：机位与模特点分开算，和离线包 / 页面用的是同一份场景。
+      let light2: import("@reinlab/contracts").StopLight2 | null = null;
+      let sceneSummary: Record<string, unknown> | null = null;
+      if (deps.lightOptions) {
+        const baked = await computeStopLight2For(deps.lightOptions, { stop, timezone });
+        stop.light2 = baked.light2;
+        light2 = baked.light2;
+        if (baked.scene)
+          sceneSummary = {
+            id: baked.scene.id,
+            version: baked.scene.version,
+            radiusM: baked.scene.radiusM,
+            coverage: baked.scene.coverage,
+          };
+      }
       results.push({
         stopId: stop.id,
         name: stop.name,
         day: stop.day,
         light: computed.light,
+        light2,
+        scene: sceneSummary,
         ...(computed.reason ? { reason: computed.reason } : {}),
       });
     }
@@ -873,6 +897,43 @@ async function exploreTool(
         [input.account, input.dossier, JSON.stringify(plan.document)],
       );
     return { status: 200, body: { result: { timezone, items: results } } };
+  }
+  if (input.tool === "scene") {
+    const { plan } = await loadPlan(client, input.account, input.dossier);
+    const wanted = plan.document.stops.filter(
+      (stop) => (typeof args.stopId === "string" ? stop.id === args.stopId : false),
+    );
+    const stop = wanted[0] ?? plan.document.stops.find((row) => row.state === "confirmed") ?? plan.document.stops[0];
+    if (!stop) throw new ApiFailure("STOP_NOT_FOUND", 404, "计划里还没有停留点，先加一个机位再来取建筑。");
+    if (!deps.lightOptions)
+      throw new ApiFailure("SCENE_UNAVAILABLE", 503, "建筑数据通道没配置，这次取不到场景。");
+    const loaded = await loadScene(deps.lightOptions, { at: cameraPointOf(stop) });
+    const scene = loaded.scene;
+    const heights = { tag: 0, levels: 0, unknown: 0 };
+    for (const building of scene.buildings) heights[building.heightSource] += 1;
+    return {
+      status: 200,
+      body: {
+        result: {
+          stopId: stop.id,
+          name: stop.name,
+          sceneId: scene.id,
+          version: scene.version,
+          origin: scene.origin,
+          radiusM: scene.radiusM,
+          fetchedAt: scene.fetchedAt,
+          source: scene.source,
+          coverage: scene.coverage,
+          buildings: scene.buildings.length,
+          heightSources: heights,
+          cached: loaded.cached,
+          note:
+            scene.coverage.status === "empty"
+              ? "这一圈没有建筑几何；空查询不代表现场没有楼。"
+              : "高度来源：tag 用 height 标签、levels 是层数 ×3 m、unknown 只画轮廓不参与遮挡判断。",
+        },
+      },
+    };
   }
   if (input.tool === "pending") {
     // 这份档案里等着用户点头的事：让助手能主动提醒，而不是让用户自己去收件箱翻。
