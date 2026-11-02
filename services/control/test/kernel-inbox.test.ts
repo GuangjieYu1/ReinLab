@@ -129,6 +129,12 @@ it("没有候选的提问卡：用户直接打字回答，回答送回原任务�
         kind: "question",
       }),
     );
+    // 收件箱列表要带上候选项和多选标记，否则前端只看得到标题、无处作答
+    const listed = await app.request("/v1/approvals?state=pending", { headers: { Cookie: cookie } });
+    const listedBody = (await listed.json()) as { items: Array<{ id: string; question?: { multi: boolean; candidates: Array<{ id: string; title: string }> } }> };
+    const row = listedBody.items.find((item) => item.id === card2.id);
+    expect(row?.question?.multi).toBe(true);
+    expect(row?.question?.candidates.map((c) => c.id)).toEqual(["W1", "W2"]);
     const multi = await request(`/v1/kernel/approvals/${card2.id}/answer`, {
       candidateIds: ["W1", "W2"],
       text: "先看这两篇，第三篇再说",
