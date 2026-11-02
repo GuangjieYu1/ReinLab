@@ -193,6 +193,50 @@ describe("kernel tool dispatch", () => {
     ).rejects.toMatchObject({ code: "KERNEL_TOOL_UNSUPPORTED" });
   });
 
+  it("论文还没入档时，卡片工具给出能照做的原因（不是 schema 里的 uuid 报错）", async () => {
+    // 真实踩到的场景：工作区里只有 paper.pdf，从来没入档（paper_asset 为空），
+    // 模型拿 arXiv 号写卡会被 schema 拒成「must match format uuid」，它只能改写 markdown。
+    const dispatch = createKernelDispatch({
+      db,
+      cacheRoot: mkdtempSync(join(tmpdir(), "papers-cache-")),
+      deposit: async () => {},
+      cardDeposit: async () => {},
+      http: { get: async () => wire({ results: [] }) } as never,
+    });
+    await expect(
+      dispatch({
+        account,
+        dossier,
+        run: runId,
+        server: "cards",
+        tool: "card.layer",
+        args: {
+          card: {
+            paperId: "arxiv:2602.03794",
+            no: "1",
+            title: "一句话",
+            en: "One-liner",
+            body: [{ text: "这一层讲问题。", refs: [{ paperId: "arxiv:2602.03794", page: 2, quote: "原文" }] }],
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "PAPER_NOT_REGISTERED",
+      status: 409,
+    });
+    // 报错里必须写清下一步，模型才知道去登记，而不是改写文件。
+    await expect(
+      dispatch({
+        account,
+        dossier,
+        run: runId,
+        server: "cards",
+        tool: "card.finding",
+        args: { card: { text: "工具调用提升事实性", evidence: [{ paperId: "W3000000001", page: 3, quote: "原文" }] } },
+      }),
+    ).rejects.toMatchObject({ code: "PAPER_NOT_REGISTERED" });
+  });
+
   it("层的写入落在内核卡片层：引用本轮读过的页才通过，并留下 card_created", async () => {
     const assetId = randomUUID();
     const pageText = "Toolformer learns to call APIs.";

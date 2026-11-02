@@ -156,7 +156,7 @@ export function apply(ctx, config) {
   register(
     defineTool({
       name: "papers_pages",
-      description: "读取已下载论文的具体页码，返回该页原文。",
+      description: "读取已下载论文的具体页码，返回该页原文。assetId 必须是档案里的论文资产 id（papers_fetch / papers_register 返回的那个）；工作区里的本地 PDF 要先 papers_register 登记成资产才能读页。",
       parameters: {
         assetId: { type: "string", required: true, description: "档案里的论文资产 id。" },
         pages: { type: "array", required: true, items: { type: "integer" }, description: "页码，从 1 开始，最多 20 页。" },
@@ -171,7 +171,7 @@ export function apply(ctx, config) {
   register(
     defineTool({
       name: "card_layer",
-      description: "保存一层讲解卡。卡片里的说法都要有实际读到的页码依据。",
+      description: "保存一层讲解卡。卡片里的说法都要有实际读到的页码依据。paperId（以及 body[].refs[].paperId）要用档案里的论文资产 id——先 papers_fetch 下载或 papers_register 登记（工作区里的 PDF 也能登记）拿到它；还没入档的论文写不了卡。",
       parameters: {
         card: {
           type: "object",
@@ -191,7 +191,7 @@ export function apply(ctx, config) {
   register(
     defineTool({
       name: "card_finding",
-      description: "保存一条发现卡，带上依据页码。",
+      description: "保存一条发现卡，带上依据页码。evidence[].paperId 同样要用档案里的论文资产 id（papers_fetch / papers_register 返回的）。",
       parameters: {
         text: { type: "string", required: true, description: "发现内容。" },
         evidence: { type: "array", required: true, items: { type: "object", additionalProperties: true }, description: "paperId/page/quote 依据。" },
