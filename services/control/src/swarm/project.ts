@@ -16,11 +16,18 @@ import type {
  * 家庭成员、任务变化、消息收发折算成页面要的统一事件流；折算按 DSH 事件 seq 幂等，
  * 重放和重启都不会把同一件事算两遍。
  *
- * 拿不到的：队员自己会话里的工具调用和它发出去的消息（DSH 只把团队成员与任务
- * 变化追加到负责人会话）。这些条目 delivery 如实标 unknown，不假装已送达。
+ * 会话归属：SDK 的通知带 `params.sessionId`，所以每条事件都知道属于哪个会话。
+ * 负责人会话 → 用户/负责人说的话；队员会话 → 队员做的事和它发出去的消息。
+ * 认不出来的会话（比如恢复失败后另开的）会照实标成系统事件，不会冒充成用户说话。
  */
 
-export type DshRow = { seq: number | string; action: string; payload: unknown };
+export type DshRow = {
+  seq: number | string;
+  action: string;
+  payload: unknown;
+  /** 这条内核事件属于哪个会话（认同一个人、不同队员就靠它）。 */
+  sessionId?: string | null;
+};
 
 export type FoldContext = {
   account: string;
@@ -29,7 +36,16 @@ export type FoldContext = {
   planVersion: number;
   round: number;
   model: string;
+  /** 负责人会话：内核事件按它认人。 */
+  leadSession?: string | null;
+  /** 计划里的路线 id：`route=` 写成别的值（none / all / -）一律当没有。 */
+  routeIds?: string[];
 };
+
+/** 插件在建任务时登记的研究语义（不靠负责人在描述里写对）。 */
+export type TaskMeta = { routeId?: string | null; parentId?: string | null; kind?: string | null };
+/** 插件在建成员时登记的角色与显示名。 */
+export type MemberMeta = { role?: string | null; label?: string | null; routeId?: string | null };
 
 type Call = { callId: string; name: string; args: Record<string, unknown>; busSeq?: number };
 
@@ -37,6 +53,12 @@ export type FoldState = {
   members: Map<string, SwarmMember>;
   tasks: Map<string, SwarmTask>;
   calls: Map<string, Call>;
+  /** 任务 / 成员的研究语义（插件登记）。 */
+  taskMeta: Map<string, TaskMeta>;
+  memberMeta: Map<string, MemberMeta>;
+  /** 会话 id → 队员名；负责人会话单独一个字段。 */
+  bySession: Map<string, string>;
+  leadSession: string | null;
 };
 
 const str = (value: unknown): string | null =>
@@ -60,13 +82,23 @@ const ROLE_LABEL: Record<MemberRole, string> = {
   verifier: "核实",
 };
 
-/** 显示名：`研究员 01`。序号沿用成员名里的数字，没有就不带。 */
-export function labelOf(name: string): string {
-  if (name === "lead") return ROLE_LABEL.lead;
-  const role = roleOf(name);
-  if (role === "lead") return ROLE_LABEL.lead;
+/**
+ * 显示名：`研究员 01`。序号沿用成员名里的数字；名字里没有数字（负责人常起成
+ * `r1-scaling`、`critic`）时把名字缀上去，免得三个队员在页面上都叫「研究员」。
+ */
+export function labelOf(name: string, role: MemberRole = roleOf(name)): string {
+  const base = ROLE_LABEL[role];
+  if (role === "lead") return base;
   const number = /(\d+)\s*$/.exec(name)?.[1];
-  return number ? `${ROLE_LABEL[role]} ${number.padStart(2, "0")}` : ROLE_LABEL[role];
+  if (number && name.length - number.length <= 16) return `${base} ${number.padStart(2, "0")}`;
+  return name === base ? base : `${base}·${name}`;
+}
+
+/** 描述里写的路线 id 必须真的在计划里，否则一律当没有（不要编路线）。 */
+function sanitizeRoute(value: string | null, known: string[] | undefined): string | null {
+  if (!value) return null;
+  if (!known || known.length === 0) return value;
+  return known.includes(value) ? value : null;
 }
 
 /**
@@ -81,7 +113,14 @@ export function taskHints(description: string): {
   contractVersion: number | null;
 } {
   const head = description.trim().split(/\r?\n/, 1)[0] ?? "";
-  const read = (key: string) => new RegExp(`(?:^|\\s)${key}=([^\\s]+)`).exec(head)?.[1] ?? null;
+  const raw = (key: string) => new RegExp(`(?:^|\\s)${key}=([^\\s]+)`).exec(head)?.[1] ?? null;
+  // 模型会写 route=none / route=all / route=- 这类占位：契约里是 null，不是字符串。
+  const read = (key: string) => {
+    const value = raw(key);
+    if (!value) return null;
+    const lowered = value.toLowerCase();
+    return ["none", "null", "all", "-", "n/a", "na", "all routes"].includes(lowered) ? null : value;
+  };
   const kindRaw = read("kind");
   const kinds = new Set<SwarmTask["kind"]>([
     "root",
@@ -133,8 +172,21 @@ export async function loadFold(
     `select call_id,name,bus_seq from swarm_call where account_id=$1 and run_id=$2`,
     [account, runId],
   );
+  const meta = await client.query(
+    `select kind,ref_id,data from swarm_meta where account_id=$1 and run_id=$2`,
+    [account, runId],
+  );
+  const taskMeta = new Map<string, TaskMeta>();
+  const memberMeta = new Map<string, MemberMeta>();
+  for (const row of meta.rows) {
+    if (row.kind === "task") taskMeta.set(String(row.ref_id), row.data as TaskMeta);
+    else memberMeta.set(String(row.ref_id), row.data as MemberMeta);
+  }
+  const map = new Map(members.rows.map((row) => [String(row.data.id), row.data as SwarmMember]));
+  const bySession = new Map<string, string>();
+  for (const member of map.values()) if (member.sessionId) bySession.set(member.sessionId, member.id);
   return {
-    members: new Map(members.rows.map((row) => [String(row.data.id), row.data as SwarmMember])),
+    members: map,
     tasks: new Map(tasks.rows.map((row) => [String(row.data.id), row.data as SwarmTask])),
     calls: new Map(
       calls.rows.map((row) => [
@@ -142,6 +194,10 @@ export async function loadFold(
         { callId: String(row.call_id), name: String(row.name), args: {}, ...(row.bus_seq ? { busSeq: Number(row.bus_seq) } : {}) },
       ]),
     ),
+    taskMeta,
+    memberMeta,
+    bySession,
+    leadSession: null,
   };
 }
 
@@ -239,7 +295,12 @@ export async function projectEvents(
     // 通信条目和队员记录的 seq 是「全局事件序号」：插进去才知道是几号，
     // 补进 data 里，实时流和分页时间线拿到的才是同一个 seq（页面按它去重排序）。
     if (type === "bus" || type === "member_log") {
-      const withSeq = { ...(data as Record<string, unknown>), seq };
+      const withSeq = {
+        ...(type === "member_log" ? { at: new Date().toISOString() } : {}),
+        ...(data as Record<string, unknown>),
+        seq,
+      };
+      if (type === "member_log" && !withSeq.at) withSeq.at = new Date().toISOString();
       await client.query(
         "update swarm_event set data=$3 where account_id=$1 and run_id=$2 and seq=$4",
         [context.account, context.runId, JSON.stringify(withSeq), seq],
@@ -251,9 +312,39 @@ export async function projectEvents(
     return seq;
   };
 
+  /**
+   * 这条事件是哪个成员发的：负责人会话 → 'lead'；队员会话 → 队员名；
+   * 认不出来 → null（照实当系统事件，不冒充成谁说的话）。
+   */
+  const identify = (sessionId: string | null | undefined): string | null => {
+    if (!sessionId) return null;
+    if (context.leadSession && sessionId === context.leadSession) return "lead";
+    return state.bySession.get(sessionId) ?? null;
+  };
+
+  /**
+   * 运行环境快照、建队提示词这类东西不是用户说的话，别在页面上显示成「你说的」。
+   * 返回要记的类型：'user' 是真的用户，'system' 是环境，null 是直接丢掉。
+   */
+  const classifyUserText = (text: string, who: string | null): "user" | "system" | null => {
+    // 运行环境快照：纯环境，不显示。
+    if (/^Current runtime context\b/.test(text)) return null;
+    // 建队提示词（负责人交给队员的初始任务）：不是用户说的话。会话映射可能还没到，
+    // 所以按内容认，不指望 who。
+    if (/^你是这次群研的/.test(text) || /共享任务 id 是 `?task-/.test(text)) return null;
+    if (/^档案变动：/.test(text)) return "system";
+    if (/^Background subagent .* finished\b/.test(text)) return "system";
+    if (/^Team message from /.test(text)) return "system";
+    // 队员会话里收到的不是「用户」说的话：注入的上下文都不记成用户。
+    if (who && who !== "lead") return null;
+    return "user";
+  };
+
   /** 负责人是隐式的（DSH 没有它的成员事件）：名册第一行按 teamId=负责人会话补上。 */
   const ensureLead = async (teamId: string, sourceSeq: number) => {
-    if (!teamId || state.members.has("lead")) return;
+    const session = teamId || context.leadSession || "";
+    if (!session || state.members.has("lead")) return;
+    state.bySession.set(session, "lead");
     const lead: SwarmMember = {
       id: "lead",
       role: "lead",
@@ -262,7 +353,7 @@ export async function projectEvents(
       model: context.model,
       context: "fresh",
       state: "running",
-      sessionId: teamId,
+      sessionId: session,
     };
     state.members.set("lead", lead);
     await push("member", lead, sourceSeq);
@@ -271,6 +362,7 @@ export async function projectEvents(
   for (const row of rows) {
     const sourceSeq = Number(row.seq);
     const payload = obj(row.payload);
+    const who = identify(row.sessionId);
     switch (row.action) {
       case "team/member": {
         await ensureLead(str(payload.teamId) ?? "", sourceSeq);
@@ -279,11 +371,14 @@ export async function projectEvents(
         if (!name) break;
         const phase = str(member.phase);
         const prior = state.members.get(name);
+        const meta = state.memberMeta.get(name);
+        const role = (str(meta?.role) as MemberRole | null) ?? roleOf(name);
+        const routeTag = str(meta?.routeId);
         const next: SwarmMember = {
           id: name,
-          role: roleOf(name),
-          label: labelOf(name),
-          tags: prior?.tags ?? [],
+          role,
+          label: str(meta?.label) ?? labelOf(name, role),
+          tags: routeTag ? [routeTag] : (prior?.tags ?? []),
           model: prior?.model ?? context.model,
           context: member.context === "fork" ? "inherited" : "fresh",
           state:
@@ -299,6 +394,7 @@ export async function projectEvents(
           ...(str(member.error) ? { failReason: str(member.error)! } : {}),
         };
         state.members.set(name, next);
+        if (next.sessionId) state.bySession.set(next.sessionId, name);
         await push("member", next, sourceSeq);
         break;
       }
@@ -314,6 +410,22 @@ export async function projectEvents(
         const prior = state.tasks.get(id);
         const description = String(task.description ?? "");
         const hints = taskHints(description);
+        const meta = state.taskMeta.get(id);
+        const metaRoute = str(meta?.routeId);
+        const routeOk =
+          metaRoute && (!context.routeIds?.length || context.routeIds.includes(metaRoute))
+            ? metaRoute
+            : null;
+        const metaKind = str(meta?.kind);
+        const kinds = new Set<SwarmTask["kind"]>([
+          "root",
+          "route",
+          "research",
+          "review",
+          "verify",
+          "synthesis",
+          "other",
+        ]);
         const board = (str(task.status) ?? "pending") as SwarmTask["board"];
         const dependsOn = arr(task.blockedBy).map(String);
         const blockedBy = dependsOn.filter((dep) => state.tasks.get(dep)?.board !== "completed");
@@ -327,10 +439,15 @@ export async function projectEvents(
         const next: SwarmTask = {
           id,
           revision: Number(task.revision ?? 1),
-          parentId: hints.parentId ?? prior?.parentId ?? null,
-          kind: hints.kind !== "research" || !prior ? hints.kind : prior.kind,
+          parentId: str(meta?.parentId) ?? hints.parentId ?? prior?.parentId ?? null,
+          kind:
+            metaKind && kinds.has(metaKind as SwarmTask["kind"])
+              ? (metaKind as SwarmTask["kind"])
+              : hints.kind !== "research" || !prior
+                ? hints.kind
+                : prior.kind,
           title: String(task.subject ?? prior?.title ?? ""),
-          routeId: hints.routeId ?? prior?.routeId ?? null,
+          routeId: routeOk ?? sanitizeRoute(hints.routeId, context.routeIds) ?? prior?.routeId ?? null,
           round: prior?.round ?? context.round,
           planVersion: prior?.planVersion ?? context.planVersion,
           contractVersion: hints.contractVersion ?? prior?.contractVersion ?? null,
@@ -367,6 +484,7 @@ export async function projectEvents(
         const name = str(payload.name);
         if (!callId || !name) break;
         const args = parseJson(payload.arguments);
+        const member = who ?? "lead";
         const call: Call = { callId, name, args };
         state.calls.set(callId, call);
         // 对话调用也存一份：工具结果晚一拍才到，靠它把两半接起来。
@@ -378,7 +496,7 @@ export async function projectEvents(
         await push(
           "member_log",
           {
-            member: "lead",
+            member,
             kind: "tool",
             text: `调用 ${name}`,
             tool: { name, state: "running", args: JSON.stringify(args).slice(0, 400) },
@@ -395,7 +513,7 @@ export async function projectEvents(
             seq: 0,
             at: new Date().toISOString(),
             type: "message",
-            from: "lead",
+            from: member,
             to: target ?? null,
             text: String(args.message ?? "").slice(0, 2000),
             delivery: "unknown",
@@ -415,7 +533,7 @@ export async function projectEvents(
             seq: 0,
             at: new Date().toISOString(),
             type: "interrupt",
-            from: "lead",
+            from: member,
             to: str(args.target),
             text: `负责人打断了 ${str(args.target) ?? "一名队员"} 当前的这一轮`,
             refs: {},
@@ -426,7 +544,7 @@ export async function projectEvents(
             seq: 0,
             at: new Date().toISOString(),
             type: "broadcast",
-            from: "lead",
+            from: member,
             to: "board",
             text: `新任务：${String(args.subject ?? args.title ?? "").slice(0, 300)}`,
             refs: {},
@@ -500,7 +618,7 @@ export async function projectEvents(
           await push(
             "member_log",
             {
-              member: "lead",
+              member: who ?? "lead",
               kind: "tool",
               text: `${name} ${failed ? "失败" : "完成"}`,
               tool: {
@@ -520,30 +638,121 @@ export async function projectEvents(
         const content = arr(payload.content);
         const text = content.map((block) => str(obj(block).text) ?? "").join("").trim();
         if (!text) break;
-        // 队员的消息以「Team message from <名字>:」开头落进负责人会话：
-        // 认得出是谁发的就按队内消息记，认不出才是用户说的话。
-        const fromTeammate = /^Team message from ([A-Za-z0-9_-]+):\s*([\s\S]*)$/.exec(text);
-        const bus: BusEntry = fromTeammate
-          ? {
-              seq: 0,
-              at: new Date().toISOString(),
-              type: "message",
-              from: fromTeammate[1],
-              to: "lead",
-              text: fromTeammate[2].slice(0, 2000),
-              delivery: "received",
-              refs: {},
-            }
-          : {
-              seq: 0,
-              at: new Date().toISOString(),
-              type: "user",
-              from: "user",
-              to: "lead",
-              text: text.slice(0, 2000),
-              refs: {},
-            };
+        const source = obj(payload.source);
+        // 队内消息认两种证据：payload.source.senderSessionId（最准），
+        // 以及正文开头的「Team message from <名字>:」。
+        const senderSession = str(source.senderSessionId);
+        // 发送者自己会话里也留了一份同样的正文（source.senderSessionId 就是本会话）：
+        // 这条不记，队内消息只在收件人那一侧记一条。同会话比对不依赖映射，先判。
+        if (senderSession && row.sessionId && senderSession === row.sessionId) break;
+        const senderBySession = senderSession ? (state.bySession.get(senderSession) ?? null) : null;
+        const prefix = /^Team message from ([A-Za-z0-9_-]+):\s*([\s\S]*)$/.exec(text);
+        const fromMember = senderBySession ?? (prefix && prefix[1] !== who ? prefix[1] : null);
+        if (fromMember && fromMember !== who) {
+          // 收件人是这条事件所属的会话，不是负责人：之前一律记成 lead → lead。
+          const bus: BusEntry = {
+            seq: 0,
+            at: new Date().toISOString(),
+            type: "message",
+            from: fromMember,
+            to: who ?? (prefix ? prefix[1] : null),
+            text: (prefix ? prefix[2] : text).slice(0, 2000),
+            delivery: "received",
+            refs: {},
+          };
+          await push("bus", bus, sourceSeq);
+          break;
+        }
+        // 发送者自己会话里也有一份同一句话的副本（to=自己）：不再记一遍。
+        if (fromMember && fromMember === who) break;
+        const kind = classifyUserText(text, who);
+        if (!kind) break;
+        const bus: BusEntry = {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: kind === "user" ? "user" : "system",
+          from: kind === "user" ? "user" : "system",
+          to: who ?? "lead",
+          text: text.slice(0, 2000),
+          refs: {},
+        };
         await push("bus", bus, sourceSeq);
+        break;
+      }
+      case "user/message": {
+        const content = arr(payload.content);
+        const text = content.map((block) => str(obj(block).text) ?? "").join("").trim();
+        if (!text) break;
+        const source = obj(payload.source);
+        // 队内消息认两种证据：payload.source.senderSessionId（最准），
+        // 以及正文开头的「Team message from <名字>:」。
+        const senderSession = str(source.senderSessionId);
+        // 发送者自己会话里也留了一份同样的正文（source.senderSessionId 就是本会话）：
+        // 这条不记，队内消息只在收件人那一侧记一条。同会话比对不依赖映射，先判。
+        if (senderSession && row.sessionId && senderSession === row.sessionId) break;
+        const senderBySession = senderSession ? (state.bySession.get(senderSession) ?? null) : null;
+        const prefix = /^Team message from ([A-Za-z0-9_-]+):\s*([\s\S]*)$/.exec(text);
+        const fromMember = senderBySession ?? (prefix && prefix[1] !== who ? prefix[1] : null);
+        if (fromMember && fromMember !== who) {
+          // 收件人是这条事件所属的会话，不是负责人：之前一律记成 lead → lead。
+          const bus: BusEntry = {
+            seq: 0,
+            at: new Date().toISOString(),
+            type: "message",
+            from: fromMember,
+            to: who ?? (prefix ? prefix[1] : null),
+            text: (prefix ? prefix[2] : text).slice(0, 2000),
+            delivery: "received",
+            refs: {},
+          };
+          await push("bus", bus, sourceSeq);
+          break;
+        }
+        // 发送者自己会话里也有一份同一句话的副本（to=自己）：不再记一遍。
+        if (fromMember && fromMember === who) break;
+        const kind = classifyUserText(text, who);
+        if (!kind) break;
+        const bus: BusEntry = {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: kind === "user" ? "user" : "system",
+          from: kind === "user" ? "user" : "system",
+          to: who ?? "lead",
+          text: text.slice(0, 2000),
+          refs: {},
+        };
+        await push("bus", bus, sourceSeq);
+        break;
+      }
+      case "assistant/message": {
+        const content = arr(payload.content);
+        const text = content.map((block) => str(obj(block).text) ?? "").join("").trim();
+        if (!text) break;
+        const member = who ?? "lead";
+        // 谁说的话归到谁：负责人对用户的答复是一条 lead → user 的通信，
+        // 队员的输出进它自己的记录，不冒充负责人。
+        if (member === "lead") {
+          const bus: BusEntry = {
+            seq: 0,
+            at: new Date().toISOString(),
+            type: "deliver",
+            from: "lead",
+            to: "user",
+            text: text.slice(0, 2000),
+            refs: {},
+          };
+          await push("bus", bus, sourceSeq);
+        }
+        await push(
+          "member_log",
+          {
+            member,
+            kind: "output",
+            text: text.slice(0, 800),
+            ...(text.length > 800 ? { note: "已截断" } : {}),
+          } satisfies Partial<MemberLogItem> & { member: string },
+          sourceSeq,
+        );
         break;
       }
       default:

@@ -165,6 +165,14 @@ export async function resolveInside(root, rel) {
   return { base, target };
 }
 
+/** 队员名 → 角色（控制面也有一份同样的判断，这里只为决定读的边界）。 */
+function memberRoleOf(name, role) {
+  if (role === "critic" || role === "verifier") return role;
+  if (/critic|refut|review|反驳/i.test(name)) return "critic";
+  if (/verif|check|核实/i.test(name)) return "verifier";
+  return "researcher";
+}
+
 const clamp = (value, max = 400) =>
   typeof value === "string" ? (value.length > max ? value.slice(0, max) + "…" : value) : value;
 
@@ -266,6 +274,86 @@ export function apply(ctx, config) {
     );
     register(
       defineTool({
+        name: "research_spawn",
+        description:
+          "建一名队员并登记他的研究身份：角色（researcher / critic / verifier）、跟哪条路线、显示名。研究员一律全新上下文（fresh）。建人只走这个工具，不要再直接调 spawn_teammate，否则路线和角色对不上。",
+        parameters: {
+          name: { type: "string", required: true, description: "唯一的小写名字，如 r1-scaling。" },
+          role: {
+            type: "string",
+            required: true,
+            enum: ["researcher", "critic", "verifier"],
+          },
+          route_id: { type: "string", description: "跟的路线 id（研究员必填；反驳/核实可留空）。" },
+          label: { type: "string", description: "页面上显示的名字，如「研究员 01」。可留空。" },
+          description: { type: "string", required: true, description: "这名队员负责什么，一句话。" },
+          prompt: { type: "string", required: true, description: "交给他的完整任务（合同）。" },
+        },
+        timeoutMs: 120_000,
+        async execute(args, exec) {
+          const context = "fresh";
+          const member = await ctx.agentTeams.spawnTeammate(agent, {
+            name: args.name,
+            description: args.description,
+            prompt: [{ type: "text", text: args.prompt }],
+            context,
+            provider: "spawn",
+            signal: exec.signal,
+          });
+          await call("swarm", "meta", {
+            kind: "member",
+            refId: args.name,
+            data: {
+              role: args.role,
+              label: args.label ?? null,
+              routeId: args.route_id ?? null,
+            },
+          }).catch(() => undefined);
+          return { member: { target: args.name, role: args.role, context } };
+        },
+      }),
+    );
+    register(
+      defineTool({
+        name: "research_task",
+        description:
+          "在任务板上建一个研究任务，并登记它挂在哪条路线、父任务是谁、是什么类型。有依赖就写 blocked_by。建任务走这个工具，不要再直接调 team_task_create，否则页面上的路线卡会是空的。",
+        parameters: {
+          subject: { type: "string", required: true, description: "任务标题。" },
+          description: { type: "string", required: true, description: "任务详情与完成标准。" },
+          kind: {
+            type: "string",
+            required: true,
+            enum: ["root", "route", "research", "review", "verify", "synthesis", "other"],
+          },
+          route_id: { type: "string", description: "路线 id；根任务和汇总任务可以不填。" },
+          parent_id: { type: "string", description: "父任务 id，如 task-1。" },
+          blocked_by: { type: "array", items: { type: "string" }, description: "必须先完成的任务 id。" },
+          write_scopes: { type: "array", items: { type: "string" }, description: "预计改动的目录。" },
+        },
+        timeoutMs: 60_000,
+        async execute(args) {
+          const task = await ctx.agentTeams.createTask(agent, {
+            subject: args.subject,
+            description: args.description,
+            ...(args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by }),
+            ...(args.write_scopes === undefined ? {} : { writeScopes: args.write_scopes }),
+          });
+          await call("swarm", "meta", {
+            kind: "task",
+            refId: task.id,
+            data: {
+              kind: args.kind,
+              routeId: args.route_id ?? null,
+              parentId: args.parent_id ?? null,
+            },
+          }).catch(() => undefined);
+          return task;
+        },
+      }),
+    );
+    register(
+      defineTool({
         name: "research_status",
         description: "看这次群研现在的状态、额度用量、名册和任务板，用来决定下一步做什么。",
         parameters: {},
@@ -299,7 +387,21 @@ export function apply(ctx, config) {
         text: `工具收窄失败：${String(error?.message ?? error).slice(0, 200)}`,
       });
     }
-    scoped.tools.register(filesTool(join(teamRoot, memberName), memberName, false, report));
+    const role = ctx.agentTeams.membership(agent).role;
+    const canReadOthers = memberRoleOf(memberName, role) !== "researcher";
+    // 反驳 / 核实按审查任务要读被审的产出（PRD §5）：读的边界是 team/，写的边界仍是自己的目录。
+    scoped.tools.register(
+      filesTool(join(teamRoot, memberName), memberName, false, report, {
+        readRoot: canReadOthers ? teamRoot : undefined,
+        role: memberRoleOf(memberName, role),
+      }),
+    );
+    // 干活时要在名册上显示「运行中」：工具一开始就跑一条状态上来。
+    scoped.on("tools/pre-execute", async (exec, next) => {
+      if (exec && (exec.agent === undefined || exec.agent === agent))
+        void report(memberName, { kind: "tool", text: `开始 ${exec.name}`, tool: { name: exec.name, state: "running" } });
+      return next();
+    });
     // 可见工作记录：工具跑完就上报一条（参数和结果都截断，不含推理原文）。
     scoped.on("tools/result", (exec, result) => {
       if (!exec || (exec.agent !== undefined && exec.agent !== agent)) return;
@@ -374,14 +476,18 @@ export function apply(ctx, config) {
   ctx.effect(() => () => installed.clear(), "reinlab-swarm.tools()");
 }
 
-/** 目录读写工具：只在自己的目录里，路径规范化并核真实路径。 */
-function filesTool(root, memberName, readOnly, report) {
+/** 目录读写工具：研究员只在自己目录；反驳/核实读整个 team/ 但只写自己目录。 */
+export function filesTool(root, memberName, readOnly, report, options = {}) {
+  const readRoot = options.readRoot ?? root;
+  const role = options.role ?? "researcher";
   return defineTool({
     name: "research_files",
     description:
-      readOnly
-        ? "在团队的 team/ 目录里列目录或读文件（别人写的东西只能读）。"
-        : "在属于你自己的研究子目录里列、读、写文件。只能碰这个目录里的路径。",
+      role === "critic" || role === "verifier"
+        ? "读：整个 team/ 目录（各研究员的交付都能读，这是审查需要的）；写：只写自己的目录。"
+        : readOnly
+          ? "在团队的 team/ 目录里列目录或读文件（别人写的东西只能读）。"
+          : "在属于你自己的研究子目录里列、读、写文件。只能碰这个目录里的路径。",
     parameters: {
       op: { type: "string", required: true, enum: ["list", "read", "write"] },
       path: { type: "string", description: "相对自己目录的路径；列目录可以不写。" },
@@ -392,7 +498,7 @@ function filesTool(root, memberName, readOnly, report) {
       try {
         switch (args.op) {
           case "list": {
-            const target = args.path ? await resolveInside(root, args.path) : { target: root };
+            const target = args.path ? await resolveInside(readRoot, args.path) : { target: readRoot };
             const entries = await readdir(target.target, { withFileTypes: true });
             return {
               path: args.path ?? ".",
@@ -403,7 +509,7 @@ function filesTool(root, memberName, readOnly, report) {
             };
           }
           case "read": {
-            const resolved = await resolveInside(root, args.path ?? "");
+            const resolved = await resolveInside(readRoot, args.path ?? "");
             const info = await stat(resolved.target);
             if (!info.isFile()) return { error: { code: "NOT_A_FILE", message: "这不是文件。" } };
             if (info.size > MAX_FILE_BYTES)

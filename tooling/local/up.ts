@@ -106,8 +106,12 @@ try {
         "vz",
         "--mount",
         paths.root,
+        // 账户卷与 DSH 会话目录都在实例状态目录下：不把整棵状态目录按可写挂进 VM，
+        // 容器里的 /opt/reinlab-account 会变成 VM 上的空目录（bind 源看不见），
+        // dsh 于是在容器里 mkdir 失败（EACCES），页面侧表现为整轮直接失败。
+        // 这个目录已经包含 account-credentials，不能再单独挂它（colima 拒绝重叠挂载）。
         "--mount",
-        credentialRoot,
+        paths.state + ":w",
         "--mount-type",
         "virtiofs",
         "--ssh-config=false",

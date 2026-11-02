@@ -60,9 +60,15 @@ export type SwarmHooks = {
     account: string,
     runId: string,
     state: "completed" | "failed" | "cancelled" | "cancel_unconfirmed",
+    detail?: string,
   ) => Promise<{ continued: boolean }>;
   /** 这次群研还没结束吗？没结束的运行在轮次之间不能把 run 行置成终态。 */
   isActive: (account: string, runId: string) => Promise<boolean>;
+  /**
+   * 这一轮负责人最后说给用户的话。DSH 的 assistant/message 是增量流，
+   * 拼不出原文；SDK 的 finalResponse 才是这一轮真正说出口的那段。
+   */
+  onTurnOutput: (account: string, runId: string, text: string) => Promise<void>;
 };
 
 export type KernelDependencies = {
@@ -102,7 +108,14 @@ const ACTIVE_SESSION_STATE = new Set(["queued", "running", "waiting"]);
  * model endpoint owns the single usage write.
  */
 export class KernelService {
-  private readonly handles = new Map<string, RunHandle>();
+  /**
+   * 一个运行名下活着的回合。真实验收里确认与「继续」并发，同一 run 上跑了两回合：
+   * 后一条把前一条的 handle 覆盖掉，前一条结束又把它删掉，于是 cancel 找不到人，
+   * 团队一直在后台花钱。现在按 run 收成集合，取消就是把这一 run 的回合全停掉。
+   */
+  private readonly handles = new Map<string, Set<RunHandle>>();
+  /** 这一 run 名下活着的回合数：运行文件（令牌/补丁）要等最后一个回合结束才删。 */
+  private readonly turnCounts = new Map<string, number>();
   /**
    * 正在起跑（已写 run 行、还没拿到 handle）的运行。
    * 收件箱的核对会把「不在 handles 里的 running」当成残留；起跑窗口只有几十毫秒，
@@ -382,8 +395,8 @@ export class KernelService {
           for (const payload of splitInjected(event))
             await db.withAccount(account, (client) =>
               client.query(
-                `insert into event(account_id,dossier_id,run_id,role_id,kind,action,payload,dedupe_key)
-                 values($1,$2,$3,'research-read','dsh',$4,$5,$6)`,
+                `insert into event(account_id,dossier_id,run_id,role_id,kind,action,payload,dedupe_key,session_id)
+                 values($1,$2,$3,'research-read','dsh',$4,$5,$6,$7)`,
                 [
                   account,
                   prepared.dossierId,
@@ -391,6 +404,7 @@ export class KernelService {
                   payload.type,
                   JSON.stringify(payload.data ?? {}),
                   `dsh:${runId}:${randomUUID()}`,
+                  event.sessionId ?? null,
                 ],
               ),
             );
@@ -406,7 +420,15 @@ export class KernelService {
               dossier: prepared.dossierId,
               sessionId,
               homePath: layout.home + "/dsh-home",
+              mode: prepared.mode,
             });
+            // 群研：第一次真正用上的负责人会话记下来，投影按它认人。
+            if (prepared.mode === "swarm")
+              await client.query(
+                `update swarm_run set lead_session=coalesce(lead_session,$3), updated_at=now()
+                  where account_id=$1 and run_id=$2`,
+                [account, runId, sessionId],
+              );
             await leaseSession(client, {
               account,
               dossier: prepared.dossierId,
@@ -506,14 +528,20 @@ export class KernelService {
           if (prepared.mode === "swarm" && this.swarm)
             setTimeout(() => {
               void this.swarm
-                ?.onTurnEnd(account, runId, state)
+                ?.onTurnEnd(account, runId, state, detail)
                 .catch(() => undefined);
             }, 1200);
         },
         // 这一轮的产品承诺没兑现时，后端再提醒一次；补不回来就照实结束。
         // 不再往对话里注入「提醒」：那是系统替模型定步骤，还会以用户身份出现在
         // 页面上（纲领第 9 条）。结果照实记录在事件里，不伪装成人说的话。
-        release: plan.release,
+        //
+        // 运行文件（令牌、补丁、凭据）是这一 run 共用的：还有回合在跑时删掉它，
+        // 那边所有工具都会 ENOENT（验收里就报过 token 找不到）。
+        release: async () => {
+          if ((this.turnCounts.get(runId) ?? 0) > 1) return;
+          await plan.release();
+        },
       },
       {
         plan,
@@ -523,8 +551,28 @@ export class KernelService {
         ...(images.length ? { images } : {}),
       },
     );
-    this.handles.set(runId, handle);
-    void handle.done.catch(() => {}).finally(() => this.handles.delete(runId));
+    const live = this.handles.get(runId) ?? new Set<RunHandle>();
+    live.add(handle);
+    this.handles.set(runId, live);
+    this.turnCounts.set(runId, (this.turnCounts.get(runId) ?? 0) + 1);
+    void handle.done
+      .then((outcome) => {
+        const text = outcome.finalResponse?.trim();
+        if (text && prepared.mode === "swarm" && this.swarm)
+          return this.swarm.onTurnOutput(account, runId, text).catch(() => undefined);
+        return undefined;
+      })
+      .catch(() => {})
+      .finally(() => {
+        // 只删自己这一条：别的回合还在跑就别动集合。
+        const current = this.handles.get(runId);
+        const remaining = Math.max(0, (this.turnCounts.get(runId) ?? 1) - 1);
+        if (remaining === 0) this.turnCounts.delete(runId);
+        else this.turnCounts.set(runId, remaining);
+        if (!current) return;
+        current.delete(handle);
+        if (current.size === 0) this.handles.delete(runId);
+      });
     return { runId, sessionId: prepared.sessionId, resume: prepared.resume };
   }
 
@@ -562,24 +610,35 @@ export class KernelService {
   /** 这一段执行此刻是否还挂在本进程里（残留判定用）。 */
   isLive(runId: string): boolean {
     if (this.starting.has(runId)) return true;
-    return this.handles.has(runId);
+    return (this.handles.get(runId)?.size ?? 0) > 0;
+  }
+
+  /** 这一 run 名下还有几条活着的回合（群研据此判断能不能自动接下一轮）。 */
+  liveTurns(runId: string): number {
+    return this.handles.get(runId)?.size ?? 0;
   }
 
   /** Cancel one run; the session is released only when the stop is confirmed. */
   async cancel(account: string, runId: string): Promise<"cancelled" | "cancel_unconfirmed"> {
-    const handle = this.handles.get(runId);
-    if (!handle) {
-      const state = await this.dependencies.db.withAccount(account, async (client) => {
-        return (
-          await client.query("select state from run where id=$1 and account_id=$2", [runId, account])
-        ).rows[0]?.state as string | undefined;
-      });
-      if (!state) throw new ApiFailure("RUN_NOT_FOUND", 404, "运行不存在。");
-      if (!ACTIVE_SESSION_STATE.has(state))
-        throw new ApiFailure("RUN_NOT_CANCELLABLE", 409, "该运行已经结束。");
-      throw new ApiFailure("RUN_NOT_ATTACHED", 409, "这次运行不在当前进程里，无法确认停止。");
+    const live = this.handles.get(runId);
+    // 还挂在本进程里的回合优先：run 行可能已经被别的回合写成终态，但团队还在跑。
+    if (live && live.size > 0) {
+      let status: "cancelled" | "cancel_unconfirmed" = "cancelled";
+      for (const handle of [...live]) {
+        const result = await handle.cancel().catch(() => "cancel_unconfirmed" as const);
+        if (result !== "cancelled") status = result;
+      }
+      return status;
     }
-    return handle.cancel();
+    const state = await this.dependencies.db.withAccount(account, async (client) => {
+      return (
+        await client.query("select state from run where id=$1 and account_id=$2", [runId, account])
+      ).rows[0]?.state as string | undefined;
+    });
+    if (!state) throw new ApiFailure("RUN_NOT_FOUND", 404, "运行不存在。");
+    if (!ACTIVE_SESSION_STATE.has(state))
+      throw new ApiFailure("RUN_NOT_CANCELLABLE", 409, "该运行已经结束。");
+    throw new ApiFailure("RUN_NOT_ATTACHED", 409, "这次运行不在当前进程里，无法确认停止。");
   }
 
   /** Count this run's events matching one action (and an optional predicate). */

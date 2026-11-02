@@ -22,7 +22,7 @@ function teamTurn(): HarnessFactory {
   const lead = "ds-lead";
   const researcher = "ds-researcher";
   // 一轮里按真实顺序发生的事：建队 → 建任务 → 领取 → 发消息 → 交付。
-  const events: { type: string; data?: Record<string, unknown> }[] = [
+  const events: { type: string; data?: Record<string, unknown>; session?: string }[] = [
     {
       type: "team/member",
       data: {
@@ -101,6 +101,30 @@ function teamTurn(): HarnessFactory {
       },
     },
     {
+      type: "user/message",
+      session: researcher,
+      data: {
+        source: { form: "relay", kind: "agent-message", senderSessionId: researcher },
+        content: [{ type: "text", text: "Team message from researcher-01:" }, { type: "text", text: "r1 先交一版" }],
+      },
+    },
+    {
+      type: "user/message",
+      session: lead,
+      data: {
+        source: { form: "relay", kind: "agent-message", senderSessionId: researcher },
+        content: [{ type: "text", text: "Team message from researcher-01:" }, { type: "text", text: "r1 先交一版" }],
+      },
+    },
+    {
+      type: "user/message",
+      session: researcher,
+      data: {
+        source: { kind: "user" },
+        content: [{ type: "text", text: "你是这次群研的研究员 01，跟路线 r1。共享任务 id 是 task-1。" }],
+      },
+    },
+    {
       type: "team/task",
       data: {
         teamId: lead,
@@ -122,8 +146,13 @@ function teamTurn(): HarnessFactory {
   let turns = 0;
   const execute = async (sessionId: string, options: any) => {
     turns += 1;
-    for (const event of turns === 1 ? [] : events)
-      options?.onNotification?.({ method: "session.event", params: { event } });
+    // 澄清那一轮不建队，建队只发生在确认后的那一轮；再往后（如果有）不再重放，
+    // 否则同一批事件会重复进库，页面上就会重复。
+    for (const event of turns === 2 ? events : [])
+      options?.onNotification?.({
+        method: "session.event",
+        params: { event: { type: event.type, data: event.data }, sessionId: event.session ?? lead },
+      });
     return {
       sessionId,
       events: [{ type: "turn/end", data: { reason: { kind: "completed" } } }],
@@ -142,6 +171,45 @@ const io = {
   write: async (file: string, body: string) => void (await writeFile(file, body, { mode: 0o600 })),
   remove: async (file: string) => void (await rm(file, { force: true })),
 };
+
+/** 读一小段 SSE 帧就收手：流是长连接，不能等它自己关。 */
+async function readStream(
+  request: (path: string) => Promise<Response>,
+  path: string,
+  ms: number,
+): Promise<{ type: string; data: unknown }[]> {
+  const response = await request(path);
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  const events: { type: string; data: unknown }[] = [];
+  let buffer = "";
+  const deadline = Date.now() + ms;
+  let finished = false;
+  while (!finished && Date.now() < deadline) {
+    // 服务端每 500ms 推一拍；单拍超时只说明这拍没数据，不算流结束。
+    const chunk = await Promise.race([
+      reader.read(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 260)),
+    ]);
+    if (!chunk) continue;
+    if (chunk.done) finished = true;
+    if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true });
+    for (;;) {
+      const cut = buffer.indexOf("\n\n");
+      if (cut < 0) break;
+      const frame = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      if (!frame.startsWith("data: ")) continue;
+      try {
+        events.push(JSON.parse(frame.slice(6)) as { type: string; data: unknown });
+      } catch {
+        /* 不完整的一帧，忽略 */
+      }
+    }
+  }
+  await reader.cancel().catch(() => undefined);
+  return events;
+}
 
 it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预，费用未知不记 0", async () => {
   const f = await kernelFixture();
@@ -192,7 +260,9 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     if (!snapshot.run) throw new Error("snapshot=" + JSON.stringify(snapshot));
     expect(snapshot.run.state).toBe("clarifying");
     expect(snapshot.plan).toBeNull();
-    expect(snapshot.members).toEqual([]);
+    // 开跑前名册里就有负责人这一行（E5）：DSH 不给负责人成员事件，按负责人会话补。
+    expect(snapshot.members).toHaveLength(1);
+    expect(snapshot.members[0]).toMatchObject({ id: "lead", role: "lead", label: "负责人" });
     // 还没花过钱：未知就是未知，不是 0。
     expect(snapshot.run.used.cost).toEqual({ value: null, known: false });
     expect(snapshot.run.used.tokens).toBeNull();
@@ -265,7 +335,13 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     expect(snapshot.run.members.used).toBe(1);
     expect(snapshot.run.members.max).toBe(16);
 
-    const timeline = (await (await request(`/v1/swarm/runs/${runId}/timeline?after=0`)).json()) as any;
+    // 通信条目是这一批里最后几条：等它落库再断言，别拿半截快照当全部。
+    let timeline: any = { entries: [] };
+    for (let i = 0; i < 60; i += 1) {
+      timeline = await (await request(`/v1/swarm/runs/${runId}/timeline?after=0`)).json();
+      if ((timeline.entries ?? []).some((entry: any) => entry.text === "r1 先交一版")) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const kinds = timeline.entries.map((entry: any) => entry.type);
     expect(kinds).toContain("message");
     expect(kinds).toContain("broadcast");
@@ -277,8 +353,23 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     // 队员记录：负责人的工具调用也进同一条记录（点开负责人看得到真实工作记录）。
     const leadLog = (await (await request(`/v1/swarm/runs/${runId}/members/lead/log?after=0`)).json()) as any;
     expect(leadLog.items.length).toBeGreaterThan(0);
-    expect(leadLog.items[0]).toMatchObject({ kind: "tool", tool: { name: expect.any(String) } });
-    expect(leadLog.items[0].seq).toBeGreaterThan(0);
+    const leadTools = leadLog.items.filter((item: any) => item.kind === "tool");
+    expect(leadTools.length).toBeGreaterThan(0);
+    expect(leadTools[0].tool.name).toEqual(expect.any(String));
+    expect(leadTools[0].seq).toBeGreaterThan(0);
+    // 每条都带 at（E4）。
+    expect(leadLog.items.every((item: any) => typeof item.at === "string")).toBe(true);
+
+    // 队内消息：发送者会话里那份副本不再记一遍（E3），收件人是真正收到的人。
+    const teammateMessages = timeline.entries.filter(
+      (entry: any) => entry.type === "message" && entry.text === "r1 先交一版",
+    );
+    expect(teammateMessages).toHaveLength(1);
+    expect(teammateMessages[0]).toMatchObject({ from: "researcher-01", to: "lead", delivery: "received" });
+    // 建队提示词不是用户说的话，不进通信面。
+    expect(
+      timeline.entries.some((entry: any) => /^你是这次群研的/.test(entry.text ?? "")),
+    ).toBe(false);
 
     // 留言：用户发言进留言板；@队员 同时生成 mention 干预。
     const posted = await request(`/v1/swarm/runs/${runId}/posts`, {
@@ -301,6 +392,13 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     expect(((await paused.json()) as any).kind).toBe("pause");
     snapshot = await (await request(`/v1/swarm/runs/${runId}`)).json();
     expect(snapshot.run.state).toBe("paused");
+    // 干预变成 applied 也要推事件（E1），页面不刷新就能看到「已执行」。
+    const states = await readStream(request, `/v1/swarm/runs/${runId}/stream?after=0`, 1500);
+    expect(
+      states
+        .filter((event) => event.type === "intervention")
+        .map((event) => (event.data as { state?: string }).state),
+    ).toContain("applied");
     const frozen = snapshot.run.used.activeMs;
     await new Promise((resolve) => setTimeout(resolve, 60));
     snapshot = await (await request(`/v1/swarm/runs/${runId}`)).json();
@@ -322,6 +420,120 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     expect(((await unsupported.json()) as any).code).toBe("INTERVENTION_UNSUPPORTED");
 
 
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+/**
+ * B1 回归：确认计划时如果负责人还在上一回合里，那一回合结束不能把刚开跑的运行
+ * 判成「任务都交付了」（当时 0 个任务），「用户已确认计划」也只能进一遍。
+ */
+it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
+  const f = await kernelFixture();
+  try {
+    const issuer = "https://swarm-b1.fixture/auth/v1";
+    // 这一档的两回合都不建队：用来验证「没有任务就不许判完成」。
+    const silent: HarnessFactory = () => ({
+      session: (id: string) => ({
+        run: async () => ({
+          sessionId: id,
+          events: [{ type: "turn/end", data: { reason: { kind: "completed" } } }],
+          finalResponse: "",
+        }),
+      }),
+      resumeSession: async () => ({
+        run: async () => ({
+          sessionId: "ds-silent",
+          events: [{ type: "turn/end", data: { reason: { kind: "completed" } } }],
+          finalResponse: "",
+        }),
+      }),
+      close: async () => {},
+    });
+    const kernel = new KernelService({
+      db: f.db,
+      auth: new KernelAuth(generateKeyPairSync("ed25519").privateKey),
+      factory: silent,
+      model: "deepseek-v4-flash",
+      maxTokens: 4096,
+      controlUrl: "http://control:3001",
+      layout: {
+        home: HOME,
+        shimModule: "/app/shim.mjs",
+        shimContainerModule: "/app/shim.mjs",
+        dshModule: "/app/dsh.mjs",
+        restrictPatch: "/opt/restrict.patch.yml",
+        pluginEntry: "file:///opt/plugin/index.js",
+        swarmPluginEntry: "file:///opt/swarm/index.js",
+        shimMode: "host",
+        io,
+      },
+    });
+    // 数一数开跑指令发了几遍：验收里同一句进了两遍。
+    const prompts: string[] = [];
+    const realSubmit = kernel.submit.bind(kernel);
+    kernel.submit = (async (account: string, run: string, options: any = {}) => {
+      if (typeof options.prompt === "string") prompts.push(options.prompt);
+      return realSubmit(account, run, options);
+    }) as typeof kernel.submit;
+    const swarm = new SwarmService({ db: f.db, kernel, model: "deepseek-v4-flash" });
+    kernel.attachSwarm(swarm);
+    const app = await createApp({ pool: f.pool, auth: { issuer, secret: crypto.randomUUID() }, kernel, swarm });
+    const cookie = await f.sessionCookie();
+    const request = (path: string, body?: unknown) =>
+      app.request(path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          Cookie: cookie,
+          Origin: new URL(path, "http://localhost").origin,
+          "X-ReinLab-CSRF": "1",
+          "content-type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+
+    const started = await request("/v1/kernel/runs", {
+      dossierId: f.dossier,
+      mode: "swarm",
+      query: "多 Agent 数量增加是否一定提高研究质量？",
+    });
+    const { id: runId } = (await started.json()) as { id: string };
+    await swarm.publishPlan(f.account, runId, {
+      question: "多 Agent 数量增加是否一定提高研究质量？",
+      scope: "只查 LLM 多智能体",
+      qualityCriteria: ["有对照"],
+      routes: [{ id: "r1", title: "实证", idea: "对照", differsBy: "看数字" }],
+      limits: { rounds: 4, minutes: 30 },
+    });
+    const confirmed = await request(`/v1/swarm/runs/${runId}/plan/confirm`, { planVersion: 1 });
+    expect(confirmed.status).toBe(200);
+
+    // 上一回合结束：不能判成答完（0 任务 / 0 交付）。
+    // 先等这一轮真的收尾（同一运行不允许两个回合并发，守卫会直接跳过）。
+    const quiesce = async () => {
+      for (let i = 0; i < 100 && kernel.liveTurns(runId) > 0; i += 1)
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    };
+    await quiesce();
+    await swarm.onTurnEnd(f.account, runId, "completed");
+    let snapshot = (await (await request(`/v1/swarm/runs/${runId}`)).json()) as any;
+    expect(snapshot.run.state).not.toBe("partial");
+    expect(snapshot.run.stateReason ?? "").not.toContain("任务都交付了");
+
+    // 再结束几回合也不该答完，轮次按额度往上走、到限才收尾。
+    for (let i = 0; i < 4; i += 1) {
+      await quiesce();
+      await swarm.onTurnEnd(f.account, runId, "completed");
+    }
+    snapshot = (await (await request(`/v1/swarm/runs/${runId}`)).json()) as any;
+    expect(snapshot.run.state).toBe("partial");
+    expect(snapshot.run.endReason).toBe("limit");
+    expect(snapshot.run.stateReason).toContain("没有建出任何任务");
+
+    // 开跑指令只发一遍。
+    expect(prompts.filter((prompt) => prompt.includes("用户已确认计划")).length).toBe(1);
   } finally {
     await f.close();
   }

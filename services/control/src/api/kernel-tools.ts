@@ -158,8 +158,9 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   cards: ["card.layer", "card.finding", "clarify.question"],
   // 课程台最小能力：提交一份学习计划并入档。计划确认与入档是同一次批准。
   courses: ["plan"],
-  // 群研：负责人交计划；队员把可见工作记录报上来（记录里不含推理原文）。
-  swarm: ["plan", "log", "status"],
+  // 群研：负责人交计划；队员把可见工作记录报上来（记录里不含推理原文）；
+  // meta 是插件在建任务、建成员时登记的研究语义（路线、父任务、角色、显示名）。
+  swarm: ["plan", "log", "status", "meta"],
   // 探索台的计划与画布：和页面调同一组服务函数，只是 via='agent'。
   explore: [
     "get",

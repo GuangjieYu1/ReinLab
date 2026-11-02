@@ -108,6 +108,25 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
         // 负责人交计划：入库、等用户确认，不当成开跑。
         return swarm.publishPlan(call.account, call.run, call.args);
       }
+      if (call.tool === "meta") {
+        const input = call.args as {
+          kind?: unknown;
+          refId?: unknown;
+          data?: unknown;
+        };
+        if (
+          (input?.kind !== "task" && input?.kind !== "member") ||
+          typeof input.refId !== "string" ||
+          !input.data ||
+          typeof input.data !== "object"
+        )
+          throw new ApiFailure("INVALID_INPUT", 400, "登记内容不完整。");
+        return swarm.registerMeta(call.account, call.run, {
+          kind: input.kind,
+          refId: input.refId,
+          data: input.data as Record<string, unknown>,
+        });
+      }
       if (call.tool === "status") {
         const snapshot = await swarm.snapshot(call.account, call.run);
         return {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import type {
+  SwarmRoute,
   BusEntry,
   Claim,
   Evidence,
@@ -21,7 +22,7 @@ import type {
 import { ApiFailure } from "../api/errors";
 import type { Database } from "../db/database";
 import type { KernelService } from "../kernel/service";
-import { loadFold, projectEvents } from "./project";
+import { labelOf, loadFold, projectEvents } from "./project";
 
 /** 队员累计名额：完全沿用 DSH 的 maxMembers=16（负责人之外最多 16 个队员）。 */
 export const MAX_MEMBERS = 16;
@@ -107,6 +108,8 @@ type RunRow = {
   active_ms: string | number;
   active_since: Date | null;
   members_used: number;
+  kickoff_at: Date | null;
+  lead_session: string | null;
   projected_seq: string | number;
   state_reason: string | null;
   end_reason: SwarmRun["endReason"] | null;
@@ -225,8 +228,8 @@ export class SwarmService {
     const row = (
       await client.query(
         `select run_id,dossier_id,question,state,phase,round,plan_version,limit_rounds,limit_minutes,
-                active_ms,active_since,members_used,projected_seq,state_reason,end_reason,delegation,
-                started_at,ended_at
+                active_ms,active_since,members_used,kickoff_at,lead_session,projected_seq,
+                state_reason,end_reason,delegation,started_at,ended_at
            from swarm_run where account_id=$1 and run_id=$2`,
         [account, runId],
       )
@@ -440,6 +443,10 @@ export class SwarmService {
     // 确认之后真正开跑：同一段会话接着干，不新建会话。
     // 澄清那一轮可能还没让出会话：重试几次；仍不行就留给人话说明，
     // 由那一轮结束时自动接上（onTurnEnd 第 1 轮会用开跑指令）。
+    //
+    // 开跑指令只发一次：真实验收里确认与「继续」并发，同一句「用户已确认计划」
+    // 进了两遍（时间线 seq 5806、5807），一个运行同时跑两回合，后一条把前一条的
+    // handle 顶掉，于是「结束」停不住团队。
     const kickoff = kickoffPrompt(outcome.plan);
     let started = false;
     for (let attempt = 0; attempt < 8 && !started; attempt += 1) {
@@ -449,6 +456,13 @@ export class SwarmService {
         .catch(() => false);
       if (!started) await new Promise((resolve) => setTimeout(resolve, 700));
     }
+    if (started)
+      await this.dependencies.db.withAccount(account, (client) =>
+        client.query(
+          "update swarm_run set kickoff_at=coalesce(kickoff_at, now()), updated_at=now() where account_id=$1 and run_id=$2",
+          [account, runId],
+        ),
+      );
     if (!started)
       await this.dependencies.db.withAccount(account, async (client) => {
         const row = await this.row(client, account, runId);
@@ -530,6 +544,32 @@ export class SwarmService {
     return state !== "" && !TERMINAL.has(state as SwarmRunState);
   }
 
+  /**
+   * 这一轮负责人对用户说的话：一条「负责人 → 用户」的通信 + 负责人记录里的正文。
+   * 不开出口的话，开跑之后负责人的话在页面上就没了（验收里的 E4）。
+   */
+  async onTurnOutput(account: string, runId: string, text: string): Promise<void> {
+    await this.dependencies.db.withAccount(account, async (client) => {
+      await this.row(client, account, runId).catch(() => null);
+      const trimmed = text.slice(0, 4000);
+      await this.emitSimple(client, account, runId, "bus", {
+        seq: 0,
+        at: new Date().toISOString(),
+        type: "deliver",
+        from: "lead",
+        to: "user",
+        text: trimmed,
+        refs: {},
+      } satisfies BusEntry);
+      await this.emitSimple(client, account, runId, "member_log", {
+        member: "lead",
+        kind: "output",
+        text: trimmed,
+        at: new Date().toISOString(),
+      });
+    });
+  }
+
   /** 内核挂钩：会话里又落了一条事件就折算一次。 */
   async onRunEvent(account: string, runId: string): Promise<void> {
     await this.project(account, runId);
@@ -548,14 +588,33 @@ export class SwarmService {
       const cursor = Number(row.projected_seq ?? 0);
       const events = (
         await client.query(
-          `select seq,action,payload from event
+          `select seq,action,payload,session_id from event
             where account_id=$1 and run_id=$2 and kind='dsh' and seq > $3
             order by seq limit 500`,
           [account, runId, cursor],
         )
-      ).rows;
+      ).rows.map((row) => ({
+        seq: row.seq,
+        action: row.action,
+        payload: row.payload,
+        // pg 给的是 session_id：折算层要的是 sessionId，别在这里断了归属。
+        sessionId: row.session_id ?? null,
+      }));
       if (!events.length) return 0;
       const state = await loadFold(client, account, runId);
+      const plan = await this.planOf(client, account, runId);
+      const leadSession =
+        row.lead_session ??
+        (
+          await client.query(
+            `select session_id from dsh_session
+              where account_id=$1 and dossier_id=$2 and mode='swarm'
+              order by created_at desc limit 1`,
+            [account, row.dossier_id],
+          )
+        ).rows[0]?.session_id ??
+        null;
+      state.leadSession = leadSession ? String(leadSession) : null;
       const context = {
         account,
         runId,
@@ -563,6 +622,8 @@ export class SwarmService {
         planVersion: row.plan_version,
         round: row.round,
         model: this.dependencies.model,
+        leadSession: state.leadSession,
+        routeIds: (plan?.routes ?? []).map((route) => route.id),
       };
       await projectEvents(client, context, events, state);
       const last = Number(events[events.length - 1].seq);
@@ -602,29 +663,86 @@ export class SwarmService {
           )
         ).rows[0]?.seq ?? 0,
       );
+      // 名册上的「在干什么」按真实活动算，不按上一次采样：
+      // 队员在跑工具就显示运行中，安静下来才算空闲（验收里一直是 idle 的就在这）。
+      const activity = (
+        await client.query(
+          `select data->>'member' member, max(at) last_at
+             from swarm_event where account_id=$1 and run_id=$2 and type='member_log'
+            group by 1`,
+          [account, runId],
+        )
+      ).rows;
+      const lastActive = new Map<string, number>(
+        activity.map((entry) => [String(entry.member), new Date(entry.last_at).getTime()]),
+      );
+      const live = this.dependencies.kernel.isLive(runId);
+      const active = TIMED.has(run.state);
+      const now = Date.now();
+      const members = [...fold.members.values()];
+      // 开跑前也要有负责人这一行（E5）：DSH 不给负责人成员事件，按负责人会话补上。
+      if (!members.some((member) => member.id === "lead") && row.lead_session)
+        members.unshift({
+          id: "lead",
+          role: "lead",
+          label: labelOf("lead"),
+          tags: [],
+          model: this.dependencies.model,
+          context: "fresh",
+          state: live ? "running" : "idle",
+          sessionId: String(row.lead_session),
+        });
+      for (const member of members) {
+        if (member.state === "failed" || member.state === "creating") continue;
+        if (member.id === "lead") {
+          member.state = live ? "running" : "idle";
+          continue;
+        }
+        const last = lastActive.get(member.id);
+        const busy = active && last !== undefined && now - last < 120_000;
+        member.state = busy ? "running" : member.state === "running" ? "idle" : member.state;
+      }
+
       const claims: Claim[] = [];
       const evidence: Evidence[] = [];
       const reviews: Review[] = [];
       // MVP-1 还没有黑板：汇总区显示「核实未接通，全部是候选」，不给正式报告。
       const report: SwarmReport | null = null;
+      // 路线状态按最后一条 route 事件走（运行结束时会发 stopped），没有事件才用默认。
+      const routeEvents = (
+        await client.query(
+          `select distinct on (data->>'id') data from swarm_event
+            where account_id=$1 and run_id=$2 and type='route'
+            order by data->>'id', seq desc`,
+          [account, runId],
+        )
+      ).rows.map((row) => row.data as SwarmRoute);
+      const knownRoutes = new Map(routeEvents.map((route) => [route.id, route]));
       const routes = plan
-        ? plan.routes.map((route) => ({
-            id: route.id,
-            title: route.title,
-            idea: route.idea,
-            approachFamily: route.idea.slice(0, 40),
-            tags: [],
-            state: "active" as const,
-            taskIds: [...fold.tasks.values()].filter((task) => task.routeId === route.id).map((task) => task.id),
-            memberIds: [...fold.members.values()]
-              .filter((member) => member.tags.includes(route.id))
-              .map((member) => member.id),
-          }))
+        ? plan.routes.map((route) => {
+            const settled = knownRoutes.get(route.id);
+            return {
+              id: route.id,
+              title: route.title,
+              idea: route.idea,
+              approachFamily: route.idea.slice(0, 40),
+              tags: settled?.tags ?? [],
+              state: settled?.state ?? ("active" as const),
+              ...(settled?.blockedReason ? { blockedReason: settled.blockedReason } : {}),
+              ...(settled?.gap ? { gap: settled.gap } : {}),
+              taskIds: [...fold.tasks.values()]
+                .filter((task) => task.routeId === route.id)
+                .map((task) => task.id),
+              memberIds: [...fold.members.values()]
+                .filter((member) => member.tags.includes(route.id))
+                .map((member) => member.id),
+            };
+          })
         : [];
       return {
         run,
         plan,
-        members: [...fold.members.values()].sort((a, b) => (a.id < b.id ? -1 : 1)),
+        members: members.sort((a, b) => (a.role === "lead" ? -1 : b.role === "lead" ? 1 : a.id < b.id ? -1 : 1)),
         tasks: [...fold.tasks.values()].sort((a, b) => (a.id < b.id ? -1 : 1)),
         routes,
         posts,
@@ -844,6 +962,7 @@ export class SwarmService {
         (entry) => entry.id === id,
       )!;
       await this.emitSimple(client, account, runId, "intervention", intervention);
+      await this.emitInterventionBus(client, account, runId, intervention);
       await this.emitRun(client, account, runId);
       return intervention;
     });
@@ -858,6 +977,11 @@ export class SwarmService {
           [account, intervention.id, input.kind === "pause" ? "已停止派发并中断当前这一轮；产出保留。" : "已停止新增工作，保存已有结论和未完成项。"],
         );
         if (current.active_since) await this.settleTiming(client, account, current);
+        const applied = (await this.interventions(client, account, runId)).find(
+          (entry) => entry.id === intervention.id,
+        )!;
+        await this.emitSimple(client, account, runId, "intervention", applied);
+        await this.emitInterventionBus(client, account, runId, applied);
         await this.emitRun(client, account, runId);
       });
     } else if (input.kind === "resume") {
@@ -867,6 +991,11 @@ export class SwarmService {
              where account_id=$1 and id=$2`,
           [account, intervention.id, "已继续，先核对现状再往下走。"],
         );
+        const applied = (await this.interventions(client, account, runId)).find(
+          (entry) => entry.id === intervention.id,
+        )!;
+        await this.emitSimple(client, account, runId, "intervention", applied);
+        await this.emitInterventionBus(client, account, runId, applied);
       });
       // 暂停时这一轮是被中断的：先把 run 行重新打开，否则会被当成已结束。
       await this.dependencies.db.withAccount(account, async (client) => {
@@ -902,6 +1031,11 @@ export class SwarmService {
               : "已记录停止决定。",
           ],
         );
+        const applied = (await this.interventions(client, account, runId)).find(
+          (entry) => entry.id === intervention.id,
+        )!;
+        await this.emitSimple(client, account, runId, "intervention", applied);
+        await this.emitInterventionBus(client, account, runId, applied);
         await this.emitRun(client, account, runId);
       });
     }
@@ -937,13 +1071,14 @@ export class SwarmService {
     if (input.kind === "finish") {
       // 用户结束：不伪装成功。核实还没接通，所以按「部分完成」收尾并写明原因。
       await this.settleTiming(client, account, row, now);
+      const reason = "你结束了这次群研；已交付的产出保留，但没有经过核实的结论。";
       await client.query(
         `update swarm_run set state='partial', end_reason='user_finished',
-           state_reason='你结束了这次群研；已交付的产出保留，但没有经过核实的结论。',
-           active_since=null, ended_at=coalesce(ended_at, now()), updated_at=now()
+           state_reason=$3, active_since=null, ended_at=coalesce(ended_at, now()), updated_at=now()
          where account_id=$1 and run_id=$2`,
-        [account, row.run_id],
+        [account, row.run_id, reason],
       );
+      await this.settleTerminal(client, account, row.run_id, reason);
       return;
     }
     // stop_route：只记录决定，任务归属由负责人显式处理（DSH 中断不释放归属）。
@@ -951,6 +1086,56 @@ export class SwarmService {
       `update swarm_run set state_reason=$3, updated_at=now() where account_id=$1 and run_id=$2`,
       [account, row.run_id, `已停止路线 ${input.target?.routeId ?? ""}：需要新机制才能重开`],
     );
+  }
+
+  /**
+   * 运行结束时把四处一起收尾（E2）：名册上的人不再显示在跑，根任务和路线不再
+   * 显示「开放 / 进行中」。这些是服务端算出来的状态，页面只照着显示。
+   */
+  async settleTerminal(
+    client: pg.PoolClient,
+    account: string,
+    runId: string,
+    reason: string,
+  ): Promise<void> {
+    const fold = await loadFold(client, account, runId);
+    for (const member of fold.members.values()) {
+      const next = { ...member, state: "idle" as const, doing: null };
+      if (next.state === member.state && member.state === "idle" && !member.doing) continue;
+      await this.emitSimple(client, account, runId, "member", next);
+    }
+    for (const task of fold.tasks.values()) {
+      if (task.state === "delivered" || task.state === "stopped") continue;
+      // 根任务和还在做的任务都停在「已停止」：这次群研结束了，没人再往下做。
+      const next = {
+        ...task,
+        state: "stopped" as const,
+        blockedBy: task.blockedBy ?? null,
+      };
+      await this.emitSimple(client, account, runId, "task", {
+        ...next,
+        board: next.board,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    const plan = await this.planOf(client, account, runId);
+    for (const route of plan?.routes ?? []) {
+      await this.emitSimple(client, account, runId, "route", {
+        id: route.id,
+        title: route.title,
+        idea: route.idea,
+        approachFamily: route.idea.slice(0, 40),
+        tags: [],
+        state: "stopped" as const,
+        blockedReason: reason,
+        taskIds: [...fold.tasks.values()]
+          .filter((task) => task.routeId === route.id)
+          .map((task) => task.id),
+        memberIds: [...fold.members.values()]
+          .filter((member) => member.tags.includes(route.id))
+          .map((member) => member.id),
+      });
+    }
   }
 
   private async settleTiming(
@@ -976,16 +1161,30 @@ export class SwarmService {
     account: string,
     runId: string,
     state: "completed" | "failed" | "cancelled" | "cancel_unconfirmed",
+    detail?: string,
   ): Promise<{ continued: boolean }> {
+    // 同一运行上还有别的回合在跑时，绝不能自己再起一回合：
+    // 验收里确认与「继续」并发跑了两个回合，后一个把前一个的 handle 顶掉，
+    // 「结束」就停不住团队了。谁来接下一轮，只认最后一个回合的结束。
+    if (this.dependencies.kernel.isLive(runId)) return { continued: false };
     const decision = await this.dependencies.db.withAccount(account, async (client) => {
       const row = await this.row(client, account, runId).catch(() => null);
       if (!row) return null;
-      // 任何阶段这一轮真要失败，就照实标失败：不能让澄清阶段的崩溃悄悄挂着。
+      // 任何阶段这一轮真要失败，就照实标出来：不能让崩溃悄悄挂着。
       if (state === "failed") {
+        // 会话读不回来不能当成「研究失败」：队伍和产出还在，标成暂停由用户决定。
+        const restoreFailed = /KERNEL_SESSION_RESTORE_FAILED/.test(detail ?? "");
+        const nextState = restoreFailed ? "paused" : "failed";
+        const reason = restoreFailed
+          ? "这一段会话读不回来，为避免重复建队没有继续；产出和名册都还在，可以稍后再试"
+          : "这一轮执行失败";
         await client.query(
-          "update swarm_run set state='failed', end_reason='error', state_reason='这一轮执行失败', active_since=null, ended_at=now(), updated_at=now() where account_id=$1 and run_id=$2",
-          [account, runId],
+          `update swarm_run set state=$3, end_reason=$4, state_reason=$5, active_since=null,
+             ended_at=case when $3='failed' then now() else ended_at end, updated_at=now()
+           where account_id=$1 and run_id=$2`,
+          [account, runId, nextState, restoreFailed ? null : "error", reason],
         );
+        if (!restoreFailed) await this.settleTerminal(client, account, runId, reason);
         await this.emitRun(client, account, runId);
         return null;
       }
@@ -994,29 +1193,44 @@ export class SwarmService {
       if (row.state !== "running" && row.state !== "near_limit") return null;
       if (state === "cancelled" || state === "cancel_unconfirmed") return null;
       const fold = await loadFold(client, account, runId);
-      const open = [...fold.tasks.values()].filter(
-        (task) => task.state !== "delivered" && task.state !== "stopped",
-      ).length;
+      const tasks = [...fold.tasks.values()];
+      const delivered = tasks.filter((task) => task.state === "delivered").length;
+      const open = tasks.length - delivered - tasks.filter((task) => task.state === "stopped").length;
       await this.settleTiming(client, account, row);
       const active = Number(
         (await client.query("select active_ms from swarm_run where account_id=$1 and run_id=$2", [account, runId]))
           .rows[0]?.active_ms ?? 0,
       );
-      // 任务都交付完了，或额度到限：停下来，把阶段结果留在原地。
-      if (open === 0 || row.round >= row.limit_rounds || active >= row.limit_minutes * 60_000) {
-        const reason =
-          open === 0
-            ? "任务都交付了；核实还没接通，结论仍然是候选"
-            : active >= row.limit_minutes * 60_000
-              ? `到达 ${row.limit_minutes} 分钟`
+      const outOfTime = active >= row.limit_minutes * 60_000;
+      const outOfRounds = row.round >= row.limit_rounds;
+      // 「完成」必须真有交付：0 个任务、0 条交付一律不算答完。
+      // 验收里就是这一条把刚确认的运行 2 秒后判成了「任务都交付了」。
+      const answered = tasks.length > 0 && open === 0 && delivered > 0;
+      if (answered || outOfTime || outOfRounds) {
+        const reason = answered
+          ? "任务都交付了；核实还没接通，结论仍然是候选"
+          : outOfTime
+            ? `到达 ${row.limit_minutes} 分钟`
+            : tasks.length === 0
+              ? `到达 ${row.limit_rounds} 轮，这一轮没有建出任何任务`
               : `到达 ${row.limit_rounds} 轮`;
         await client.query(
           `update swarm_run set state='partial', state_reason=$3, end_reason=$4, active_since=null,
              ended_at=now(), updated_at=now() where account_id=$1 and run_id=$2`,
-          [account, runId, reason, open === 0 ? "answered" : "limit"],
+          [account, runId, reason, answered ? "answered" : "limit"],
         );
+        await this.settleTerminal(client, account, runId, reason);
         await this.emitRun(client, account, runId);
         return null;
+      }
+      // 第 1 轮还没开跑（承诺过只有一次）：先补开跑指令，不要当第二轮推进。
+      if (row.round <= 1 && !row.kickoff_at) {
+        await client.query(
+          "update swarm_run set kickoff_at=now(), state='running', state_reason=null, active_since=coalesce(active_since, now()), updated_at=now() where account_id=$1 and run_id=$2",
+          [account, runId],
+        );
+        await this.emitRun(client, account, runId);
+        return { round: 1, kickoff: true };
       }
       await client.query(
         `update swarm_run set round=round+1, state='running', state_reason=null, active_since=now(), updated_at=now()
@@ -1024,12 +1238,12 @@ export class SwarmService {
         [account, runId],
       );
       await this.emitRun(client, account, runId);
-      return { round: row.round + 1 };
+      return { round: row.round + 1, kickoff: false };
     });
     if (!decision) return { continued: false };
     // 第 1 轮是开跑（要带上计划与编制），之后的轮次只看还差什么。
     const prompt =
-      decision.round <= 1
+      decision.kickoff
         ? kickoffPrompt(
             await this.dependencies.db.withAccount(account, (client) =>
               this.planOf(client, account, runId),
@@ -1060,13 +1274,46 @@ export class SwarmService {
     const seq = Number(result.rows[0].seq);
     // 通信条目 / 队员记录的 seq 就是全局事件序号：写进去之后再补一次。
     if ((type === "bus" || type === "member_log") && data && typeof data === "object") {
-      const withSeq = { ...(data as Record<string, unknown>), seq };
+      const withSeq = {
+        ...(type === "member_log" ? { at: new Date().toISOString() } : {}),
+        ...(data as Record<string, unknown>),
+        seq,
+      };
       await client.query(
         "update swarm_event set data=$3 where account_id=$1 and run_id=$2 and seq=$4",
         [account, runId, JSON.stringify(withSeq), seq],
       );
     }
     return seq;
+  }
+
+  /** 干预落一条通信：通信面和对话框看到的是同一条回执。 */
+  private async emitInterventionBus(
+    client: pg.PoolClient,
+    account: string,
+    runId: string,
+    intervention: Intervention,
+  ) {
+    const labels: Partial<Record<Intervention["kind"], string>> = {
+      pause: "暂停了这次群研",
+      resume: "继续这次群研",
+      finish: "结束了这次群研",
+      stop_route: `停止路线${intervention.target?.routeId ? " " + intervention.target.routeId : ""}`,
+      mention: `@${intervention.target?.memberId ?? "队员"}`,
+      redirect: "改了研究方向",
+      add_member: "要求加人",
+      extend: "追加额度",
+    };
+    const text = labels[intervention.kind] ?? intervention.kind;
+    await this.emitSimple(client, account, runId, "bus", {
+      seq: 0,
+      at: new Date().toISOString(),
+      type: "system",
+      from: "user",
+      to: intervention.target?.memberId ?? "lead",
+      text: `${text}（${intervention.state}）${intervention.result ? "：" + intervention.result : ""}`,
+      refs: { interventionId: intervention.id },
+    } satisfies BusEntry);
   }
 
   private async emitRun(client: pg.PoolClient, account: string, runId: string) {
@@ -1078,6 +1325,72 @@ export class SwarmService {
       const run = await this.runOf(client, account, runId);
       await this.emitSimple(client, account, runId, "usage", run.used);
     }
+  }
+
+  /**
+   * 插件登记研究语义（B3）：任务挂哪条路线、父任务是谁、成员是什么角色和显示名。
+   * 登记完立刻把当前那条成员/任务重发一遍，页面不用等下一次任务变化。
+   */
+  async registerMeta(
+    account: string,
+    runId: string,
+    input: { kind: "task" | "member"; refId: string; data: Record<string, unknown> },
+  ): Promise<{ ok: true }> {
+    if (input.kind !== "task" && input.kind !== "member")
+      throw new ApiFailure("INVALID_INPUT", 400, "只能登记任务或成员。");
+    return this.dependencies.db.withAccount(account, async (client) => {
+      await this.row(client, account, runId);
+      await client.query(
+        `insert into swarm_meta(account_id,run_id,kind,ref_id,data) values($1,$2,$3,$4,$5)
+         on conflict (account_id,run_id,kind,ref_id) do update set data=swarm_meta.data || excluded.data`,
+        [account, runId, input.kind, input.refId, JSON.stringify(input.data)],
+      );
+      const fold = await loadFold(client, account, runId);
+      if (input.kind === "member") {
+        const member = fold.members.get(input.refId);
+        const role = typeof input.data.role === "string" ? (input.data.role as SwarmMember["role"]) : member?.role;
+        const routeId = typeof input.data.routeId === "string" ? input.data.routeId : null;
+        const label =
+          typeof input.data.label === "string" && input.data.label.trim() !== ""
+            ? input.data.label
+            : member?.label ?? (role ? labelOf(input.refId, role) : labelOf(input.refId));
+        if (member && role) {
+          await this.emitSimple(client, account, runId, "member", {
+            ...member,
+            role,
+            label,
+            tags: routeId ? [routeId] : member.tags,
+          } satisfies SwarmMember);
+        }
+      } else {
+        const task = fold.tasks.get(input.refId);
+        const kinds = new Set([
+          "root",
+          "route",
+          "research",
+          "review",
+          "verify",
+          "synthesis",
+          "other",
+        ]);
+        const kind =
+          typeof input.data.kind === "string" && kinds.has(input.data.kind)
+            ? (input.data.kind as SwarmTask["kind"])
+            : task?.kind;
+        if (task) {
+          await this.emitSimple(client, account, runId, "task", {
+            ...task,
+            kind: kind ?? task.kind,
+            routeId:
+              typeof input.data.routeId === "string" ? input.data.routeId : task.routeId,
+            parentId:
+              typeof input.data.parentId === "string" ? input.data.parentId : task.parentId,
+            updatedAt: new Date().toISOString(),
+          } satisfies SwarmTask);
+        }
+      }
+      return { ok: true } as const;
+    });
   }
 
   /** 内核把队员记录上报过来时落到同一条事件流（members/:id/log 读它）。 */
@@ -1149,10 +1462,10 @@ function kickoffPrompt(plan: SwarmPlan | null): string {
     routes ? `路线：\n${routes}` : "",
     "",
     "按计划建队并推进：负责人（你）+ 研究员 3 名 + 反驳 1 名 + 核实 1 名。",
-    "研究员必须用 fresh 上下文（spawn_teammate 的 context 不写或写 fresh），名字用 researcher-01 / researcher-02 / researcher-03，",
-    "反驳用 critic-01，核实用 verifier-01；一个研究员只跟一条路线，三条路线不要用同一种做法。",
-    "每个任务在 DSH 任务板上建，描述第一行写 `route=<路线id> kind=<research|review|verify|synthesis> parent=<父任务id>`，",
-    "这样页面上的任务树和路线才对得上；有依赖就用 blocked_by，别让被挡住的任务被领取。",
+    "建人用 research_spawn（不要直接 spawn_teammate）：写清 role、跟的 route_id、label；研究员一律 fresh。",
+    "建任务用 research_task（不要直接 team_task_create）：写清 kind、route_id、parent_id，有依赖写 blocked_by。",
+    "这样页面上的路线卡、任务树和名册才对得上；靠描述里写 route= 是不算数的。",
+    "一个研究员只跟一条路线，三条路线不要用同一种做法；反驳和核实读别人的产出用 research_files 的读。",
     `这次额度是 ${rounds} 轮、${plan?.limits.minutes ?? MIN_MINUTES} 分钟。用 wait_agent 收齐产出，不要停下来等用户。`,
     "队员要用 research_files 在 team/<队员名>/ 里写自己的记录（目录会自己建出来）；不要读写别人的目录。",
     "根任务不要放进别的任务的 blocked_by：它不会被完成，团队会被自己卡死。",
