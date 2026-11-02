@@ -3,6 +3,7 @@ import type { CanvasObject, Op, Stop } from "@reinlab/contracts";
 import {
   applyBatch,
   describeBatch,
+  documentOf,
   describeChanges,
   emptyDocument,
   needsAcceptance,
@@ -395,4 +396,37 @@ describe("整份确认的卡片文案", () => {
     expect(summary).toContain("1 个候选一并转正");
   });
 });
+});
+describe("第二版：facing 与新点默认候选", () => {
+  const batch = (ops: Op[], actor: "page" | "agent" = "agent") =>
+    applyBatch({ plan: planOfDocument(), ops, actor, now: () => new Date("2026-10-31T00:00:00.000Z"), newId: ids });
+
+  it("facing 只收 0–360 的度数；文字要写进 detail.composition", () => {
+    expect(() => batch([addStop({ facing: "朝北偏东" } as never)])).toThrow(/facing 要是 0–360/);
+    expect(() => batch([addStop({ facing: 361 })])).toThrow(/0–360/);
+    const result = batch([addStop({ facing: 45 })]);
+    expect(result.plan.document.stops[0].facing).toBe(45);
+    // 360 等价于 0
+    expect(batch([addStop({ facing: 360 })]).plan.document.stops[0].facing).toBe(0);
+  });
+
+  it("旧档案里写成文字的 facing：读的时候忽略，不流到页面 / PDF", () => {
+    const document = emptyDocument();
+    const legacy = { ...stop(), facing: "朝北偏东" as never };
+    const read = documentOf({ stops: [legacy] } as never);
+    expect(read.stops[0].facing).toBeUndefined();
+    // 数字照常保留
+    const fine = documentOf({ stops: [{ ...stop(), facing: 120 }] } as never);
+    expect(fine.stops[0].facing).toBe(120);
+    void document;
+  });
+
+  it("助手新加的点一律先落候选，「并确认」要用户点头", () => {
+    const agent = batch([addStop({ state: "confirmed" })], "agent");
+    expect(agent.plan.document.stops[0].state).toBe("candidate");
+    expect(agent.applied[0].summary).toContain("候选");
+    // 页面自己加的点按它说的来（用户就是操作者）
+    const page = batch([addStop({ state: "confirmed" })], "page");
+    expect(page.plan.document.stops[0].state).toBe("confirmed");
+  });
 });

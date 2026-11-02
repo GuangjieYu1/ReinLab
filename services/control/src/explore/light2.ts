@@ -27,6 +27,11 @@ export const DEFAULT_CAMERA_HEIGHT_M = 1.5;
 export const DEFAULT_SUBJECT_HEIGHT_M = 1.5;
 /** 粗采样步长；状态变化后细到分钟。 */
 const COARSE_STEP_MIN = 2;
+/**
+ * 「太阳在地平线上」的口径：和页面 / 第一版日出日落一致（SunCalc 用 −0.833°，
+ * 含大气折射和太阳半径）。拿几何高度 0° 当界线会比页面上的日落早 5–6 分钟。
+ */
+export const NIGHT_ALTITUDE_DEG = -0.833;
 
 type Edge = { ax: number; ay: number; bx: number; by: number };
 
@@ -146,7 +151,7 @@ export function readingAt(context: LightContext, minutesOfDay: number): LightRea
   const instant = new Date(wallUtc - context.timezoneOffsetMin * 60_000 + minutesOfDay * 60_000);
   const [lng, lat] = context.scene?.origin ?? [0, 0];
   const sun = sunPositionAt([lng, lat], instant, context.timezone);
-  if (sun.altitude <= 0) return { state: "night" };
+  if (sun.altitude < NIGHT_ALTITUDE_DEG) return { state: "night" };
   // 山体：第一版的地形地平线，按方位取该方向的仰角。
   if (context.terrain?.horizon) {
     const ridge = horizonElevationAt(context.terrain.horizon, sun.azimuth);

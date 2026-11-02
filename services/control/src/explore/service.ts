@@ -175,7 +175,15 @@ export async function applyOps(
   request: OpsRequest,
 ): Promise<OpsOutcome> {
   const { plan, bench } = await loadPlan(client, account, dossier, { lock: true });
-  const ops = request.ops as Op[];
+  // 助手新加的点一律先落候选（确认是用户的事）：在算「要不要出卡」之前就归好，
+  // 免得出现「点了批准才发现只是加个候选点」的卡。
+  const ops =
+    request.actor === "agent"
+      ? (request.ops as Op[]).map((op) =>
+          op.op === "stop.add" ? ({ ...op, stop: { ...op.stop, state: "candidate" as const } } as Op) : op,
+        )
+      : (request.ops as Op[]);
+  request = { ...request, ops };
 
   // 负数 = 页面表示「不关心修订」（只存视野时）；其余按乐观并发校验。
   const declaredRevision =
@@ -249,6 +257,74 @@ async function pendingCard(
   if (!request.run) throw new ApiFailure("RUN_REQUIRED", 400, "助手的动作要挂在一次对话上。");
   const summary = describeBatch(plan, guarded);
   const changes = describeChanges(plan, guarded);
+  // 同样的改动重复出卡：模型每次描述的 ops 略有不同（多带一句 reason、换个顺序），
+  // 按 ops 哈希去重会漏。这里按「改哪个点、前后各是什么 + 新点的名称/位置/时段」比，
+  // 意图一样就复用那张卡；不同的点不会因为重名而合并。
+  const intent = canonical(
+    guarded.map((op) => {
+      if (op.op === "stop.add") {
+        const add = op as Extract<Op, { op: "stop.add" }>;
+        return {
+          op: "add",
+          name: add.stop?.name ?? null,
+          kind: add.stop?.kind ?? null,
+          day: add.stop?.day ?? null,
+          window: add.stop?.window ?? null,
+          at: (add.stop?.geometry as { coordinates?: unknown } | undefined)?.coordinates ?? null,
+          state: add.stop?.state ?? null,
+        };
+      }
+      if (op.op === "stop.update") {
+        const current = plan.document.stops.find((row) => row.id === op.id) as
+          | Record<string, unknown>
+          | undefined;
+        // 只留「真的变了」的字段：模型多带一个没改的字段，还是同一件事。
+        const patch = Object.fromEntries(
+          Object.entries(op.patch ?? {}).filter(
+            ([key, value]) =>
+              value !== undefined &&
+              canonical({ v: (current?.[key] ?? null) as unknown }) !== canonical({ v: value as unknown }),
+          ),
+        );
+        return { op: "update", id: op.id, patch };
+      }
+      if (op.op === "stop.confirm") return { op: "confirm", ids: [...op.ids].sort() };
+      if (op.op === "stop.remove") return { op: "remove", id: op.id };
+      return op;
+    }),
+  );
+  const same = (
+    await client.query(
+      `select a.id,a.effects from approval a
+         left join run r on r.account_id=a.account_id and r.id=a.run_id
+        where a.account_id=$1 and a.state='pending'
+          and coalesce(a.dossier_id,r.dossier_id)=$2
+          and a.effects->0->>'kind'='explore.planChange'
+        order by a.created_at desc limit 8`,
+      [account, dossier],
+    )
+  ).rows.find((row) => {
+    const effects = Array.isArray(row.effects) ? row.effects[0] : row.effects;
+    return typeof effects?.intent === "string" && effects.intent === intent;
+  });
+  if (same) {
+    const existing = (Array.isArray(same.effects) ? same.effects[0] : same.effects) ?? {};
+    return {
+      revision: plan.revision,
+      applied: [],
+      pending: {
+        approvalId: same.id,
+        ops: (existing.ops ?? request.ops) as Op[],
+        summary: String(existing.summary ?? summary),
+        changes,
+        forRevision: Number(existing.forRevision ?? plan.revision),
+      },
+      plan: planOf(dossier, plan),
+      bench,
+      dossierId: dossier,
+      lightQueue: [],
+    };
+  }
   const card = await requestApproval(client, {
     account,
     dossier,
@@ -264,6 +340,8 @@ async function pendingCard(
         ops: request.ops,
         summary,
         changes,
+        // 用来判断「同一件事又提了一遍」：不参与展示，只做去重。
+        intent,
       },
     ],
     risk: "write",

@@ -116,7 +116,12 @@ export function documentOf(raw: unknown): PlanDocument {
     feel: (value.feel as FeelCard | null) ?? null,
     people: list<ProfileSnapshot>("people"),
     gear: list<ProfileSnapshot>("gear"),
-    stops: list<Stop>("stops").map((stop) => ({ ...stop, refs: Array.isArray(stop.refs) ? stop.refs : [] })),
+    stops: list<Stop>("stops").map((stop) => ({
+      ...stop,
+      refs: Array.isArray(stop.refs) ? stop.refs : [],
+      // 旧档案可能把朝向写成文字：读的时候忽略，别让它流到页面 / PDF 上。
+      ...(typeof stop.facing === "number" && Number.isFinite(stop.facing) ? {} : { facing: undefined }),
+    })),
     routes: list<RouteLeg>("routes"),
     conflicts: list<Conflict>("conflicts"),
     canvas: list<CanvasObject>("canvas"),
@@ -505,6 +510,14 @@ const pointOrNull = (value: unknown, label: string): LngLat | null => {
   return [lng, lat];
 };
 
+/** facing：0–360 的度数（真北 0 顺时针）。文字说明请写进 detail.composition。 */
+const facingDegrees = (value: unknown): number => {
+  if (typeof value !== "number" || !Number.isFinite(value))
+    throw invalid("facing 要是 0–360 的度数（真北 0° 顺时针）；文字说明请写进 detail.composition。");
+  if (value < 0 || value > 360) throw invalid("facing 要在 0–360 之间（真北 0° 顺时针）。");
+  return value === 360 ? 0 : Math.round(value * 10) / 10;
+};
+
 const heightM = (value: unknown, label: string): number | undefined => {
   if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0.2 || value > 50)
@@ -536,7 +549,7 @@ function normalizeStop(
     ...(draft.entry ? { entry: draft.entry } : {}),
     ...(draft.exit ? { exit: draft.exit } : {}),
     ...(typeof draft.reason === "string" ? { reason: draft.reason.slice(0, 600) } : {}),
-    ...(Number.isFinite(draft.facing) ? { facing: draft.facing } : {}),
+    ...(draft.facing !== undefined ? { facing: facingDegrees(draft.facing) } : {}),
     ...(Array.isArray(draft.focal) ? { focal: draft.focal.filter((n) => Number.isFinite(n)) } : {}),
     ...(draft.detail ? { detail: normalizeStopDetail(draft.detail) } : {}),
     // 第二版：独立模特站位、相机 / 主体采样高度、街区参考点。
@@ -640,7 +653,10 @@ export function applyBatch(input: BatchInput): Batch {
 
     switch (op.op) {
       case "stop.add": {
-        const stop = normalizeStop(op.stop, input.actor, newId);
+        // 助手新加的点一律先落候选：确认是用户的事，没说就是没说。
+        const draft =
+          input.actor === "agent" ? { ...op.stop, state: "candidate" as const } : op.stop;
+        const stop = normalizeStop(draft, input.actor, newId);
         if (stop.detail?.settings) {
           assertSettingsAgainstGear(stop.detail.settings, document);
           stop.detail.settings = withGearSnapshotNames(stop.detail.settings, document);
@@ -699,6 +715,11 @@ export function applyBatch(input: BatchInput): Batch {
           const value = heightM(patch.subjectHeightM, "主体受光高度");
           if (value === undefined) delete patch.subjectHeightM;
           else patch.subjectHeightM = value;
+        }
+        if ("facing" in patch) {
+          // null = 清掉朝向（不是「未知的 0」，所以直接不写这个字段）
+          if (patch.facing === null) delete patch.facing;
+          else patch.facing = facingDegrees(patch.facing);
         }
         if (patch.detail?.settings) {
           assertSettingsAgainstGear(patch.detail.settings, document);

@@ -370,6 +370,66 @@ describe("确认整份计划的授权语义", () => {
     expect(after.plan.stops).toHaveLength(1);
   });
 
+  it("同一个改动重复提：复用同一张待批卡，不一件事出三张", async () => {
+    // 已确认的点改时段要出卡；模型第二次重提时顺手多带了一个没变的 day——
+    // 按 ops 哈希会出第二张卡，按「真的变了什么」比只会剩一张。
+    const plan = await readPlan();
+    const target = plan.plan.stops.find((stop: any) => stop.state === "confirmed");
+    expect(target).toBeTruthy();
+    const move = (extra: Record<string, unknown>) => ({
+      ops: [
+        {
+          op: "stop.update",
+          id: target.id,
+          patch: {
+            window: { start: "2026-11-20T07:30:00+08:00", end: "2026-11-20T08:10:00+08:00" },
+            ...extra,
+          },
+        },
+      ],
+    });
+    const first = await tool("ops", move({}));
+    const second = await tool("ops", move({ day: target.day }));
+    expect(first.status, JSON.stringify(first.body)).toBe(409);
+    expect(second.status, JSON.stringify(second.body)).toBe(409);
+    const firstId = (first.body as any).approvalId as string;
+    const secondId = (second.body as any).approvalId as string;
+    expect(firstId).toBeTruthy();
+    expect(secondId).toBe(firstId);
+    // 只数「同一件事」的卡：换时段这件事在库里应当只有一张待批。
+    const pending = await admin.query(
+      `select count(*)::int n from approval a
+        where a.account_id=$1 and a.state='pending'
+          and a.effects->0->>'intent' = (select effects->0->>'intent' from approval where id=$2)`,
+      [A, firstId],
+    );
+    expect(pending.rows[0].n).toBe(1);
+  });
+
+  it("助手加新点先落候选：不会自己「并确认」，也不用出卡", async () => {
+    const created = await tool("ops", {
+      ops: [
+        {
+          op: "stop.add",
+          stop: {
+            kind: "spot",
+            name: "孤山 · 西泠桥",
+            geometry: { type: "Point", coordinates: [120.1399, 30.2547] },
+            day: "2026-11-20",
+            window: { start: "2026-11-20T09:20:00+08:00", end: "2026-11-20T10:00:00+08:00" },
+            state: "confirmed",
+          },
+        },
+      ],
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(200);
+    expect((created.body as any).pending ?? null).toBeNull();
+    const after = await readPlan();
+    const added = after.plan.stops.find((stop: any) => stop.name === "孤山 · 西泠桥");
+    expect(added.state).toBe("candidate");
+    expect(added.source).toBe("agent");
+  });
+
   it("切卫星被拒：第一版只有矢量底图", async () => {
     const response = await tool("view", { viewport: { center: [120.14, 30.25], zoom: 12, bearing: 0, pitch: 0 }, basemap: "satellite" });
     expect(response.status).toBe(409);

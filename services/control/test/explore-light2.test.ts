@@ -21,10 +21,14 @@ const box = (x1: number, y1: number, x2: number, y2: number): [number, number][]
   [x1, y1],
 ];
 
-const scene = (buildings: BuildingScene["buildings"], coverage: BuildingScene["coverage"] = { status: "ok", note: "" }): BuildingScene => ({
+const scene = (
+  buildings: BuildingScene["buildings"],
+  coverage: BuildingScene["coverage"] = { status: "ok", note: "" },
+  origin: LngLat = ORIGIN,
+): BuildingScene => ({
   id: "s1",
   version: 1,
-  origin: ORIGIN,
+  origin,
   radiusM: 1000,
   fetchedAt: new Date().toISOString(),
   source: "test",
@@ -58,6 +62,18 @@ function morningMinute(): number {
   }
   throw new Error("找不到合适的早晨时刻");
 }
+
+const contextBase = (): LightContext => ({
+  scene: null,
+  terrain: flatTerrain(),
+  day: DAY,
+  timezone: TZ,
+  point: [0, 0],
+  heightM: 1.5,
+  timezoneOffsetMin: 480,
+  shapes: [],
+  unknownBuildings: 0,
+});
 
 const context = (input: Partial<LightContext> = {}): LightContext => ({
   scene: scene([wall()]),
@@ -105,6 +121,21 @@ describe("射线求交", () => {
 describe("某一刻的状态", () => {
   it("夜里就是 night", () => {
     expect(readingAt(context(), 3 * 60).state).toBe("night");
+  });
+
+  it("太阳在地平线附近但还没落到口径线以下：算 terrain，不算 night", () => {
+    // 上海 2026-11-07：页面日落 17:02:40（SunCalc 口径 −0.833°）。
+    // 17:00 几何高度约 −0.5°：还没到口径线，应该是山挡/地平线而不是夜。
+    const place: LngLat = [121.49976, 31.2346];
+    const context = {
+      ...contextBase(),
+      day: "2026-11-07",
+      scene: scene([], undefined, place),
+      shapes: [],
+      terrain: flatTerrain(),
+    };
+    expect(readingAt(context, 17 * 60).state).toBe("terrain");
+    expect(readingAt(context, 17 * 60 + 10).state).toBe("night");
   });
 
   it("楼挡：带上 buildingIds", () => {

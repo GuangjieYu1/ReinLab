@@ -202,7 +202,11 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
 };
 
 /** One turn must not call tools forever: the budget page already promises a step cap. */
-const MAX_TOOL_CALLS = 40;
+/**
+ * 一轮的工具调用上限。规划一条一天的路线常常要先查地点、天气、太阳、路线，
+ * 40 次会在第一轮就用满（实测因此只落下 1 个点）；80 够一整轮，又不至于无限转。
+ */
+const MAX_TOOL_CALLS = 80;
 
 /** Actions that need the user's one-shot approval before they run. */
 const APPROVAL_REQUIRED = new Set(["papers.fetch", "papers.register"]);
