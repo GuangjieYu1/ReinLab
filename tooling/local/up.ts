@@ -30,6 +30,7 @@ async function accountImageContentKey(): Promise<string> {
     "plugins/reinlab-read-plugin/index.js",
     "plugins/reinlab-read-plugin/restrict.patch.yml",
     "plugins/reinlab-read-plugin/container.patch.yml",
+    "plugins/reinlab-swarm-plugin/index.js",
   ];
   const hash = createHash("sha256");
   for (const file of inputs) {

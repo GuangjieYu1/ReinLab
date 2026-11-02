@@ -22,6 +22,8 @@ export type KernelLayout = {
   dshModule: string;
   restrictPatch: string;
   pluginEntry: string;
+  /** 群研这一档额外挂的研究工具插件。 */
+  swarmPluginEntry?: string;
   /** Container transport ("docker") or local ("host"). */
   shimMode: "docker" | "host";
   /** 容器模式下的账户执行环境；宿主模式为空。 */
@@ -37,11 +39,30 @@ export type KernelLayout = {
     dshModule: string;
     /** 容器内插件入口。 */
     pluginEntry: string;
+    /** 容器内群研插件入口。 */
+    swarmPluginEntry?: string;
     /** 容器内 restrict 补丁。 */
     restrictPatch: string;
   };
   nodeModule?: string;
   io: LaunchIo;
+};
+
+/**
+ * 群研的挂钩：内核只负责把「会话里又发生了什么」「这一轮结束了」告诉研究服务。
+ * 用接口而不是直接依赖，免得 KernelService 和 SwarmService 互相构造。
+ */
+export type SwarmHooks = {
+  /** 会话里新落了一条 DSH 事件：折算成研究事件（可以是空操作）。 */
+  onRunEvent: (account: string, runId: string) => Promise<void>;
+  /** 这一轮结束：结算计时，决定继续下一轮还是收尾。 */
+  onTurnEnd: (
+    account: string,
+    runId: string,
+    state: "completed" | "failed" | "cancelled" | "cancel_unconfirmed",
+  ) => Promise<{ continued: boolean }>;
+  /** 这次群研还没结束吗？没结束的运行在轮次之间不能把 run 行置成终态。 */
+  isActive: (account: string, runId: string) => Promise<boolean>;
 };
 
 export type KernelDependencies = {
@@ -90,16 +111,26 @@ export class KernelService {
   private readonly starting = new Set<string>();
   private readonly sessions = new Map<string, string>();
   private readonly now: () => number;
+  private swarm: SwarmHooks | undefined;
 
   constructor(private readonly dependencies: KernelDependencies) {
     this.now = dependencies.now ?? (() => Math.floor(Date.now() / 1000));
+  }
+
+  /** 群研服务装上来之后，群研运行的事件与轮次结束才有人接。 */
+  attachSwarm(hooks: SwarmHooks) {
+    this.swarm = hooks;
   }
 
   /** Start (or resume) the dossier's kernel session for this run. */
   async submit(
     account: string,
     runId: string,
-    options: { newSession?: boolean; prompt?: string; mode?: "assist" | "explore" } = {},
+    options: {
+      newSession?: boolean;
+      prompt?: string;
+      mode?: "assist" | "explore" | "swarm";
+    } = {},
   ): Promise<{ runId: string; sessionId: string; resume: boolean }> {
     const { db, layout } = this.dependencies;
     // 从这一刻起就算「活着」：run 行是在下面的事务里被标成 running 的，
@@ -115,7 +146,11 @@ export class KernelService {
   private async submitNow(
     account: string,
     runId: string,
-    options: { newSession?: boolean; prompt?: string; mode?: "assist" | "explore" } = {},
+    options: {
+      newSession?: boolean;
+      prompt?: string;
+      mode?: "assist" | "explore" | "swarm";
+    } = {},
   ): Promise<{ runId: string; sessionId: string; resume: boolean }> {
     const { db, layout } = this.dependencies;
     const prepared = await db.withAccount(account, async (client) => {
@@ -139,7 +174,13 @@ export class KernelService {
       // 精读的工具（模型改不了名，还以为自己在读论文）。
       // 三档会话的工具体不同，不能串用：精读 / 档案助手 / 探索规划。
       const wantedMode =
-        options.mode === "assist" ? "assist" : options.mode === "explore" ? "explore" : "read";
+        options.mode === "assist"
+          ? "assist"
+          : options.mode === "explore"
+            ? "explore"
+            : options.mode === "swarm"
+              ? "swarm"
+              : "read";
       // 正式精读开始时，这份档案上还等着的澄清会话已经没有意义：一并收尾，
       // 免得它一直停在 waiting（用户看到的「研究台残留」就是这类）。
       if (wantedMode === "read")
@@ -198,9 +239,11 @@ export class KernelService {
             ? "assist"
             : options.mode === "explore"
               ? "explore"
-              : chosenPaper
-                ? "read"
-                : "clarify",
+              : options.mode === "swarm"
+                ? "swarm"
+                : chosenPaper
+                  ? "read"
+                  : "clarify",
       };
     });
 
@@ -213,7 +256,7 @@ export class KernelService {
       model: this.dependencies.model,
       maxTokens: this.dependencies.maxTokens,
       home: layout.home,
-      mode: prepared.mode as "clarify" | "read" | "assist" | "explore",
+      mode: prepared.mode as "clarify" | "read" | "assist" | "explore" | "swarm",
       bundler: {
         shimModule: layout.shimModule,
         shimContainerModule: layout.shimContainerModule,
@@ -229,6 +272,9 @@ export class KernelService {
               workspace: layout.container.workspace,
               dshModule: layout.container.dshModule,
               pluginEntry: layout.container.pluginEntry,
+              ...(layout.container.swarmPluginEntry
+                ? { swarmPluginEntry: layout.container.swarmPluginEntry }
+                : {}),
               restrictPatch: layout.container.restrictPatch,
             },
           }
@@ -348,6 +394,9 @@ export class KernelService {
                 ],
               ),
             );
+          // 群研：每落一条就折算成研究事件，页面才看得见名册和任务在变。
+          if (prepared.mode === "swarm" && this.swarm)
+            await this.swarm.onRunEvent(account, runId).catch(() => undefined);
         },
         onSession: async (sessionId, resumed) => {
           if (resumed && sessionId === prepared.sessionId) return;
@@ -389,7 +438,13 @@ export class KernelService {
                 )
               ).rows[0]?.n ?? 0,
             );
-            const next = state === "completed" && pending > 0 ? "waiting" : state;
+            // 群研一次运行跨很多轮：这一轮结束时如果研究还没结束，run 行要留在
+            // 活动集合里（waiting），否则下一轮 submit 会被当成「已结束」拒掉。
+            const swarmActive =
+              prepared.mode === "swarm" && this.swarm
+                ? await this.swarm.isActive(account, runId).catch(() => false)
+                : false;
+            const next = state === "completed" && (pending > 0 || swarmActive) ? "waiting" : state;
             await client.query(
               `update run set state=$2,
                  ended_at = case when $2 in ('completed','failed','cancelled','interrupted') then now() else null end
@@ -446,6 +501,14 @@ export class KernelService {
             }
             await this.release(client, account, prepared.dossierId, prepared.sessionId, runId, next);
           });
+          // 群研这一轮结束了：结算计时、按额度决定继续还是收尾。
+          // 会话租约刚刚让出，等它真正生效再续，不然会被 SESSION_BUSY 挡掉。
+          if (prepared.mode === "swarm" && this.swarm)
+            setTimeout(() => {
+              void this.swarm
+                ?.onTurnEnd(account, runId, state)
+                .catch(() => undefined);
+            }, 1200);
         },
         // 这一轮的产品承诺没兑现时，后端再提醒一次；补不回来就照实结束。
         // 不再往对话里注入「提醒」：那是系统替模型定步骤，还会以用户身份出现在
@@ -480,7 +543,13 @@ export class KernelService {
       const mode = await this.dependencies.db.withAccount(account, async (client) =>
         (await client.query("select mode from run where id=$1 and account_id=$2", [runId, account])).rows[0]?.mode as string | undefined,
       );
-      await this.submit(account, runId, { prompt, ...(mode === "explore" || mode === "assist" ? { mode } : {}) });
+      // 群研也要按原档位续接：不然回答完提问，负责人会拿到精读的工具和身份。
+      await this.submit(account, runId, {
+        prompt,
+        ...(mode === "explore" || mode === "assist" || mode === "swarm"
+          ? { mode }
+          : {}),
+      });
       return { started: true };
     } catch (error) {
       // 会话还被占着或这一段已经收尾：如实留给用户，不静默假装续上。

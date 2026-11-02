@@ -20,6 +20,7 @@ import { createVerifier, type JwtConfig } from "./auth";
 import { mutate, type ApiEnv } from "./context";
 import { ApiFailure, denied } from "./errors";
 import { registerKernelRuns } from "./kernel-runs";
+import { registerSwarmApi } from "./swarm-api";
 import { registerApprovalInbox, registerReports, decideInboxCard } from "./inbox-approvals";
 import { registerDossierApi } from "./dossier-api";
 import { publishOps, registerExploreApi } from "./explore-api";
@@ -38,6 +39,8 @@ export async function createApp(options: {
   auth: JwtConfig;
   pricing?: PricingService;
   kernel?: import("../kernel/service").KernelService;
+  /** 群研的研究服务；没有就整个群研读写面不挂。 */
+  swarm?: import("../swarm/service").SwarmService;
   kernelTools?: {
     auth: import("../kernel/auth").KernelAuth;
     dispatch: (call: KernelToolCall) => Promise<unknown>;
@@ -215,7 +218,13 @@ export async function createApp(options: {
     if (card) return card;
     throw denied();
   });
-  if (options.kernel) registerKernelRuns(app, { db: database, kernel: options.kernel });
+  if (options.kernel)
+    registerKernelRuns(app, {
+      db: database,
+      kernel: options.kernel,
+      ...(options.swarm ? { swarm: options.swarm } : {}),
+    });
+  if (options.swarm) registerSwarmApi(app, { db: database, swarm: options.swarm });
   if (options.kernelTools)
     registerKernelTools(app, {
       auth: options.kernelTools.auth,

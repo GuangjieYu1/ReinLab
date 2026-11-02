@@ -635,4 +635,5 @@ export type BrowserSession = {
 };
 export type * from './dossier';
 export type * from './explore';
+export type * from './swarm';
 export * from './explore-poses';
