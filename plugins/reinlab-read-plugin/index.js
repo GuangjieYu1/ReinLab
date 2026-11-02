@@ -728,19 +728,22 @@ export function apply(ctx, config) {
     defineTool({
       name: "clarify_question",
       description:
-        "在这一段对话里向用户提问；带 candidates 时用户会看到可选论文卡。不要替用户选。",
+        "在这一段对话里向用户提问。要让用户点选（论文或几个角度/方案都行）就把选项放进 candidates（或 options / choices，字符串数组也收）：用户会看到可点的选项；只写逗号/①②③在问题里当正文，收件箱里就只剩打字框。不要替用户选。",
       parameters: {
         question: { type: "string", required: true, description: "要问的问题。" },
         kind: { type: "string", description: "text | paper_pick。" },
-        candidates: { type: "array", items: { type: "object", additionalProperties: true }, description: "真实候选论文。" },
+        candidates: { type: "array", items: { type: "object", additionalProperties: true }, description: "真实候选论文（{id,title,authors,venue}）。" },
+        options: { type: "array", items: { type: "string" }, description: "文字选项：几个角度、几个方案、几篇候选，用户直接点一个。" },
       },
       output,
       timeoutMs: 660_000,
       async execute(args) {
-        const askArgs =
-          Array.isArray(args.candidates) && args.candidates.length > 0
-            ? { ...args, kind: "paper_pick" }
-            : args;
+        const choices = Array.isArray(args.candidates) && args.candidates.length > 0
+          ? args.candidates
+          : Array.isArray(args.options) && args.options.length > 0
+            ? args.options
+            : null;
+        const askArgs = choices ? { ...args, candidates: choices, kind: "paper_pick" } : args;
         // 用户已经回答过（续接那一轮）会直接拿到答案；还没回答就交出去等待。
         const first = await call("cards", "clarify.question", askArgs);
         if (first.error) return first.error;

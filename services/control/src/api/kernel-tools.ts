@@ -329,6 +329,20 @@ export function registerKernelTools(
             409,
             `这一轮已经调用工具 ${used} 次（上限 ${MAX_TOOL_CALLS}），先把已经拿到的内容收尾。`,
           );
+        // 提问卡片上的可选选项：模型有时写 candidates，有时写 options / choices，
+        // 甚至直接给一串字符串。全都收；只有一串字的时候当成「文字选项」，别静默丢掉。
+        const rawChoices = args.candidates ?? args.options ?? args.choices;
+        const choiceList: Record<string, unknown>[] = Array.isArray(rawChoices)
+          ? rawChoices
+              .map((entry, index) =>
+                typeof entry === "string"
+                  ? { id: `choice-${index + 1}`, title: entry, authors: "备选", venue: "" }
+                  : entry && typeof entry === "object"
+                    ? (entry as Record<string, unknown>)
+                    : null,
+              )
+              .filter((entry): entry is Record<string, unknown> => entry !== null)
+          : [];
         if (ASKS_THE_USER.has(capability)) {
           if (typeof body.approvalId === "string") {
             const answered = (
@@ -361,8 +375,12 @@ export function registerKernelTools(
                 : "请选择要读的论文",
             effects: [
               {
-                kind: typeof args.kind === "string" ? args.kind : "text",
-                candidates: Array.isArray(args.candidates) ? args.candidates : [],
+                kind: choiceList.length
+                  ? typeof args.kind === "string" && args.kind !== "text"
+                    ? args.kind
+                    : "paper_pick"
+                  : "text",
+                candidates: choiceList,
               },
             ],
             risk: "read",
