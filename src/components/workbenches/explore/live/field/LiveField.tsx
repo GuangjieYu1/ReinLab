@@ -85,6 +85,8 @@ export default function LiveField(p: FieldProps) {
     if (!next.window) return { text: `${next.name} 还没定开拍时间，算不了`, warn: false };
     if (!leg?.durationS) return { text: '这一段没有真实步行路线，算不了出发时间', warn: false };
     const start = dateToLocal(next.window.start, day, tz), at = start - Math.round(leg.durationS / 60) - 5, left = at - minutes;
+    // 不在拍摄当天：不倒数几千分钟，只说当天几点走
+    if (minutes < 0 || minutes >= 1440) return { text: `拍摄日 ${day.slice(5).replace('-', '/')} 当天 ${hm(at)} 出发（步行 ${Math.round(leg.durationS / 60)} 分 + 准备 5 分）${minutes >= 1440 ? ' · 拍摄日已过' : ''}`, warn: false };
     return left >= 0
       ? { text: `${hm(at)} 出发（步行 ${Math.round(leg.durationS / 60)} 分 + 准备 5 分）· 还剩 ${left} 分钟`, warn: left <= 10 }
       : { text: `已经晚了 ${-left} 分钟出发，预计迟到 ${-left} 分钟到 ${next.name}`, warn: true };
