@@ -10,7 +10,7 @@ import { hm, localToDate, sunPos } from './sunlive';
 // 点地面可以放模特站位 / 片区参考点（写回计划，服务端重算受光）；点楼看它的高度来源。
 
 const FULL_FRAME = { wMm: 36, hMm: 24 };
-const PAPER = 0xf0eeea, BLOCK = 0xe8e6e1, EDGE = 0x141213, ORANGE = 0xff7a1a, HIT = 0xffb27a;
+const SKY = 0xfbfbf9, GROUND = 0xd9d5cc, BLOCK = 0xe8e6e1, EDGE = 0x141213, ORANGE = 0xff7a1a, HIT = 0xffb27a;
 const K = Math.PI / 180, R = 6371008.8;
 
 /** 经纬度 ↔ 以 origin 为原点的米（东、北）。场景尺度（1 km）够用。 */
@@ -42,6 +42,8 @@ export default function WhiteModel({ scene, stop, day, tz, minutes, onMinutes, f
   const [focal, setFocal] = useState(focals[0] ?? 35);
   const [orient, setOrient] = useState(orientation);
   const [info, setInfo] = useState<Building | null>(null);
+  const [tilt, setTilt] = useState(0);   // 机位视角的俯仰（度，正为仰拍）；只是看，不写回计划
+  const [turn, setTurn] = useState<number | null>(null);   // 机位视角里临时转头看（度）；不写回计划
   useEffect(() => { if (focals.length && !focals.includes(focal)) setFocal(focals[0]); }, [focals.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setOrient(orientation); }, [orientation]);
   type T = { renderer: THREE.WebGLRenderer; scene: THREE.Scene; orbitCam: THREE.PerspectiveCamera; viewCam: THREE.PerspectiveCamera; sun: THREE.DirectionalLight;
@@ -50,7 +52,9 @@ export default function WhiteModel({ scene, stop, day, tz, minutes, onMinutes, f
 
   const camAt = toLocal(scene.origin, center(stop));
   const subj = stop.subjectPoint ? toLocal(scene.origin, stop.subjectPoint) : null;
-  const facing = (stop.facing ?? 0) * K;
+  // 朝向必须是数字（真北 0° 顺时针）；不是数字就当未定，按正北
+  const facingDeg = typeof stop.facing === 'number' && Number.isFinite(stop.facing) ? stop.facing : null;
+  const facing = (turn ?? facingDeg ?? 0) * K;
   const sens = sensor ?? FULL_FRAME;
   // 竖拍时画面高对应传感器长边
   const vSensor = orient === 'portrait' ? sens.wMm : sens.hMm;
@@ -66,13 +70,13 @@ export default function WhiteModel({ scene, stop, day, tz, minutes, onMinutes, f
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false });
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio)); renderer.setSize(w, h); renderer.shadowMap.enabled = true;
     el.appendChild(renderer.domElement);
-    const sc = new THREE.Scene(); sc.background = new THREE.Color(PAPER);
+    const sc = new THREE.Scene(); sc.background = new THREE.Color(SKY);   // 天比地亮一档，机位视角里看得出地平线
     sc.add(new THREE.HemisphereLight(0xffffff, 0xe8e4dc, 2.2));
     const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -400, right: 400, top: 400, bottom: -400, near: 1, far: 3000 });
     sc.add(sun, sun.target);
 
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(scene.radiusM * 2.4, scene.radiusM * 2.4), new THREE.MeshLambertMaterial({ color: PAPER }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(scene.radiusM * 2.4, scene.radiusM * 2.4), new THREE.MeshLambertMaterial({ color: GROUND }));
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; sc.add(ground);
 
     const edgeMat = new THREE.LineBasicMaterial({ color: EDGE, transparent: true, opacity: 0.55 });
@@ -161,11 +165,12 @@ export default function WhiteModel({ scene, stop, day, tz, minutes, onMinutes, f
     if (subj) { t.fig.scale.y = subjectHeightM; t.fig.position.set(subj[0], subjectHeightM / 2, -subj[1]); }
     const c = t.viewCam; c.fov = vfov; c.aspect = aspect; c.updateProjectionMatrix();
     c.position.set(camAt[0], cameraHeightM, -camAt[1]);
-    c.lookAt(camAt[0] + Math.sin(facing) * 100, cameraHeightM, -camAt[1] - Math.cos(facing) * 100);
+    const up = Math.tan(tilt * K) * 100;
+    c.lookAt(camAt[0] + Math.sin(facing) * 100, cameraHeightM + up, -camAt[1] - Math.cos(facing) * 100);
     t.frustum.update(); t.frustum.visible = mode === 'orbit';
     t.controls.enabled = mode === 'orbit';
     t.dirty();
-  }, [vfov, aspect, cameraHeightM, subjectHeightM, facing, mode, camAt[0], camAt[1], subj?.[0], subj?.[1], scene.id, scene.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [vfov, aspect, cameraHeightM, subjectHeightM, facing, tilt, mode, camAt[0], camAt[1], subj?.[0], subj?.[1], scene.id, scene.version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 挡光的楼标橙
   useEffect(() => {
@@ -196,7 +201,9 @@ export default function WhiteModel({ scene, stop, day, tz, minutes, onMinutes, f
       <div className="ex-seg"><button aria-pressed={mode === 'orbit'} onClick={() => setMode('orbit')}>环绕</button><button aria-pressed={mode === 'camera'} onClick={() => setMode('camera')}>机位视角</button></div>
       <select value={focal} onChange={e => setFocal(Number(e.target.value))} aria-label="焦段">{allFocals.map(f => <option key={f} value={f}>{f}mm</option>)}</select>
       <button className="dm-link" onClick={() => setOrient(o => o === 'portrait' ? 'landscape' : 'portrait')}>{orient === 'portrait' ? '竖 2:3' : '横 3:2'}</button>
-      <span>离地 {cameraHeightM} m{sensor ? ` · 传感器 ${sensor.wMm}×${sensor.hMm}` : ' · 按全画幅假设'}</span>
+      {mode === 'camera' && <label className="exw-tilt">俯仰 <input type="range" min={-30} max={75} step={1} value={tilt} onChange={e => setTilt(Number(e.target.value))} aria-label="俯仰" /> {tilt > 0 ? `仰 ${tilt}°` : tilt < 0 ? `俯 ${-tilt}°` : '平视'}</label>}
+      {mode === 'camera' && <label className="exw-tilt">转向 <input type="range" min={0} max={359} step={1} value={Math.round(facing / K)} onChange={e => setTurn(Number(e.target.value))} aria-label="转向" />{turn !== null && <button className="dm-link" onClick={() => setTurn(null)}>回到计划朝向</button>}</label>}
+      <span>{turn !== null ? `临时看 ${turn}°（计划朝向 ${facingDeg === null ? '未定' : `${Math.round(facingDeg)}°`}）` : `朝向 ${facingDeg === null ? '未定（按正北）' : `${Math.round(facingDeg)}°`}`} · 离地 {cameraHeightM} m{sensor ? ` · 传感器 ${sensor.wMm}×${sensor.hMm}` : ' · 按全画幅假设'}</span>
       <span>太阳 {Math.round(sp.az)}° / {sp.alt.toFixed(1)}°{sp.alt <= 0 ? ' · 地平线下' : ''}</span>
     </div>
     <div className="exw-stage" ref={box} data-mode={mode} data-pick={pick ?? undefined} style={mode === 'camera' ? { aspectRatio: String(aspect), width: `min(100%, ${Math.round(520 * aspect)}px)` } : undefined}>

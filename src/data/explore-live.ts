@@ -229,8 +229,13 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
             const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
             let buf = '';
             for (;;) {
-              const { value, done } = await reader.read().catch(() => ({ value: '', done: true }));
-              if (done) break;
+              // 回放旧轮次：过去的事件会一口气推过来；2 秒没有新数据就算读完。
+              // 否则一轮还在等批准的旧对话永远不收尾，这条连接一直占着，攒满浏览器同站连接上限后整页请求排队。
+              const next = reader.read().catch(() => ({ value: '', done: true as const }));
+              const { value, done } = history
+                ? await Promise.race([next, new Promise<{ value: string; done: true }>(r => setTimeout(() => r({ value: '', done: true }), 2000))])
+                : await next;
+              if (done) { if (history) { void reader.cancel().catch(() => {}); return; } break; }
               buf += value;
               let cut: number;
               while ((cut = buf.indexOf('\n\n')) >= 0) {
@@ -243,7 +248,7 @@ export function createLiveExploreAdapter(dossierId: string): ExploreAdapter {
                   after = Math.max(after, frame.seq);
                   push(mapExploreEvent({ seq: frame.seq, action: String(frame.action ?? ''), payload: frame.payload ?? {} }).map(x => ({ ...x, id: tag + x.id })));
                 }
-                if (frame.state && !history) on(items, !['completed', 'failed', 'cancelled', 'interrupted'].includes(frame.state));
+                if (frame.state && !history) on(items, !['completed', 'failed', 'cancelled', 'interrupted', 'waiting'].includes(frame.state));   // waiting = 等你批准 / 回答：不算「正在想」
                 if (frame.done) { if (!history) stopped = true; return; }
               }
             }

@@ -159,12 +159,12 @@ export function StopDetail({ plan, stop, day, tz, minutes, refs, hasPeople, onFr
           <div><dt>地形见光</dt><dd>{stop.light?.lit ? (stop.light.lit.length ? stop.light.lit.map(x => `${hm(dateToLocal(x.start, day, tz))}–${hm(dateToLocal(x.end, day, tz))}`).join('，') : '全天被山挡') : '没有地形数据'}</dd></div>
           {stop.light?.basis && <div><dt>依据</dt><dd>{stop.light.basis.dem} · {stop.light.basis.resolutionM} m · 半径 {stop.light.basis.radiusKm} km（只算山，不含建筑和树）</dd></div>}
         </dl>
-        {stop.light?.horizon && <Horizon horizon={stop.light.horizon} sunAz={l.az} sunAlt={l.alt} facing={stop.facing} />}
+        {stop.light?.horizon && <Horizon horizon={stop.light.horizon} sunAz={l.az} sunAlt={l.alt} facing={typeof stop.facing === 'number' ? stop.facing : undefined} />}
       </section>
       <section><h3>构图</h3>
         <p>{d.composition ?? <em>还没写</em>}</p>
         <dl className="ex-kv">
-          {stop.facing !== undefined && <div><dt>朝向</dt><dd>{Math.round(stop.facing)}°</dd></div>}
+          {stop.facing !== undefined && <div><dt>朝向</dt><dd>{typeof stop.facing === 'number' ? `${Math.round(stop.facing)}°` : String(stop.facing)}</dd></div>}
           {stop.focal?.length ? <div><dt>焦段</dt><dd>{stop.focal.map(f => `${f}mm`).join(' · ')}</dd></div> : null}
         </dl>
       </section>

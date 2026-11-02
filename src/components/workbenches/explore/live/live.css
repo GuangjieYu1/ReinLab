@@ -178,3 +178,4 @@
 .exw-info { position: absolute; right: 8px; top: 8px; z-index: 2; max-width: 260px; display: grid; gap: 2px; background: #fbfbf9; border: 1px solid #141213; padding: 6px 8px; font-size: 12px; }
 .exw-info small { font: 500 10.5px/1.4 var(--rh-f-mono); color: #6b6865; }
 .exw-cov { display: inline; } .exw-cov summary { display: inline; cursor: pointer; color: #b84d00; font-weight: 700; } .exw-cov[open] { display: block; color: #b84d00; }
+.exw-tilt { display: inline-flex; gap: 4px; align-items: center; } .exw-tilt input { width: 110px; accent-color: #ff7a1a; }
