@@ -114,6 +114,32 @@ it("没有候选的提问卡：用户直接打字回答，回答送回原任务�
     expect(resumed).toHaveLength(1);
     expect(resumed[0].runId).toBe(f.run);
     expect(resumed[0].prompt).toContain("从头到尾完整过一遍");
+    // 多选 + 自由输入：多选 id 与文字一起回来
+    await f.admin.query("update run set state='waiting' where id=$1", [f.run]);
+    const card2 = await f.db.withAccount(f.account, (client) =>
+      requestApproval(client, {
+        account: f.account,
+        dossier: f.dossier,
+        run: f.run,
+        capability: "cards.clarify.question",
+        argsHash: "f".repeat(64),
+        title: "这几篇先读哪几篇？",
+        effects: [{ kind: "paper_pick", candidates: [{ id: "W1", title: "A" }, { id: "W2", title: "B" }], multi: true }],
+        risk: "read",
+        kind: "question",
+      }),
+    );
+    const multi = await request(`/v1/kernel/approvals/${card2.id}/answer`, {
+      candidateIds: ["W1", "W2"],
+      text: "先看这两篇，第三篇再说",
+    });
+    expect(multi.status).toBe(200);
+    const multiBody = (await multi.json()) as { answer: { candidateIds: string[]; text: string } };
+    expect(multiBody.answer.candidateIds).toEqual(["W1", "W2"]);
+    expect(multiBody.answer.text).toBe("先看这两篇，第三篇再说");
+    expect(resumed).toHaveLength(2);
+    expect(resumed[1].prompt).toContain("W1、W2");
+    expect(resumed[1].prompt).toContain("第三篇再说");
   } finally {
     await f.close();
   }

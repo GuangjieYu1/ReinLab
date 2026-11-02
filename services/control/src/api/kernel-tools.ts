@@ -331,6 +331,11 @@ export function registerKernelTools(
           );
         // 提问卡片上的可选选项：模型有时写 candidates，有时写 options / choices，
         // 甚至直接给一串字符串。全都收；只有一串字的时候当成「文字选项」，别静默丢掉。
+        // 单/多选由 caller 按需声明（multi / multiple / select:"many"），默认单选。
+        const multi =
+          args.multi === true ||
+          args.multiple === true ||
+          (typeof args.select === "string" && (args.select === "many" || args.select === "multi"));
         const rawChoices = args.candidates ?? args.options ?? args.choices;
         const choiceList: Record<string, unknown>[] = Array.isArray(rawChoices)
           ? rawChoices
@@ -381,6 +386,8 @@ export function registerKernelTools(
                     : "paper_pick"
                   : "text",
                 candidates: choiceList,
+                // 让用户点几个由提问方决定；没声明就是单选。
+                multi: choiceList.length > 0 ? multi : false,
               },
             ],
             risk: "read",

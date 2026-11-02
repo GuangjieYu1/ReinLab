@@ -228,12 +228,19 @@ export function registerKernelRuns(
       throw new ApiFailure("APPROVAL_NOT_FOUND", 404, "审批不存在。");
     const body = (await c.req.json().catch(() => ({}))) as {
       candidateId?: unknown;
+      candidateIds?: unknown;
       text?: unknown;
     };
-    const candidateId =
-      typeof body.candidateId === "string" && body.candidateId !== ""
-        ? body.candidateId.slice(0, 200)
-        : null;
+    const one = typeof body.candidateId === "string" && body.candidateId !== "" ? body.candidateId : null;
+    // 多选和单选同一套：多选传 candidateIds，单选传 candidateId；两个都给时都算上。
+    const many = Array.isArray(body.candidateIds)
+      ? body.candidateIds
+          .filter((value): value is string => typeof value === "string" && value !== "")
+          .map((value) => value.slice(0, 200))
+          .slice(0, 20)
+      : [];
+    const candidateIds = [...new Set([...(one ? [one] : []), ...many])];
+    const candidateId = candidateIds[0] ?? null;
     const text =
       typeof body.text === "string" && body.text.trim() !== ""
         ? body.text.trim().slice(0, 4000)
@@ -252,7 +259,7 @@ export function registerKernelRuns(
         return c.json({ id, state: row.state, repeated: true });
       await client.query(
         "update approval set effects=$2 where id=$1",
-        [id, JSON.stringify({ ...(row.effects ?? {}), answer: { candidateId, text } })],
+        [id, JSON.stringify({ ...(row.effects ?? {}), answer: { candidateId, candidateIds, text } })],
       );
       await client.query(
         "update approval set state='approved', decided_at=now(), decided_scope='once' where id=$1",
@@ -260,7 +267,12 @@ export function registerKernelRuns(
       );
       // 用户答完就按同一会话续上，把回答作为这一轮的输入送回原任务。
       if (row.run_state === "waiting") {
-        const chosen = candidateId ? `用户选择了 ${candidateId}。` : "";
+        const chosen =
+          candidateIds.length > 1
+            ? `用户选择了 ${candidateIds.join("、")}。`
+            : candidateId
+              ? `用户选择了 ${candidateId}。`
+              : "";
         void dependencies.kernel
           ?.resumeAfterAnswer(
             account,
@@ -269,7 +281,7 @@ export function registerKernelRuns(
           )
           .catch(() => {});
       }
-      return c.json({ id, state: "approved", answer: { candidateId, text } });
+      return c.json({ id, state: "approved", answer: { candidateId, candidateIds, text } });
     });
   });
 
