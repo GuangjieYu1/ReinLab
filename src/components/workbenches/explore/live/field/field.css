@@ -68,3 +68,5 @@
 .exf-change { border: 1px solid #ff7a1a; background: #fff6ef; padding: 10px; display: grid; gap: 6px; font-size: 13px; }
 .exf-change ul { margin: 0; padding-left: 18px; } .exf-change > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .exf-unk { font-size: 12px; } .exf-unk summary { cursor: pointer; color: #b84d00; } .exf-unk ul { margin: 4px 0 0; }
+/* 离线页联网后：醒目的回到在线现场入口（整行） */
+.exf-back { flex-basis: 100%; display: block; padding: 12px; background: #ff7a1a; color: #141213; font: 800 15px/1.3 var(--rh-f-ui); text-decoration: none; border: 2px solid #141213; }

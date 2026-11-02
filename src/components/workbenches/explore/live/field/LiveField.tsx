@@ -44,13 +44,16 @@ export default function LiveField(p: FieldProps) {
   const [reachable, setReachable] = useState(false);
   const [internet, setInternet] = useState(navigator.onLine);
   useEffect(() => {
-    const on = () => setInternet(navigator.onLine);
-    window.addEventListener('online', on); window.addEventListener('offline', on);
+    // 网络一恢复 / 切回这个页面就马上探，再补两次（Wi-Fi 重连有时要几秒），不用等 20 秒一轮
+    const soon: number[] = [];
+    const on = () => { setInternet(navigator.onLine); if (navigator.onLine) { void ping(); soon.push(window.setTimeout(() => void ping(), 3000), window.setTimeout(() => void ping(), 8000)); } };
+    const vis = () => { if (!document.hidden) void ping(); };
+    window.addEventListener('online', on); window.addEventListener('offline', on); document.addEventListener('visibilitychange', vis);
     // 离线页没有 adapter，也探一下：连上了就提示回到在线现场同步
     const probe = () => fetch('/backend/v1/explore/map-config', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(4000) }).then(r => r.status < 500, () => false);
     const ping = () => (p.adapter ? p.adapter.ping() : probe()).then(setReachable);
     void ping(); const t = window.setInterval(() => void ping(), 20000);
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', on); window.clearInterval(t); };
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', on); document.removeEventListener('visibilitychange', vis); window.clearInterval(t); soon.forEach(window.clearTimeout); };
   }, [p.adapter]);
 
   const log = useFieldLog({ adapter: reachable ? p.adapter : null, accountId: p.accountId, dossierId: p.dossierId, planRevision: plan.revision, reachable });
@@ -120,7 +123,7 @@ export default function LiveField(p: FieldProps) {
       <span data-ok={internet || undefined}>互联网 {internet ? '有' : '无'}</span>
       <span data-warn={log.pending > 0 || undefined}>{log.syncing ? '同步中…' : log.pending ? `待同步 ${log.pending} 条` : '已同步'}</span>
       {onlyCandidates && plan.stops.length > 0 && <span data-warn>计划还没确认 · 按候选点显示</span>}
-      {!p.adapter && reachable && <a className="rh-btn" href={`/?preview=workbench&studio=exploration&file=0&dossier=${encodeURIComponent(p.dossierId)}`}>ReinLab 连上了 · 回在线现场同步</a>}
+      {!p.adapter && reachable && <a className="exf-back" href={`/?preview=workbench&studio=exploration&file=0&dossier=${encodeURIComponent(p.dossierId)}`}>ReinLab 连上了 · 点这里回在线现场，把记录同步上去 →</a>}
       {p.offlinePack && <span>离线包 · 第 {p.offlinePack.planRevision} 版计划 · {new Date(p.offlinePack.preparedAt).toLocaleDateString('zh-CN')} 准备</span>}
       {stale && <span data-warn>计划有新版本（第 {p.serverRevision} 版），联网时更新离线包</span>}
       {p.weather?.fetchedAt && <span>天气快照 · {new Date(p.weather.fetchedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
