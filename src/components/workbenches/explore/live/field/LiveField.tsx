@@ -205,5 +205,6 @@ export default function LiveField(p: FieldProps) {
 
 function segmentNow(segments: { start: string; end: string; state: string }[], now: number) {
   const s = segments.find(x => Date.parse(x.start) <= now && now < Date.parse(x.end));
-  return s ? ({ night: '夜', terrain: '被山挡', building: '被楼挡', maybe_lit: '预计有光', unknown: '未知' } as Record<string, string>)[s.state] ?? s.state : '未知';
+  if (!s) return segments.length && now < Date.parse(segments[0].start) ? '拍摄日才有' : segments.length ? '拍摄日已过' : '未知';
+  return ({ night: '夜', terrain: '被山挡', building: '被楼挡', maybe_lit: '预计有光', unknown: '未知' } as Record<string, string>)[s.state] ?? s.state;
 }

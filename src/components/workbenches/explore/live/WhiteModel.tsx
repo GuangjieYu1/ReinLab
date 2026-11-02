@@ -82,7 +82,7 @@ export default function WhiteModel({ scene, stop, day, tz, minutes, onMinutes, f
     // "高度未知"牌子只挂离机位最近的 12 栋（其余靠橙色轮廓），楼多时不糊成一片
     const near = new Set(scene.buildings.filter(b => b.heightM === null)
       .map(b => ({ id: b.id, d: Math.hypot(b.footprint[0][0] - camAt[0], b.footprint[0][1] - camAt[1]) })).filter(x => x.d < 250)
-      .sort((a, b) => a.d - b.d).slice(0, 12).map(x => x.id));
+      .sort((a, b) => a.d - b.d).slice(0, w < 600 ? 5 : 12).map(x => x.id));
     for (const b of scene.buildings) {
       const shape = new THREE.Shape(b.footprint.map(([x, y]) => new THREE.Vector2(x, y)));
       for (const hole of b.holes ?? []) shape.holes.push(new THREE.Path(hole.map(([x, y]) => new THREE.Vector2(x, y))));
@@ -94,7 +94,7 @@ export default function WhiteModel({ scene, stop, day, tz, minutes, onMinutes, f
         fill.rotation.x = -Math.PI / 2; fill.position.y = 0.2; fill.userData.b = b; sc.add(fill); meshes.set(b.id, fill);
         // 楼多时牌子会糊成一片：只给 300 m 内的挂
         const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length, cz = pts.reduce((a, p) => a + p.z, 0) / pts.length;
-        if (near.has(b.id)) { const tag = unknownTag(); tag.position.set(cx, 4, cz); sc.add(tag); }
+        if (near.has(b.id)) { const tag = unknownTag(); if (w < 600) tag.scale.set(0.1, 0.025, 1); tag.position.set(cx, 4, cz); sc.add(tag); }
         continue;
       }
       const height = Math.max(0.5, b.heightM - b.minHeightM);
@@ -212,7 +212,9 @@ export default function WhiteModel({ scene, stop, day, tz, minutes, onMinutes, f
     <input className="exw-time" type="range" min={300} max={1260} step={5} value={minutes} onChange={e => onMinutes(Number(e.target.value))} aria-label="时间" />
     <p className="exw-note">
       {hm(minutes)} · {scene.buildings.length} 栋楼（{estimated} 栋按层数估算高度，{unknown} 栋高度未知只画轮廓）· 范围 {scene.radiusM} m · {scene.source}
-      {scene.coverage.status !== 'ok' && <b> · {scene.coverage.status === 'empty' ? '这一带没取到建筑数据（不代表没有楼）' : scene.coverage.status === 'failed' ? `建筑数据没取到${scene.coverage.note ? `：${scene.coverage.note}` : ''}` : `数据不全：${scene.coverage.note}`}</b>}
+      {scene.coverage.status === 'empty' && <b> · 这一带没取到建筑数据（不代表没有楼）</b>}
+      {scene.coverage.status === 'failed' && <b> · 建筑数据没取到{scene.coverage.note ? `：${scene.coverage.note}` : ''}</b>}
+      {scene.coverage.status === 'partial' && <details className="exw-cov"><summary>数据不全，点开看缺什么</summary>{scene.coverage.note}</details>}
       <br />点楼看高度来源。阴影只是示意；见光状态以上面的受光提示为准，橙色的是此刻挡光的楼。
     </p>
   </div>;

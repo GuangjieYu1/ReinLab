@@ -39,7 +39,7 @@ export default function OfflinePrep({ adapter, accountId, dossierId, title, days
     {packs.map(p => <div key={p.packId} className="exf-pack" data-state={p.state}>
       <b>{p.day} · 第 {p.planRevision} 版计划</b>
       <small>{p.state === 'ready' ? '可离线使用' : p.state === 'preparing' ? '准备中断了' : `缺 ${p.missing.length} 项`} · {mb(p.manifest.tileBytes)} 地图 · {p.manifest.tiles.length} 块瓦片</small>
-      {p.manifest.unknowns.length > 0 && <ul>{p.manifest.unknowns.map(u => <li key={u}>{u}</li>)}</ul>}
+      {p.manifest.unknowns.length > 0 && <details className="exf-unk"><summary>{p.manifest.unknowns.length} 条缺项（楼高、路线等），点开看</summary><ul>{p.manifest.unknowns.map(u => <li key={u}>{u}</li>)}</ul></details>}
       <div>
         <button className="rh-btn" onClick={async () => { const r = await checkPack(p.packId); setMsg(r?.state === 'ready' ? '检查过了：都在' : `缺 ${r?.missing.length} 项：${r?.missing.slice(0, 3).join('、')}…`); await reload(); }}>检查</button>
         {p.state !== 'ready' && <button className="rh-btn is-solid" onClick={() => void start({ manifest: p.manifest })}>继续</button>}

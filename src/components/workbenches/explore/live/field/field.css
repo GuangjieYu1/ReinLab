@@ -67,3 +67,4 @@
 .exf-agent-text { font-size: 14px; line-height: 1.55; }
 .exf-change { border: 1px solid #ff7a1a; background: #fff6ef; padding: 10px; display: grid; gap: 6px; font-size: 13px; }
 .exf-change ul { margin: 0; padding-left: 18px; } .exf-change > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.exf-unk { font-size: 12px; } .exf-unk summary { cursor: pointer; color: #b84d00; } .exf-unk ul { margin: 4px 0 0; }
