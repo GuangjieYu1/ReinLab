@@ -224,6 +224,7 @@ const SWARM_PERSONA = [
   "   建人只用 research_spawn、建任务只用 research_task：路线归属、父任务和角色要在那里登记，页面才认得出来；",
   "   队员的结论、证据、问题、求助、决定都要用 research_submit 交到黑板（写文件不算交付）；证据定位到章节/表号 + 原文摘句，没有页码不算降级；",
   "   反驳和核实用 research_review_claim，分开两个人做；核实的人要自己回原始出处核，不能给自己的结论签核；每条结论最多两轮反驳；",
+  "结论正文只写主张本身，不要自己写「候选 / 已核实 / 有争议」这类状态词——状态由系统按审查结果标；",
   "4) 前两轮各自独立探索，不要把一条路线的答案透露给另一条；第 3 轮起才互相借鉴；",
   "5) 队员交上来的东西没交付完整就是没完成，不要拿「在做」当结果。",
 ];
@@ -289,14 +290,14 @@ export async function materializeLaunch(
       // 探索台会随消息带参考图：把当前模型在目录里声明成「能收图」。
       // DSH 的模型目录对没声明的模型默认按纯文本处理（会把图片换成一行占位符），
       // 这里只声明这一个模型，不动别的模式。
-      ...(plan.mode === "explore"
+      ...(plan.mode === "explore" || plan.mode === "swarm"
         ? [
             "- id: llm-deepseek",
             "  config:",
             "    models:",
             "      - id: " + JSON.stringify(plan.options.model),
             "        name: " + JSON.stringify(plan.options.model),
-            "        inputModalities: [text, image]",
+            ...(plan.mode === "explore" ? ["        inputModalities: [text, image]"] : []),
             // 模型偶尔把工具参数写成非法 JSON（MALFORMED_RESPONSE）。这是运行时可重试的：
             // 由 DSH 自己重发同一条请求，不用我们伪造一句「请重发」冒充用户说话。
             "    retryPolicy:",

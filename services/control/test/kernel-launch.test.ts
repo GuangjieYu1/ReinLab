@@ -179,3 +179,36 @@ describe("探索台运行补丁", () => {
     expect(patch).not.toContain("retryPolicy");
   });
 });
+
+describe("群研运行补丁", () => {
+  const swarm = (run: string) =>
+    launchPlan({
+      ...base,
+      run,
+      dossier: "20000000-0000-4000-8000-000000000012",
+      sessionId: "ses_swarm",
+      mode: "swarm",
+    });
+
+  it("挂团队插件与研究工具，并让运行时自己重试模型侧抖动（B9）", async () => {
+    const writes = new Map<string, string>();
+    const plan = swarm("30000000-0000-4000-8000-000000000012");
+    await materializeLaunch(plan, "tok", {
+      write: async (file: string, body: string) => void writes.set(file, body),
+      remove: async () => {},
+      mkdir: async () => {},
+    });
+    const patch = writes.get(plan.paths.patchFile) ?? "";
+    expect(patch).toContain("dsh-experimental-agent-team");
+    expect(patch).toContain("tool-agent-team");
+    expect(patch).toContain("reinlab-swarm");
+    // 网络抖动由运行时先重试，别让一次 fetch failed 把整条运行判失败。
+    expect(patch).toContain("retryPolicy:");
+    expect(patch).toContain("TRANSPORT");
+    expect(patch).toMatch(/maxRetries: \d+/);
+    // 群研不收图：不给模型加 inputModalities。
+    expect(patch).not.toContain("inputModalities");
+    // 提示词底线：结论正文不写状态，状态由系统标。
+    expect(patch).toContain("结论正文");
+  });
+});

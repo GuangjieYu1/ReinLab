@@ -448,7 +448,9 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     snapshot = await (await request(`/v1/swarm/runs/${runId}`)).json();
     expect(snapshot.run.state).toBe("partial");
     expect(snapshot.run.endReason).toBe("user_finished");
-    expect(snapshot.run.stateReason).toContain("没有经过核实");
+    // 这条运行一条结论都没有：说明里不能凭空说「没有经过核实的结论」。
+    expect(snapshot.run.stateReason).toContain("已交付的产出保留");
+    expect(snapshot.run.stateReason).not.toContain("没有经过核实");
 
     // 靠后阶段的干预现在明确拒绝，而不是假装做掉。
     const unsupported = await request(`/v1/swarm/runs/${runId}/interventions`, { kind: "add_member" });
@@ -567,7 +569,8 @@ it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
     snapshot = (await (await request(`/v1/swarm/runs/${runId}`)).json()) as any;
     expect(snapshot.run.state).toBe("partial");
     expect(snapshot.run.endReason).toBe("limit");
-    expect(snapshot.run.stateReason).toContain("没有建出任何任务");
+    expect(snapshot.run.stateReason).toContain("没有交出可核实的结论");
+    expect(snapshot.run.stateReason).not.toContain("任务都交付了");
 
     // 开跑指令只发一遍。
     expect(prompts.filter((prompt) => prompt.includes("用户已确认计划")).length).toBe(1);

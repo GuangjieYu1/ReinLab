@@ -679,6 +679,33 @@ export class SwarmService {
     return db.withAccount(account, async (client) => {
       let row = await this.row(client, account, runId);
       row = await this.recoverIfInterrupted(client, account, row);
+      // 快到额度：一回合可能跑很久（负责人一次派完所有任务），不能等他这一轮结束
+      // 才标 near_limit——到了 80% 时长就切过去，页面才有机会给追加建议。
+      if (row.state === "running") {
+        const active = this.accumulate(row);
+        if (active >= row.limit_minutes * 60_000 * 0.8) {
+          const updated = (
+            await client.query(
+              `update swarm_run set state='near_limit',
+                 state_reason=$3, updated_at=now()
+               where account_id=$1 and run_id=$2 and state='running'
+               returning run_id,dossier_id,question,state,phase,round,plan_version,limit_rounds,limit_minutes,
+                 active_ms,active_since,members_used,kickoff_at,lead_session,projected_seq,
+                 state_reason,end_reason,delegation,started_at,ended_at`,
+              [
+                account,
+                runId,
+                `快到额度了（已用 ${Math.round(active / 60_000)} 分钟 / ${row.limit_minutes} 分钟）`,
+              ],
+            )
+          ).rows[0] as RunRow | undefined;
+          if (updated) {
+            row = updated;
+            await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
+            await this.emitRun(client, account, runId);
+          }
+        }
+      }
       const cursor = Number(row.projected_seq ?? 0);
       const events = (
         await client.query(
@@ -1188,9 +1215,33 @@ export class SwarmService {
       return;
     }
     if (input.kind === "finish") {
-      // 用户结束：不伪装成功。核实还没接通，所以按「部分完成」收尾并写明原因。
+      // 用户结束：不伪装成功，但说明要按实际情况写——有已核实的就别写成「没有经过核实」。
       await this.settleTiming(client, account, row, now);
-      const reason = "你结束了这次群研；已交付的产出保留，但没有经过核实的结论。";
+      const counts = (
+        await client.query(
+          `select
+             count(*) filter (
+               where c.verified_version = c.version and c.status='verified'
+                 and c.version = (select max(c2.version) from swarm_claim c2
+                                   where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
+             )::int verified,
+             count(*) filter (
+               where c.version = (select max(c2.version) from swarm_claim c2
+                                   where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
+                 and c.status in ('candidate','awaiting_refute','awaiting_verify','disputed','insufficient')
+             )::int pending
+           from swarm_claim c where c.account_id=$1 and c.run_id=$2`,
+          [account, row.run_id],
+        )
+      ).rows[0];
+      const verifiedCount = Number(counts?.verified ?? 0);
+      const pendingCount = Number(counts?.pending ?? 0);
+      const reason =
+        verifiedCount > 0
+          ? `你结束了这次群研：已核实 ${verifiedCount} 条，另有 ${pendingCount} 条候选/有争议；已交付的产出保留。`
+          : pendingCount > 0
+            ? `你结束了这次群研：${pendingCount} 条结论没有通过核实，仍是候选；已交付的产出保留。`
+            : "你结束了这次群研；已交付的产出保留。";
       await client.query(
         `update swarm_run set state='partial', end_reason='user_finished',
            state_reason=$3, active_since=null, ended_at=coalesce(ended_at, now()), updated_at=now()
@@ -1309,18 +1360,29 @@ export class SwarmService {
         const restoreFailed = /KERNEL_SESSION_RESTORE_FAILED/.test(detail ?? "");
         const nextState = restoreFailed ? "paused" : "failed";
         const quota = /QUOTA|Insufficient Balance|insufficient_quota|402/i.test(detail ?? "");
+        // 网络抖动（模型转发 fetch failed / 上游 5xx / 超时）不是研究失败：
+        // 转成暂停、写清原因、保留名册与已有产出，用户点继续就能接着跑。
+        const transient =
+          /MODEL_UPSTREAM_UNAVAILABLE|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|network|503|502|504/i.test(
+            detail ?? "",
+          );
+        // 结算这一段的活动时长：失败也要如实记上，不能清零。
+        await this.settleTiming(client, account, row);
+        const state = restoreFailed || transient ? "paused" : "failed";
         const reason = restoreFailed
           ? "这一段会话读不回来，为避免重复建队没有继续；产出和名册都还在，可以稍后再试"
           : quota
             ? "模型账户额度不足（QUOTA），这一轮没法继续；已交的结论和证据都还在"
-            : "这一轮执行失败";
+            : transient
+              ? "模型服务暂时连不上（网络抖动或上游 5xx，已重试过），这一轮停在这里；恢复后点继续就能接着跑"
+              : "这一轮执行失败";
         await client.query(
           `update swarm_run set state=$3, end_reason=$4, state_reason=$5, active_since=null,
              ended_at=case when $3='failed' then now() else ended_at end, updated_at=now()
            where account_id=$1 and run_id=$2`,
-          [account, runId, nextState, restoreFailed ? null : "error", reason],
+          [account, runId, state, state === "failed" ? "error" : null, reason],
         );
-        if (!restoreFailed) await this.settleTerminal(client, account, runId, reason);
+        if (state === "failed") await this.settleTerminal(client, account, runId, reason);
         await this.emitRun(client, account, runId);
         return null;
       }
@@ -1339,10 +1401,37 @@ export class SwarmService {
       );
       const outOfTime = active >= row.limit_minutes * 60_000;
       const outOfRounds = row.round >= row.limit_rounds;
-      // 「完成」必须真有交付：0 个任务、0 条交付一律不算答完。
-      // 验收里就是这一条把刚确认的运行 2 秒后判成了「任务都交付了」。
-      const answered = tasks.length > 0 && open === 0 && delivered > 0;
-      if (answered || outOfTime || outOfRounds) {
+      // 结论的核实情况决定「能不能收尾」：负责人交完一批（哪怕发了最终答复）但还有
+      // 候选 / 待核实 / 待反驳的结论时，按 PRD §3 不满足提前收尾，由服务端推进下一轮，
+      // 把这些未核实的结论当缺口交回去（用户 2026-11-03 定）。
+      const claims = await latestClaims(client, account, runId, { limit: 200 });
+      const pending = claims.filter(
+        (claim) =>
+          claim.status === "candidate" ||
+          claim.status === "awaiting_refute" ||
+          claim.status === "awaiting_verify" ||
+          claim.status === "disputed" ||
+          claim.status === "insufficient",
+      );
+      const verifiedCount = Number(
+        (
+          await client.query(
+            `select count(*)::int n from swarm_claim c
+              where c.account_id=$1 and c.run_id=$2
+                and c.verified_version = c.version and c.status='verified'
+                and c.version = (select max(c2.version) from swarm_claim c2
+                                  where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)`,
+            [account, runId],
+          )
+        ).rows[0]?.n ?? 0,
+      );
+      const routes = await loadApproaches(client, account, runId);
+      // PRD §3 的三种提前收尾：问题已回答且通过核实；剩余路线全阻塞且没有新机制；用户要求结束（另一条路径）。
+      const answered = pending.length === 0 && (verifiedCount > 0 || claims.length > 0);
+      const allBlocked =
+        routes.length > 0 &&
+        routes.every((route) => ["blocked", "stopped", "merged"].includes(route.state));
+      if (answered || allBlocked || outOfTime || outOfRounds) {
         // 报告前还有分歧就进 awaiting_review（等人看分歧），不硬写成完成或部分完成。
         const disputed = Number(
           (
@@ -1356,15 +1445,22 @@ export class SwarmService {
             )
           ).rows[0]?.n ?? 0,
         );
+        // 结束说明按实际情况写：有已核实的就不能说「没有经过核实的结论」。
+        const head =
+          verifiedCount > 0
+            ? `已核实 ${verifiedCount} 条，还有 ${pending.length} 条候选/待核实`
+            : pending.length > 0
+              ? `没有通过核实的结论，${pending.length} 条仍是候选或待核实`
+              : "这一轮没有交出可核实的结论";
         const reason = disputed
-          ? "报告前还有分歧：先看你决定按「有争议」写入还是一致性再查一轮"
+          ? `${head}；报告前还有分歧，先看你决定按「有争议」写入还是再查一轮`
           : answered
-            ? "任务都交付了；核实没通过的结论仍然是候选"
-            : outOfTime
-              ? `到达 ${row.limit_minutes} 分钟`
-              : tasks.length === 0
-                ? `到达 ${row.limit_rounds} 轮，这一轮没有建出任何任务`
-                : `到达 ${row.limit_rounds} 轮`;
+            ? `问题已回答并通过核实（${verifiedCount} 条）`
+            : allBlocked
+              ? `${head}；剩余路线全部阻塞，没有实质新机制`
+              : outOfTime
+                ? `到达 ${row.limit_minutes} 分钟：${head}`
+                : `${head}；到达 ${row.limit_rounds} 轮`;
         await client.query(
           `update swarm_run set state=$3, state_reason=$4, end_reason=$5, active_since=null,
              ended_at=case when $3='awaiting_review' then ended_at else now() end, updated_at=now()
@@ -1388,8 +1484,10 @@ export class SwarmService {
       // 轮次和阶段由服务端推进：前 2 轮独立，第 3 轮起交叉。
       const nextRound = row.round + 1;
       const phase = nextRound >= 3 ? "cross" : "independent";
-      // 临近额度（80%）先标 near_limit：仍在跑，但页面要给追加建议。
-      const near = active >= row.limit_minutes * 60_000 * 0.8;
+      // 临近额度：时长到 80%，或者下一轮就是最后一轮，都算「快到额度」。
+      // 进 near_limit 后仍在跑，报告里给追加建议（PRD §3）。
+      const near =
+        active >= row.limit_minutes * 60_000 * 0.8 || nextRound >= row.limit_rounds;
       await client.query(
         `update swarm_run set round=$3, phase=$4, state=$5, state_reason=$6,
            active_since=now(), updated_at=now()
@@ -1405,7 +1503,17 @@ export class SwarmService {
       );
       await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
       await this.emitRun(client, account, runId);
-      return { round: nextRound, kickoff: false, phase };
+      return {
+        round: nextRound,
+        kickoff: false,
+        phase,
+        // 未核实的结论当缺口交给负责人：只给 id、一句话和状态，不教它怎么分轮。
+        gaps: pending.slice(0, 12).map((claim) => ({
+          id: claim.id,
+          status: claim.status,
+          text: claim.text.slice(0, 120),
+        })),
+      };
     });
     if (!decision) return { continued: false };
     // 第 1 轮是开跑（要带上计划与编制）；第 3 轮起附精简的 Context Packet。
@@ -1414,16 +1522,24 @@ export class SwarmService {
       : await this.dependencies.db.withAccount(account, (client) =>
           decision.round >= 3 ? contextPacket(client, { account, runId }) : Promise.resolve(""),
         );
+    const gapLines =
+      decision.gaps && decision.gaps.length
+        ? [
+            "这些结论还没有通过独立核实，是这一批要补的缺口（补齐后才算交付）：",
+            ...decision.gaps.map(
+              (gap, index) =>
+                `${index + 1}. [${gap.status}] ${gap.text}（${gap.id}）`,
+            ),
+            "已经核实的不必重做；也不要重复已经交付过的结果。",
+          ].join("\n")
+        : "";
     const prompt = decision.kickoff
       ? kickoffPrompt(
           await this.dependencies.db.withAccount(account, (client) =>
             this.planOf(client, account, runId),
           ),
         )
-      : [
-          `第 ${decision.round} 轮${decision.phase === "cross" ? "（交叉阶段）" : "（独立阶段）"}。先看任务板还有哪些没交付，把没人做的分给队员，收齐之后再综合。不要重复已经交付的结果。`,
-          packet,
-        ]
+      : ["继续推进这一批任务。先看任务板还有哪些没交付，把没人做的分给队员，收齐之后再综合。", gapLines, packet]
           .filter(Boolean)
           .join("\n\n");
     await this.dependencies.kernel

@@ -143,7 +143,43 @@ export function registerMessagesProxy(
       },
       signal: c.req.raw.signal,
     });
-    const response = await dependencies.forward(upstream);
+    // 网络抖动先重试：转发层偶发 fetch failed / 上游 5xx 时，这一次请求还没拿到
+    // 任何内容（也没记用量），重发同一条请求是安全的；三次都失败才把失败交上去。
+    const forwardWithRetry = async (): Promise<Response> => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const response = await dependencies.forward(upstream.clone());
+          if (response.status < 500 && response.status !== 429) return response;
+          lastError = new Error(`MODEL_UPSTREAM_${response.status}`);
+          await response.body?.cancel().catch(() => undefined);
+        } catch (error) {
+          lastError = error;
+        }
+        if (attempt < 2)
+          await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 400 : 1200));
+      }
+      throw lastError;
+    };
+    let response: Response;
+    try {
+      response = await forwardWithRetry();
+    } catch (error) {
+      // 重试也失败：给 DSH 一个明确的、可重试的上游不可用，而不是 500 内部错误。
+      console.error(
+        JSON.stringify({
+          code: "MODEL_UPSTREAM_UNAVAILABLE",
+          message: String((error as Error)?.message ?? error).slice(0, 200),
+        }),
+      );
+      return c.json(
+        {
+          error: "MODEL_UPSTREAM_UNAVAILABLE",
+          message: "模型服务暂时连不上（网络或上游 5xx），这次请求没有拿到任何内容。",
+        },
+        503,
+      );
+    }
     const streamed = typeof parsed.stream === "boolean" ? parsed.stream : false;
     const headers = new Headers();
     headers.set("content-type", response.headers.get("content-type") ?? (streamed ? "text/event-stream" : "application/json"));

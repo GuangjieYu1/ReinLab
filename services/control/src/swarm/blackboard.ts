@@ -575,14 +575,22 @@ export async function buildReport(
     !!input.used &&
     ((input.used.activeMs ?? 0) >= input.limits.minutes * 60_000 * 0.8 ||
       (input.used.rounds ?? 0) >= input.limits.rounds);
+  // 到限停下来的运行也要留着追加建议：用户正是看着它决定要不要追加
+  // （PRD §3「到限时给出追加建议」；追加卡在第二批）。只有已经收尾成正式报告的
+  // final 才不再建议追加。
   const nextSuggestion =
-    nearLimit && running
+    nearLimit && state !== "final"
       ? {
           rounds: 2,
           minutes: Math.max(15, Math.round(input.limits!.minutes / 2)),
           why: [
             `已经有 ${verifiedIds.size} 条结论通过独立核实，还有 ${unverified.length} 条候选没核`,
-            gaps.length ? `剩余缺口：${gaps.slice(0, 2).join("；")}` : "剩余缺口：暂时没有新的",
+            gaps.length
+              ? `剩余缺口：${gaps
+                  .slice(0, 2)
+                  .map((gap) => gap.slice(0, 60))
+                  .join("；")}`
+              : "剩余缺口：暂时没有新的",
           ].join("；"),
         }
       : null;
