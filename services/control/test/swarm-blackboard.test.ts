@@ -817,3 +817,196 @@ it("用户点结束时，说明按实际情况写：有已核实就不说「没�
     await f.close();
   }
 }, 120_000);
+
+it("第二批：mention 投递、redirect 出新版本计划、add_member/extend/divergence 四种卡", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    // mention：投递到指定队员，回执是 delivered。
+    const mention = await swarm.createIntervention(f.account, runId, {
+      kind: "mention",
+      text: "请把 Table 3 的预算口径说清楚。",
+      target: { memberId: "r1-scout" },
+    });
+    expect(mention.intervention.kind).toBe("mention");
+    expect(mention.intervention.state).toBe("delivered");
+    expect(mention.intervention.result ?? "").toContain("r1-scout");
+
+    // redirect：改方向之后负责人交新版本计划，直接接着做（不再等确认）。
+    const redirect = await swarm.createIntervention(f.account, runId, {
+      kind: "redirect",
+      text: "只看相同总 token 预算下的比较。",
+    });
+    expect(redirect.intervention.state).toBe("delivered");
+    // 收窄口径（加「同预算」）不算扩大范围：新版本直接用，不出范围卡。
+    const narrowed = await swarm.publishPlan(f.account, runId, {
+      question: "同预算下多 Agent 数量增加是否一定提高研究质量？",
+      scope: "只看同总 token 预算的比较",
+      qualityCriteria: ["有对照实验", "同预算"],
+      routes: [{ id: "r1", title: "规模曲线", idea: "同预算下的曲线", differsBy: "同预算" }],
+      limits: { rounds: 4, minutes: 30 },
+    });
+    expect(narrowed.version).toBe(2);
+    expect((await swarm.run(f.account, runId)).state).toBe("running");
+    expect(
+      (await f.admin.query(
+        "select count(*)::int n from approval where run_id=$1 and kind='swarm_scope'",
+        [runId],
+      )).rows[0].n,
+    ).toBe(0);
+
+    // 扩大范围（问题本身变了）：要用户批一次（swarm_scope 卡），状态回到等确认。
+    await swarm.createIntervention(f.account, runId, {
+      kind: "redirect",
+      text: "把范围扩到评测基准与成本结构。",
+    });
+    const expanded = await swarm.publishPlan(f.account, runId, {
+      question:
+        "多 Agent 数量增加是否一定提高研究质量？再加一层：2026 年之后的评测基准与成本结构会怎么改变结论？",
+      scope: "原问题 + 评测基准与成本结构",
+      qualityCriteria: ["有对照实验", "同预算"],
+      routes: [{ id: "r1", title: "规模曲线", idea: "同预算下的曲线", differsBy: "同预算" }],
+      limits: { rounds: 4, minutes: 30 },
+    });
+    expect(expanded.version).toBe(3);
+    const afterRedirect = await swarm.run(f.account, runId);
+    expect(afterRedirect.state).toBe("awaiting_confirm");
+    const cards = await f.admin.query(
+      "select id, kind, state, effects from approval where run_id=$1 order by created_at",
+      [runId],
+    );
+    const scope = cards.rows.find((row) => row.kind === "swarm_scope");
+    expect(scope).toBeTruthy();
+    expect((scope!.effects[0] as any).from).toBe(2);
+    expect((scope!.effects[0] as any).to).toBe(3);
+
+    // 批准扩大范围：按新计划继续。
+    const decided = await swarm.decideCard(f.account, String(scope!.id), { decision: "approve" });
+    expect(decided?.state).toBe("approved");
+
+    // 加人：出 swarm_add_member 卡（含 membersAfter / max）。
+    const addMember = await swarm.createIntervention(f.account, runId, {
+      kind: "add_member",
+      role: "researcher",
+      target: { routeId: "r1" },
+    });
+    expect(addMember.intervention.state).toBe("pending_approval");
+    const addCard = await f.admin.query(
+      "select id, effects from approval where run_id=$1 and kind='swarm_add_member'",
+      [runId],
+    );
+    expect(addCard.rows).toHaveLength(1);
+    expect((addCard.rows[0].effects[0] as any).max).toBe(16);
+    const approved = await swarm.decideCard(f.account, String(addCard.rows[0].id), {
+      decision: "approve",
+    });
+    expect(approved?.state).toBe("approved");
+
+    // 追加额度：出 swarm_extend 卡（findings / gaps / suggest / used），批准后额度变长。
+    const extend = await swarm.createIntervention(f.account, runId, { kind: "extend" });
+    expect(extend.intervention.state).toBe("pending_approval");
+    const extendCard = await f.admin.query(
+      "select id, effects from approval where run_id=$1 and kind='swarm_extend'",
+      [runId],
+    );
+    const payload = extendCard.rows[0].effects[0] as any;
+    expect(payload.suggest).toMatchObject({ rounds: 2 });
+    expect(payload.used.rounds).toBeGreaterThanOrEqual(0);
+    const before = await swarm.run(f.account, runId);
+    await swarm.decideCard(f.account, String(extendCard.rows[0].id), {
+      decision: "approve",
+      answers: { rounds: 3, minutes: 45 },
+    });
+    const after = await swarm.run(f.account, runId);
+    expect(after.limits.rounds).toBe(before.limits.rounds + 3);
+    expect(after.limits.minutes).toBe(before.limits.minutes + 45);
+
+    // 连点两次追加额度只留一张待处理卡（卡上的数字会变，按种类去重）。
+    await swarm.createIntervention(f.account, runId, { kind: "extend" });
+    const countBefore = (
+      await f.admin.query(
+        "select count(*)::int n from approval where run_id=$1 and kind='swarm_extend'",
+        [runId],
+      )
+    ).rows[0].n;
+    await swarm.createIntervention(f.account, runId, { kind: "extend" });
+    const countAfter = (
+      await f.admin.query(
+        "select count(*)::int n from approval where run_id=$1 and kind='swarm_extend'",
+        [runId],
+      )
+    ).rows[0].n;
+    expect(countAfter).toBe(countBefore);
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("小项：answer 优先具体发现，剩余缺口不混路线合并说明", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    // 一条核实员的汇总 + 一条研究员的具体发现，两条都核实通过。
+    const summary = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "sum-1",
+      member: "verifier",
+      claim: { text: "独立核实汇总：本批核了 6 条，其中 3 条属实。", basis: "observation" },
+      evidence: [evidenceOf("arXiv:2401.00081", "§1", "summary quote")],
+    });
+    const finding = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "find-1",
+      member: "r1-scout",
+      claim: {
+        text: "在固定总预算下，agent 数从 4 加到 8 时准确率不再上升（+0.3pp，落在噪声内）。",
+        basis: "checked_fact",
+      },
+      evidence: [evidenceOf("arXiv:2401.00082", "Table 4", "flat from 4 to 8")],
+    });
+    // 反驳与核实分人：汇总（verifier 写的）由 r1 反驳、critic 核实；
+    // 具体发现（r1 写的）由 critic 反驳、verifier 核实。
+    for (const [refuter, claimId] of [
+      ["r1-scout", summary.claimIds[0]],
+      ["critic", finding.claimIds[0]],
+    ] as const) {
+      await swarm.reviewResearch(f.account, runId, {
+        member: refuter,
+        claimId,
+        kind: "refute",
+        verdict: "rejected",
+        reason: "试着反驳没找到反例。",
+      });
+    }
+    for (const [verifier, claimId] of [
+      ["critic", summary.claimIds[0]],
+      ["verifier", finding.claimIds[0]],
+    ] as const) {
+      await swarm.reviewResearch(f.account, runId, {
+        member: verifier,
+        claimId,
+        kind: "verify",
+        verdict: "verified",
+        reason: "回原文核过，数字对得上。",
+        evidence: [evidenceOf("arXiv:2401.00082", "Table 4", "flat from 4 to 8")],
+      });
+    }
+    const snapshot = await swarm.snapshot(f.account, runId);
+    // 具体发现优先：answer 用的是研究员那条，不是核实员的汇总。
+    expect(snapshot.report!.answer).toContain("在固定总预算下");
+    expect(snapshot.report!.verified).toHaveLength(2);
+
+    // 合并掉的路线不进剩余缺口。
+    await swarm.registerApproach(f.account, runId, {
+      title: "规模曲线与成本归一化",
+      idea: "把 agent 数量换算到同预算",
+      gap: "与 r1 同一条路线，重复登记；已并入 r1，不再单独计一条路线",
+    });
+    await f.admin.query(
+      "update swarm_approach set state='merged' where run_id=$1 and gap like '%重复登记%'",
+      [runId],
+    );
+    const after = await swarm.snapshot(f.account, runId);
+    expect(after.report!.gaps.some((gap) => /重复登记|已并入/.test(gap))).toBe(false);
+  } finally {
+    await f.close();
+  }
+}, 120_000);

@@ -161,4 +161,48 @@ describe("运行生命周期收尾", () => {
     expect(await card(keep)).toBe("pending");
   });
 
+
+  it("群研的卡不因为底层那一回合结束就被顺手作废", async () => {
+    // 一个已经收尾的底层 run + 一张待处理的群研卡：非群研的卡会被清，
+    // 群研的要留给人处理（否则加人 / 追加额度一出现就没了）。
+    const account = randomUUID();
+    const dossier = randomUUID();
+    await admin.query("insert into account(id) values($1)", [account]);
+    await admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path) values($1::uuid,$2,'research','card','/data/dossiers/'||$1::text)",
+      [dossier, account],
+    );
+    const runId = randomUUID();
+    await admin.query(
+      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+       values($1,$2,$3,'bench-swarm','swarm',$4,'completed',1,'{}')`,
+      [runId, account, dossier, randomUUID()],
+    );
+    const cardId = randomUUID();
+    await admin.query(
+      `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key)
+       values($1,$2,$3,'swarm_extend','追加额度','[]'::jsonb,'read','pending',$4)`,
+      [cardId, account, runId, "swarm.swarm_extend:" + cardId],
+    );
+    const otherId = randomUUID();
+    const otherRun = randomUUID();
+    await admin.query(
+      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+       values($1,$2,$3,'research-read','read',$4,'completed',1,'{}')`,
+      [otherRun, account, dossier, randomUUID()],
+    );
+    await admin.query(
+      `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key)
+       values($1,$2,$3,'question','普通提问','[]'::jsonb,'read','pending',$4)`,
+      [otherId, account, otherRun, "q:" + otherId],
+    );
+    await reconcileAccount(db, account);
+    const rows = await admin.query(
+      "select id,state from approval where account_id=$1 order by id",
+      [account],
+    );
+    const byId = new Map(rows.rows.map((row) => [String(row.id), String(row.state)]));
+    expect(byId.get(cardId)).toBe("pending");
+    expect(byId.get(otherId)).toBe("expired");
+  });
 });

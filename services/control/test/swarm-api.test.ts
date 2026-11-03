@@ -452,10 +452,16 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     expect(snapshot.run.stateReason).toContain("已交付的产出保留");
     expect(snapshot.run.stateReason).not.toContain("没有经过核实");
 
-    // 靠后阶段的干预现在明确拒绝，而不是假装做掉。
-    const unsupported = await request(`/v1/swarm/runs/${runId}/interventions`, { kind: "add_member" });
-    expect(unsupported.status).toBe(409);
-    expect(((await unsupported.json()) as any).code).toBe("INTERVENTION_UNSUPPORTED");
+    // MVP-3 第二批：加人走收件箱卡，先落成待处理，不直接建人。
+    const addMember = await request(`/v1/swarm/runs/${runId}/interventions`, {
+      kind: "add_member",
+      role: "researcher",
+    });
+    expect(addMember.status).toBe(201);
+    expect(((await addMember.json()) as any).state).toBe("pending_approval");
+    // 契约里没有的干预照旧不认。
+    const unknown = await request(`/v1/swarm/runs/${runId}/interventions`, { kind: "delegate_all" });
+    expect(unknown.status).toBe(400);
 
 
   } finally {

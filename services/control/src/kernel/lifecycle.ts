@@ -53,10 +53,13 @@ export async function reconcileAccount(
     // 1a) 任务已经结束、卡还挂着的：一并关掉（历史遗留与漏网都在这收）。
     const orphanCards = (
       await client.query(
+        // 群研的卡要等人处理：底下的那一回合结束后 run 会先变成 completed，
+        // 但群研运行本身可能还在跑下一轮，卡片不能被顺手作废（否则加人/追加额度
+        // 一出现就被清掉）。群研自己的卡片由群研服务在收尾时处理。
         `update approval set state='expired'
           where account_id=$1 and state='pending'
             and run_id in (select id from run
-                            where account_id=$1
+                            where account_id=$1 and mode <> 'swarm'
                               and state in ('completed','failed','cancelled','interrupted'))
           returning id, run_id`,
         [account],

@@ -509,7 +509,7 @@ export async function buildReport(
   const verifiedRows = (
     await client.query(
       `select id, version, text, verified_version, evidence_count from (
-         select c.id, c.version, c.text, c.verified_version,
+         select c.id, c.version, c.text, c.verified_version, c.author,
                 (select count(*) from swarm_claim_evidence l
                   where l.account_id=c.account_id and l.run_id=c.run_id
                     and l.claim_id=c.id and l.claim_version=c.version) evidence_count
@@ -520,7 +520,13 @@ export async function buildReport(
             -- 只看每条结论的最新版本：改版之后旧版本的核实不算数。
             and c.version = (select max(c2.version) from swarm_claim c2
                               where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
-       ) v order by evidence_count desc, version desc`,
+       ) v
+       -- 正文优先「针对研究问题本身的主张」：汇总 / 进度类（核实员的独立核实汇总、
+       -- 负责人的阶段性小结）排在后面，只有没有具体发现时才用它。
+       order by
+         case when v.author in ('lead', 'verifier') then 1 else 0 end,
+         case when v.text ~ '^(独立核实汇总|核实汇总|本批|阶段小结|进度|本轮汇总)' then 1 else 0 end,
+         evidence_count desc, version desc`,
       [input.account, input.runId],
     )
   ).rows;
@@ -546,8 +552,11 @@ export async function buildReport(
   ).rows;
   const gaps = [
     ...routes
+      // 合并掉的路线不是缺口；「与 r3 同一条路线，重复登记」这类说明也不是。
+      .filter((route) => route.state !== "merged")
       .filter((route) => route.gap || route.blocked_reason)
-      .map((route) => `${String(route.title)}：${String(route.gap ?? route.blocked_reason)}`),
+      .map((route) => `${String(route.title)}：${String(route.gap ?? route.blocked_reason)}`)
+      .filter((line) => !/(重复登记|已并入|同一条路线)/.test(line)),
     ...insufficient.map((claim) => `证据不足：${claim.text.slice(0, 80)}（${claim.statusReason ?? "未说明"}）`),
     ...(input.stateReason ? [input.stateReason] : []),
   ];

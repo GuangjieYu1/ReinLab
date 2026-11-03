@@ -10,6 +10,7 @@ import { mutate, canonical, type ApiEnv, type ApiContext } from "./context";
 import { ApiFailure, denied } from "./errors";
 import { applyConfirmation } from "../dossier/service";
 import { applyOps, type OpsOutcome } from "../explore/service";
+import { isSwarmCardKind } from "../swarm/cards";
 import { createProfile, updateProfile } from "../explore/profiles";
 
 const Decision = z
@@ -268,7 +269,16 @@ export function registerApprovalInbox(
           // 卡片类型直接给：前端不用从说明文字里猜。档案确认卡是 dossier.* 的 kind。
           capability: approvalCapability(row.effects),
           title: scrub(String(row.title).slice(0, 300)),
-          effects: scrub(describe(row.effects) as JsonValue),
+          // 群研的四张卡按契约把字段放在 effects[0]：原样交给前端渲染卡面，
+          // 同时给一份人话说明，收件箱列表里也不至于只有结构化字段。
+          ...(isSwarmCardKind(row.kind)
+            ? {
+                effects: scrub(
+                  (Array.isArray(row.effects) ? row.effects : [row.effects]) as JsonValue,
+                ),
+                lines: scrub(describe(row.effects) as JsonValue),
+              }
+            : { effects: scrub(describe(row.effects) as JsonValue) }),
           // 提问卡：describe 只给说明文字，候选项和单/多选要原样交给前端，否则无处作答。
           ...(row.kind === "question" ? { question: scrub(questionOf(row.effects) as JsonValue) } : {}),
           risk: row.risk,

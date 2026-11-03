@@ -42,6 +42,8 @@ const Intervene = z
       "extend",
     ]),
     text: z.string().max(8000).optional(),
+    /** 加人时可以指定角色 / 模型。 */
+    role: z.enum(["researcher", "critic", "verifier"]).optional(),
     target: z
       .object({
         memberId: z.string().min(1).max(120).optional(),

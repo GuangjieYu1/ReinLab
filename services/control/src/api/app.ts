@@ -201,6 +201,19 @@ export async function createApp(options: {
     offlineFetch: options.offlineFetch,
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
+    // 群研的四张卡由群研服务自己处理：它要改运行状态，并在事务外把负责人续起来。
+    if (options.swarm) {
+      const body = (await c.req.json().catch(() => ({}))) as {
+        decision?: unknown;
+        answers?: unknown;
+      };
+      const handled = await options.swarm.decideCard(
+        c.get("accountId"),
+        c.req.param("id"),
+        body,
+      );
+      if (handled) return c.json({ state: handled.state, runId: handled.runId, note: handled.note });
+    }
     let applied: OpsOutcome | null = null;
     const card = await decideInboxCard(
       c,
