@@ -15,6 +15,8 @@ export type LaunchBundler = {
   restrictPatch: string;
   /** Package name or `file://` URL the profile loads as the reading plugin. */
   pluginEntry: string;
+  /** 群研负责人这一档额外挂的研究工具插件（同上，`file://` URL）。 */
+  swarmPluginEntry?: string;
 };
 
 export type LaunchInput = {
@@ -29,7 +31,7 @@ export type LaunchInput = {
   /** Root of the per-account volume inside the account container. */
   home?: string;
   /** Which tool surface this turn gets: clarify only searches/asks, read only reads. */
-  mode?: "clarify" | "read" | "assist" | "explore";
+  mode?: "clarify" | "read" | "assist" | "explore" | "swarm";
   /**
    * 容器模式：给了这套路径，就让 dsh 跑在账户容器里，plan 里所有交给 dsh 的
    * 路径都换成容器内路径；`paths` 仍是宿主路径，控制面照旧在宿主读写。
@@ -45,6 +47,8 @@ export type LaunchInput = {
     dshModule: string;
     /** 容器内插件入口（package 名或 file:// URL）。 */
     pluginEntry: string;
+    /** 容器内群研插件入口。 */
+    swarmPluginEntry?: string;
     /** 容器内 restrict 补丁路径。 */
     restrictPatch: string;
   };
@@ -61,7 +65,7 @@ export type LaunchPaths = {
 
 export type LaunchPlan = {
   bundler: LaunchBundler;
-  mode: "clarify" | "read" | "assist" | "explore";
+  mode: "clarify" | "read" | "assist" | "explore" | "swarm";
   account: string;
   dossier: string;
   run: string;
@@ -181,7 +185,9 @@ export function launchPlan(input: LaunchInput): LaunchPlan {
           ? "assist"
           : input.mode === "explore"
             ? "explore"
-            : "clarify",
+            : input.mode === "swarm"
+              ? "swarm"
+              : "clarify",
     account,
     dossier,
     run,
@@ -210,8 +216,19 @@ const RESEARCH_PERSONA = [
   "3) 候选论文由用户来选，不替用户选。",
 ];
 
+const SWARM_PERSONA = [
+  "你是 ReinLab 群研的负责人（Team Lead），用中文说人话，不要把内部工具名丢给用户。",
+  "底线：1) 结论只写真的查到、读到、算出来的；查不到、打不开、没核实，就照实说是缺口；",
+  "2) 不编造论文、作者、页码和数据；没有核实过的结论只说「候选」，不说「已证实」；",
+  "3) 研究员用 fresh 上下文，只能在自己的子目录里读写；反驳和核实按审查任务读别人的产出，但不改别人的稿；",
+  "   建人只用 research_spawn、建任务只用 research_task：路线归属、父任务和角色要在那里登记，页面才认得出来；",
+  "4) 前两轮各自独立探索，不要把一条路线的答案透露给另一条；第 3 轮起才互相借鉴；",
+  "5) 队员交上来的东西没交付完整就是没完成，不要拿「在做」当结果。",
+];
+
 const PERSONA: Record<LaunchPlan["mode"], string[]> = {
   read: RESEARCH_PERSONA,
+  swarm: SWARM_PERSONA,
   // 澄清阶段也是研究流程的一部分，沿用同一套底线。
   clarify: RESEARCH_PERSONA,
   assist: [
@@ -303,6 +320,24 @@ export async function materializeLaunch(
       "  config:",
       "    path: " + JSON.stringify((plan.containerPaths ?? plan.paths).credentialsFile),
       "- insert:",
+      // 群研：同版本官方团队插件（0.2.1-rc.4）+ 研究工具插件。
+      // maxMembers 用 16：PRD 明说完全沿用 DSH 的累计上限，不另设 8 人的常规上限。
+      ...(plan.mode === "swarm"
+        ? [
+            "    - id: agent-team",
+            "      name: '@deepseek-ai/dsh-experimental-agent-team'",
+            "      config:",
+            "        maxMembers: 16",
+            "        maxTasks: 256",
+            "        maxMessageBytes: 65536",
+            "        disposalTimeoutMs: 5000",
+            "    - id: tool-agent-team",
+            "      name: '@deepseek-ai/dsh-experimental-tool-agent-team'",
+            "      config:",
+            "        freshProvider: spawn",
+            "        forkProvider: fork",
+          ]
+        : []),
       "    - id: reinlab-read",
       "      name: " +
         JSON.stringify(plan.container?.pluginEntry ?? plan.bundler.pluginEntry),
@@ -314,6 +349,24 @@ export async function materializeLaunch(
         JSON.stringify(plan.container ? containerTokenPath(plan.run) : plan.paths.tokenFile),
       "        controlUrl: " + JSON.stringify(plan.options.env.REINLAB_CONTROL_URL),
       "        mode: " + JSON.stringify(plan.mode),
+      // 研究工具：负责人交计划、队员受限读写自己的子目录。
+      ...(plan.mode === "swarm"
+        ? [
+            "    - id: reinlab-swarm",
+            "      name: " +
+              JSON.stringify(
+                plan.container?.swarmPluginEntry ??
+                  plan.bundler.swarmPluginEntry ??
+                  plan.bundler.pluginEntry,
+              ),
+            "      config:",
+            "        runId: " + JSON.stringify(plan.run),
+            "        tokenFile: " +
+              JSON.stringify(plan.container ? containerTokenPath(plan.run) : plan.paths.tokenFile),
+            "        controlUrl: " + JSON.stringify(plan.options.env.REINLAB_CONTROL_URL),
+            "        workspace: " + JSON.stringify(plan.options.cwd),
+          ]
+        : []),
       "",
     ].join("\n"),
     0o600,

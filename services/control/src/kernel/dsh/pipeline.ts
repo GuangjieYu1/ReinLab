@@ -66,6 +66,8 @@ export function executeRun(
         plan: request.plan,
         prompt: promptWithImages(request.prompt, request.images ?? []),
         resume: request.resume,
+        // 群研这一档恢复失败就判失败，不另开新会话（否则会凭空多一支队伍）。
+        resumeStrict: request.plan.mode === "swarm",
         factory: dependencies.factory,
         onEvent: (event) => dependencies.onEvent(event),
         onHarness: (harness) => {
@@ -106,6 +108,7 @@ export function executeRun(
             plan: request.plan,
             prompt: reminder,
             resume: true,
+            resumeStrict: request.plan.mode === "swarm",
             factory: dependencies.factory,
             onEvent: (event) => dependencies.onEvent(event),
             onHarness: (harness) => {

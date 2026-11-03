@@ -28,6 +28,11 @@ export type DispatchDependencies = {
   http?: Parameters<typeof paperHandlers>[3];
   /** 宿主上的内核根：用来定位当前档案的工作区（工作区登记论文要用）。 */
   kernelHome?: string;
+  /**
+   * 群研的研究服务：计划入库、队员记录上报都走它。
+   * 用取值函数是为了不把构造顺序写死（内核服务要在它之后建）。
+   */
+  swarm?: () => import("../swarm/service").SwarmService | undefined;
   catalog?: CapabilityCatalog;
 };
 
@@ -94,6 +99,56 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
         throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "该卡片工具尚未接入。");
       const catalog = catalogFor(await loadCatalog());
       return handler(contextFor(catalog), call.args, randomUUID());
+    }
+    if (call.server === "swarm") {
+      const swarm = dependencies.swarm?.();
+      if (!swarm)
+        throw new ApiFailure("KERNEL_TOOL_UNSUPPORTED", 501, "群研服务尚未就绪。");
+      if (call.tool === "plan") {
+        // 负责人交计划：入库、等用户确认，不当成开跑。
+        return swarm.publishPlan(call.account, call.run, call.args);
+      }
+      if (call.tool === "meta") {
+        const input = call.args as {
+          kind?: unknown;
+          refId?: unknown;
+          data?: unknown;
+        };
+        if (
+          (input?.kind !== "task" && input?.kind !== "member") ||
+          typeof input.refId !== "string" ||
+          !input.data ||
+          typeof input.data !== "object"
+        )
+          throw new ApiFailure("INVALID_INPUT", 400, "登记内容不完整。");
+        return swarm.registerMeta(call.account, call.run, {
+          kind: input.kind,
+          refId: input.refId,
+          data: input.data as Record<string, unknown>,
+        });
+      }
+      if (call.tool === "status") {
+        const snapshot = await swarm.snapshot(call.account, call.run);
+        return {
+          state: snapshot.run.state,
+          planVersion: snapshot.run.planVersion,
+          limits: snapshot.run.limits,
+          used: snapshot.run.used,
+          round: snapshot.run.round,
+          members: snapshot.members.map((member) => ({
+            name: member.id,
+            role: member.role,
+            state: member.state,
+          })),
+          tasks: snapshot.tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            state: task.state,
+            owner: task.owner,
+          })),
+        };
+      }
+      return swarm.reportMemberLog(call.account, call.run, call.args as never);
     }
     if (call.server === "papers") {
       const { catalog: current, handlers: table } = await paper();

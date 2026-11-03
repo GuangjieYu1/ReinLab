@@ -1,8 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { LaunchPlan } from "./launch";
 
-/** One kernel session event as delivered by the SDK transport. */
-export type HarnessEvent = { type: string; data?: Record<string, unknown> };
+/**
+ * One kernel session event as delivered by the SDK transport.
+ * `sessionId` 是这条事件属于哪个会话：SDK 会把负责人和队员的事件混在同一条通知流里，
+ * 不带上它，控制面就分不清是谁在说话（真实验收里因此把队员的消息记成了负责人）。
+ */
+export type HarnessEvent = {
+  type: string;
+  data?: Record<string, unknown>;
+  sessionId?: string;
+};
 export type HarnessNotification = { method: string; params?: unknown };
 
 export type TurnResult = {
@@ -77,6 +85,12 @@ export async function runTurn(input: {
   onHarness?: (harness: HarnessLike) => void | Promise<void>;
   /** Reports the session actually used, including a fresh one after a stale resume. */
   onSession?: (sessionId: string, resumed: boolean) => void | Promise<void>;
+  /**
+   * 恢复失败时不要另开新会话，直接把这一轮判失败。
+   * 群研必须这样：新会话没有历史，模型会照着人格自己编一个课题、再建一支队伍
+   * （验收里就冒出过「LLM 智能体长期记忆」和 res-recall / res-forget / res-audit）。
+   */
+  resumeStrict?: boolean;
 }): Promise<TurnOutcome> {
   const harness = input.factory(input.plan.options);
   await input.onHarness?.(harness);
@@ -87,7 +101,12 @@ export async function runTurn(input: {
       try {
         handle = (await harness.resumeSession(sessionId)) as HarnessSessionHandle;
         await input.onSession?.(sessionId, true);
-      } catch {
+      } catch (error) {
+        if (input.resumeStrict)
+          throw new Error(
+            "KERNEL_SESSION_RESTORE_FAILED: 这段会话读不回来；为避免重复建队，这一轮没有继续。",
+            { cause: error },
+          );
         // The stored id has no persisted runtime state: start a fresh session
         // instead of failing the run, and report the id that was really used.
         sessionId = "ds-" + randomUUID();
@@ -104,9 +123,18 @@ export async function runTurn(input: {
     const result = await handle.run(input.prompt, {
       onNotification: (notification) => {
         if (notification?.method !== "session.event") return;
-        const event = (notification.params as { event?: HarnessEvent } | undefined)?.event;
+        const params = notification.params as
+          | { event?: HarnessEvent; sessionId?: string }
+          | undefined;
+        const event = params?.event;
         if (event && typeof event.type === "string")
-          queue = queue.then(() => Promise.resolve(input.onEvent(event))).catch(() => {});
+          queue = queue.then(() =>
+            Promise.resolve(
+              input.onEvent(
+                params?.sessionId ? { ...event, sessionId: params.sessionId } : event,
+              ),
+            ),
+          ).catch(() => {});
       },
     });
     await queue;

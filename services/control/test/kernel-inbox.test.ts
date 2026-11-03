@@ -56,3 +56,97 @@ it("收件箱只显示一张下载审批，决定后内核卡片变为 approved 
     await f.close();
   }
 });
+
+it("没有候选的提问卡：用户直接打字回答，回答送回原任务（不用重新开一轮）", async () => {
+  const f = await kernelFixture();
+  try {
+    const resumed: Array<{ runId: string; prompt: string }> = [];
+    const app = await createApp({
+      pool: f.pool,
+      auth: { issuer: "https://kernel-answer.fixture/auth/v1", secret: randomBytes(48) },
+      kernel: {
+        isLive: () => true,
+        resumeAfterAnswer: async (_account: string, runId: string, prompt: string) => {
+          resumed.push({ runId, prompt });
+        },
+      } as never,
+    });
+    const cookie = await f.sessionCookie();
+    const request = (path: string, body: unknown) =>
+      app.request(path, {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          Origin: new URL(path, "http://localhost").origin,
+          "X-ReinLab-CSRF": "1",
+          "content-type": "application/json",
+          "Idempotency-Key": randomUUID(),
+        },
+        body: JSON.stringify(body),
+      });
+
+    // 助手的提问卡：只有问题、没有候选（模型把选项写进了正文）
+    const card = await f.db.withAccount(f.account, (client) =>
+      requestApproval(client, {
+        account: f.account,
+        dossier: f.dossier,
+        run: f.run,
+        capability: "cards.clarify.question",
+        argsHash: "e".repeat(64),
+        title: "这篇要不要现在下载全文？你想从哪个角度切入？",
+        effects: [{ kind: "text", candidates: [] }],
+        risk: "read",
+        kind: "question",
+      }),
+    );
+    // 提问后这一段执行在等用户：状态是 waiting，答完才续接
+    await f.admin.query("update run set state='waiting' where id=$1", [f.run]);
+    const answered = await request(`/v1/kernel/approvals/${card.id}/answer`, {
+      text: "④ 从头到尾完整过一遍",
+    });
+    expect(answered.status, JSON.stringify(await answered.clone().json())).toBe(200);
+    const body = (await answered.json()) as { state: string };
+    expect(body.state).toBe("approved");
+    const stored = await f.admin.query("select state,effects->'answer' as answer from approval where id=$1", [card.id]);
+    expect(stored.rows[0].state).toBe("approved");
+    expect(stored.rows[0].answer).toMatchObject({ text: "④ 从头到尾完整过一遍" });
+    // 回答作为这一轮的输入送回原任务，而不是重开一轮
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0].runId).toBe(f.run);
+    expect(resumed[0].prompt).toContain("从头到尾完整过一遍");
+    // 多选 + 自由输入：多选 id 与文字一起回来
+    await f.admin.query("update run set state='waiting' where id=$1", [f.run]);
+    const card2 = await f.db.withAccount(f.account, (client) =>
+      requestApproval(client, {
+        account: f.account,
+        dossier: f.dossier,
+        run: f.run,
+        capability: "cards.clarify.question",
+        argsHash: "f".repeat(64),
+        title: "这几篇先读哪几篇？",
+        effects: [{ kind: "paper_pick", candidates: [{ id: "W1", title: "A" }, { id: "W2", title: "B" }], multi: true }],
+        risk: "read",
+        kind: "question",
+      }),
+    );
+    // 收件箱列表要带上候选项和多选标记，否则前端只看得到标题、无处作答
+    const listed = await app.request("/v1/approvals?state=pending", { headers: { Cookie: cookie } });
+    const listedBody = (await listed.json()) as { items: Array<{ id: string; question?: { multi: boolean; candidates: Array<{ id: string; title: string }> } }> };
+    const row = listedBody.items.find((item) => item.id === card2.id);
+    expect(row?.question?.multi).toBe(true);
+    expect(row?.question?.candidates.map((c) => c.id)).toEqual(["W1", "W2"]);
+    const multi = await request(`/v1/kernel/approvals/${card2.id}/answer`, {
+      candidateIds: ["W1", "W2"],
+      text: "先看这两篇，第三篇再说",
+    });
+    expect(multi.status).toBe(200);
+    const multiBody = (await multi.json()) as { answer: { candidateIds: string[]; text: string } };
+    expect(multiBody.answer.candidateIds).toEqual(["W1", "W2"]);
+    expect(multiBody.answer.text).toBe("先看这两篇，第三篇再说");
+    expect(resumed).toHaveLength(2);
+    expect(resumed[1].prompt).toContain("W1、W2");
+    expect(resumed[1].prompt).toContain("第三篇再说");
+  } finally {
+    await f.close();
+  }
+});

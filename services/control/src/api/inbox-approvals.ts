@@ -173,6 +173,24 @@ const stopFieldText = (key: string): string =>
     areaRef: "片区参考点",
   })[key] ?? key;
 
+/** 提问卡的候选项与单/多选（来自 clarify.question 写进 effects[0] 的 candidates / multi）。 */
+function questionOf(effects: any) {
+  const first = Array.isArray(effects) ? effects[0] : effects;
+  const list = Array.isArray(first?.candidates) ? first.candidates : [];
+  return {
+    multi: first?.multi === true,
+    candidates: list.slice(0, 50).flatMap((c: any) =>
+      c && typeof c === "object" && (typeof c.id === "string" || typeof c.id === "number")
+        ? [{
+            id: String(c.id).slice(0, 200),
+            title: String(c.title ?? c.id).slice(0, 300),
+            ...(typeof c.authors === "string" && c.authors !== "备选" ? { authors: c.authors.slice(0, 200) } : {}),
+            ...(typeof c.venue === "string" && c.venue ? { venue: c.venue.slice(0, 120) } : {}),
+          }]
+        : [],
+    ),
+  };
+}
 /** 卡片能力名：kernel 卡取 effects[0].capability，档案确认卡取 effects.kind。 */
 function approvalCapability(effects: any): string | null {
   if (typeof effects?.kind === "string") return effects.kind;
@@ -251,6 +269,8 @@ export function registerApprovalInbox(
           capability: approvalCapability(row.effects),
           title: scrub(String(row.title).slice(0, 300)),
           effects: scrub(describe(row.effects) as JsonValue),
+          // 提问卡：describe 只给说明文字，候选项和单/多选要原样交给前端，否则无处作答。
+          ...(row.kind === "question" ? { question: scrub(questionOf(row.effects) as JsonValue) } : {}),
           risk: row.risk,
           state: row.state,
           sent: row.sent ?? false,

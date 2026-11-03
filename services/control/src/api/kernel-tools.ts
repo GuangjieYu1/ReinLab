@@ -158,6 +158,9 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   cards: ["card.layer", "card.finding", "clarify.question"],
   // 课程台最小能力：提交一份学习计划并入档。计划确认与入档是同一次批准。
   courses: ["plan"],
+  // 群研：负责人交计划；队员把可见工作记录报上来（记录里不含推理原文）；
+  // meta 是插件在建任务、建成员时登记的研究语义（路线、父任务、角色、显示名）。
+  swarm: ["plan", "log", "status", "meta"],
   // 探索台的计划与画布：和页面调同一组服务函数，只是 via='agent'。
   explore: [
     "get",
@@ -329,6 +332,25 @@ export function registerKernelTools(
             409,
             `这一轮已经调用工具 ${used} 次（上限 ${MAX_TOOL_CALLS}），先把已经拿到的内容收尾。`,
           );
+        // 提问卡片上的可选选项：模型有时写 candidates，有时写 options / choices，
+        // 甚至直接给一串字符串。全都收；只有一串字的时候当成「文字选项」，别静默丢掉。
+        // 单/多选由 caller 按需声明（multi / multiple / select:"many"），默认单选。
+        const multi =
+          args.multi === true ||
+          args.multiple === true ||
+          (typeof args.select === "string" && (args.select === "many" || args.select === "multi"));
+        const rawChoices = args.candidates ?? args.options ?? args.choices;
+        const choiceList: Record<string, unknown>[] = Array.isArray(rawChoices)
+          ? rawChoices
+              .map((entry, index) =>
+                typeof entry === "string"
+                  ? { id: `choice-${index + 1}`, title: entry, authors: "备选", venue: "" }
+                  : entry && typeof entry === "object"
+                    ? (entry as Record<string, unknown>)
+                    : null,
+              )
+              .filter((entry): entry is Record<string, unknown> => entry !== null)
+          : [];
         if (ASKS_THE_USER.has(capability)) {
           if (typeof body.approvalId === "string") {
             const answered = (
@@ -361,8 +383,14 @@ export function registerKernelTools(
                 : "请选择要读的论文",
             effects: [
               {
-                kind: typeof args.kind === "string" ? args.kind : "text",
-                candidates: Array.isArray(args.candidates) ? args.candidates : [],
+                kind: choiceList.length
+                  ? typeof args.kind === "string" && args.kind !== "text"
+                    ? args.kind
+                    : "paper_pick"
+                  : "text",
+                candidates: choiceList,
+                // 让用户点几个由提问方决定；没声明就是单选。
+                multi: choiceList.length > 0 ? multi : false,
               },
             ],
             risk: "read",

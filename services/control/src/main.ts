@@ -11,6 +11,7 @@ import { readLocalLoginAlias } from "./local-login";
 import { mkdir, rm, statfs, writeFile } from "node:fs/promises";
 import { ensureKernelAuth } from "./kernel/auth";
 import { KernelService } from "./kernel/service";
+import { SwarmService } from "./swarm/service";
 import { createHarnessFactory, resolveDshModule } from "./kernel/dsh/harness";
 import { localAccountPort } from "./kernel/local-account";
 import { createKernelDispatch } from "./kernel/dispatch";
@@ -94,6 +95,7 @@ const kernelDispatch = createKernelDispatch({
   cardDeposit: kernelAccount.cardDeposit,
   // 工作区登记论文要用它定位当前档案的工作区目录。
   kernelHome,
+  swarm: () => swarmService,
 });
 const kernel = new KernelService({
   db: database,
@@ -191,6 +193,9 @@ const kernel = new KernelService({
     restrictPatch: path.resolve("plugins/reinlab-read-plugin/restrict.patch.yml"),
     pluginEntry:
       "file://" + path.resolve("plugins/reinlab-read-plugin/index.js"),
+    // 群研这一档额外挂的研究工具插件（队员的工具边界也在这里）。
+    swarmPluginEntry:
+      "file://" + path.resolve("plugins/reinlab-swarm-plugin/index.js"),
     shimMode: config.REINLAB_KERNEL_TRANSPORT === "container" ? "docker" : "host",
     // 容器模式：dsh 跑在每账户容器里，挂载与凭据边界由 container.ts 的规格约束。
     ...(config.REINLAB_KERNEL_TRANSPORT === "container"
@@ -203,6 +208,7 @@ const kernel = new KernelService({
             workspace: "/opt/reinlab-account/dossiers",
             dshModule: "/opt/reinlab/node_modules/@deepseek-ai/dsh/lib/bin.js",
             pluginEntry: "file:///opt/reinlab/plugins/reinlab-read-plugin/index.js",
+            swarmPluginEntry: "file:///opt/reinlab/plugins/reinlab-swarm-plugin/index.js",
             // 容器模式基础工具全开：只禁自派生 agent 的工具。
             restrictPatch: "/opt/reinlab/plugins/reinlab-read-plugin/container.patch.yml",
           },
@@ -216,6 +222,15 @@ const kernel = new KernelService({
     },
   },
 });
+// 群研服务先建出来：内核挂钩、工具分发和 HTTP 面都指向同一份实例。
+const swarmService = new SwarmService({
+  db: database,
+  kernel,
+  model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
+  // 进程启动时刻：比它更早结束的那一轮就是上一个进程留下的（§7.4 恢复）。
+  processStartedAt: Date.now(),
+});
+kernel.attachSwarm(swarmService);
 // 服务凭据只从受保护的本地文件读进进程内存（不进环境变量、argv、日志、浏览器）。
 // 天气判断、地点搜索、步行路线都从这里取，不落到 runtime.env。
 const localSecrets: Readonly<Record<string, string>> = (() => {
@@ -309,6 +324,7 @@ const app = await createApp({
   // 只下发地图公开 key 与图层地址；其余服务凭据不出进程。
   mapConfig: () => mapConfigFrom(config),
   kernel,
+  swarm: swarmService,
   // 网图入档用的是同一个存放目录（createApp 里的 exploreStorage）。
   kernelTools: { auth: kernelAuth, dispatch: kernelDispatch, bookEngine },
   weatherJudge,

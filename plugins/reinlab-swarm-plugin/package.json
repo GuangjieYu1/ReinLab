@@ -1,0 +1,8 @@
+{
+  "name": "@reinlab/swarm-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ReinLab 群研的研究工具与队员工具边界（跑在 DSH 内核里）。",
+  "main": "index.js"
+}

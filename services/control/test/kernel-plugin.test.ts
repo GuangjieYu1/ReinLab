@@ -139,6 +139,21 @@ describe("reading plugin", () => {
     expect(requests.filter((r) => r.url.endsWith("/kernel/tool"))).toHaveLength(1);
   });
 
+  it("提问只有文字选项时也当成可选列表：收件箱里有东西可点，不是只能打字", async () => {
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      requests.push({ url, init });
+      return json({ state: "pending", approvalId: "ap-opt" }, 409);
+    });
+    const { tool } = mount(fetchImpl, "clarify");
+    await tool("clarify_question").execute({
+      question: "从哪个角度切入？",
+      options: ["只看理论", "只看实验", "完整过一遍"],
+    });
+    const body = JSON.parse(String(requests[0].init.body)) as { args: Record<string, any> };
+    expect(body.args.kind).toBe("paper_pick");
+    expect(body.args.candidates).toEqual(["只看理论", "只看实验", "完整过一遍"]);
+  });
+
   it("提问同样交出去等待，回答后由续接那一轮拿到结果", async () => {
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
       requests.push({ url, init });

@@ -115,6 +115,8 @@ importers:
         specifier: 0.2.1-rc.4
         version: 0.2.1-rc.4(cc529effceda4a9130f684509f68fe87)
 
+  plugins/reinlab-swarm-plugin: {}
+
   services/control:
     dependencies:
       '@deepseek-ai/dsh':

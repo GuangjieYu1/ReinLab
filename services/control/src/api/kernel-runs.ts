@@ -13,8 +13,9 @@ const Create = z
     query: z.string().min(1).max(4000),
     chosenPaperId: z.string().max(200).optional(),
     newSession: z.boolean().optional(),
-    // assist = 非研究台的最小侧边会话；explore = 探索台的旅拍规划会话。
-    mode: z.enum(["assist", "explore"]).optional(),
+    // assist = 非研究台的最小侧边会话；explore = 探索台的旅拍规划会话；
+    // swarm = 研究台群研的负责人会话（澄清阶段）。
+    mode: z.enum(["assist", "explore", "swarm"]).optional(),
     /** 这一轮随消息带上的参考图（探索台）。 */
     refIds: z.array(z.string().min(1).max(200)).max(20).optional(),
   })
@@ -23,6 +24,8 @@ const Create = z
 export type KernelRunApiDependencies = {
   db: Database;
   kernel: KernelService;
+  /** 群研的发起走这一档：建 swarm_run 而不是普通精读运行。 */
+  swarm?: import("../swarm/service").SwarmService;
 };
 
 /**
@@ -38,7 +41,7 @@ export function registerKernelRuns(
     const account = c.get("accountId");
     let created: string | undefined;
     let lastInput:
-      | { newSession?: boolean; mode?: "assist" | "explore" }
+      | { newSession?: boolean; mode?: "assist" | "explore" | "swarm" }
       | undefined;
     const response = await mutate(c, dependencies.db, Create, async (client, input) => {
       const dossier = (
@@ -48,6 +51,22 @@ export function registerKernelRuns(
         )
       ).rows[0];
       if (!dossier) throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "档案不存在。");
+      // 群研：同一个档案上只留一个没结束的运行，重连/重复点开的还是它。
+      if (input.mode === "swarm") {
+        if (dossier.bench !== "research")
+          throw new ApiFailure("BENCH_UNSUPPORTED", 400, "只有研究档案能开群研。");
+        if (!dependencies.swarm)
+          throw new ApiFailure("SWARM_UNAVAILABLE", 503, "群研服务尚未就绪。");
+        lastInput = input;
+        const record = await dependencies.swarm.createRun(
+          client,
+          account,
+          input.dossierId,
+          input.query,
+        );
+        created = record.runId;
+        return { status: 201, body: { id: record.runId } };
+      }
       // 研究台跑精读；探索台跑旅拍规划；其它台的最小侧边会话（assist）只做档案操作。
       const mode = input.mode === "explore" ? "explore" : input.mode === "assist" ? "assist" : "read";
       if (mode === "read" && dossier.bench !== "research")
@@ -78,6 +97,18 @@ export function registerKernelRuns(
     });
     // The kernel starts after the run row commits; it opens its own transaction.
     if (!created) return response;
+    if (lastInput?.mode === "swarm") {
+      // 返回形状和精读那一档一致（`id` 是运行 id），前端不用分叉。
+      const started = await dependencies.swarm!.begin(
+        account,
+        created,
+        (lastInput as { query: string }).query,
+      );
+      return c.json(
+        { id: created, sessionId: started.sessionId, resume: started.resume },
+        201,
+      );
+    }
     const started = await dependencies.kernel.submit(account, created, {
       ...(lastInput?.mode === "assist"
         ? { mode: "assist" as const }
@@ -228,12 +259,19 @@ export function registerKernelRuns(
       throw new ApiFailure("APPROVAL_NOT_FOUND", 404, "审批不存在。");
     const body = (await c.req.json().catch(() => ({}))) as {
       candidateId?: unknown;
+      candidateIds?: unknown;
       text?: unknown;
     };
-    const candidateId =
-      typeof body.candidateId === "string" && body.candidateId !== ""
-        ? body.candidateId.slice(0, 200)
-        : null;
+    const one = typeof body.candidateId === "string" && body.candidateId !== "" ? body.candidateId : null;
+    // 多选和单选同一套：多选传 candidateIds，单选传 candidateId；两个都给时都算上。
+    const many = Array.isArray(body.candidateIds)
+      ? body.candidateIds
+          .filter((value): value is string => typeof value === "string" && value !== "")
+          .map((value) => value.slice(0, 200))
+          .slice(0, 20)
+      : [];
+    const candidateIds = [...new Set([...(one ? [one] : []), ...many])];
+    const candidateId = candidateIds[0] ?? null;
     const text =
       typeof body.text === "string" && body.text.trim() !== ""
         ? body.text.trim().slice(0, 4000)
@@ -252,7 +290,7 @@ export function registerKernelRuns(
         return c.json({ id, state: row.state, repeated: true });
       await client.query(
         "update approval set effects=$2 where id=$1",
-        [id, JSON.stringify({ ...(row.effects ?? {}), answer: { candidateId, text } })],
+        [id, JSON.stringify({ ...(row.effects ?? {}), answer: { candidateId, candidateIds, text } })],
       );
       await client.query(
         "update approval set state='approved', decided_at=now(), decided_scope='once' where id=$1",
@@ -260,7 +298,12 @@ export function registerKernelRuns(
       );
       // 用户答完就按同一会话续上，把回答作为这一轮的输入送回原任务。
       if (row.run_state === "waiting") {
-        const chosen = candidateId ? `用户选择了 ${candidateId}。` : "";
+        const chosen =
+          candidateIds.length > 1
+            ? `用户选择了 ${candidateIds.join("、")}。`
+            : candidateId
+              ? `用户选择了 ${candidateId}。`
+              : "";
         void dependencies.kernel
           ?.resumeAfterAnswer(
             account,
@@ -269,7 +312,7 @@ export function registerKernelRuns(
           )
           .catch(() => {});
       }
-      return c.json({ id, state: "approved", answer: { candidateId, text } });
+      return c.json({ id, state: "approved", answer: { candidateId, candidateIds, text } });
     });
   });
 

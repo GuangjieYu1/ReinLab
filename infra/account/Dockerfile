@@ -23,6 +23,7 @@ COPY services/control/src/kernel/dsh/shim.mjs /opt/reinlab/shim.mjs
 COPY plugins/reinlab-read-plugin/index.js /opt/reinlab/plugins/reinlab-read-plugin/index.js
 COPY plugins/reinlab-read-plugin/restrict.patch.yml /opt/reinlab/plugins/reinlab-read-plugin/restrict.patch.yml
 COPY plugins/reinlab-read-plugin/container.patch.yml /opt/reinlab/plugins/reinlab-read-plugin/container.patch.yml
+COPY plugins/reinlab-swarm-plugin/index.js /opt/reinlab/plugins/reinlab-swarm-plugin/index.js
 
 # 这些文件由仓库 COPY 进来，权限跟着宿主走（可能是 0600）；容器以宿主 uid 运行，
 # 必须保证可读，否则 dsh 读 overlay 会 Permission denied。
