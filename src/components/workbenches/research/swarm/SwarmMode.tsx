@@ -8,7 +8,7 @@ import { emptyView } from './swarmStore';
 import {
   LIVE_INTERVENTIONS, isTerminal,
   type BoardPost, type BusEntry, type BusType, type InterventionKind, type MemberLogItem, type MemberRole, type SwarmAdapter, type SwarmAsk,
-  type SwarmMember, type SwarmPlan, type SwarmRoute, type SwarmRunState, type SwarmTask, type SwarmTaskState, type SwarmView,
+  type SwarmMember, type Claim, type ClaimDetail, type EvidenceDetail, type Evidence, type SwarmPlan, type SwarmRoute, type SwarmRunState, type SwarmTask, type SwarmTaskState, type SwarmView,
 } from './swarmTypes';
 import '../../engineering/dev.css';
 import './swarm.css';
@@ -46,6 +46,12 @@ const MSG: Record<BusType, { zh: string; glyph: string; desc: string }> = {
   system: { zh: '系统', glyph: '·', desc: '系统记录：暂停、恢复、到限等。' },
 };
 const DELIVERY_ZH = { sent: '已发出', received: '已收到', failed: '发送失败', unknown: '结果未知' } as const;
+const CLAIM_ZH: Record<Claim['status'], string> = { candidate: '候选', awaiting_refute: '待反驳', awaiting_verify: '待核实', verified: '已核实', disputed: '有争议', falsified: '已证伪', insufficient: '证据不足' };
+const BASIS_ZH: Record<Claim['basis'], string> = { checked_fact: '核对过的事实', source_claim: '来源的说法', inference: '推断', observation: '实测' };
+const ACCESS_ZH: Record<Evidence['access'], string> = { full_text: '读了全文', abstract_only: '只有摘要', unavailable: '打不开' };
+const SOURCE_ZH: Record<Evidence['source']['kind'], string> = { paper: '论文', web: '网页', code: '代码', data: '数据', proof: '证明', other: '其他' };
+/** 来源能直接打开的就给链接：arXiv 号、DOI、网址。 */
+const sourceHref = (ref: string) => { const r = ref.trim(); const ax = r.match(/^arxiv:\s*(\S+)/i); if (ax) return `https://arxiv.org/abs/${ax[1]}`; if (/^10\.\d{4,}\//.test(r)) return `https://doi.org/${r}`; const doi = r.match(/^doi:\s*(\S+)/i); if (doi) return `https://doi.org/${doi[1]}`; return /^https?:\/\//.test(r) ? r : null; };
 const IV_ZH = { received: '已接收', pending_approval: '等你批准', delivered: '已投递', applied: '已执行', replied: '已回复', rejected: '被拒绝', failed: '没有完成' } as const;
 const IV_KIND: Record<InterventionKind, string> = { mention: '@队员', redirect: '改方向', add_member: '加人', stop_route: '停止路线', pause: '暂停', resume: '继续', finish: '结束研究', extend: '追加额度' };
 
@@ -80,6 +86,8 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
   const [face, setFace] = useState<Face>('tree');
   const [selMember, setSelMember] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ kind: 'claim' | 'evidence'; id: string }[]>([]);   // 结论 / 证据抽屉，可以一层层点进去再返回
+  const openDetail = (kind: 'claim' | 'evidence', id: string) => { setDrawer(null); setDetail(d => [...d, { kind, id }]); };
   const [selMsg, setSelMsg] = useState<number | null>(null);
   const [viewAt, setViewAt] = useState<number | null>(null);   // 回放：只看这个时刻之前的通信
   const [busyAct, setBusyAct] = useState<string | null>(null);
@@ -102,14 +110,17 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
 
   // —— 对话框：澄清对话 + 计划卡 + 提问卡 + 干预回执 ——
   const events: DockEvent[] = useMemo(() => {
-    const out: DockEvent[] = view.dock.map(d => d.kind === 'user' ? { id: d.id, kind: 'user', text: d.text, at: hhmm(d.at) } : d.kind === 'note' ? { id: d.id, kind: 'note', text: d.text, at: hhmm(d.at) } : { id: d.id, kind: 'agent', text: <Md text={d.text} />, at: hhmm(d.at) });
+    // 开跑后负责人对你说的话：服务端记成 lead → user 的交付（开跑前的回话取自内核事件，见 swarm-live）
+    const started = run?.startedAt;
+    const leadSaid = started ? view.bus.filter(x => x.type === 'deliver' && x.from === 'lead' && x.to === 'user' && x.at >= started).map(x => ({ id: 'b' + x.seq, kind: 'agent' as const, text: x.text, at: x.at })) : [];
+    const out: DockEvent[] = [...view.dock, ...leadSaid].sort((a, b) => a.at.localeCompare(b.at)).map(d => d.kind === 'user' ? { id: d.id, kind: 'user', text: d.text, at: hhmm(d.at) } : d.kind === 'note' ? { id: d.id, kind: 'note', text: d.text, at: hhmm(d.at) } : { id: d.id, kind: 'agent', text: <Md text={d.text} />, at: hhmm(d.at) });
     if (!snap && !view.dock.length) out.push({ id: 'hello', kind: 'agent', at: '', text: <p>我是群研的负责人。说出你要研究的问题，我先和你把边界、质量判据、路线和编制谈清楚，出一份计划给你确认；<b>确认之前不建队、不检索</b>。</p> });
     for (const a of view.asks) out.push({ id: 'ask:' + a.id, kind: 'card', body: <AskCard ask={a} onAnswer={b => act('回答', () => adapter.answer(a.id, b))} /> });
     if (snap?.plan && run && (run.state === 'awaiting_confirm' || run.state === 'clarifying')) out.push({ id: 'plan:' + snap.plan.version, kind: 'card', body: <PlanCard plan={snap.plan} canConfirm={run.state === 'awaiting_confirm'} busy={busyAct === '确认计划'} onConfirm={l => act('确认计划', () => adapter.confirmPlan(snap.plan!.version, l))} /> });
     for (const iv of snap?.interventions ?? []) out.push({ id: 'iv:' + iv.id + iv.state, kind: 'note', at: hhmm(iv.at), text: `${IV_KIND[iv.kind]}${iv.text ? `「${iv.text}」` : ''} · ${IV_ZH[iv.state]}${iv.result ? `：${iv.result}` : ''}` });
     if (actError) out.push({ id: 'err', kind: 'note', at: '', text: `没有完成：${actError}` });
     return out;
-  }, [view.dock, view.asks, snap, run, busyAct, actError, adapter]);
+  }, [view.dock, view.bus, view.asks, snap, run, busyAct, actError, adapter]);
 
   const suggestions: Suggestion[] = !run ? (draftQ ? [{ id: 'q', label: '用精读派来的问题', fill: draftQ }] : [{ id: 'q', label: '例：多 Agent 数量增加是否一定提高研究质量？', fill: '多 Agent 数量增加是否一定提高研究质量？' }])
     : ended ? [{ id: 'n', label: '开一次新的群研', fill: '' }]
@@ -152,8 +163,8 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
     : loadError ? <div className="sw-empty"><p>{loadError}</p><button className="rh-btn" onClick={retry}>重试</button></div>
     : face === 'tree' ? <TreeView snap={snap} bus={bus} busy={!!busyAct} onMember={id => { setDrawer(id); setSelMember(id); }} onStopRoute={r => intervene('stop_route', { routeId: r })} />
     : face === 'bus' ? <Bus members={roster} bus={shown} reduced={reduced} live={viewAt === null} selMember={selMember} selMsg={selMsg} onMember={setSelMember} onMsg={setSelMsg} />
-    : face === 'board' ? <Board posts={snap?.posts ?? []} members={roster} disabled={!run} onPost={t => act('留言', () => adapter.post(t))} />
-    : <Synth view={view} />;
+    : face === 'board' ? <Board posts={snap?.posts ?? []} claims={snap?.claims ?? []} members={roster} disabled={!run} onClaim={id => openDetail('claim', id)} onPost={t => act('留言', () => adapter.post(t))} />
+    : <Synth view={view} members={roster} onClaim={id => openDetail('claim', id)} onEvidence={id => openDetail('evidence', id)} />;
 
   return <BenchFrame code="RSCH" section="002" file={file} reduced={reduced} chrome={chrome} face={face} onFace={id => setFace(id as Face)} tools={modeSwitch}
     faces={[{ id: 'tree', label: '任务树', en: 'TASKS', badge: delivered }, { id: 'bus', label: '通信', en: 'BUS', badge: bus.length }, { id: 'board', label: '留言板', en: 'BOARD', badge: snap?.posts.length ?? 0 }, { id: 'synth', label: '汇总', en: 'SYNTHESIS' }]}
@@ -171,6 +182,8 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
         <div className="sw-body">
           {run?.stateReason && run.stateReason !== RUN_ZH[run.state] && <div className="sw-reason" data-state={run.state}><b>{RUN_ZH[run.state]}</b>{run.stateReason}{view.missed > 0 && <em>断开期间新增 {view.missed} 条通信</em>}</div>}
           {body}
+          {detail.length > 0 && snap && <DetailDrawer key={detail.length + detail[detail.length - 1].id} adapter={adapter} item={detail[detail.length - 1]} depth={detail.length} members={roster}
+            onBack={() => setDetail(d => d.slice(0, -1))} onClose={() => setDetail([])} onOpen={openDetail} onMember={id => { setDetail([]); setDrawer(id); setSelMember(id); }} />}
           {drawer && snap && named.some(m => m.id === drawer) && <MemberDrawer adapter={adapter} member={named.find(m => m.id === drawer)!} tick={view.logTick} onClose={() => setDrawer(null)} />}
         </div>
         {timebar}
@@ -370,7 +383,7 @@ function TreeView({ snap, bus, busy, onMember, onStopRoute }: { snap: SwarmView[
 
 /* ———— 03 留言板 ———— */
 const COLS: { id: BoardPost['col']; zh: string; en: string }[] = [{ id: 'question', zh: '问题', en: 'QUESTIONS' }, { id: 'finding', zh: '发现', en: 'FINDINGS' }, { id: 'help', zh: '求助', en: 'HELP' }, { id: 'decision', zh: '决定', en: 'DECISIONS' }];
-function Board({ posts, members, disabled, onPost }: { posts: BoardPost[]; members: SwarmMember[]; disabled: boolean; onPost: (t: string) => void }) {
+function Board({ posts, claims, members, disabled, onPost, onClaim }: { posts: BoardPost[]; claims: Claim[]; members: SwarmMember[]; disabled: boolean; onPost: (t: string) => void; onClaim: (id: string) => void }) {
   const [draft, setDraft] = useState('');
   const label = (id: string) => id === 'user' ? '你' : members.find(m => m.id === id)?.label || id;
   const ids = members.map(m => '@' + m.id).slice(0, 4).join(' / ');
@@ -379,7 +392,13 @@ function Board({ posts, members, disabled, onPost }: { posts: BoardPost[]; membe
       <span className="rh-micro">发帖 · {ids ? `用 ${ids} 这样的写法指定队员` : '确认计划建队后可以 @ 队员'}；不 @ 就是公开问题</span>
       <div><input value={draft} disabled={disabled} onChange={e => setDraft(e.target.value)} placeholder="例如：@lead 只看相同总 token 预算下的比较" /><button className="rh-btn is-solid" disabled={disabled || !draft.trim()}>贴到留言板</button></div>
     </form>
-    <div className="sw-cols">{COLS.map(c => { const list = posts.filter(p => p.col === c.id).slice().sort((a, b) => b.seq - a.seq);
+    <div className="sw-cols">{COLS.map(c => { if (c.id === 'finding') return <section key={c.id}><header><b>{c.zh}</b><small>{c.en} · {claims.length}</small></header>
+        <ol>{claims.slice().reverse().map(x => <li key={x.id} className="sw-claim" data-status={x.status}><button onClick={() => onClaim(x.id)}>
+          <span><b>{label(x.author)}</b><small className="sw-cs" data-s={x.status}>{CLAIM_ZH[x.status]}</small></span>
+          <p>{x.text}</p>
+          <small className="sw-claim-meta">{x.negative ? '负结果 · ' : ''}{BASIS_ZH[x.basis]}{x.routeId ? ` · ${x.routeId}` : ''} · 第 {x.round} 轮 · 证据 {x.evidenceIds.length}</small></button></li>)}
+          {!claims.length && <li className="sw-none">还没有结论。研究员交上来的候选结论会出现在这里。</li>}</ol></section>;
+      const list = posts.filter(p => p.col === c.id).slice().sort((a, b) => b.seq - a.seq);
       return <section key={c.id}><header><b>{c.zh}</b><small>{c.en} · {list.length}</small></header>
         <ol>{list.map(p => <li key={p.id} data-you={p.by === 'user' || undefined}><span><b>{label(p.by)}{p.to ? ` → ${label(p.to)}` : ''}</b><time>{hhmm(p.at)}</time></span><p>{p.text}</p>
           {(p.col === 'question' && p.to) && <small className="sw-ans" data-a={p.answered || undefined}>{p.replyTo ? `回答 ${p.replyTo}` : p.answered ? '已回答' : '待回答'}</small>}</li>)}
@@ -388,7 +407,7 @@ function Board({ posts, members, disabled, onPost }: { posts: BoardPost[]; membe
 }
 
 /* ———— 04 汇总 ———— */
-function Synth({ view }: { view: SwarmView }) {
+function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; members: SwarmMember[]; onClaim: (id: string) => void; onEvidence: (id: string) => void }) {
   const snap = view.snap;
   if (!snap) return <div className="sw-empty"><p>还没有群研，所以也没有汇总。</p></div>;
   const r = snap.report, run = snap.run, rootIds = rootsOf(snap.tasks), isRoot = (t: SwarmTask) => rootIds.has(t.id);
@@ -398,10 +417,11 @@ function Synth({ view }: { view: SwarmView }) {
     <article className="rh-read en-report-body">
       <span className="rh-micro">SYNTHESIS · {r ? `报告 v${r.version}` : '阶段结果'} · {RUN_ZH[run.state]}</span>
       <h2>{snap.plan?.question ?? run.question}</h2>
-      {!r && <p className="sw-candidate">核实还没接通：下面全部是<b>候选</b>，不是结论，也不出正式报告。</p>}
+      {(!r || !r.verified.length) && <p className="sw-candidate">核实还没接通：下面全部是<b>候选</b>，不是结论，也不出正式报告。</p>}
       {run.stateReason && <p>{run.stateReason}</p>}
       {r?.answer && <><h3>当前最强的已核实结论</h3><p>{r.answer}</p></>}
-      <h3>已交付 · {done.length}</h3>
+      {r && <ReportBody r={r} claims={snap.claims} evidence={snap.evidence} members={members} onClaim={onClaim} onEvidence={onEvidence} />}
+      <h3>任务 · 已交付 {done.length}</h3>
       {done.length ? <ul>{done.map(t => <li key={t.id}><b>{t.title}</b>（{t.owner ?? '—'}{t.state === 'sync_pending' ? '，状态待同步' : ''}）</li>)}</ul> : <p>还没有交付。</p>}
       <h3>还没完成 · {open.length}</h3>
       {open.length ? <ul>{open.map(t => <li key={t.id}>{t.title} · {TASK_ZH[t.state]}{t.blockedBy ? `：${t.blockedBy.reason}` : ''}</li>)}</ul> : <p>没有。</p>}
@@ -410,6 +430,77 @@ function Synth({ view }: { view: SwarmView }) {
       <p className="sw-cost">用量：{run.used.rounds} 轮 · 活动 {dur(run.used.activeMs)} · {run.used.tokens === null ? 'token 未知' : `${run.used.tokens.toLocaleString()} token`} · {run.used.cost.known ? `约 ¥${(run.used.cost.value ?? 0).toFixed(2)}（峰值费率估算）` : '费用未知'}</p>
     </article>
   </div>;
+}
+
+/* ———— 汇总正文：阶段结果（服务端算好，前端只按 id 取对象） ———— */
+function ReportBody({ r, claims, evidence, members, onClaim, onEvidence }: { r: NonNullable<SwarmView['snap']>['report'] & object; claims: Claim[]; evidence: Evidence[]; members: SwarmMember[]; onClaim: (id: string) => void; onEvidence: (id: string) => void }) {
+  const byId = new Map(claims.map(c => [c.id, c])), ev = new Map(evidence.map(e => [e.id, e]));
+  const label = (id: string) => members.find(m => m.id === id)?.label || id;
+  const list = (ids: string[], empty: string) => ids.length ? <ol className="sw-rep-claims">{ids.map(id => { const c = byId.get(id); return <li key={id}><button onClick={() => onClaim(id)}>
+    {c ? <><p>{c.text}</p><small>{label(c.author)} · {BASIS_ZH[c.basis]}{c.routeId ? ` · ${c.routeId}` : ''} · 证据 {c.evidenceIds.length} · <em className="sw-cs" data-s={c.status}>{CLAIM_ZH[c.status]}</em></small></> : <p>结论 {id}（快照里没有，点开看详情）</p>}</button></li>; })}</ol> : <p>{empty}</p>;
+  const groups = [...new Set(r.unverified.map(id => byId.get(id)?.routeId ?? '—'))];
+  return <>
+    {r.verified.length > 0 && <><h3>已核实 · {r.verified.length}</h3>{list(r.verified, '')}</>}
+    <h3>候选结论 · {r.unverified.length}</h3>
+    {r.unverified.length ? groups.map(g => <div key={g} className="sw-rep-group"><h4>{g === '—' ? '未归路线' : `路线 ${g}`}</h4>{list(r.unverified.filter(id => (byId.get(id)?.routeId ?? '—') === g), '')}</div>) : <p>还没有候选结论。</p>}
+    {r.disputed.length > 0 && <><h3>有争议 · {r.disputed.length}</h3>{list(r.disputed, '')}</>}
+    <h3>负结果 · {r.negative.length}</h3>{list(r.negative, '没有记录负结果。')}
+    <h3>剩余缺口 · {r.gaps.length}</h3>{r.gaps.length ? <ul>{r.gaps.map(g => <li key={g}>{g}</li>)}</ul> : <p>还没有登记缺口。</p>}
+    {r.limits.length > 0 && <><h3>局限</h3><ul>{r.limits.map(g => <li key={g}>{g}</li>)}</ul></>}
+    <h3>来源 · {r.sources.length}</h3>
+    <ol className="sw-rep-sources">{r.sources.map(id => { const e = ev.get(id); return <li key={id}><button onClick={() => onEvidence(id)}>{e ? <><b>{e.source.title}</b><small>{e.source.ref}{e.locator?.section ? ` · ${e.locator.section}` : ''}</small></> : id}</button></li>; })}</ol>
+  </>;
+}
+
+/* ———— 结论 / 证据抽屉：从结论追到证据、任务、队员；从证据看谁引用了它 ———— */
+function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, onMember }: {
+  adapter: SwarmAdapter; item: { kind: 'claim' | 'evidence'; id: string }; depth: number; members: SwarmMember[];
+  onBack: () => void; onClose: () => void; onOpen: (kind: 'claim' | 'evidence', id: string) => void; onMember: (id: string) => void;
+}) {
+  const [data, setData] = useState<ClaimDetail | EvidenceDetail | null>(null), [err, setErr] = useState<string | null>(null);
+  useEffect(() => { let alive = true; (item.kind === 'claim' ? adapter.claim(item.id) : adapter.evidence(item.id)).then(d => alive && setData(d)).catch(e => alive && setErr(errText(e))); return () => { alive = false; }; }, [adapter, item.kind, item.id]);
+  const label = (id: string) => members.find(m => m.id === id)?.label || id;
+  const head = <header><span className="rh-micro">{item.kind === 'claim' ? 'CLAIM · 结论' : 'EVIDENCE · 证据'}</span>
+    <b>{item.kind === 'claim' ? '这条结论从哪来' : '这条证据'}</b><small>{depth > 1 ? '可以返回上一层' : '点证据、任务或队员继续追'}</small>
+    <span className="sw-detail-act">{depth > 1 && <button className="rh-btn" onClick={onBack}>返回</button>}<button className="rh-btn" onClick={onClose}>关闭</button></span></header>;
+  if (err) return <div className="sw-member sw-detail" role="dialog">{head}<p className="sw-member-doing" data-bad>{err}</p></div>;
+  if (!data) return <div className="sw-member sw-detail" role="dialog">{head}<p className="sw-none">读取中……</p></div>;
+  if ('claim' in data) {
+    const c = data.claim;
+    // 只认结论自己引用的那几条（后端在引用为空时会把整块黑板的证据都带回来）
+    const cited = data.evidence.filter(e => c.evidenceIds.includes(e.id));
+    return <div className="sw-member sw-detail" role="dialog" aria-label="结论详情">{head}
+      <div className="sw-detail-body">
+        <div className="sw-detail-tags"><em className="sw-cs" data-s={c.status}>{CLAIM_ZH[c.status]}</em><span>{BASIS_ZH[c.basis]}</span><span>v{c.version}</span><span>第 {c.round} 轮</span>{c.routeId && <span>路线 {c.routeId}</span>}</div>
+        <p className="sw-detail-text">{c.text}</p>
+        {c.statusReason && <p className="sw-detail-note">{c.statusReason}</p>}
+        {c.conditions.length > 0 && <><h4>适用条件</h4><ul>{c.conditions.map(x => <li key={x}>{x}</li>)}</ul></>}
+        {c.negative && <><h4>负结果</h4><dl className="sw-task-meta"><dt>找过</dt><dd>{c.negative.searched}</dd><dt>范围</dt><dd>{c.negative.scope}</dd><dt>没找到</dt><dd>{c.negative.notFound}</dd></dl></>}
+        <h4>证据 · {cited.length}</h4>
+        {cited.length ? <ol className="sw-ev-list">{cited.map(e => <li key={e.id}><button onClick={() => onOpen('evidence', e.id)}><EvidenceLine e={e} /></button></li>)}</ol> : <p className="sw-none">没有引用证据{c.negative ? '（负结果）' : ''}。</p>}
+        <h4>来自</h4>
+        <dl className="sw-task-meta">
+          <dt>队员</dt><dd>{data.member ? <button className="sw-link" onClick={() => onMember(data.member!.id)}>{data.member.label || label(data.member.id)}</button> : label(c.author)}</dd>
+          <dt>任务</dt><dd>{data.task ? `${data.task.id} · ${data.task.title}（${TASK_ZH[data.task.state]}）` : '没挂任务'}</dd>
+          <dt>可见</dt><dd>{{ lead_reviewers: '负责人和审查方（独立阶段）', route: '本路线', all: '全队' }[c.visibility]}</dd>
+        </dl>
+        {data.reviews.length > 0 && <><h4>审查 · {data.reviews.length}</h4><ul>{data.reviews.map(v => <li key={v.id}>{v.kind} · {label(v.by)}：{v.reason}</li>)}</ul></>}
+      </div></div>;
+  }
+  const e = data.evidence, href = sourceHref(e.source.ref);
+  return <div className="sw-member sw-detail" role="dialog" aria-label="证据详情">{head}
+    <div className="sw-detail-body">
+      <div className="sw-detail-tags"><span>{SOURCE_ZH[e.source.kind]}</span><span>{ACCESS_ZH[e.access]}</span>{e.source.version && <span>{e.source.version}</span>}</div>
+      <p className="sw-detail-text"><b>{e.source.title}</b></p>
+      <p className="sw-detail-ref">{href ? <a href={href} target="_blank" rel="noreferrer">{e.source.ref} ↗</a> : e.source.ref}</p>
+      {e.locator && <><h4>位置</h4><p>{[e.locator.section, e.locator.page ? `第 ${e.locator.page} 页` : '', e.locator.lines].filter(Boolean).join(' · ') || '—'}</p>{e.locator.quote && <blockquote className="sw-quote">{e.locator.quote}</blockquote>}</>}
+      <h4>怎么拿到的</h4><p>{e.how}</p>
+      <h4>引用它的结论 · {data.referencedBy.length}</h4>
+      <ol className="sw-ev-list">{data.referencedBy.map(x => <li key={x.claimId + x.claimVersion}><button onClick={() => onOpen('claim', x.claimId)}><p>{x.text}</p><small>v{x.claimVersion}</small></button></li>)}</ol>
+    </div></div>;
+}
+function EvidenceLine({ e }: { e: Evidence }) {
+  return <span className="sw-ev"><b>{e.source.title}</b><small>{e.source.ref}{e.locator?.section ? ` · ${e.locator.section}` : ''}{e.locator?.page ? ` · 第 ${e.locator.page} 页` : ''}</small>{e.locator?.quote && <q>{e.locator.quote}</q>}</span>;
 }
 
 /* ———— 队员抽屉：实际可见的工作记录 ———— */

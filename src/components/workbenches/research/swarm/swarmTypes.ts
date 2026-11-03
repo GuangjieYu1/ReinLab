@@ -2,7 +2,7 @@
 // mock 版在 mockSwarm.ts（快照 + 事件回放），live 版在 src/data/swarm-live.ts（接 /v1/swarm/* 与事件流）。
 // 数据类型全部来自共用契约，这里不另抄。
 import type {
-  BoardPost, BusEntry, Intervention, InterventionKind, MemberLogItem, SwarmReport, SwarmRun, SwarmSnapshot,
+  BoardPost, BusEntry, Claim, Evidence, Intervention, InterventionKind, MemberLogItem, MemberRole, Review, SwarmReport, SwarmRun, SwarmSnapshot, SwarmTaskState,
 } from '../../../../../packages/contracts/src/swarm';
 
 export type * from '../../../../../packages/contracts/src/swarm';
@@ -33,6 +33,15 @@ export type SwarmView = {
   error: string | null;
 };
 
+/** 结论详情（GET /runs/:id/claims/:claimId）：从结论追到证据、任务、队员。 */
+export type ClaimDetail = {
+  claim: Claim; evidence: Evidence[]; reviews: Review[];
+  task: { id: string; title: string; state: SwarmTaskState; routeId: string | null } | null;
+  member: { id: string; label: string; role: MemberRole } | null;
+};
+/** 证据详情（GET /runs/:id/evidence/:id）：哪几条结论引用了它。 */
+export type EvidenceDetail = { evidence: Evidence; referencedBy: { claimId: string; claimVersion: number; text: string }[] };
+
 export type SwarmError = Error & { code?: string; status?: number; detail?: unknown };
 
 export interface SwarmAdapter {
@@ -51,6 +60,8 @@ export interface SwarmAdapter {
   /** 版本不符时 reject（code=PLAN_STALE），并已用服务端给的最新计划刷新。 */
   confirmPlan(planVersion: number, limits?: { rounds: number; minutes: number }): Promise<void>;
   report(): Promise<SwarmReport | null>;
+  claim(claimId: string, version?: number): Promise<ClaimDetail>;
+  evidence(evidenceId: string): Promise<EvidenceDetail>;
 }
 
 /** 本批（MVP-1）服务端接受的干预；其余入口置灰。 */

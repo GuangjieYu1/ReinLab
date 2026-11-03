@@ -1,7 +1,7 @@
 // 群研 · 模拟适配器（CI 与 ?preview 用）：一份快照 + 一串事件按时间回放，和真实事件流同一种形状。
 // 内容是示意，不代表真实研究结论；真实模式下由 src/data/swarm-live.ts 接后端。
 import type {
-  BoardPost, BusEntry, BusType, Intervention, SwarmAdapter, SwarmEvent, SwarmEventType, SwarmMember, SwarmPlan, SwarmRoute, SwarmRun, SwarmSnapshot, SwarmTask,
+  Claim, ClaimDetail, Evidence, EvidenceDetail, SwarmReport, BoardPost, BusEntry, BusType, Intervention, SwarmAdapter, SwarmEvent, SwarmEventType, SwarmMember, SwarmPlan, SwarmRoute, SwarmRun, SwarmSnapshot, SwarmTask,
 } from './swarmTypes';
 import { applyEvent, createHub } from './swarmStore';
 
@@ -79,10 +79,16 @@ function script(): Step[] {
   at(17, 'task', task('task-2', { revision: 3, title: 'r1｜规模扫描', routeId: 'r1', owner: R1, board: 'completed', state: 'delivered', submissions: ['sub-1'] }));
   at(17, 'bus', bus(R1, 'lead', 'deliver', '交付 r1：五篇论文的人数—指标曲线，三篇在 4–8 人后饱和（候选，待核实）。', { taskId: 'task-2' }, { delivery: 'sent', taskUpdates: [{ id: 'task-2', state: 'delivered' }] }));
   at(17.1, 'post', { id: 'p-4', col: 'finding', by: R1, text: '多数曲线在 4–8 人后饱和，成本仍线性上升（候选）。', at: iso(17.1), seq: 0, refs: { taskId: 'task-2', routeId: 'r1' } } satisfies BoardPost);
+  at(16.9, 'evidence', EV1); at(16.9, 'evidence', EV2);
+  at(17.0, 'claim', claim('c-1', R1, 'task-2', 'r1', 'MoA 的 agent 数消融：收益几乎全在 1→2 个（+11 分），再加 4 个只再得 +2.5 分。', 'checked_fact', ['e-1'], ['AlpacaEval 2.0 LC', '2 层 MoA']));
+  at(17.05, 'claim', claim('c-2', R1, 'task-2', 'r1', '投票式加采样在多数任务上随人数单调变好，但增益随难度变化。', 'source_claim', ['e-2', 'e-1'], ['采样 + 多数投票']));
+  at(17.1, 'report', report(['c-1', 'c-2'], [], ['e-1', 'e-2']));
   at(17.2, 'member', { ...member(R1, 'researcher', '研究员 01', 'idle') });
   at(20, 'task', task('task-3', { revision: 3, title: 'r2｜机制与失败模式', routeId: 'r2', owner: R2, board: 'completed', state: 'sync_pending', submissions: ['sub-2'] }));
   at(20, 'bus', bus(R2, 'lead', 'deliver', '交付 r2：错误级联、通信挤占上下文、同质化三类失败条件。', { taskId: 'task-3' }, { delivery: 'unknown' }));
   at(21.5, 'task', task('task-3', { revision: 4, title: 'r2｜机制与失败模式', routeId: 'r2', owner: R2, board: 'completed', state: 'delivered', submissions: ['sub-2'] }));
+  at(21.5, 'claim', { ...claim('c-3', R2, 'task-3', 'r2', '没有找到「同 token 预算下多 agent 稳定优于单 agent 多次采样」的对照实验。', 'observation', [], []), negative: { searched: 'arXiv、OpenAlex：equal compute / token budget multi-agent', scope: '2023–2026 LLM 多智能体', notFound: '同预算头对头对照' } });
+  at(21.55, 'report', report(['c-1', 'c-2', 'c-3'], ['c-3'], ['e-1', 'e-2'], ['缺同 token 预算下的头对头对照']));
   at(21.6, 'member', { ...member(R2, 'researcher', '研究员 02', 'idle') });
   at(24, 'route', route(PLAN.routes[2], ['task-4'], { state: 'blocked', memberIds: [R3], gap: '缺同人数、不同结构的对照实验', blockedReason: '卡在和原题一样难的缺口上，等有新机制再开' }));
   at(24, 'task', task('task-4', { revision: 3, title: 'r3｜结构对照', routeId: 'r3', owner: R3, board: 'completed', state: 'delivered', submissions: ['sub-3'] }));
@@ -97,6 +103,15 @@ function script(): Step[] {
   at(31.1, 'member', { ...member(C, 'critic', '反驳 01', 'interrupted'), doing: null });
   at(34, 'run', run({ round: 2, used: { rounds: 1, activeMs: 34000, cost: { value: null, known: false }, tokens: null }, members: { used: 5, max: 16 }, stateReason: '第 2 轮：独立探索中' }));
   return s.sort((a, b) => a[0] - b[0]);
+}
+
+const EV1: Evidence = { id: 'e-1', source: { kind: 'paper', title: 'Mixture-of-Agents Enhances Large Language Model Capabilities', ref: 'arXiv:2406.04692', version: 'v1' }, locator: { section: 'Table 4', quote: 'n=1 47.8%; n=2 58.8%; n=3 58.0%; n=6 61.3%' }, access: 'full_text', how: 'arXiv HTML 全文' };
+const EV2: Evidence = { id: 'e-2', source: { kind: 'paper', title: 'More Agents Is All You Need', ref: 'arXiv:2402.05120', version: 'v2' }, locator: { section: '§5.1 Generalizability', quote: 'our method generally enhances performance across all tasks and LLMs by increasing the ensemble size.' }, access: 'full_text', how: 'arXiv HTML 全文' };
+function claim(id: string, author: string, taskId: string, routeId: string, text: string, basis: Claim['basis'], evidenceIds: string[], conditions: string[]): Claim {
+  return { id, version: 1, text, conditions, basis, status: 'candidate', evidenceIds, author, taskId, routeId, submissionId: 'sub-' + id, round: 1, reviews: [], refuteRounds: 0, visibility: 'lead_reviewers', negative: null };
+}
+function report(unverified: string[], negative: string[], sources: string[], gaps: string[] = []): SwarmReport {
+  return { version: 1, state: 'stage', answer: null, verified: [], limits: ['核实还没接通：以下全部是候选'], disputed: [], unverified, negative, gaps, sources, updatedAt: new Date().toISOString() };
 }
 
 function initial(): SwarmSnapshot {
@@ -171,6 +186,17 @@ export function mockSwarmAdapter(): SwarmAdapter {
       say('note', '你确认了计划 v1，开跑。');
       play();
     },
-    async report() { return null; },
+    async report() { return hub.get().snap?.report ?? null; },
+    async claim(claimId): Promise<ClaimDetail> {
+      const snap = hub.get().snap!, c = snap.claims.find(x => x.id === claimId);
+      if (!c) throw Error('这条结论不存在。');
+      const t = snap.tasks.find(x => x.id === c.taskId), m = snap.members.find(x => x.id === c.author);
+      return { claim: c, evidence: snap.evidence.filter(e => c.evidenceIds.includes(e.id)), reviews: [], task: t ? { id: t.id, title: t.title, state: t.state, routeId: t.routeId } : null, member: m ? { id: m.id, label: m.label, role: m.role } : null };
+    },
+    async evidence(evidenceId): Promise<EvidenceDetail> {
+      const snap = hub.get().snap!, e = snap.evidence.find(x => x.id === evidenceId);
+      if (!e) throw Error('这条证据不存在。');
+      return { evidence: e, referencedBy: snap.claims.filter(c => c.evidenceIds.includes(e.id)).map(c => ({ claimId: c.id, claimVersion: c.version, text: c.text })) };
+    },
   };
 }

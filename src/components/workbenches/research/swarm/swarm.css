@@ -228,3 +228,27 @@ em[data-type='user'] { background:var(--rh-accent); border-color:var(--rh-accent
 .sw-member-io pre { margin:0; max-height:180px; overflow:auto; padding:6px 8px; border:1px solid var(--rh-line); font:400 11px/1.5 var(--rh-f-mono); white-space:pre-wrap; word-break:break-all; } .sw-member-io small { display:block; color:var(--rh-ink-4); }
 .sw-sub[data-route]:not([data-route='stopped']) { opacity:1; }
 .sw-md { display:grid; gap:6px; } .sw-md p { margin:0; } .sw-md ul { margin:0; padding-left:16px; display:grid; gap:3px; } .sw-md code { font:400 11.5px/1.4 var(--rh-f-mono); background:var(--rh-paper-3); padding:0 3px; }
+
+/* —— MVP-2：结论、证据、阶段结果 —— */
+.sw-cs { font-style:normal; font:500 10px/1 var(--rh-f-mono); padding:2px 4px; border:1px dashed var(--rh-ink-3); color:var(--rh-ink-2); white-space:nowrap; }
+.sw-cs[data-s='verified'] { border:1px solid var(--rh-ink); background:var(--rh-ink); color:var(--rh-paper); } .sw-cs[data-s='disputed'], .sw-cs[data-s='insufficient'] { border-color:var(--rh-accent); background:var(--rh-accent-wash); }
+.sw-cs[data-s='falsified'] { border:1px solid var(--rh-danger); color:var(--rh-danger); text-decoration:line-through; }
+.sw-cols li.sw-claim { padding:0; } .sw-claim > button { display:grid; gap:6px; width:100%; padding:9px 10px; border:0; background:none; text-align:left; color:inherit; cursor:pointer; }
+.sw-claim > button:hover { background:var(--rh-paper-3); } .sw-claim > button > span { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+.sw-claim p { -webkit-line-clamp:5; } .sw-claim-meta { font:400 10.5px/1.4 var(--rh-f-mono); color:var(--rh-ink-4); }
+.sw-detail header { grid-template-columns:1fr auto; } .sw-detail-act { grid-column:2; grid-row:1 / span 3; display:flex; gap:4px; align-self:start; } .sw-detail-act .rh-btn { padding:4px 8px; font-size:11px; }
+.sw-detail-body { min-height:0; overflow:auto; padding:12px; display:grid; align-content:start; gap:8px; font-size:12.5px; line-height:1.6; }
+.sw-detail-body h4 { margin:8px 0 0; font:700 11px/1 var(--rh-f-ui); color:var(--rh-ink-3); } .sw-detail-body ul { margin:0; padding-left:16px; } .sw-detail-body p { margin:0; }
+.sw-detail { grid-template-rows:auto minmax(0,1fr); }
+.sw-detail-tags { display:flex; flex-wrap:wrap; gap:4px; } .sw-detail-tags > span { font:500 10.5px/1 var(--rh-f-mono); padding:2px 5px; border:1px solid var(--rh-line); color:var(--rh-ink-3); }
+.sw-detail-text { font:400 13.5px/1.65 var(--rh-f-read); white-space:pre-wrap; } .sw-detail-note { padding:6px 8px; background:var(--rh-accent-wash); }
+.sw-detail-ref a { font:500 12px/1.4 var(--rh-f-mono); color:var(--rh-ink); } .sw-detail .sw-task-meta { padding:0; border:0; }
+.sw-quote { margin:0; padding:6px 10px; border-left:3px solid var(--rh-ink); background:var(--rh-white); font:400 12.5px/1.6 var(--rh-f-read); white-space:pre-wrap; }
+.sw-link { padding:0; border:0; background:none; font:inherit; text-decoration:underline; cursor:pointer; color:var(--rh-ink); }
+.sw-ev-list, .sw-rep-claims, .sw-rep-sources { list-style:none; margin:0; padding:0; display:grid; gap:4px; }
+.sw-ev-list button, .sw-rep-claims button, .sw-rep-sources button { display:grid; gap:3px; width:100%; padding:7px 9px; border:1px solid var(--rh-line); background:var(--rh-white); text-align:left; font:inherit; color:inherit; cursor:pointer; }
+.sw-ev-list button:hover, .sw-rep-claims button:hover, .sw-rep-sources button:hover { border-color:var(--rh-ink); }
+.sw-ev { display:grid; gap:3px; } .sw-ev small, .sw-rep-sources small, .sw-rep-claims small, .sw-ev-list small { font:400 10.5px/1.4 var(--rh-f-mono); color:var(--rh-ink-4); }
+.sw-ev q { font-size:12px; color:var(--rh-ink-2); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.sw-rep-claims p { margin:0; font-size:13px; line-height:1.55; } .sw-rep-group h4 { margin:10px 0 4px; font:700 12px/1 var(--rh-f-ui); }
+.sw-synth.en-report { display:block; overflow:auto; } .sw-synth .en-report-body { max-width:860px; margin:0 auto; padding:24px 32px 40px; }
