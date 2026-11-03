@@ -26,6 +26,12 @@ export default {
     await page.locator('.sw-detail .rh-btn', { hasText: '关闭' }).click();
     await page.locator('.sw-post input').fill('@lead 只看相同总 token 预算下的比较'); await page.locator('.sw-post .rh-btn').click(); await page.waitForTimeout(600);
     if (!(await page.locator('.sw-cols li[data-you]').count())) throw new Error('你的留言应出现在留言板');
+    await page.locator('.en-tabs button').nth(0).click(); await page.waitForTimeout(500);
+    await page.locator('.sw-ctl button', { hasText: '加人' }).click(); await page.locator('.sw-ctl-form select').first().selectOption('critic');
+    await page.locator('.sw-ctl-form .rh-btn.is-solid').click(); await page.locator('.sw-card .rh-btn.is-solid').waitFor(); await ctx.shot('W5d.png');
+    await page.locator('.sw-card .rh-btn.is-solid').click(); await page.locator('.sw-roster button', { hasText: '反驳 02' }).waitFor();
+    await page.locator('.sw-ctl button', { hasText: '改方向' }).click(); await page.locator('.sw-ctl-form input').fill('只看相同总 token 预算下的比较');
+    await page.locator('.sw-ctl-form .rh-btn.is-solid').click(); await page.locator('.sw-diff').waitFor(); await ctx.shot('W5e.png');
     await page.locator('.sw-ctl button', { hasText: '暂停' }).click(); await page.waitForTimeout(1200);
     if (!(await page.locator('.sw-ctl button', { hasText: '继续' }).count())) throw new Error('暂停后应能继续');
     await page.locator('.en-tabs button').nth(3).click(); await page.waitForTimeout(800);

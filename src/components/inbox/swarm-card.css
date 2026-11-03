@@ -1,0 +1,10 @@
+/* 群研收件箱卡的卡面：收件箱和群研页共用，所以样式跟着组件走。 */
+.sw-card-kv { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; margin:0; } .sw-card-kv dt { font:500 10.5px/1.6 var(--rh-f-mono); color:var(--rh-ink-4); } .sw-card-kv dd { margin:0; }
+.sw-card-body { display:grid; gap:4px; } .sw-card-body h5 { margin:6px 0 0; font:700 11px/1 var(--rh-f-ui); color:var(--rh-ink-3); } .sw-card-body ul, .sw-card-body ol { margin:0; padding-left:16px; display:grid; gap:3px; } .sw-card-body p { margin:0; }
+.sw-card-used { font:500 11px/1.4 var(--rh-f-mono); color:var(--rh-ink-3); } .sw-card-tag { font-style:normal; font:500 10px/1 var(--rh-f-mono); padding:1px 4px; margin-right:5px; border:1px dashed var(--rh-ink-3); }
+.sw-card-limits { display:flex; flex-wrap:wrap; align-items:center; gap:8px; } .sw-card-limits label { display:flex; align-items:center; gap:4px; } .sw-card-limits input { width:60px; height:26px; padding:0 6px; border:1px solid var(--rh-ink); font:500 12px/1 var(--rh-f-mono); } .sw-card-limits small { color:var(--rh-ink-4); }
+.sw-card-claims > li > p { font-weight:600; }
+.ibx-tag[data-k='swarm'] { border-color:var(--rh-ink); background:var(--rh-ink); color:var(--rh-paper); }
+.ibx-layer[data-risk='swarm'] { border-color:var(--rh-ink); }
+/* 卡面内容很长（追加额度卡的发现 / 缺口）时，不能把收件箱的网格行撑出屏幕：行高按视口算，内容在面板里滚 */
+.ibx-scrim { grid-template-rows:minmax(0, 1fr); } .ibx { min-height:0; }

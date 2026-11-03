@@ -12,7 +12,9 @@ export type PromotionItem = { key: string; value: Json; evidence: string[]; supe
 export type InboxPromotion = { id: string; target: PromotionTarget; items: PromotionItem[]; reason: string; createdAt: string; expiresAt: string; source: InboxSource };
 /** 原生 question：AI 在运行中问你的问题（与后端 question.asked 对齐）。custom 未设或为 true 时允许自己填答案。 */
 export type InboxQuestion = { question: string; header: string; options: { label: string; description: string }[]; multiple?: boolean; custom?: boolean };
-export type InboxApproval = { id: string; runId: string; kind: string; title: string; effects: string[]; risk: Risk; state: 'pending' | 'indeterminate'; sent: boolean; source: InboxSource; questions?: InboxQuestion[] };
+/** 群研的四种卡（契约 13 §5）：卡面字段原样带过来，由 SwarmCard 排版。 */
+export type InboxSwarmCard = { kind: 'swarm_add_member' | 'swarm_extend' | 'swarm_scope' | 'swarm_divergence'; data: Record<string, any> };
+export type InboxApproval = { id: string; runId: string; kind: string; title: string; effects: string[]; risk: Risk; state: 'pending' | 'indeterminate'; sent: boolean; source: InboxSource; questions?: InboxQuestion[]; swarm?: InboxSwarmCard };
 
 export type PromotionDecision =
   | { decision: 'approve' }
@@ -34,7 +36,7 @@ export interface InboxAdapter {
   load(): Promise<{ promotions: InboxPromotion[]; approvals: InboxApproval[] }>;
   decidePromotion(id: string, decision: PromotionDecision): Promise<void>;
   /** kind 为 question 时，批准必须带 answers（每题一组所选标签，顺序与 questions 一致）；驳回不带。 */
-  decideApproval(id: string, decision: 'approve' | 'reject', answers?: string[][]): Promise<void>;
+  decideApproval(id: string, decision: 'approve' | 'reject', answers?: string[][] | Record<string, unknown>): Promise<void>;
   evidence(ref: string): Promise<EvidenceView>;
   superseded(id: string): Promise<SupersededView | null>;
 }

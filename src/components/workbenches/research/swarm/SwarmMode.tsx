@@ -8,8 +8,9 @@ import { emptyView } from './swarmStore';
 import {
   LIVE_INTERVENTIONS, isTerminal,
   type BoardPost, type BusEntry, type BusType, type InterventionKind, type MemberLogItem, type MemberRole, type SwarmAdapter, type SwarmAsk,
-  type SwarmMember, type Claim, type ClaimDetail, type EvidenceDetail, type Evidence, type SwarmPlan, type SwarmRoute, type SwarmRunState, type SwarmTask, type SwarmTaskState, type SwarmView,
+  type SwarmMember, type SwarmCardView, type Claim, type ClaimDetail, type EvidenceDetail, type Evidence, type SwarmPlan, type SwarmRoute, type SwarmRunState, type SwarmTask, type SwarmTaskState, type SwarmView,
 } from './swarmTypes';
+import { SWARM_CARD, SwarmCardBody, cardAnswers, type SwarmCardAnswers } from '../../../inbox/SwarmCard';
 import '../../engineering/dev.css';
 import './swarm.css';
 // 研究台 · 群研模式：一个负责人带一队 agent 攻一个问题。四个面只读服务端投影（design/prd/13-swarm-contract.md）：
@@ -94,6 +95,7 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
   const [selMsg, setSelMsg] = useState<number | null>(null);
   const [viewAt, setViewAt] = useState<number | null>(null);   // 回放：只看这个时刻之前的通信
   const [busyAct, setBusyAct] = useState<string | null>(null);
+  const [ctl, setCtl] = useState<'add_member' | 'redirect' | 'extend' | null>(null);   // 顶栏干预的小表单
   const [actError, setActError] = useState<string | null>(null);
   const [xpOpen, setXpOpen] = useState(true), [xpView, setXpView] = useState<ExplorerView>('files');
   // 精读派来的问题：没有运行时放成建议，点了填进输入框等你发（不替你发起）
@@ -103,7 +105,7 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
     setBusyAct(label); setActError(null);
     try { await fn(); } catch (e) { setActError(errText(e)); } finally { setBusyAct(null); }
   };
-  const intervene = (kind: InterventionKind, extra?: { text?: string; routeId?: string }) => act(IV_KIND[kind], () => adapter.intervene(kind, extra));
+  const intervene = (kind: InterventionKind, extra?: Parameters<SwarmAdapter['intervene']>[1]) => act(IV_KIND[kind], () => adapter.intervene(kind, extra));
 
   const shown = viewAt === null ? bus : bus.filter(x => Date.parse(x.at) <= viewAt);
   const working = snap?.members.filter(m => m.state === 'running').length ?? 0;
@@ -118,12 +120,14 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
     const leadSaid = started ? view.bus.filter(x => x.type === 'deliver' && x.from === 'lead' && x.to === 'user' && x.at >= started).map(x => ({ id: 'b' + x.seq, kind: 'agent' as const, text: x.text, at: x.at })) : [];
     const out: DockEvent[] = [...view.dock, ...leadSaid].sort((a, b) => a.at.localeCompare(b.at)).map(d => d.kind === 'user' ? { id: d.id, kind: 'user', text: d.text, at: hhmm(d.at) } : d.kind === 'note' ? { id: d.id, kind: 'note', text: d.text, at: hhmm(d.at) } : { id: d.id, kind: 'agent', text: <Md text={d.text} />, at: hhmm(d.at) });
     if (!snap && !view.dock.length) out.push({ id: 'hello', kind: 'agent', at: '', text: <p>我是群研的负责人。说出你要研究的问题，我先和你把边界、质量判据、路线和编制谈清楚，出一份计划给你确认；<b>确认之前不建队、不检索</b>。</p> });
+    for (const c of view.cards) out.push({ id: 'card:' + c.id, kind: 'card', body: <DockSwarmCard card={c} busy={!!busyAct} onDecide={(d, ans) => act(SWARM_CARD[c.kind].tag, () => adapter.decideCard(c.id, d, ans))} /> });
+    if (snap?.plan?.diffFrom && run && run.state !== 'awaiting_confirm' && run.state !== 'clarifying') out.push({ id: 'diff:' + snap.plan.version, kind: 'card', body: <div className="sw-plan sw-diff"><span className="rh-micro">PLAN v{snap.plan.version} · 改方向后的新计划（已自动继续）</span><h4>和 v{snap.plan.diffFrom.version} 相比</h4><ul>{snap.plan.diffFrom.changes.map(x => <li key={x}>{x}</li>)}</ul></div> });
     for (const a of view.asks) out.push({ id: 'ask:' + a.id, kind: 'card', body: <AskCard ask={a} onAnswer={b => act('回答', () => adapter.answer(a.id, b))} /> });
     if (snap?.plan && run && (run.state === 'awaiting_confirm' || run.state === 'clarifying')) out.push({ id: 'plan:' + snap.plan.version, kind: 'card', body: <PlanCard plan={snap.plan} canConfirm={run.state === 'awaiting_confirm'} busy={busyAct === '确认计划'} onConfirm={l => act('确认计划', () => adapter.confirmPlan(snap.plan!.version, l))} /> });
     for (const iv of snap?.interventions ?? []) out.push({ id: 'iv:' + iv.id + iv.state, kind: 'note', at: hhmm(iv.at), text: `${IV_KIND[iv.kind]}${iv.text ? `「${iv.text}」` : ''} · ${IV_ZH[iv.state]}${iv.result ? `：${iv.result}` : ''}` });
     if (actError) out.push({ id: 'err', kind: 'note', at: '', text: `没有完成：${actError}` });
     return out;
-  }, [view.dock, view.bus, view.asks, snap, run, busyAct, actError, adapter]);
+  }, [view.dock, view.bus, view.asks, view.cards, snap, run, busyAct, actError, adapter]);
 
   const suggestions: Suggestion[] = !run ? (draftQ ? [{ id: 'q', label: '用精读派来的问题', fill: draftQ }] : [{ id: 'q', label: '例：多 Agent 数量增加是否一定提高研究质量？', fill: '多 Agent 数量增加是否一定提高研究质量？' }])
     : ended ? [{ id: 'n', label: '开一次新的群研', fill: '' }]
@@ -157,7 +161,7 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
     {run && !ended && team && <div className="sw-ctl" role="group" aria-label="干预">
       {run.state === 'paused' ? <button className="rh-btn is-solid" disabled={!!busyAct} onClick={() => intervene('resume')}>继续</button> : <button className="rh-btn" disabled={!!busyAct} onClick={() => intervene('pause')}>暂停</button>}
       <button className="rh-btn" disabled={!!busyAct} onClick={() => intervene('finish')}>结束</button>
-      {(['add_member', 'redirect'] as InterventionKind[]).map(k => <button key={k} className="rh-btn" disabled={!LIVE_INTERVENTIONS.includes(k)} title="第三期接入">{IV_KIND[k]}</button>)}
+      {(['add_member', 'redirect', 'extend'] as const).map(k => <button key={k} className="rh-btn" aria-pressed={ctl === k} disabled={!!busyAct || !LIVE_INTERVENTIONS.includes(k)} onClick={() => setCtl(c => c === k ? null : k)}>{IV_KIND[k]}</button>)}
     </div>}
   </header>;
 
@@ -183,11 +187,14 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
       <section className="sw-center" data-wb-panel>
         {bar}
         <div className="sw-body">
+          {ctl && run && !ended && <CtlForm kind={ctl} routes={snap?.routes ?? []} run={run} busy={!!busyAct} onCancel={() => setCtl(null)}
+            onSubmit={extra => { setCtl(null); void intervene(ctl, extra); }} />}
           {run?.stateReason && run.stateReason !== RUN_ZH[run.state] && <div className="sw-reason" data-state={run.state}><b>{RUN_ZH[run.state]}</b>{run.stateReason}{view.missed > 0 && <em>断开期间新增 {view.missed} 条通信</em>}</div>}
           {body}
           {detail.length > 0 && snap && <DetailDrawer key={detail.length + detail[detail.length - 1].id} adapter={adapter} item={detail[detail.length - 1]} depth={detail.length} members={roster}
             onBack={() => setDetail(d => d.slice(0, -1))} onClose={() => setDetail([])} onOpen={openDetail} onMember={id => { setDetail([]); setDrawer(id); setSelMember(id); }} />}
-          {drawer && snap && named.some(m => m.id === drawer) && <MemberDrawer adapter={adapter} member={named.find(m => m.id === drawer)!} tick={view.logTick} onClose={() => setDrawer(null)} />}
+          {drawer && snap && named.some(m => m.id === drawer) && <MemberDrawer adapter={adapter} member={named.find(m => m.id === drawer)!} tick={view.logTick} onClose={() => setDrawer(null)}
+            onMention={run && !ended && team ? text => intervene('mention', { memberId: drawer, text }) : undefined} />}
         </div>
         {timebar}
       </section>
@@ -210,6 +217,44 @@ function Md({ text }: { text: string }) {
   }
   flush();
   return <div className="sw-md">{blocks}</div>;
+}
+
+/* ———— 顶栏干预的小表单：加人 / 改方向 / 追加额度（后两者批准都走收件箱卡） ———— */
+function CtlForm({ kind, routes, run, busy, onCancel, onSubmit }: {
+  kind: 'add_member' | 'redirect' | 'extend'; routes: SwarmRoute[]; run: NonNullable<SwarmView['snap']>['run']; busy: boolean;
+  onCancel: () => void; onSubmit: (extra: Parameters<SwarmAdapter['intervene']>[1]) => void;
+}) {
+  const [role, setRole] = useState<'researcher' | 'critic' | 'verifier'>('researcher'), [route, setRoute] = useState('');
+  const [text, setText] = useState(''), [rounds, setRounds] = useState(2), [minutes, setMinutes] = useState(15);
+  const left = run.members.max - run.members.used;
+  return <form className="sw-ctl-form" onSubmit={e => { e.preventDefault();
+    onSubmit(kind === 'add_member' ? { role, ...(route ? { routeId: route } : {}) } : kind === 'redirect' ? { text: text.trim() } : { limits: { rounds, minutes } }); }}>
+    {kind === 'add_member' && <><b>加一个人</b>
+      <label>角色<select value={role} onChange={e => setRole(e.target.value as typeof role)}><option value="researcher">研究员</option><option value="critic">反驳</option><option value="verifier">核实</option></select></label>
+      <label>路线<select value={route} onChange={e => setRoute(e.target.value)}><option value="">由负责人安排</option>{routes.filter(r => r.state !== 'merged').map(r => <option key={r.id} value={r.id}>{r.id} {r.title}</option>)}</select></label>
+      <small>还能加 {left} 人；要你在卡上批准后才建</small></>}
+    {kind === 'redirect' && <><b>改方向</b>
+      <input value={text} onChange={e => setText(e.target.value)} placeholder="例如：只看相同总 token 预算下的比较" autoFocus />
+      <small>受影响的任务会停下、已有证据保留；负责人出新版本计划后自动继续，问题本身变了才要你再确认</small></>}
+    {kind === 'extend' && <><b>追加额度</b>
+      <label>轮数<input type="number" min={1} value={rounds} onChange={e => setRounds(Math.max(1, Number(e.target.value) || 1))} /></label>
+      <label>分钟<input type="number" min={5} step={5} value={minutes} onChange={e => setMinutes(Math.max(5, Number(e.target.value) || 5))} /></label>
+      <small>现在 {run.used.rounds}/{run.limits.rounds} 轮 · {dur(run.used.activeMs)}/{run.limits.minutes} 分钟；会出一张卡等你批准</small></>}
+    <span className="sw-ctl-form-act"><button type="button" className="rh-btn" onClick={onCancel}>取消</button><button className="rh-btn is-solid" disabled={busy || (kind === 'redirect' && !text.trim())}>{kind === 'add_member' ? '提出加人' : kind === 'redirect' ? '改方向' : '提出追加'}</button></span>
+  </form>;
+}
+
+/* ———— 群研卡（与收件箱同一张）———— */
+function DockSwarmCard({ card, busy, onDecide }: { card: SwarmCardView; busy: boolean; onDecide: (d: 'approve' | 'reject', answers?: Record<string, unknown>) => void }) {
+  const [ans, setAns] = useState<SwarmCardAnswers>({});
+  const meta = SWARM_CARD[card.kind];
+  return <div className="sw-ask sw-card">
+    <span className="rh-micro">{meta.name} · 等你决定（收件箱里也有这张）</span>
+    <b>{card.title}</b>
+    <SwarmCardBody kind={card.kind} data={card.data} answers={ans} setAnswers={setAns} locked={busy} />
+    <p className="sw-card-why">{meta.why}</p>
+    <span className="sw-card-act"><button className="rh-btn" disabled={busy} onClick={() => onDecide('reject')}>{meta.reject}</button><button className="rh-btn is-solid" disabled={busy} onClick={() => onDecide('approve', cardAnswers(card.kind, card.data, ans))}>{meta.approve}</button></span>
+  </div>;
 }
 
 /* ———— 计划卡 ———— */
@@ -517,7 +562,8 @@ function EvidenceLine({ e }: { e: Evidence }) {
 }
 
 /* ———— 队员抽屉：实际可见的工作记录 ———— */
-function MemberDrawer({ adapter, member, tick, onClose }: { adapter: SwarmAdapter; member: SwarmMember; tick: number; onClose: () => void }) {
+function MemberDrawer({ adapter, member, tick, onClose, onMention }: { adapter: SwarmAdapter; member: SwarmMember; tick: number; onClose: () => void; onMention?: (text: string) => void }) {
+  const [say, setSay] = useState('');
   const [items, setItems] = useState<MemberLogItem[] | null>(null), [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   useEffect(() => { let alive = true; adapter.memberLog(member.id, 0).then(r => { if (alive) { setItems(r.items); setErr(null); } }).catch(e => alive && setErr(errText(e))); return () => { alive = false; }; }, [adapter, member.id, tick]);
@@ -526,6 +572,8 @@ function MemberDrawer({ adapter, member, tick, onClose }: { adapter: SwarmAdapte
     <header><span className="rh-micro">{ROLE[member.role].en}</span><b>{member.label}</b><small>{member.model} · {member.context === 'fresh' ? '全新上下文' : '继承上下文'} · {MEMBER_ZH[member.state]}</small><button className="rh-btn" onClick={onClose}>关闭</button></header>
     {member.state === 'running' && member.doing && <p className="sw-member-doing">正在：{member.doing.summary}</p>}
     {member.failReason && <p className="sw-member-doing" data-bad>失败原因：{member.failReason}</p>}
+    {onMention && <form className="sw-mention" onSubmit={e => { e.preventDefault(); if (say.trim()) { onMention(say.trim()); setSay(''); } }}>
+      <input value={say} onChange={e => setSay(e.target.value)} placeholder={`对 ${member.label} 说（定向投递，不会告诉其他路线）`} /><button className="rh-btn is-solid" disabled={!say.trim()}>发给 ta</button></form>}
     <ol>{err ? <li className="sw-none">{err}</li> : !items ? <li className="sw-none">读取中……</li> : !items.length ? <li className="sw-none">还没有记录。</li>
       : items.map(x => <li key={x.seq} data-kind={x.kind} data-failed={x.tool?.state === 'failed' || undefined}><button onClick={() => setOpen(o => o === x.seq ? null : x.seq)}>
         <time>{hhmm(x.at) || `#${x.seq}`}</time><span><b>{x.tool ? x.tool.name : { input: '输入', tool: '工具', source: '来源', output: '产出', message_in: '收到', message_out: '发出', summary: '摘要' }[x.kind]}</b><p>{x.tool?.args ? x.tool.args.slice(0, 160) : x.text}</p></span></button>

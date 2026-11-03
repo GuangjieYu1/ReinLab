@@ -207,7 +207,7 @@ export async function decide(
   id: string,
   body:
     | PromotionDecision
-    | { decision: "approve" | "reject"; scope: "once"; answers?: string[][] },
+    | { decision: "approve" | "reject"; scope: "once"; answers?: string[][] | Record<string, unknown> },
 ) {
   const signature = JSON.stringify([kind, id, body]);
   let key = intents.get(signature);

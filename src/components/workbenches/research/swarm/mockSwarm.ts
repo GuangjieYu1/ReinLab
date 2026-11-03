@@ -141,6 +141,7 @@ export function mockSwarmAdapter(): SwarmAdapter {
     for (const [t, type, data] of script()) timers.push(setTimeout(() => emit(type, type === 'run' ? { ...(data as SwarmRun), startedAt: new Date(start).toISOString(), used: { ...(data as SwarmRun).used, activeMs: Date.now() - start } } : data, undefined), t * 1000));
   };
   const say = (kind: 'user' | 'agent' | 'note', text: string) => hub.set(v => ({ ...v, dock: [...v.dock, { id: 'd' + v.dock.length, kind, text, at: new Date().toISOString() }] }));
+  const pendingIv: Record<string, Intervention> = {};
   const intervention = (kind: Intervention['kind'], text?: string): Intervention => ({ id: 'iv-' + Date.now(), kind, text, state: 'received', at: new Date().toISOString() });
 
   return {
@@ -184,8 +185,29 @@ export function mockSwarmAdapter(): SwarmAdapter {
         if (kind === 'resume') { emit('run', { ...cur, state: 'running', stateReason: '已继续' }); emit('intervention', { ...iv, state: 'applied', result: '已继续，先核对现状再往下走。' }); }
         if (kind === 'finish') { timers.forEach(clearTimeout); timers = []; emit('run', { ...cur, state: 'partial', endReason: 'user_finished', endedAt: new Date().toISOString(), stateReason: '你结束了这次群研；已交付的产出保留，但没有经过核实的结论。' }); emit('intervention', { ...iv, state: 'applied', result: '已停止新增工作，保存已有结论和未完成项。' }); hub.set(v => ({ ...v, conn: 'idle' })); }
         if (kind === 'stop_route') emit('intervention', { ...iv, state: 'applied', result: '已停止这条路线，产出保留。' });
+        if (kind === 'mention') emit('intervention', { ...iv, state: 'delivered', target: { memberId: extra.memberId }, result: `已投递给 ${extra.memberId ?? 'lead'}，等它回应。` });
+        if (kind === 'redirect') {
+          emit('intervention', { ...iv, state: 'applied', result: '负责人出了新版本计划，已自动继续。' });
+          emit('plan', { ...PLAN, version: 2, needsConfirm: false, diffFrom: { version: 1, changes: [`改方向：${extra.text}`, 'r1 改成只比同 token 预算下的结果', '已有证据保留'] } });
+        }
+        if (kind === 'add_member' || kind === 'extend') {
+          emit('intervention', { ...iv, state: 'pending_approval' });
+          const card = kind === 'add_member'
+            ? { id: 'card-add', kind: 'swarm_add_member' as const, title: '中途加人', data: { role: extra.role ?? 'researcher', count: 1, model: 'deepseek-v4-flash', routeId: extra.routeId ?? null, membersAfter: 6, max: 16 } }
+            : { id: 'card-ext', kind: 'swarm_extend' as const, title: '临近额度，要不要追加', data: { used: { rounds: cur.round, minutes: 24 }, suggest: { rounds: 2, minutes: 15 }, findings: ['收益几乎全在 1→2 个 agent'], gaps: ['candidate：同 token 预算下的头对头对照'] } };
+          pendingIv[card.id] = iv;
+          hub.set(v => ({ ...v, cards: [...v.cards.filter(c => c.id !== card.id), card] }));
+        }
       }, 500);
       return iv;
+    },
+    async decideCard(id, decision, answers) {
+      const card = hub.get().cards.find(c => c.id === id); if (!card) throw Error('这张卡已经处理过了。');
+      hub.set(v => ({ ...v, cards: v.cards.filter(c => c.id !== id) }));
+      const iv = pendingIv[id], cur = hub.get().snap!.run;
+      if (iv) emit('intervention', { ...iv, state: decision === 'approve' ? 'applied' : 'rejected', result: decision === 'approve' ? (card.kind === 'swarm_extend' ? '额度已追加，继续跑。' : '已批准，负责人去建人。') : '你驳回了。' });
+      if (decision === 'approve' && card.kind === 'swarm_extend') emit('run', { ...cur, limits: { rounds: cur.limits.rounds + Number(answers?.rounds ?? 2), minutes: cur.limits.minutes + Number(answers?.minutes ?? 15) } });
+      if (decision === 'approve' && card.kind === 'swarm_add_member') emit('member', member('critic-02', 'critic', '反驳 02', 'idle'));
     },
     async confirmPlan() {
       say('note', '你确认了计划 v1，开跑。');

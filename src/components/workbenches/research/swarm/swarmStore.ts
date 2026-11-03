@@ -3,7 +3,7 @@
 import type { BoardPost, BusEntry, Intervention, SwarmEvent, SwarmMember, SwarmRoute, SwarmSnapshot, SwarmTask, SwarmView } from './swarmTypes';
 
 export function emptyView(): SwarmView {
-  return { snap: null, bus: [], dock: [], asks: [], conn: 'idle', thinking: false, logTick: 0, missed: 0, error: null };
+  return { snap: null, bus: [], dock: [], asks: [], cards: [], conn: 'idle', thinking: false, logTick: 0, missed: 0, error: null };
 }
 
 const upsert = <T extends { id: string }>(list: T[], item: T, newer: (a: T, b: T) => boolean = () => true) => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SWARM_CARD, SwarmCardBody, cardAnswers, type SwarmCardAnswers } from './SwarmCard';
 import { BENCH, type InboxReport, RISK_TEXT, TARGET, type EvidenceView, type InboxAdapter, type InboxApproval, type InboxPromotion, type InboxQuestion, type Json, type PromotionDecision, type PromotionItem, type SupersededView } from './inboxTypes';
 import '../../styles/rhine.css';
 import './inbox.css';
@@ -47,6 +48,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
   const [openEv, setOpenEv] = useState<Record<string, EvidenceView | 'loading' | 'missing'>>({});
   const [old, setOld] = useState<Record<string, SupersededView | null>>({});
   const [answers, setAnswers] = useState<Record<string, string[][]>>({});
+  const [cardAns, setCardAns] = useState<Record<string, SwarmCardAnswers>>({});   // 群研追加额度卡：批准前改的数值
   const sheet = useRef<HTMLElement>(null);
 
   const [rev, setRev] = useState(0);
@@ -87,7 +89,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
     setBusy(true); setError('');
     try {
       if (cur.kind === 'promotion' && typeof d === 'object') await adapter.decidePromotion(cur.p.id, d);
-      else if (cur.kind === 'approval') await adapter.decideApproval(cur.a.id, d === 'approve-once' ? 'approve' : 'reject', d === 'approve-once' && cur.a.questions ? answers[cur.a.id] : undefined);
+      else if (cur.kind === 'approval') await adapter.decideApproval(cur.a.id, d === 'approve-once' ? 'approve' : 'reject', d === 'approve-once' ? (cur.a.swarm ? cardAnswers(cur.a.swarm.kind, cur.a.swarm.data, cardAns[cur.a.id] ?? {}) : cur.a.questions ? answers[cur.a.id] : undefined) : undefined);
       const mark: Done = d === 'approve-once' ? (cur.kind === 'approval' && cur.a.kind === 'question' ? 'answered' : 'approved') : d === 'reject-once' ? 'rejected' : (d as PromotionDecision).decision;
       setDone(m => ({ ...m, [idOf(cur)]: mark })); setEditing(null);
       window.setTimeout(() => next(idOf(cur)), 650);
@@ -146,7 +148,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
     const title = e.kind === 'promotion' ? (e.p.items.length > 1 ? `${e.p.items[0].key} 等 ${e.p.items.length} 条` : e.p.items[0].key) : e.a.title;
     const exp = e.kind === 'promotion' ? left(e.p.expiresAt) : null;
     return <button key={id} className="ibx-row" aria-current={id === sel || undefined} data-done={d || undefined} onClick={() => { setSel(id); setEditing(null); }}>
-      <span className="ibx-tag" data-k={e.kind === 'promotion' ? TARGET[e.p.target].layer : e.a.kind === 'question' ? 'ask' : e.a.risk}>{e.kind === 'promotion' ? TARGET[e.p.target].layer : e.a.kind === 'question' ? '问' : e.a.risk === 'danger' ? '危' : '写'}</span>
+      <span className="ibx-tag" data-k={e.kind === 'promotion' ? TARGET[e.p.target].layer : e.a.kind === 'question' ? 'ask' : e.a.swarm ? 'swarm' : e.a.risk}>{e.kind === 'promotion' ? TARGET[e.p.target].layer : e.a.kind === 'question' ? '问' : e.a.swarm ? '群' : e.a.risk === 'danger' ? '危' : '写'}</span>
       <span className="ibx-row-main"><b>{title}</b><small>{e.kind === 'promotion' ? `${TARGET[e.p.target].name} · ${e.p.source.dossierTitle}` : e.a.state === 'indeterminate' ? '结果未知 · 等待核对' : `${BENCH[e.a.source.bench]?.name ?? e.a.source.bench} · ${e.a.source.dossierTitle}`}</small></span>
       {d ? <em className="ibx-stamp-s">{DONE_TEXT[d]}</em> : exp ? <em className="ibx-exp" data-soon={exp.soon || undefined}>{exp.text.replace('后作废', '')}</em> : null}
     </button>;
@@ -183,7 +185,7 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
           {entries === null ? <p className="ibx-loading">正在读取收件箱…</p>
             : allDone && !cur ? <div className="ibx-clear"><span className="ibx-bigstamp">{handled ? '已清空' : '无待办'}</span><p>{handled ? `处理了 ${handled} 件事。批准的内容从下一次读取开始生效，驳回的不会再提。` : '你离开期间没有需要你决定的事。AI 提议记住什么、或者有动作要你确认时，会出现在这里。'}</p><button className="ibx-go" onClick={onClose}>进入终端</button></div>
             : cur?.kind === 'promotion' ? <PromotionView p={cur.p} d={done[cur.p.id]} editing={editing} setEditing={setEditing} openEv={openEv} toggle={toggleEvidence} old={old} />
-            : cur?.kind === 'approval' ? <ApprovalView a={cur.a} d={done[cur.a.id]} answers={answers[cur.a.id] ?? []} setAnswers={v => setAnswers(m => ({ ...m, [cur.a.id]: v }))} />
+            : cur?.kind === 'approval' ? <ApprovalView a={cur.a} d={done[cur.a.id]} answers={answers[cur.a.id] ?? []} setAnswers={v => setAnswers(m => ({ ...m, [cur.a.id]: v }))} card={cardAns[cur.a.id] ?? {}} setCard={v => setCardAns(m => ({ ...m, [cur.a.id]: v }))} />
             : <p className="ibx-loading">选一条开始处理。</p>}
         </article>
       </div>
@@ -199,6 +201,10 @@ export default function InboxPanel({ adapter, onClose, onRemaining }: { adapter:
             <button className="ibx-btn is-solid" onClick={() => decide({ decision: 'approve' })} disabled={busy}>批准<kbd>A</kbd></button></>)}
         {cur?.kind === 'approval' && !done[cur.a.id] && (cur.a.state === 'indeterminate'
           ? <span className="ibx-hint">这个动作已经发出、结果未知；不会自动重发，核对完会自动从这里消失。</span>
+          : cur.a.swarm
+          ? <><span className="ibx-hint">群研 · 页面上是同一张卡，哪边处理都算</span>
+            <button className="ibx-btn" onClick={() => decide('reject-once')} disabled={busy}>{SWARM_CARD[cur.a.swarm.kind].reject}<kbd>R</kbd></button>
+            <button className="ibx-btn is-solid" onClick={() => decide('approve-once')} disabled={busy}>{SWARM_CARD[cur.a.swarm.kind].approve}<kbd>A</kbd></button></>
           : cur.a.kind === 'question'
           ? <><span className="ibx-hint">{answered(cur.a) ? '回答会原样交给提问的 Agent' : '每个问题都要回答后才能提交'}</span>
             <button className="ibx-btn" onClick={() => decide('reject-once')} disabled={busy}>不回答<kbd>R</kbd></button>
@@ -243,7 +249,16 @@ function PromotionView({ p, d, editing, setEditing, openEv, toggle, old }: {
   </div>;
 }
 
-function ApprovalView({ a, d, answers, setAnswers }: { a: InboxApproval; d?: Done; answers: string[][]; setAnswers: (v: string[][]) => void }) {
+function ApprovalView({ a, d, answers, setAnswers, card, setCard }: { a: InboxApproval; d?: Done; answers: string[][]; setAnswers: (v: string[][]) => void; card: SwarmCardAnswers; setCard: (v: SwarmCardAnswers) => void }) {
+  if (a.swarm) { const meta = SWARM_CARD[a.swarm.kind];
+    return <div className="ibx-doc" key={a.id}>
+      {d && <span className="ibx-bigstamp" data-k={d}>{DONE_TEXT[d]}</span>}
+      <div className="ibx-meta"><span className="ibx-layer" data-risk="swarm"><b>群研</b>{meta.name}</span><Source s={a.source} /></div>
+      <h2>{a.title}</h2>
+      <SwarmCardBody kind={a.swarm.kind} data={a.swarm.data} answers={card} setAnswers={setCard} locked={!!d} />
+      {a.effects.length > 0 && <section className="ibx-effect"><h5>会发生什么</h5><ul>{a.effects.map(x => <li key={x}>{x}</li>)}</ul></section>}
+      <section className="ibx-why"><h5>为什么在这里</h5><p>{meta.why}</p></section>
+    </div>; }
   return <div className="ibx-doc" key={a.id}>
     {d && <span className="ibx-bigstamp" data-k={d}>{DONE_TEXT[d]}</span>}
     <div className="ibx-meta"><span className="ibx-layer" data-risk={a.risk}><b>{a.kind === 'question' ? '提问' : a.risk === 'danger' ? '危险' : '写入'}</b>{a.kind === 'question' ? 'AI 在问你' : a.kind}</span><Source s={a.source} /></div>

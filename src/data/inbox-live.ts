@@ -1,5 +1,6 @@
 import type { InboxReport, InboxAdapter, InboxPromotion, InboxQuestion, PromotionItem, EvidenceView } from '../components/inbox/inboxTypes';
 import { api, decide, inbox, sessionGeneration } from './research-live';
+import { isSwarmCard } from '../components/inbox/SwarmCard';
 
 type Ports = { api: typeof api; decide: typeof decide; inbox: typeof inbox; generation: typeof sessionGeneration };
 const unavailable = () => Error('收件箱来源或会话已变化，请刷新。');
@@ -65,7 +66,10 @@ export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, gene
       promotions = new Map(mapped.map(p => [p.id, p]));
       approvals = new Map(data.approvals.map(a => [a.id, a]));
       generation = expected;
-      return { promotions: mapped, approvals: data.approvals.map(a => ({ ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects(a.effects), ...(a.kind === 'question' ? { questions: nativeQuestions(a.effects) } : {}) })) };
+      return { promotions: mapped, approvals: data.approvals.map(a => isSwarmCard(a.kind)
+        // 群研卡：卡面字段原样交给 SwarmCard；effects 只留服务端给的人话（lines）
+        ? { ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects((a as { lines?: unknown }).lines), swarm: { kind: a.kind, data: (Array.isArray(a.effects) && object(a.effects[0]) ? a.effects[0] : {}) as Record<string, any> } }
+        : ({ ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects(a.effects), ...(a.kind === 'question' ? { questions: nativeQuestions(a.effects) } : {}) })) };
     },
     async decidePromotion(id, decision) {
       current();
