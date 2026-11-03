@@ -4,6 +4,7 @@ import type {
   Claim,
   ClaimStatus,
   Evidence,
+  Review,
   SwarmReport,
   SwarmRoute,
 } from "@reinlab/contracts";
@@ -109,6 +110,8 @@ export type SubmissionResult = {
   claimIds: string[];
   evidenceIds: string[];
   postIds: string[];
+  /** 审查类提交回带这条 review。 */
+  reviewId?: string;
   repeated?: boolean;
 };
 
@@ -260,6 +263,7 @@ export async function putClaim(
       throw new ApiFailure("CLAIM_NOT_FOUND", 404, "要改的结论不存在。");
     version = Number(prior) + 1;
   }
+  // 改版就是新主张：旧的核实不再作数（status 回到候选，门禁看 verified_version 是否等于当前版本）。
   await client.query(
     `insert into swarm_claim(
        account_id,run_id,id,submission_id,version,text,conditions,basis,status,author,task_id,route_id,round,visibility,negative
@@ -329,6 +333,12 @@ export async function loadClaim(
   ).rows[0];
   if (!row) throw new ApiFailure("CLAIM_NOT_FOUND", 404, "这条结论不存在。");
   return claimRow(row);
+}
+
+/** 一条结论当前的核实绑定（门禁只认版本相等的）。 */
+export function verifiedVersionOf(row: Record<string, unknown>): number | null {
+  const value = row.verified_version;
+  return value === null || value === undefined ? null : Number(value);
 }
 
 export function claimRow(row: Record<string, unknown>): Claim {
@@ -424,9 +434,23 @@ export async function latestClaims(
     const key = `${link.claim_id}:${link.claim_version}`;
     byKey.set(key, [...(byKey.get(key) ?? []), String(link.evidence_id)]);
   }
+  // 审查 id 也一并带上（跨版本）：页面不打开详情也能看「这条有几条审查」。
+  const reviews = (
+    await client.query(
+      `select claim_id, id from swarm_review
+        where account_id=$1 and run_id=$2 order by created_at`,
+      [account, runId],
+    )
+  ).rows;
+  const reviewsByClaim = new Map<string, string[]>();
+  for (const review of reviews) {
+    const key = String(review.claim_id);
+    reviewsByClaim.set(key, [...(reviewsByClaim.get(key) ?? []), String(review.id)]);
+  }
   const claims = rows.map((claim) => ({
     ...claim,
     evidenceIds: byKey.get(`${claim.id}:${claim.version}`) ?? [],
+    reviews: reviewsByClaim.get(claim.id) ?? [],
   }));
   const filtered =
     filter.sinceVersion === undefined || filter.sinceVersion === null
@@ -460,16 +484,60 @@ export async function loadEvidence(
 }
 
 /**
- * 阶段结果的汇总（MVP-2：核实还没接通，所以没有 verified，也没有正式报告）。
- * 只按当前标签说清楚：哪些是候选、哪些是负结果、还缺什么。
+ * 汇总 / 正式报告（PRD §5 末的门禁）。
+ *
+ * 正文只放「绑定了当前版本独立核实」的结论；其余分别进局限、争议、未核实、缺口。
+ * 运行还在跑 → stage；结束但有分歧 → awaiting_review；有已核实 → final（无遗留问题）
+ * 或 partial（还有候选/缺口）；一条核实都没有 → unresolved。
  */
 export async function buildReport(
   client: Client,
-  input: { account: string; runId: string; version: number; stateReason?: string | null },
+  input: {
+    account: string;
+    runId: string;
+    version: number;
+    stateReason?: string | null;
+    /** 运行状态：决定 stage / awaiting_review / final 等。 */
+    runState?: string | null;
+    limits?: { rounds: number; minutes: number } | null;
+    used?: { rounds: number; activeMs: number } | null;
+  },
 ): Promise<SwarmReport> {
   const claims = await latestClaims(client, input.account, input.runId, { limit: 200 });
   const evidence = await loadEvidence(client, input.account, input.runId);
   const usedEvidence = new Set(claims.flatMap((claim) => claim.evidenceIds));
+  const verifiedRows = (
+    await client.query(
+      `select id, version, text, verified_version, evidence_count from (
+         select c.id, c.version, c.text, c.verified_version,
+                (select count(*) from swarm_claim_evidence l
+                  where l.account_id=c.account_id and l.run_id=c.run_id
+                    and l.claim_id=c.id and l.claim_version=c.version) evidence_count
+           from swarm_claim c
+          where c.account_id=$1 and c.run_id=$2
+            and c.verified_version = c.version
+            and c.status = 'verified'
+            -- 只看每条结论的最新版本：改版之后旧版本的核实不算数。
+            and c.version = (select max(c2.version) from swarm_claim c2
+                              where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
+       ) v order by evidence_count desc, version desc`,
+      [input.account, input.runId],
+    )
+  ).rows;
+  const verifiedIds = new Set(verifiedRows.map((row) => String(row.id)));
+  const disputed = claims.filter(
+    (claim) => (claim.status === "disputed" || claim.status === "falsified") && !verifiedIds.has(claim.id),
+  );
+  const insufficient = claims.filter((claim) => claim.status === "insufficient");
+  const unverified = claims.filter(
+    (claim) =>
+      !verifiedIds.has(claim.id) &&
+      claim.status !== "disputed" &&
+      claim.status !== "falsified" &&
+      claim.status !== "insufficient" &&
+      !claim.negative,
+  );
+  const negative = claims.filter((claim) => claim.negative);
   const routes = (
     await client.query(
       "select route_id,title,state,gap,blocked_reason from swarm_approach where account_id=$1 and run_id=$2",
@@ -480,22 +548,390 @@ export async function buildReport(
     ...routes
       .filter((route) => route.gap || route.blocked_reason)
       .map((route) => `${String(route.title)}：${String(route.gap ?? route.blocked_reason)}`),
+    ...insufficient.map((claim) => `证据不足：${claim.text.slice(0, 80)}（${claim.statusReason ?? "未说明"}）`),
     ...(input.stateReason ? [input.stateReason] : []),
-    "核实还没接通，所有结论都只是候选",
   ];
+  const limits = [
+    ...disputed.map((claim) => `有争议/已证伪：${claim.text.slice(0, 80)}`),
+    ...insufficient.map((claim) => `待补证据：${claim.text.slice(0, 60)}`),
+    ...claims
+      .flatMap((claim) => claim.conditions ?? [])
+      .slice(0, 8)
+      .map((condition) => `适用条件：${condition}`),
+  ];
+  const running = input.runState === "running" || input.runState === "near_limit" || input.runState === "finishing";
+  const state: SwarmReport["state"] = running
+    ? "stage"
+    : input.runState === "awaiting_review"
+      ? "awaiting_review"
+      : verifiedRows.length === 0
+        ? "unresolved"
+        : gaps.length || unverified.length || negative.length || limits.length
+          ? "partial"
+          : "final";
+  // 到限时的追加建议：说清新发现、剩余缺口、建议追加多少（PRD §3）。
+  const nearLimit =
+    !!input.limits &&
+    !!input.used &&
+    ((input.used.activeMs ?? 0) >= input.limits.minutes * 60_000 * 0.8 ||
+      (input.used.rounds ?? 0) >= input.limits.rounds);
+  const nextSuggestion =
+    nearLimit && running
+      ? {
+          rounds: 2,
+          minutes: Math.max(15, Math.round(input.limits!.minutes / 2)),
+          why: [
+            `已经有 ${verifiedIds.size} 条结论通过独立核实，还有 ${unverified.length} 条候选没核`,
+            gaps.length ? `剩余缺口：${gaps.slice(0, 2).join("；")}` : "剩余缺口：暂时没有新的",
+          ].join("；"),
+        }
+      : null;
   return {
     version: input.version,
-    state: "stage",
-    answer: null,
-    verified: [],
-    limits: ["核实还没接通：以下全部是候选，不能当作已证实的结论对外使用"],
-    disputed: [],
-    unverified: claims.map((claim) => claim.id),
-    negative: claims.filter((claim) => claim.negative).map((claim) => claim.id),
+    state,
+    answer: verifiedRows[0] ? String(verifiedRows[0].text).slice(0, 2000) : null,
+    verified: verifiedRows.map((row) => String(row.id)),
+    limits: [...new Set(limits)].slice(0, 12),
+    disputed: disputed.map((claim) => claim.id),
+    unverified: unverified.map((claim) => claim.id),
+    negative: negative.map((claim) => claim.id),
     gaps: [...new Set(gaps)].slice(0, 20),
     sources: [...usedEvidence].filter((id) => evidence.some((entry) => entry.id === id)),
-    nextSuggestion: null,
+    nextSuggestion,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * 第 3 轮起的精简 Context Packet（PRD §4）：只转已核实和明确标明的成果，
+ * 一条一句：结论、适用条件、来源定位。不转整段会话，也不转别人的工作目录。
+ */
+export async function contextPacket(
+  client: Client,
+  input: { account: string; runId: string },
+): Promise<string> {
+  const verified = (
+    await client.query(
+      `select c.id, c.text, c.route_id, c.conditions from swarm_claim c
+        where c.account_id=$1 and c.run_id=$2 and c.verified_version = c.version and c.status='verified'
+        order by c.created_at limit 8`,
+      [input.account, input.runId],
+    )
+  ).rows;
+  const negative = (
+    await client.query(
+      `select distinct on (c.id) c.id, c.text, c.negative from swarm_claim c
+        where c.account_id=$1 and c.run_id=$2 and c.negative is not null
+        order by c.id, c.version desc limit 5`,
+      [input.account, input.runId],
+    )
+  ).rows;
+  const links = (
+    await client.query(
+      `select l.claim_id, l.claim_version, e.source from swarm_claim_evidence l
+         join swarm_evidence e
+           on e.account_id=l.account_id and e.run_id=l.run_id and e.id=l.evidence_id
+        where l.account_id=$1 and l.run_id=$2`,
+      [input.account, input.runId],
+    )
+  ).rows;
+  const sourceOf = (claimId: string, claimVersion: number | null) => {
+    const link = links.find(
+      (row) => String(row.claim_id) === claimId && (!claimVersion || Number(row.claim_version) === claimVersion),
+    );
+    if (!link) return "";
+    const source = link.source as { ref?: string; title?: string };
+    return `（来源 ${source?.ref ?? "未注明"}${source?.title ? " " + String(source.title).slice(0, 40) : ""}）`;
+  };
+  if (!verified.length && !negative.length) return "";
+  const lines = [
+    "第 3 轮起可以互相借鉴了。下面是已经过独立核实的结论和明确标明的负结果，只能引用这些版本，不要转述别人的原话：",
+    ...verified.map(
+      (row, index) =>
+        `${index + 1}. [已核实] ${String(row.text).slice(0, 200)}` +
+        `${Array.isArray(row.conditions) && row.conditions.length ? `｜条件：${(row.conditions as string[]).slice(0, 3).join("、")}` : ""}` +
+        `｜路线 ${String(row.route_id ?? "未标")}${sourceOf(String(row.id), null)}`,
+    ),
+    ...negative.map(
+      (row, index) =>
+        `${verified.length + index + 1}. [负结果] ${String(row.text).slice(0, 160)}${
+          row.negative
+            ? `｜找过：${String((row.negative as { searched?: string }).searched ?? "").slice(0, 60)}；没找到：${String((row.negative as { notFound?: string }).notFound ?? "").slice(0, 60)}`
+            : ""
+        }`,
+    ),
+    "未核实的候选不要当成结论引用；要引用别人的东西，先自己在黑板上查它当前版本。",
+  ];
+  return lines.join("\n");
+}
+
+// ── 审查（反驳 / 补证据 / 核实 / 降级）───────────────
+
+export const REVIEW_KINDS = ["refute", "need_evidence", "verify", "downgrade"] as const;
+export const REVIEW_VERDICTS = ["upheld", "rejected", "verified", "not_verifiable", "pending"] as const;
+export type ReviewKind = (typeof REVIEW_KINDS)[number];
+export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
+
+/** 每条结论最多两轮反驳：改版本不重置计数（PRD §5）。 */
+export const MAX_REFUTE_ROUNDS = 2;
+
+export type ReviewInput = {
+  claimId: string;
+  claimVersion?: number | null;
+  kind: ReviewKind;
+  verdict: ReviewVerdict;
+  reason: string;
+  evidenceIds: string[];
+  taskId: string | null;
+};
+
+export function readReview(value: unknown): ReviewInput {
+  const input = obj(value);
+  const claimId = str(input.claimId);
+  if (!claimId) throw new ApiFailure("CLAIM_NOT_FOUND", 404, "要审的是哪条结论？");
+  const kind = str(input.kind) ?? "verify";
+  if (!(REVIEW_KINDS as readonly string[]).includes(kind))
+    throw new ApiFailure("REVIEW_INVALID", 400, "审查类型只能是 refute / need_evidence / verify / downgrade。");
+  const verdict = str(input.verdict) ?? (kind === "verify" ? "verified" : "upheld");
+  if (!(REVIEW_VERDICTS as readonly string[]).includes(verdict))
+    throw new ApiFailure("REVIEW_INVALID", 400, "判定只能是 upheld / rejected / verified / not_verifiable / pending。");
+  const reason = str(input.reason);
+  if (!reason || reason.length < 4)
+    throw new ApiFailure("REVIEW_REASON_REQUIRED", 400, "审查要写清理由：看到了什么、为什么这样判。");
+  const version = Number(input.claimVersion);
+  return {
+    claimId,
+    claimVersion: Number.isSafeInteger(version) && version > 0 ? version : null,
+    kind: kind as ReviewKind,
+    verdict: verdict as ReviewVerdict,
+    reason: reason.slice(0, 4000),
+    evidenceIds: list(input.evidenceIds).map(String).slice(0, 20),
+    taskId: str(input.taskId),
+  };
+}
+
+export function reviewRow(row: Record<string, unknown>): Review {
+  return {
+    id: String(row.id),
+    claimId: String(row.claim_id),
+    claimVersion: Number(row.claim_version),
+    kind: row.kind as Review["kind"],
+    by: String(row.by_member),
+    reason: String(row.reason),
+    evidenceIds: (row.evidence_ids as string[]) ?? [],
+    verdict: row.verdict as Review["verdict"],
+    round: Number(row.round ?? 0),
+    taskId: row.task_id ? String(row.task_id) : "",
+  };
+}
+
+/** 某一版结论上的审查记录（按时间）。 */
+export async function loadReviews(
+  client: Client,
+  account: string,
+  runId: string,
+  filter: { claimId?: string | null; claimVersion?: number | null } = {},
+): Promise<Review[]> {
+  const rows = (
+    await client.query(
+      `select * from swarm_review
+        where account_id=$1 and run_id=$2
+          and ($3::uuid is null or claim_id=$3)
+          and ($4::int is null or claim_version=$4)
+        order by created_at limit 200`,
+      [account, runId, filter.claimId ?? null, filter.claimVersion ?? null],
+    )
+  ).rows;
+  return rows.map(reviewRow);
+}
+
+/** 每条结论的反驳轮次（跨版本累计）。 */
+async function refuteRounds(client: Client, account: string, runId: string, claimId: string) {
+  const row = (
+    await client.query(
+      `select count(*)::int n from swarm_review
+        where account_id=$1 and run_id=$2 and claim_id=$3 and kind='refute'`,
+      [account, runId, claimId],
+    )
+  ).rows[0];
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * 落一条审查并更新结论状态（PRD §5）。
+ *
+ * 规则：
+ * - 反驳和核实都不能由结论作者本人做；核实的人也不能就是那条结论的反驳者。
+ * - 核实必须带自己的证据（回原始出处核，不是复述反驳意见）。
+ * - 每条结论最多两轮反驳，改版本不重置；两轮之后还有争议就标「有争议」。
+ * - 核实绑定版本：改主张或证据后，旧核实不再作数（门禁看 verified_version）。
+ */
+export async function reviewClaim(
+  client: Client,
+  input: {
+    account: string;
+    runId: string;
+    member: string;
+    round: number;
+    submissionId: string;
+    review: ReviewInput;
+  },
+): Promise<{ claim: Claim; review: Review; statusBefore: ClaimStatus }> {
+  const { account, runId, member, review } = input;
+  const claim = await loadClaim(client, account, runId, review.claimId, review.claimVersion ?? undefined);
+  if (claim.author === member)
+    throw new ApiFailure(
+      "REVIEW_SELF_FORBIDDEN",
+      400,
+      "不能审自己交的结论：反驳和核实都要由别人做。",
+    );
+  const rounds = await refuteRounds(client, account, runId, claim.id);
+  if (review.kind === "refute" && rounds >= MAX_REFUTE_ROUNDS)
+    throw new ApiFailure(
+      "REFUTE_ROUNDS_EXHAUSTED",
+      400,
+      `这条结论已经反驳过 ${rounds} 轮（上限 ${MAX_REFUTE_ROUNDS}），改版本也不重置；还有分歧就按「有争议」呈现，不能写成已证实。`,
+    );
+  if (review.kind === "verify") {
+    const priorRefuter = (
+      await client.query(
+        `select 1 from swarm_review
+          where account_id=$1 and run_id=$2 and claim_id=$3 and kind='refute' and by_member=$4 limit 1`,
+        [account, runId, claim.id, member],
+      )
+    ).rowCount;
+    if (priorRefuter)
+      throw new ApiFailure(
+        "VERIFY_REFUTER_CONFLICT",
+        400,
+        "反驳和核实要分开人做：你反驳过这条结论，就不能再给它签核实。",
+      );
+    // 这一版还有没解决的反驳时不能签核实：先改版本（或让反驳者撤回），
+    // 否则「已核实」和「有争议」会同时出现在同一条结论上（真机里真出现过）。
+    const openRefute = (
+      await client.query(
+        `select by_member, reason from swarm_review
+          where account_id=$1 and run_id=$2 and claim_id=$3 and claim_version=$4
+            and kind='refute' and verdict='upheld'
+          limit 1`,
+        [account, runId, claim.id, claim.version],
+      )
+    ).rows[0];
+    if (openRefute)
+      throw new ApiFailure(
+        "VERIFY_OPEN_REFUTE",
+        409,
+        `这一版还有没解决的反驳（${String(openRefute.by_member)}：${String(openRefute.reason).slice(0, 80)}）。先改主张或补证据出新版本，或者让反驳者撤回，再核实。`,
+      );
+    if (review.evidenceIds.length === 0)
+      throw new ApiFailure(
+        "VERIFY_EVIDENCE_REQUIRED",
+        400,
+        "核实要自己回原始出处核：把核到的那条证据（来源 + 章节/表号 + 摘句）一起交上来。",
+      );
+  }
+  const id = randomUUID();
+  await client.query(
+    `insert into swarm_review(
+       account_id,run_id,id,claim_id,claim_version,kind,by_member,reason,evidence_ids,verdict,round,task_id,submission_id
+     ) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    [
+      account,
+      runId,
+      id,
+      claim.id,
+      claim.version,
+      review.kind,
+      member,
+      review.reason,
+      JSON.stringify(review.evidenceIds),
+      review.verdict,
+      input.round,
+      review.taskId,
+      input.submissionId,
+    ],
+  );
+  const statusBefore = claim.status;
+  // 状态机：候选 →（独立反驳）→ 待核实 →（独立核实）→ 已核实；反驳成立→有争议。
+  let status: ClaimStatus = claim.status;
+  let statusReason: string | null = claim.statusReason ?? null;
+  let verifiedVersion: number | null = null;
+  let verifiedBy: string | null = null;
+  if (review.kind === "verify") {
+    if (review.verdict === "verified") {
+      status = "verified";
+      statusReason = null;
+      verifiedVersion = claim.version;
+      verifiedBy = member;
+    } else if (review.verdict === "not_verifiable") {
+      status = "insufficient";
+      statusReason = `核实未能成立：${review.reason.slice(0, 200)}`;
+    }
+  } else if (review.kind === "refute" && review.verdict === "upheld") {
+    status = "disputed";
+    statusReason = review.reason.slice(0, 400);
+  } else if (review.kind === "refute" && review.verdict === "rejected") {
+    status = "awaiting_verify";
+    statusReason = "反驳没有成立，等独立核实";
+  } else if (review.kind === "need_evidence") {
+    status = "insufficient";
+    statusReason = `需要补证据：${review.reason.slice(0, 200)}`;
+  } else if (review.kind === "downgrade" && review.verdict === "upheld") {
+    status = "falsified";
+    statusReason = `已降级/证伪：${review.reason.slice(0, 200)}`;
+  }
+  const refuteRound = review.kind === "refute" ? rounds + 1 : rounds;
+  await client.query(
+    `update swarm_claim
+        set status=$4,
+            status_reason=$5,
+            refute_rounds=$6,
+            verified_version=coalesce($7, verified_version),
+            verified_by=coalesce($8, verified_by),
+            verified_at=case when $7 is null then verified_at else now() end
+      where account_id=$1 and run_id=$2 and id=$3 and version=$9`,
+    [
+      account,
+      runId,
+      claim.id,
+      status,
+      statusReason,
+      refuteRound,
+      verifiedVersion,
+      verifiedBy,
+      claim.version,
+    ],
+  );
+  // 这条结论上的全部审查 id（跨版本）：详情和页面按它列审查记录。
+  const reviewIds = (
+    await client.query(
+      `select id from swarm_review
+        where account_id=$1 and run_id=$2 and claim_id=$3 order by created_at`,
+      [account, runId, claim.id],
+    )
+  ).rows.map((row) => String(row.id));
+  const updated: Claim = {
+    ...claim,
+    status,
+    ...(statusReason ? { statusReason } : {}),
+    refuteRounds: refuteRound,
+    reviews: reviewIds,
+  };
+  return {
+    claim: updated,
+    statusBefore,
+    review: {
+      id,
+      claimId: claim.id,
+      claimVersion: claim.version,
+      kind: review.kind,
+      by: member,
+      reason: review.reason,
+      evidenceIds: review.evidenceIds,
+      verdict: review.verdict,
+      round: input.round,
+      taskId: review.taskId ?? "",
+    },
   };
 }
 

@@ -26,6 +26,7 @@ import type { KernelService } from "../kernel/service";
 import { labelOf, loadFold, projectEvents } from "./project";
 import {
   buildReport,
+  contextPacket,
   claimEvidenceIds,
   claimRow,
   evidenceRow,
@@ -42,6 +43,9 @@ import {
   readClaim,
   readEvidence,
   recordSubmission,
+  loadReviews,
+  readReview,
+  reviewClaim,
   type SubmissionResult,
 } from "./blackboard";
 
@@ -796,13 +800,16 @@ export class SwarmService {
       // 黑板：结论 + 证据 + 阶段结果（核实没接通，所以没有 verified）。
       const claims: Claim[] = await latestClaims(client, account, runId, { limit: 200 });
       const evidence: Evidence[] = await loadEvidence(client, account, runId);
-      const reviews: Review[] = [];
       const report: SwarmReport | null = await buildReport(client, {
         account,
         runId,
         version: row.plan_version,
         stateReason: row.state_reason,
+        runState: run.state,
+        limits: run.limits,
+        used: { rounds: run.used.rounds, activeMs: run.used.activeMs },
       });
+      const reviews: Review[] = await loadReviews(client, account, runId);
       // 路线状态按最后一条 route 事件走（运行结束时会发 stopped），没有事件才用默认。
       const routeEvents = (
         await client.query(
@@ -1240,7 +1247,7 @@ export class SwarmService {
              version=version+1,
              updated_at=now()
        where account_id=$1 and run_id=$2 and state in ('active','reopened')`,
-      [account, runId, reason],
+      [account, runId, "这次群研结束时，这条路线的任务还没全部交付"],
     );
     await this.emitReport(client, account, runId, (await this.row(client, account, runId)).plan_version, reason);
     const settledRoutes = await loadApproaches(client, account, runId);
@@ -1336,19 +1343,36 @@ export class SwarmService {
       // 验收里就是这一条把刚确认的运行 2 秒后判成了「任务都交付了」。
       const answered = tasks.length > 0 && open === 0 && delivered > 0;
       if (answered || outOfTime || outOfRounds) {
-        const reason = answered
-          ? "任务都交付了；核实还没接通，结论仍然是候选"
-          : outOfTime
-            ? `到达 ${row.limit_minutes} 分钟`
-            : tasks.length === 0
-              ? `到达 ${row.limit_rounds} 轮，这一轮没有建出任何任务`
-              : `到达 ${row.limit_rounds} 轮`;
-        await client.query(
-          `update swarm_run set state='partial', state_reason=$3, end_reason=$4, active_since=null,
-             ended_at=now(), updated_at=now() where account_id=$1 and run_id=$2`,
-          [account, runId, reason, answered ? "answered" : "limit"],
+        // 报告前还有分歧就进 awaiting_review（等人看分歧），不硬写成完成或部分完成。
+        const disputed = Number(
+          (
+            await client.query(
+              `select count(*)::int n from swarm_claim
+                where account_id=$1 and run_id=$2 and version=(
+                  select max(version) from swarm_claim c2
+                   where c2.account_id=$1 and c2.run_id=$2 and c2.id=swarm_claim.id
+                ) and status in ('disputed','falsified')`,
+              [account, runId],
+            )
+          ).rows[0]?.n ?? 0,
         );
-        await this.settleTerminal(client, account, runId, reason);
+        const reason = disputed
+          ? "报告前还有分歧：先看你决定按「有争议」写入还是一致性再查一轮"
+          : answered
+            ? "任务都交付了；核实没通过的结论仍然是候选"
+            : outOfTime
+              ? `到达 ${row.limit_minutes} 分钟`
+              : tasks.length === 0
+                ? `到达 ${row.limit_rounds} 轮，这一轮没有建出任何任务`
+                : `到达 ${row.limit_rounds} 轮`;
+        await client.query(
+          `update swarm_run set state=$3, state_reason=$4, end_reason=$5, active_since=null,
+             ended_at=case when $3='awaiting_review' then ended_at else now() end, updated_at=now()
+           where account_id=$1 and run_id=$2`,
+          [account, runId, disputed ? "awaiting_review" : "partial", reason, answered ? "answered" : "limit"],
+        );
+        if (!disputed) await this.settleTerminal(client, account, runId, reason);
+        await this.emitReport(client, account, runId, row.plan_version, reason);
         await this.emitRun(client, account, runId);
         return null;
       }
@@ -1361,24 +1385,47 @@ export class SwarmService {
         await this.emitRun(client, account, runId);
         return { round: 1, kickoff: true };
       }
+      // 轮次和阶段由服务端推进：前 2 轮独立，第 3 轮起交叉。
+      const nextRound = row.round + 1;
+      const phase = nextRound >= 3 ? "cross" : "independent";
+      // 临近额度（80%）先标 near_limit：仍在跑，但页面要给追加建议。
+      const near = active >= row.limit_minutes * 60_000 * 0.8;
       await client.query(
-        `update swarm_run set round=round+1, state='running', state_reason=null, active_since=now(), updated_at=now()
+        `update swarm_run set round=$3, phase=$4, state=$5, state_reason=$6,
+           active_since=now(), updated_at=now()
          where account_id=$1 and run_id=$2`,
-        [account, runId],
+        [
+          account,
+          runId,
+          nextRound,
+          phase,
+          near ? "near_limit" : "running",
+          near ? `快到额度了（已用 ${Math.round(active / 60_000)} 分钟 / ${row.limit_minutes} 分钟）` : null,
+        ],
       );
+      await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
       await this.emitRun(client, account, runId);
-      return { round: row.round + 1, kickoff: false };
+      return { round: nextRound, kickoff: false, phase };
     });
     if (!decision) return { continued: false };
-    // 第 1 轮是开跑（要带上计划与编制），之后的轮次只看还差什么。
-    const prompt =
-      decision.kickoff
-        ? kickoffPrompt(
-            await this.dependencies.db.withAccount(account, (client) =>
-              this.planOf(client, account, runId),
-            ),
-          )
-        : `第 ${decision.round} 轮。先看任务板还有哪些没交付，把没人做的分给队员，收齐之后再综合。不要重复已经交付的结果。`;
+    // 第 1 轮是开跑（要带上计划与编制）；第 3 轮起附精简的 Context Packet。
+    const packet = decision.kickoff
+      ? ""
+      : await this.dependencies.db.withAccount(account, (client) =>
+          decision.round >= 3 ? contextPacket(client, { account, runId }) : Promise.resolve(""),
+        );
+    const prompt = decision.kickoff
+      ? kickoffPrompt(
+          await this.dependencies.db.withAccount(account, (client) =>
+            this.planOf(client, account, runId),
+          ),
+        )
+      : [
+          `第 ${decision.round} 轮${decision.phase === "cross" ? "（交叉阶段）" : "（独立阶段）"}。先看任务板还有哪些没交付，把没人做的分给队员，收齐之后再综合。不要重复已经交付的结果。`,
+          packet,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
     await this.dependencies.kernel
       .submit(account, runId, { mode: "swarm", prompt })
       .catch(() => undefined);
@@ -1730,6 +1777,113 @@ export class SwarmService {
   }
 
   /**
+   * 审查（research_review_claim）：反驳 / 补证据 / 独立核实 / 降级。
+   * 审查者自己的证据先落库，再落 review，最后按规则改结论状态；推 review 与 claim 两条事件。
+   */
+  async reviewResearch(
+    account: string,
+    runId: string,
+    input: {
+      member?: unknown;
+      claimId?: unknown;
+      claimVersion?: unknown;
+      kind?: unknown;
+      verdict?: unknown;
+      reason?: unknown;
+      evidence?: unknown;
+      evidenceIds?: unknown;
+      taskId?: unknown;
+      submissionId?: unknown;
+    },
+  ): Promise<{ review: Review; claim: Claim }> {
+    const memberName =
+      typeof input.member === "string" && input.member.trim() !== "" ? input.member.trim() : "lead";
+    const submissionId =
+      typeof input.submissionId === "string" && input.submissionId.trim() !== ""
+        ? input.submissionId.trim().slice(0, 200)
+        : randomUUID();
+    return this.dependencies.db.withAccount(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const repeated = await findSubmission(client, account, runId, submissionId);
+      if (repeated && repeated.reviewId) {
+        const claim = await loadClaim(client, account, runId, repeated.claimIds[0] ?? "");
+        return {
+          review: (await loadReviews(client, account, runId, { claimId: claim.id })).slice(-1)[0],
+          claim,
+        };
+      }
+      if (TERMINAL.has(row.state))
+        throw new ApiFailure("RUN_ENDED", 409, "这次群研已经结束，不再接收审查。");
+      const member = await this.memberOf(client, account, runId, memberName);
+      // 审查者自己的证据（核实必须带）先落库。
+      const evidenceInput = Array.isArray(input.evidence)
+        ? input.evidence
+        : input.evidence
+          ? [input.evidence]
+          : [];
+      const evidenceIds: string[] = Array.isArray(input.evidenceIds)
+        ? input.evidenceIds.map(String)
+        : [];
+      for (const raw of evidenceInput) {
+        const parsed = readEvidence(raw);
+        const stored = await putEvidence(client, { account, runId, submissionId, evidence: parsed });
+        evidenceIds.push(stored.id);
+        if (stored.created) await this.emitSimple(client, account, runId, "evidence", stored.evidence);
+      }
+      const reviewInput = readReview({
+        claimId: input.claimId,
+        claimVersion: input.claimVersion,
+        kind: input.kind,
+        verdict: input.verdict,
+        reason: input.reason,
+        evidenceIds,
+        taskId: input.taskId,
+      });
+      const outcome = await reviewClaim(client, {
+        account,
+        runId,
+        member: member.id,
+        round: row.round,
+        submissionId,
+        review: reviewInput,
+      });
+      await recordSubmission(client, {
+        account,
+        runId,
+        submissionId,
+        member: member.id,
+        kind: `review:${reviewInput.kind}`,
+        result: {
+          submissionId,
+          claimIds: [outcome.claim.id],
+          evidenceIds,
+          postIds: [],
+          reviewId: outcome.review.id,
+        } satisfies SubmissionResult,
+      });
+      await this.emitSimple(client, account, runId, "review", outcome.review);
+      await this.emitSimple(client, account, runId, "claim", outcome.claim);
+      await this.emitSimple(client, account, runId, "bus", {
+        seq: 0,
+        at: new Date().toISOString(),
+        type: reviewInput.kind === "verify" ? "verify" : reviewInput.kind === "refute" ? "refute" : "deliver",
+        from: member.id,
+        to: "board",
+        text:
+          reviewInput.kind === "verify"
+            ? `核实了「${outcome.claim.text.slice(0, 60)}」：${reviewInput.verdict}`
+            : reviewInput.kind === "refute"
+              ? `反驳「${outcome.claim.text.slice(0, 60)}」：${reviewInput.reason.slice(0, 60)}`
+              : `${reviewInput.kind}：${outcome.claim.text.slice(0, 60)}`,
+        refs: { claimId: outcome.claim.id, reviewId: outcome.review.id },
+      } satisfies BusEntry);
+      await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
+      await this.emitRun(client, account, runId);
+      return { review: outcome.review, claim: outcome.claim };
+    });
+  }
+
+  /**
    * 查询（research_query）：按角色 / 路线 / 任务 / 版本增量读。
    * 独立阶段（前 2 轮）研究员只能看到自己那条路线的结论——服务端裁，不靠前端隐藏。
    */
@@ -1850,6 +2004,7 @@ export class SwarmService {
       const claim = await loadClaim(client, account, runId, claimId, version);
       const evidenceIds = await claimEvidenceIds(client, account, runId, claim.id, claim.version);
       const evidence = await loadEvidence(client, account, runId, evidenceIds);
+      const reviews = await loadReviews(client, account, runId, { claimId: claim.id });
       const fold = await loadFold(client, account, runId);
       const task = claim.taskId ? fold.tasks.get(claim.taskId) : undefined;
       const member = fold.members.get(claim.author);
@@ -1864,9 +2019,9 @@ export class SwarmService {
             ).rows[0]?.data as { role?: string; label?: string | null } | undefined);
       const role = (meta?.role as MemberRole | undefined) ?? member?.role ?? "researcher";
       return {
-        claim: { ...claim, evidenceIds },
+        claim: { ...claim, evidenceIds, reviews: reviews.map((review) => review.id) },
         evidence,
-        reviews: [],
+        reviews,
         task: task
           ? { id: task.id, title: task.title, state: task.state, routeId: task.routeId }
           : null,
@@ -1960,11 +2115,15 @@ export class SwarmService {
     await this.project(account, runId);
     return this.dependencies.db.withAccountSnapshot(account, async (client) => {
       const row = await this.row(client, account, runId);
+      const run = await this.runOf(client, account, runId);
       return buildReport(client, {
         account,
         runId,
         version: row.plan_version,
         stateReason: row.state_reason,
+        runState: run.state,
+        limits: run.limits,
+        used: { rounds: run.used.rounds, activeMs: run.used.activeMs },
       });
     });
   }
@@ -2037,6 +2196,7 @@ function kickoffPrompt(plan: SwarmPlan | null): string {
     "这样页面上的路线卡、任务树和名册才对得上；靠描述里写 route= 是不算数的。",
     "一个研究员只跟一条路线，三条路线不要用同一种做法；反驳和核实读别人的产出用 research_files 的读。",
     "每条结论都用 research_submit 交到黑板：结论要引用至少一条证据（来源 + 章节/表号 + 原文摘句），没有证据就写成负结果。",
+    "候选结论要有人独立反驳、另一个人独立核实（用 research_review_claim）：核实要自己回原文核、把核到的证据一起交上来，不能只复述反驳意见，也不能核自己交的结论。",
     "只把东西写进自己的 notes.md 不算交付——黑板和任务板都要动，页面才看得见；问题和求助也用 research_submit 发。",
     `这次额度是 ${rounds} 轮、${plan?.limits.minutes ?? MIN_MINUTES} 分钟。用 wait_agent 收齐产出，不要停下来等用户。`,
     "队员要用 research_files 在 team/<队员名>/ 里写自己的记录（目录会自己建出来）；不要读写别人的目录。",

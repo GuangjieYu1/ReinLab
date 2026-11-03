@@ -680,6 +680,126 @@ function researchTools(ctx, call, memberName, agent) {
       },
     }),
     defineTool({
+      name: "research_review_claim",
+      description:
+        "审一条候选结论：独立反驳（refute）、要求补证据（need_evidence）、独立核实（verify）、降级/证伪（downgrade）。不能审自己交的结论；核实必须自己回原始出处核，把核到的证据一起交上来，不能只复述反驳意见。每条结论最多两轮反驳。",
+      parameters: {
+        claim_id: { type: "string", required: true, description: "要审的结论 id。" },
+        claim_version: { type: "integer", description: "审哪一版；不填就审当前最新版。" },
+        kind: {
+          type: "string",
+          required: true,
+          enum: ["refute", "need_evidence", "verify", "downgrade"],
+        },
+        verdict: {
+          type: "string",
+          required: true,
+          enum: ["upheld", "rejected", "verified", "not_verifiable", "pending"],
+          description:
+            "判定：反驳成立 upheld / 不成立 rejected；核实通过 verified / 核不了 not_verifiable；待定 pending。",
+        },
+        reason: {
+          type: "string",
+          required: true,
+          description: "看到了什么、为什么这样判（核实要写清回到哪一处原文核的）。",
+        },
+        evidence: {
+          type: "array",
+          description: "核实必须带：你自己核到的那条证据（来源 + 章节/表号 + 摘句）。",
+          items: {
+            type: "object",
+            properties: {
+              source: {
+                type: "object",
+                required: true,
+                properties: {
+                  kind: {
+                    type: "string",
+                    required: true,
+                    enum: ["paper", "web", "code", "data", "proof", "other"],
+                  },
+                  title: { type: "string", required: true },
+                  ref: { type: "string", required: true },
+                  version: { type: "string" },
+                },
+              },
+              locator: {
+                type: "object",
+                properties: {
+                  section: { type: "string" },
+                  quote: { type: "string" },
+                  page: { type: "integer" },
+                  lines: { type: "string" },
+                },
+              },
+              access: { type: "string", enum: ["full_text", "abstract_only", "unavailable"] },
+              how: { type: "string", required: true },
+            },
+          },
+        },
+        task_id: { type: "string", description: "这次审查对应的任务 id。" },
+      },
+      timeoutMs: 90_000,
+      async execute(args) {
+        const outcome = await call("swarm", "review", {
+          member: memberName,
+          claimId: args.claim_id,
+          ...(args.claim_version ? { claimVersion: args.claim_version } : {}),
+          kind: args.kind,
+          verdict: args.verdict,
+          reason: args.reason,
+          ...(args.task_id ? { taskId: args.task_id } : {}),
+          ...(Array.isArray(args.evidence)
+            ? {
+                evidence: args.evidence.map((entry) => ({
+                  source: {
+                    kind: entry.source?.kind,
+                    title: entry.source?.title,
+                    ref: entry.source?.ref,
+                    version: entry.source?.version,
+                  },
+                  locator: entry.locator
+                    ? {
+                        section: entry.locator.section,
+                        quote: entry.locator.quote,
+                        page: entry.locator.page,
+                        lines: entry.locator.lines,
+                      }
+                    : null,
+                  access: entry.access ?? "full_text",
+                  how: entry.how,
+                })),
+              }
+            : {}),
+        });
+        if (outcome.error) return outcome.error;
+        // 审查落库之后再标任务完成（和交结论一样的顺序）。
+        if (args.task_id) {
+          try {
+            let task = null;
+            try {
+              task = ctx.agentTeams.getTask(agent, args.task_id);
+            } catch {
+              task = null;
+            }
+            if (task && task.status !== "completed")
+              await ctx.agentTeams.updateTask(agent, {
+                taskId: args.task_id,
+                expectedRevision: task.revision,
+                action: "complete",
+              });
+          } catch (error) {
+            return {
+              ...outcome.result,
+              taskComplete: false,
+              note: `审查已落库，但任务没有标完成：${String(error?.message ?? error).slice(0, 120)}。`,
+            };
+          }
+        }
+        return outcome.result;
+      },
+    }),
+    defineTool({
       name: "research_register_approach",
       description:
         "登记路线和方法族：同义的路线不会新开一条；卡住了就标阻塞并写缺口；要重开一条阻塞路线必须写明新机制。",
