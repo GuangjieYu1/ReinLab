@@ -196,6 +196,18 @@ it("黑板：结论没有证据又不写负结果就拒；负结果可以单独�
     expect(negative.claimIds).toHaveLength(1);
     const snapshot = await swarm.snapshot(f.account, runId);
     expect(snapshot.report!.negative).toEqual([negative.claimIds[0]]);
+
+    // 负结果没有证据：详情就该是空的，不能把整块黑板的证据带回来（B6）。
+    await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "sub-with-ev",
+      member: "r1-scout",
+      claim: { text: "另一条带证据的结论，用来确认黑板里确实有证据。", basis: "checked_fact" },
+      evidence: [evidenceOf("arXiv:2401.00031", "Table 9", "quote")],
+    });
+    const negativeDetail = await swarm.claimDetail(f.account, runId, negative.claimIds[0]);
+    expect(negativeDetail.claim.evidenceIds).toEqual([]);
+    expect(negativeDetail.evidence).toEqual([]);
   } finally {
     await f.close();
   }
@@ -245,30 +257,47 @@ it("黑板：登记路线同义不新开、标阻塞要原因、重开要新机�
   const { f, swarm, runId } = await setup();
   try {
     const first = await swarm.registerApproach(f.account, runId, {
-      title: "规模扫描",
-      idea: "把 agent 数当自变量做扫描",
-      approachFamily: "scaling-sweep",
+      title: "失效机理的对照拆解",
+      idea: "按失败模式分类逐条找反例，不碰数量轴",
+      approachFamily: "failure-taxonomy",
     });
     expect(first.created).toBe(true);
     const same = await swarm.registerApproach(f.account, runId, {
-      title: "规模扫描",
-      idea: "把 agent 数当自变量做扫描",
-      approachFamily: "scaling-sweep",
+      title: "失效机理的对照拆解",
+      idea: "按失败模式分类逐条找反例，不碰数量轴",
+      approachFamily: "failure-taxonomy",
     });
     expect(same.created).toBe(false);
     expect(same.route.id).toBe(first.route.id);
 
+    // 同义改写不新开：标题展开、换了方法族，也算同一条（E7）。
+    const expanded = await swarm.registerApproach(f.account, runId, {
+      title: "失效机理的对照拆解：按失败模式分类、逐条找反例",
+      idea: "按失败模式分类逐条找反例，不碰数量轴（换了个方法族写法）",
+      approachFamily: "failure-taxonomy-v2",
+    });
+    expect(expanded.created).toBe(false);
+    expect(expanded.route.id).toBe(first.route.id);
+    // 自己造一个不存在的 id，但内容明显是同一条：并到已有的那条上。
+    const alias = await swarm.registerApproach(f.account, runId, {
+      routeId: "r-9",
+      title: "失效机理的对照拆解",
+      idea: "按失败模式分类逐条找反例，不碰数量轴",
+    });
+    expect(alias.created).toBe(false);
+    expect(alias.route.id).toBe(first.route.id);
+
     await expect(
       swarm.registerApproach(f.account, runId, {
         routeId: first.route.id,
-        title: "规模扫描",
+        title: "失效机理的对照拆解",
         state: "blocked",
       }),
     ).rejects.toThrow(/阻塞/);
 
     const blocked = await swarm.registerApproach(f.account, runId, {
       routeId: first.route.id,
-      title: "规模扫描",
+      title: "失效机理的对照拆解",
       state: "blocked",
       blockedReason: "arXiv 连续 429，拿不到全文",
       gap: "缺 Table 2 的逐条数字",
@@ -284,7 +313,7 @@ it("黑板：登记路线同义不新开、标阻塞要原因、重开要新机�
     ).rejects.toThrow(/新机制/);
     const reopened = await swarm.registerApproach(f.account, runId, {
       routeId: first.route.id,
-      title: "规模扫描",
+      title: "失效机理的对照拆解",
       state: "reopened",
       reopenReason: "改用官方 HTML 全文，不再依赖 PDF 下载",
     });
@@ -327,6 +356,60 @@ it("黑板：登记路线同义不新开、标阻塞要原因、重开要新机�
     const settled = await swarm.snapshot(f.account, runId);
     expect(settled.run.state).toBe("partial");
     expect(settled.routes.every((entry) => entry.state === "stopped")).toBe(true);
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("E8：负责人上一句「还在待确认」，用户确认后立刻纠正成系统说明", async () => {
+  const f = await kernelFixture();
+  try {
+    const kernel = new KernelService({
+      db: f.db,
+      auth: new KernelAuth(generateKeyPairSync("ed25519").privateKey),
+      factory: quietKernel(),
+      model: "deepseek-v4-flash",
+      maxTokens: 4096,
+      controlUrl: "http://control:3001",
+      layout: {
+        home: HOME,
+        shimModule: "/app/shim.mjs",
+        shimContainerModule: "/app/shim.mjs",
+        dshModule: "/app/dsh.mjs",
+        restrictPatch: "/opt/restrict.patch.yml",
+        pluginEntry: "file:///opt/plugin/index.js",
+        swarmPluginEntry: "file:///opt/swarm/index.js",
+        shimMode: "host",
+        io,
+      },
+    });
+    const swarm = new SwarmService({ db: f.db, kernel, model: "deepseek-v4-flash" });
+    kernel.attachSwarm(swarm);
+    const created = await swarm.start(f.account, f.dossier, "多 Agent 数量与质量");
+    await swarm.publishPlan(f.account, created.runId, {
+      question: "多 Agent 数量与质量",
+      scope: "只查 LLM 多智能体",
+      qualityCriteria: ["有对照"],
+      routes: [{ id: "r1", title: "规模曲线", idea: "看曲线", differsBy: "看曲线" }],
+      limits: { rounds: 4, minutes: 30 },
+    });
+    // 负责人这一轮结束时计划还没确认：它说「还没确认」在当时没错。
+    await swarm.onTurnOutput(
+      f.account,
+      created.runId,
+      "计划卡在研究台那边还是「待确认」状态，我这边不能替你把自己交的计划批准掉——所以我现在还不能建队。",
+    );
+    await swarm.confirmPlan(f.account, created.runId, { planVersion: 1 });
+    const bus = (
+      await f.admin.query(
+        `select data from swarm_event where run_id=$1 and type='bus' order by seq`,
+        [created.runId],
+      )
+    ).rows.map((row) => row.data as { type: string; text: string });
+    // 确认之后补一条系统说明，别让用户以为卡住了。
+    expect(
+      bus.some((entry) => entry.type === "system" && /已经过期/.test(entry.text)),
+    ).toBe(true);
   } finally {
     await f.close();
   }

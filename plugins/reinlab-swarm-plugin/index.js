@@ -372,6 +372,8 @@ export function apply(ctx, config) {
   };
 
   const installTeammate = (agent, scoped, memberName) => {
+    // 队员目录在装工具时一起建好：第一次 research_files 读自己目录才不会 ENOENT。
+    void mkdir(join(teamRoot, memberName), { recursive: true }).catch(() => {});
     // 先收窄工具：这一步失败就照实记下来，但不要把整个插件装崩。
     try {
       const visible = DENIED_TOOLS.filter((toolName) => {
@@ -731,12 +733,22 @@ export function filesTool(root, memberName, readOnly, report, options = {}) {
     timeoutMs: 30_000,
     async execute(args) {
       try {
+        // 队员常把路径写成「自己的名字/文件」（像 team 相对路径）：剥掉这一层，
+        // 它的根本来就是 team/<名字>/。
+        let rel = typeof args.path === "string" ? args.path.replace(/^(\.\/)+/, "") : args.path;
+        if (typeof rel === "string" && rel.startsWith(memberName + "/"))
+          rel = rel.slice(memberName.length + 1);
+        const path2 = rel;
         switch (args.op) {
           case "list": {
-            const target = args.path ? await resolveInside(readRoot, args.path) : { target: readRoot };
-            const entries = await readdir(target.target, { withFileTypes: true });
+            const target = path2 ? await resolveInside(readRoot, path2) : { target: readRoot };
+            const entries = await readdir(target.target, { withFileTypes: true }).catch((error) => {
+              // 目录还没建过就当空的：第一次看自己目录不该报错。
+              if (error?.code === "ENOENT") return [];
+              throw error;
+            });
             return {
-              path: args.path ?? ".",
+              path: path2 ?? ".",
               entries: entries.slice(0, 200).map((entry) => ({
                 name: entry.name,
                 kind: entry.isDirectory() ? "dir" : "file",
@@ -744,40 +756,42 @@ export function filesTool(root, memberName, readOnly, report, options = {}) {
             };
           }
           case "read": {
-            const resolved = await resolveInside(readRoot, args.path ?? "");
+            const resolved = await resolveInside(readRoot, path2 ?? "");
             const info = await stat(resolved.target);
             if (!info.isFile()) return { error: { code: "NOT_A_FILE", message: "这不是文件。" } };
             if (info.size > MAX_FILE_BYTES)
               return { error: { code: "TOO_LARGE", message: "文件太大，读不了。" } };
             const text = await readFile(resolved.target, "utf8");
-            return { path: args.path, text: text.slice(0, MAX_FILE_BYTES) };
+            return { path: path2, text: text.slice(0, MAX_FILE_BYTES) };
           }
           case "write": {
             if (readOnly)
               return { error: { code: "READ_ONLY", message: "负责人这档只读团队目录。" } };
             if (typeof args.text !== "string")
               return { error: { code: "TEXT_REQUIRED", message: "要写什么？" } };
-            const resolved = await resolveInside(root, args.path ?? "");
+            const resolved = await resolveInside(root, path2 ?? "");
             await mkdir(dirname(resolved.target), { recursive: true });
             await writeFile(resolved.target, args.text.slice(0, MAX_FILE_BYTES), {
               mode: 0o600,
             });
             await report(memberName, {
               kind: "output",
-              text: `写了自己的记录：${args.path}`,
+              text: `写了自己的记录：${path2}`,
             });
-            return { path: args.path, bytes: args.text.length };
+            return { path: path2, bytes: args.text.length };
           }
           default:
             return { error: { code: "OP_UNSUPPORTED", message: "只支持 list / read / write。" } };
         }
       } catch (error) {
         const code = String(error?.message ?? error);
+        const missing = /^ENOENT/.test(code);
         return {
           error: {
-            code: code.startsWith("PATH_") ? code : "FILES_FAILED",
-            message:
-              code === "PATH_OUTSIDE_SCOPE"
+            code: code.startsWith("PATH_") ? code : missing ? "NOT_FOUND" : "FILES_FAILED",
+            message: missing
+              ? "这个路径还不存在：先写再读。你自己的目录是 team/<你的名字>/，用相对路径就行。"
+              : code === "PATH_OUTSIDE_SCOPE"
                 ? "这个路径在你自己的目录外面，不能读写。"
                 : `没有成功：${code.slice(0, 200)}`,
           },

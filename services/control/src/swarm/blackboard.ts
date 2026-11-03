@@ -437,19 +437,23 @@ export async function latestClaims(
     .slice(0, Math.min(Math.max(filter.limit ?? 50, 1), 200));
 }
 
-/** 证据全量（按 run），可按 id 列表过滤。 */
+/**
+ * 证据（按 run）。给了 id 列表就严格按它取：空数组就是「没有证据」，
+ * 不能退化成「把整块黑板的证据都带回来」（负结果结论踩过）。
+ */
 export async function loadEvidence(
   client: Client,
   account: string,
   runId: string,
   ids?: string[],
 ): Promise<Evidence[]> {
+  if (ids !== undefined && ids.length === 0) return [];
   const rows = (
     await client.query(
       `select * from swarm_evidence
         where account_id=$1 and run_id=$2 and ($3::uuid[] is null or id = any($3::uuid[]))
         order by created_at`,
-      [account, runId, ids && ids.length ? ids : null],
+      [account, runId, ids ?? null],
     )
   ).rows;
   return rows.map(evidenceRow);
@@ -500,7 +504,47 @@ const normalize = (value: string) =>
   value
     .toLowerCase()
     .replace(/[\s\u3000]+/g, "")
-    .replace(/[，。、；：,.;:!?！？（）()《》“”"'’]/g, "");
+    .replace(/[，。、；：,.;:!?！？（）()《》“”"'’「」【】…·—\-]/g, "");
+
+/** 中文没有空格，按字二元组算 Jaccard：够粗糙，但用来判「是不是同一件事」够用。 */
+function similarity(a: string, b: string): number {
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  const grams = (value: string) => {
+    const set = new Set<string>();
+    for (let i = 0; i < value.length - 1; i += 1) set.add(value.slice(i, i + 2));
+    if (!set.size) set.add(value);
+    return set;
+  };
+  const ga = grams(na);
+  const gb = grams(nb);
+  let shared = 0;
+  for (const gram of ga) if (gb.has(gram)) shared += 1;
+  return shared / (ga.size + gb.size - shared);
+}
+
+/**
+ * 是不是同一条路线（PRD §4：同义改写不能登记成新路线）。
+ * 依次看：标题一模一样、标题互相包含、标题高度相似、方法族相同且做法相近、做法高度相似。
+ */
+export function sameRoute(
+  a: { title: string; idea?: string; approachFamily?: string },
+  b: { title: string; idea?: string; approachFamily?: string },
+): boolean {
+  const ta = normalize(a.title);
+  const tb = normalize(b.title);
+  if (!ta || !tb) return false;
+  if (ta === tb) return true;
+  // 一条是另一条的前缀/子串：负责人常把计划里的短标题展开成长标题。
+  if (ta.length >= 6 && tb.length >= 6 && (ta.includes(tb) || tb.includes(ta))) return true;
+  if (similarity(ta, tb) >= 0.55) return true;
+  const fa = normalize(a.approachFamily ?? "");
+  const fb = normalize(b.approachFamily ?? "");
+  if (fa && fb && fa === fb && similarity(a.idea ?? "", b.idea ?? "") >= 0.35) return true;
+  return similarity(a.idea ?? "", b.idea ?? "") >= 0.6;
+}
 
 export type ApproachInput = {
   routeId?: string | null;
@@ -561,14 +605,10 @@ export async function putApproach(
     blockedReason: row.blocked_reason ? String(row.blocked_reason) : undefined,
     reopenReason: row.reopen_reason ? String(row.reopen_reason) : undefined,
   }));
-  const wanted = approach.routeId
-    ? existing.find((route) => route.routeId === approach.routeId)
-    : existing.find(
-        (route) =>
-          normalize(route.approachFamily) === normalize(approach.approachFamily) &&
-          (normalize(route.title) === normalize(approach.title) ||
-            normalize(route.idea) === normalize(approach.idea)),
-      );
+  // 先按 route_id 精确找；找不到（负责人自造了 r-4 这种）再按「是不是同一件事」找。
+  const wanted =
+    (approach.routeId ? existing.find((route) => route.routeId === approach.routeId) : undefined) ??
+    existing.find((route) => sameRoute(route, approach));
   const routeId = wanted?.routeId ?? approach.routeId ?? `r-${existing.length + 1}`;
   const reopening = wanted?.state === "blocked" || wanted?.state === "stopped";
   if (reopening && !approach.reopenReason)

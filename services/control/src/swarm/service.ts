@@ -460,6 +460,32 @@ export class SwarmService {
          where account_id=$1 and run_id=$2`,
         [account, runId, rounds, minutes],
       );
+      // 用户点确认时负责人可能刚说完「还在待确认」：那句在当时不算错，但用户读到就过期了。
+      // 确认落库之后立刻补一条系统说明，别让人以为卡住了（E8）。
+      const staleDelivers = (
+        await client.query(
+          `select seq, data from swarm_event
+            where account_id=$1 and run_id=$2 and type='bus'
+              and data->>'type'='deliver' and data->>'from'='lead'
+              and source='control'
+              and (data->>'text') ~ '(待确认|还没确认|未被确认|不能建队)'
+              and seq > coalesce((select max(seq) from swarm_event
+                                   where account_id=$1 and run_id=$2 and type='bus'
+                                     and data->>'type'='system'), 0)
+            order by seq desc limit 1`,
+          [account, runId],
+        )
+      ).rows[0];
+      if (staleDelivers)
+        await this.emitSimple(client, account, runId, "bus", {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: "system",
+          from: "system",
+          to: "user",
+          text: "（上一条「计划还卡在待确认」已经过期：计划已确认，团队已开跑。）",
+          refs: {},
+        } satisfies BusEntry);
       await this.emitRun(client, account, runId);
       const plan = await this.planOf(client, account, runId);
       // 路线是确认后才真正建出来的：立刻推 route 事件，页面不用等刷新（E6）。

@@ -209,8 +209,24 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
 /**
  * 一轮的工具调用上限。规划一条一天的路线常常要先查地点、天气、太阳、路线，
  * 40 次会在第一轮就用满（实测因此只落下 1 个点）；80 够一整轮，又不至于无限转。
+ *
+ * 只对探索这类「一个模型一轮」的会话有效。群研一回合里有 6 名成员并行干活，
+ * 这个计数是把全队合起来数的——研究员刚把材料读完就被挡住，连「交结论」这个
+ * 收尾动作都交不上去（MVP-2 验收里 0 条结论）。群研整体不受它限制，
+ * 研究工具也永远放行：WORKFLOW 第 9 条是「不给模型规定次数上限」。
  */
 const MAX_TOOL_CALLS = 80;
+
+/** 收尾类工具：任何情况下都别再拿次数上限挡它（挡了就等于让人白干一轮）。 */
+const ALWAYS_ALLOWED_TOOLS = new Set([
+  "swarm.submit",
+  "swarm.approach",
+  "swarm.query",
+  "swarm.plan",
+  "swarm.status",
+  "swarm.meta",
+  "swarm.log",
+]);
 
 /** Actions that need the user's one-shot approval before they run. */
 const APPROVAL_REQUIRED = new Set(["papers.fetch", "papers.register"]);
@@ -315,24 +331,35 @@ export function registerKernelTools(
       const response = await dependencies.db.withAccount(claims.account, async (client) => {
         // 单轮工具调用上限：按「当前这一轮」计数。审批后续接是同一个 run 的新 dsh_turn，
         // 要从它开始重新计，否则批准过的动作会被上一轮用掉的次数挡住。
-        const used = Number(
-          (
+        // 群研一回合里全体成员一起干，这个数没有意义（也不该给模型规定次数），整条运行放行。
+        if (!ALWAYS_ALLOWED_TOOLS.has(capability)) {
+          const runMode = (
             await client.query(
-              `select count(*)::int n from event e
-                where e.run_id=$1 and e.action='tool/call'
-                  and e.at >= coalesce(
-                    (select max(t.started_at) from dsh_turn t where t.run_id=$1),
-                    '-infinity'::timestamptz)`,
-              [claims.run],
+              "select mode from run where account_id=$1 and id=$2",
+              [claims.account, claims.run],
             )
-          ).rows[0]?.n ?? 0,
-        );
-        if (used >= MAX_TOOL_CALLS)
-          throw new ApiFailure(
-            "TOOL_CALL_LIMIT",
-            409,
-            `这一轮已经调用工具 ${used} 次（上限 ${MAX_TOOL_CALLS}），先把已经拿到的内容收尾。`,
-          );
+          ).rows[0]?.mode as string | undefined;
+          if (runMode !== "swarm") {
+            const used = Number(
+              (
+                await client.query(
+                  `select count(*)::int n from event e
+                    where e.run_id=$1 and e.action='tool/call'
+                      and e.at >= coalesce(
+                        (select max(t.started_at) from dsh_turn t where t.run_id=$1),
+                        '-infinity'::timestamptz)`,
+                  [claims.run],
+                )
+              ).rows[0]?.n ?? 0,
+            );
+            if (used >= MAX_TOOL_CALLS)
+              throw new ApiFailure(
+                "TOOL_CALL_LIMIT",
+                409,
+                `这一轮已经调用工具 ${used} 次（上限 ${MAX_TOOL_CALLS}），先把已经拿到的内容收尾。`,
+              );
+          }
+        }
         // 提问卡片上的可选选项：模型有时写 candidates，有时写 options / choices，
         // 甚至直接给一串字符串。全都收；只有一串字的时候当成「文字选项」，别静默丢掉。
         // 单/多选由 caller 按需声明（multi / multiple / select:"many"），默认单选。

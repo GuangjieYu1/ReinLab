@@ -391,3 +391,72 @@ describe("kernel tool gateway", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 });
+
+describe("单轮工具上限", () => {
+  /** 造 n 条 tool/call：上限按「这一轮」数，没有 dsh_turn 时全部算在这一轮。 */
+  const flood = async (run: string, n: number) => {
+    for (let i = 0; i < n; i += 1)
+      await admin.query(
+        `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+         values($1,$2,$3,'dsh','tool/call','{}',$4)`,
+        [account, dossier, run, `${run}:flood:${i}`],
+      );
+  };
+  const runOf = async (mode: string) => {
+    const id = randomUUID();
+    await admin.query(
+      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+       values($1,$2,$3,$4,$5,$6,'running',1,'{}')`,
+      [id, account, dossier, mode === "swarm" ? "bench-swarm" : "research-read", mode, randomUUID()],
+    );
+    return { id, token: auth.issue({ account, dossier, run: id }, now) };
+  };
+
+  it("探索这类会话仍然有上限（保持原样）", async () => {
+    const { app } = build(vi.fn(async () => ({ ok: true })));
+    const read = await runOf("read");
+    await flood(read.id, 81);
+    const blocked = await call(
+      app,
+      { server: "papers", tool: "search", args: { query: "多智能体", source: "arxiv" } },
+      read.token,
+    );
+    expect(blocked.status).toBe(409);
+    expect(blocked.body).toMatchObject({ code: "TOOL_CALL_LIMIT" });
+  });
+
+  it("群研一回合全队一起干活：不受上限限制，交结论永远能调", async () => {
+    const dispatch = vi.fn(async () => ({ ok: true }));
+    const { app } = build(dispatch);
+    const swarmRun = await runOf("swarm");
+    await flood(swarmRun.id, 130);
+    // 交结论：必须放行。
+    const submitted = await call(
+      app,
+      { server: "swarm", tool: "submit", args: { kind: "claim", submissionId: "x", claim: {} } },
+      swarmRun.token,
+    );
+    expect(submitted.status).toBe(200);
+    // 普通工具在群研里也不该被这个数挡住（全队共用 80 次没有意义）。
+    const searched = await call(
+      app,
+      { server: "papers", tool: "search", args: { query: "多智能体", source: "arxiv" } },
+      swarmRun.token,
+    );
+    expect(searched.status).toBe(200);
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("研究工具在任何运行里都放行（上限只挡不了的收尾动作）", async () => {
+    const dispatch = vi.fn(async () => ({ ok: true }));
+    const { app } = build(dispatch);
+    const read = await runOf("read");
+    await flood(read.id, 90);
+    const approach = await call(
+      app,
+      { server: "swarm", tool: "approach", args: { title: "规模扫描" } },
+      read.token,
+    );
+    expect(approach.status).toBe(200);
+  });
+});
