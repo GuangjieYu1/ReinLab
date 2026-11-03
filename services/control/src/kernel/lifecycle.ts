@@ -80,6 +80,9 @@ export async function reconcileAccount(
         // 否则批准后紧接着的一次收件箱刷新就会把它误标成 interrupted。
         `update run set state='interrupted', ended_at=now()
           where account_id=$1 and state='waiting' and ended_at is null
+            -- 群研有自己的状态（等你确认计划、刚答完提问、暂停）和恢复：不归这里收尾，
+            -- 否则计划一交上来、收件箱一刷新，就会被误标成 interrupted，确认后负责人起不来。
+            and mode <> 'swarm'
             and not exists (select 1 from approval a where a.run_id=run.id and a.state='pending')
             -- 刚批准、正在续接的那一轮不算残留：批准后的那次收件箱刷新
             -- 不能把还在跑的 run 误标成 interrupted。

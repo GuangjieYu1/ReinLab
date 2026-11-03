@@ -103,6 +103,14 @@ describe("运行生命周期收尾", () => {
     expect(await state(own.run)).toBe("waiting");
   });
 
+  it("群研在等确认计划、刚答完提问时不算残留：收件箱刷新不能把它标成中断", async () => {
+    const own = await runWith("waiting");
+    await admin.query("update run set mode='swarm', role_id='bench-swarm' where id=$1", [own.run]);
+    await reconcileAccount(db, account);
+    expect(await state(own.run)).toBe("waiting");
+    expect(await events(own.run, "run.interrupted")).toHaveLength(0);
+  });
+
   it("进程已经不在了、状态还停在执行中的任务，补成中断并释放占用", async () => {
     const own = await runWith("running");
     const card1 = await pendingCard(own.run, 1_000, "papers.fetch:orphan");
