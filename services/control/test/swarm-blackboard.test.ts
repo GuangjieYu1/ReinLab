@@ -1081,16 +1081,16 @@ it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了�
     expect(decided?.note ?? "").toContain("下一步送到");
     expect((await swarm.pendingFor(f.account, runId, "lead")).length).toBeGreaterThan(0);
 
-    // 真的多出队员之后，加人才算「已执行」。
+    // 真的按这张卡（角色 researcher）建出新人才算「已执行」。
     await swarm.registerMeta(f.account, runId, {
       kind: "member",
       refId: "extra-01",
-      data: { role: "researcher", label: "补招 01", routeId: "r1" },
+      data: { role: "researcher", label: "补招 01", routeId: "r9" },
     });
     const afterJoin = await swarm.snapshot(f.account, runId);
     const addEntry = afterJoin.interventions.find((entry) => entry.id === addMember.intervention.id)!;
     expect(addEntry.state).toBe("applied");
-    expect(addEntry.result ?? "").toContain("已建出队员");
+    expect(addEntry.result ?? "").toContain("已按这张卡建出");
 
     // 负责人的那一轮挂了：群研转暂停并写清原因（不能还显示「运行中」）。
     await f.admin.query("update swarm_run set state='running' where run_id=$1", [runId]);
@@ -1100,6 +1100,57 @@ it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了�
     // 说明写人话，不贴原始报错。
     expect(paused.stateReason ?? "").toContain("负责人的运行时意外退出了");
     expect(paused.stateReason ?? "").not.toContain("exit code");
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("B14：加人指令真的送到负责人，且只有这张卡建出来的那个角色才算已执行", async () => {
+  const { f, kernel, swarm, runId } = await setup();
+  try {
+    // 负责人忙：加人指令只能排队，不能另起回合。
+    (kernel as any).isLive = () => true;
+    const queued: { sessionId: string; text: string }[] = [];
+    (kernel as any).queuePrompt = async (
+      _a: string,
+      _r: string,
+      sessionId: string,
+      text: string,
+    ) => {
+      queued.push({ sessionId, text });
+      return { ok: true, id: "msg-" + queued.length };
+    };
+    await swarm.createIntervention(f.account, runId, { kind: "add_member", role: "critic" });
+    const card = (
+      await f.admin.query(
+        "select id from approval where run_id=$1 and kind='swarm_add_member' and state='pending'",
+        [runId],
+      )
+    ).rows[0];
+    const decided = await swarm.decideCard(f.account, String(card.id), { decision: "approve" });
+    expect(decided?.note ?? "").toContain("已排进负责人的收件箱");
+    expect(queued.some((entry) => entry.text.includes("research_spawn"))).toBe(true);
+
+    // 名册多出一个研究员（不是这张卡要的角色）：不算这张卡建的。
+    await swarm.registerMeta(f.account, runId, {
+      kind: "member",
+      refId: "extra-researcher",
+      data: { role: "researcher", label: "补招 01", routeId: "r9" },
+    });
+    let snapshot = await swarm.snapshot(f.account, runId);
+    let entry = snapshot.interventions.find((item) => item.kind === "add_member")!;
+    expect(entry.state).toBe("received");
+
+    // 真的建出 critic 了：这才算「已执行」，回执写明是哪个人。
+    await swarm.registerMeta(f.account, runId, {
+      kind: "member",
+      refId: "extra-critic",
+      data: { role: "critic", label: "补招 02", routeId: null },
+    });
+    snapshot = await swarm.snapshot(f.account, runId);
+    entry = snapshot.interventions.find((item) => item.kind === "add_member")!;
+    expect(entry.state).toBe("applied");
+    expect(entry.result ?? "").toContain("extra-critic");
   } finally {
     await f.close();
   }

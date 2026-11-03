@@ -928,33 +928,6 @@ export class SwarmService {
       );
       // 名册变了就把运行行也刷新一次，页面顶栏的累计队员立刻对得上。
       if (state.members.size > 0) await this.emitRun(client, account, runId);
-      // 加人卡批准之后：真的多出队员才算「已执行」（回执按实际写，B12）。
-      const pendingAdds = (
-        await client.query(
-          `select i.id, a.effects from swarm_intervention i
-             join approval a on a.account_id=i.account_id and a.id=i.approval_id
-            where i.account_id=$1 and i.run_id=$2 and i.kind='add_member'
-              and i.state in ('received','pending_approval')`,
-          [account, runId],
-        )
-      ).rows;
-      for (const entry of pendingAdds) {
-        const effects = Array.isArray(entry.effects) ? entry.effects[0] : entry.effects;
-        const expected = Number((effects as { membersAfter?: number })?.membersAfter ?? 0);
-        if (!expected || state.members.size < expected) continue;
-        await client.query(
-          `update swarm_intervention set state='applied', result=$3, updated_at=now()
-            where account_id=$1 and id=$2`,
-          [account, entry.id, `已建出队员：现在名册里有 ${state.members.size} 名成员。`],
-        );
-        const updated = (await this.interventions(client, account, runId)).find(
-          (item) => item.id === String(entry.id),
-        );
-        if (updated) {
-          await this.emitSimple(client, account, runId, "intervention", updated);
-          await this.emitInterventionBus(client, account, runId, updated);
-        }
-      }
       return last;
     });
   }
@@ -1999,7 +1972,21 @@ export class SwarmService {
         } satisfies BusEntry);
         await this.emitRun(client, account, card.runId);
       } else if (card.kind === "swarm_add_member") {
-        // 记下这次批准的期望人数：真看到新队员才把干预写成「已执行」。
+        // 记下批准这一刻的名册：之后只认「不在这份名单里、角色对得上」的新人。
+        const before = await this.memberRoster(client, account, card.runId);
+        await client.query(
+          `update approval set effects=$3 where account_id=$1 and id=$2`,
+          [
+            account,
+            approvalId,
+            JSON.stringify([
+              {
+                ...card.payload,
+                approvedMemberIds: [...before.keys()],
+              },
+            ]),
+          ],
+        );
         await client.query(
           `update swarm_intervention set state='received', updated_at=now()
             where account_id=$1 and approval_id=$2`,
@@ -2035,33 +2022,23 @@ export class SwarmService {
                 (card.payload.role as string) ?? "researcher"
               }${card.payload.routeId ? "，路线 " + String(card.payload.routeId) : ""}）。用 research_spawn 建一名新队员，派给还没做完的部分。`
             : "扩大范围已获批准，按新版本计划继续。";
-      // 负责人忙：排队等下一步送进去；空闲：起一轮。两种都按真实结果写回执。
-      const busy = this.dependencies.kernel.isLive(card.runId);
-      const queued = await this.enqueueMessage(account, card.runId, {
+      // 和 @队员 / 改方向同一条路：经负责人的原生收件箱，在它的下一步送到。
+      const outcome = await this.deliverToInbox(account, card.runId, {
         target: "lead",
         kind: "instruction",
         text: prompt,
       });
-      if (busy) return { state: "approved", runId: card.runId, note: `已批准${cardLabel(card.kind)}：负责人这一轮还在跑，指令会在下一步送到。` };
-      try {
-        await this.dependencies.kernel.submit(account, card.runId, { mode: "swarm", prompt });
-        await this.markDelivered(account, card.runId, [queued.id]);
-        return { state: "approved", runId: card.runId, note: `已批准${cardLabel(card.kind)}，指令已送到负责人。` };
-      } catch (error) {
-        await this.dependencies.db.withAccount(account, async (client) => {
-          await client.query(
-            "update swarm_inbox set state='failed', reason=$3 where account_id=$1 and id=$2",
-            [account, queued.id, String((error as Error)?.message ?? error).slice(0, 300)],
-          );
-        });
+      if (!outcome.ok)
         return {
           state: "approved",
           runId: card.runId,
-          note: `已批准${cardLabel(card.kind)}，但没能把指令送进去（${String(
-            (error as Error)?.message ?? error,
-          ).slice(0, 120)}）；负责人恢复后点继续会重新取这条指令。`,
+          note: `已批准${cardLabel(card.kind)}，但没能把指令送进去（${outcome.reason}）；负责人恢复后点继续会重新取这条指令。`,
         };
-      }
+      return {
+        state: "approved",
+        runId: card.runId,
+        note: `已批准${cardLabel(card.kind)}，指令已排进负责人的收件箱（下一步送到）。`,
+      };
     }
     return { state: "rejected", runId: card.runId, note: `已驳回${cardLabel(card.kind)}。` };
   }
@@ -2292,7 +2269,41 @@ export class SwarmService {
     });
   }
 
-  /** 批过的加人卡：名册真的多出人来了才把干预写成「已执行」。 */
+  /** 当前名册：成员 id → 角色 / 名字 / 路线（两条来源合并）。 */
+  private async memberRoster(
+    client: pg.PoolClient,
+    account: string,
+    runId: string,
+  ): Promise<Map<string, { role: string; label?: string; routeId: string | null }>> {
+    const roster = new Map<string, { role: string; label?: string; routeId: string | null }>();
+    const meta = (
+      await client.query(
+        `select ref_id, data from swarm_meta
+          where account_id=$1 and run_id=$2 and kind='member'`,
+        [account, runId],
+      )
+    ).rows;
+    for (const row of meta) {
+      const data = row.data as { role?: string; label?: string; routeId?: string | null };
+      roster.set(String(row.ref_id), {
+        role: data.role ?? "researcher",
+        ...(data.label ? { label: data.label } : {}),
+        routeId: data.routeId ?? null,
+      });
+    }
+    const fold = await loadFold(client, account, runId);
+    for (const [id, member] of fold.members) {
+      const existing = roster.get(id);
+      roster.set(id, {
+        role: member.role,
+        label: member.label ?? existing?.label,
+        routeId: existing?.routeId ?? null,
+      });
+    }
+    return roster;
+  }
+
+  /** 批过的加人卡：这张卡建出来的人真的出现在名册里，才把干预写成「已执行」。 */
   private async settleAddMembers(account: string, runId: string): Promise<void> {
     await this.dependencies.db.withAccount(account, async (client) => {
       const rows = (
@@ -2305,25 +2316,33 @@ export class SwarmService {
         )
       ).rows;
       if (!rows.length) return;
-      const fold = await loadFold(client, account, runId);
-      const metaMembers = Number(
-        (
-          await client.query(
-            `select count(*)::int n from swarm_meta
-              where account_id=$1 and run_id=$2 and kind='member'`,
-            [account, runId],
-          )
-        ).rows[0]?.n ?? 0,
-      );
-      const memberCount = Math.max(fold.members.size, metaMembers);
+      const roster = await this.memberRoster(client, account, runId);
       for (const entry of rows) {
-        const effects = Array.isArray(entry.effects) ? entry.effects[0] : entry.effects;
-        const expected = Number((effects as { membersAfter?: number })?.membersAfter ?? 0);
-        if (!expected || memberCount < expected) continue;
+        const effects = (Array.isArray(entry.effects) ? entry.effects[0] : entry.effects) as {
+          role?: string;
+          routeId?: string | null;
+          approvedMemberIds?: string[];
+        };
+        const before = new Set(effects?.approvedMemberIds ?? []);
+        if (!before.size) continue; // 老卡没有批准时的名册：宁可不判，也不误报
+        const wantRole = effects.role ?? "researcher";
+        const wantRoute = effects.routeId ?? null;
+        const created = [...roster.entries()].find(
+          ([id, member]) =>
+            !before.has(id) &&
+            member.role === wantRole &&
+            (!wantRoute || member.routeId === wantRoute),
+        );
+        if (!created) continue;
+        const [memberId, member] = created;
         await client.query(
           `update swarm_intervention set state='applied', result=$3, updated_at=now()
             where account_id=$1 and id=$2`,
-          [account, entry.id, `已建出队员：现在名册里有 ${memberCount} 名成员。`],
+          [
+            account,
+            entry.id,
+            `已按这张卡建出${wantRole === "researcher" ? "研究员" : wantRole === "critic" ? "反驳员" : wantRole} ${memberId}（${member.label ?? memberId}）。`,
+          ],
         );
         const updated = (await this.interventions(client, account, runId)).find(
           (item) => item.id === String(entry.id),

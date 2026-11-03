@@ -632,6 +632,8 @@ export class KernelService {
     runId: string,
     sessionId: string,
     text: string,
+    /** queue = 下一轮；steer = 下一个步骤边界（用户插话要这个）。 */
+    delivery: "queue" | "steer" = "steer",
   ): Promise<{ ok: true; id: string } | { ok: false; reason: string }> {
     const live = [...(this.handles.get(runId) ?? [])];
     if (!live.length) return { ok: false, reason: "这一轮已经结束，没有可以排队送进去的会话" };
@@ -644,14 +646,33 @@ export class KernelService {
           prompt?: (sessionId: string, blocks: { type: "text"; text: string }[]) => Promise<string>;
           client?: { prompt?: (sessionId: string, blocks: { type: "text"; text: string }[]) => Promise<string> };
         };
+        // 走 JSON-RPC 的 session/prompt：它认 mode=steer（下一步就到）与 queue（下一轮）。
+        const client = withPrompt.client ?? withPrompt;
+        const rpc = client as unknown as {
+          request?: (method: string, params: object) => Promise<unknown>;
+        };
+        if (rpc.request) {
+          try {
+            const result = (await rpc.request("session/prompt", {
+              request: {
+                requestId: `rl-${randomUUID()}`,
+                sessionId,
+                mode: delivery,
+                content: [{ type: "text", text }],
+              },
+            })) as { messageId?: string } | undefined;
+            return { ok: true, id: String(result?.messageId ?? "") };
+          } catch (error) {
+            // 运行时不认这个形状：退回 SDK 自带的 prompt（下一轮送达）。
+            lastReason = String((error as Error)?.message ?? error).slice(0, 200);
+          }
+        }
         const queue = withPrompt.prompt ?? withPrompt.client?.prompt;
         if (!queue) {
           lastReason = "这个运行时没有提供收件箱排队接口";
           continue;
         }
-        const id = await queue.call(withPrompt.client ?? withPrompt, sessionId, [
-          { type: "text", text },
-        ]);
+        const id = await queue.call(client, sessionId, [{ type: "text", text }]);
         return { ok: true, id };
       } catch (error) {
         lastReason = String((error as Error)?.message ?? error).slice(0, 200);
