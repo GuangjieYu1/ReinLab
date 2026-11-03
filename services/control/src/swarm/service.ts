@@ -881,14 +881,7 @@ export class SwarmService {
             const message = payload?.message as { content?: unknown } | undefined;
             return [textOfContent(message?.content)];
           }
-          // DSH 团队的收件箱：消息真的排进了对方会话的待办里（agent/inbox/spliced）。
-          if (event.action === "agent/inbox/spliced") {
-            const inserted = payload?.inserted;
-            if (!Array.isArray(inserted)) return [];
-            return inserted.map((message) =>
-              textOfContent((message as { content?: unknown })?.content),
-            );
-          }
+          // 只认「对方会话里真的出现了这条消息」：splice 只说明排进了收件箱，不算送到。
           return [];
         })
         .filter((text) => text !== "");
@@ -896,7 +889,7 @@ export class SwarmService {
         const queued = (
           await client.query(
             `select id, text, intervention_id from swarm_inbox
-              where account_id=$1 and run_id=$2 and state='pending'`,
+              where account_id=$1 and run_id=$2 and state in ('pending','queued')`,
             [account, runId],
           )
         ).rows;
@@ -2193,8 +2186,12 @@ export class SwarmService {
       if (queued.ok) {
         await this.dependencies.db.withAccount(account, async (client) => {
           await client.query(
-            "update swarm_inbox set reason=$3 where account_id=$1 and id=$2",
-            [account, inboxId.id, `queued:${queued.id}`],
+            "update swarm_inbox set state='queued', reason=$3 where account_id=$1 and id=$2",
+            [
+              account,
+              inboxId.id,
+              `queued:${queued.mode}:${queued.id}${queued.note ? `:${queued.note}` : ""}`,
+            ],
           );
         });
         if (input.interventionId)
@@ -2206,8 +2203,8 @@ export class SwarmService {
                 account,
                 input.interventionId,
                 relayed
-                  ? `已交给负责人转达给 ${target}，它的下一个步骤会送到。`
-                  : `已排进${target === "lead" ? "负责人" : target}的收件箱，它的下一个步骤会看到。`,
+                  ? `已排队：交给负责人转达给 ${target}，等它取到才算送到。`
+                  : `已排队：排进${target === "lead" ? "负责人" : target}的收件箱，等它取到才算送到。`,
               ],
             );
             const queuedEntry = (await this.interventions(client, account, runId)).find(
@@ -2274,8 +2271,13 @@ export class SwarmService {
     client: pg.PoolClient,
     account: string,
     runId: string,
-  ): Promise<Map<string, { role: string; label?: string; routeId: string | null }>> {
-    const roster = new Map<string, { role: string; label?: string; routeId: string | null }>();
+  ): Promise<
+    Map<string, { role: string; label?: string; routeId: string | null; cardId?: string }>
+  > {
+    const roster = new Map<
+      string,
+      { role: string; label?: string; routeId: string | null; cardId?: string }
+    >();
     const meta = (
       await client.query(
         `select ref_id, data from swarm_meta
@@ -2284,11 +2286,17 @@ export class SwarmService {
       )
     ).rows;
     for (const row of meta) {
-      const data = row.data as { role?: string; label?: string; routeId?: string | null };
+      const data = row.data as {
+        role?: string;
+        label?: string;
+        routeId?: string | null;
+        cardId?: string;
+      };
       roster.set(String(row.ref_id), {
         role: data.role ?? "researcher",
         ...(data.label ? { label: data.label } : {}),
         routeId: data.routeId ?? null,
+        ...(data.cardId ? { cardId: String(data.cardId) } : {}),
       });
     }
     const fold = await loadFold(client, account, runId);
@@ -2298,6 +2306,7 @@ export class SwarmService {
         role: member.role,
         label: member.label ?? existing?.label,
         routeId: existing?.routeId ?? null,
+        ...(existing?.cardId ? { cardId: existing.cardId } : {}),
       });
     }
     return roster;
@@ -2308,7 +2317,7 @@ export class SwarmService {
     await this.dependencies.db.withAccount(account, async (client) => {
       const rows = (
         await client.query(
-          `select i.id, i.approval_id, a.effects from swarm_intervention i
+          `select i.id, i.approval_id, i.approval_id card_id, a.effects from swarm_intervention i
              join approval a on a.account_id=i.account_id and a.id=i.approval_id
             where i.account_id=$1 and i.run_id=$2 and i.kind='add_member'
               and i.state='received'`,
@@ -2317,6 +2326,9 @@ export class SwarmService {
       ).rows;
       if (!rows.length) return;
       const roster = await this.memberRoster(client, account, runId);
+      const plan = await this.planOf(client, account, runId);
+      const planCount = (role: string) =>
+        (plan?.roster ?? []).find((entry) => entry.role === role)?.count ?? 0;
       for (const entry of rows) {
         const effects = (Array.isArray(entry.effects) ? entry.effects[0] : entry.effects) as {
           role?: string;
@@ -2324,24 +2336,29 @@ export class SwarmService {
           approvedMemberIds?: string[];
         };
         const before = new Set(effects?.approvedMemberIds ?? []);
-        if (!before.size) continue; // 老卡没有批准时的名册：宁可不判，也不误报
         const wantRole = effects.role ?? "researcher";
-        const wantRoute = effects.routeId ?? null;
-        const created = [...roster.entries()].find(
-          ([id, member]) =>
-            !before.has(id) &&
-            member.role === wantRole &&
-            (!wantRoute || member.routeId === wantRoute),
+        // 按卡认人：优先找「research_spawn 带了这张卡号」的成员；
+        // 没带卡号的，至少要这个角色的人数超过原计划编制——计划里本来就会建的人不算。
+        const cardId = entry.card_id ? String(entry.card_id) : String(entry.id);
+        const byCard = [...roster.entries()].find(
+          ([id, member]) => !before.has(id) && member.cardId === cardId,
         );
+        const sameRole = [...roster.entries()].filter(([, member]) => member.role === wantRole);
+        const overPlan = sameRole.length > planCount(wantRole);
+        const created = byCard ?? (overPlan ? sameRole[sameRole.length - 1] : undefined);
         if (!created) continue;
         const [memberId, member] = created;
+        const roleWord =
+          wantRole === "researcher" ? "研究员" : wantRole === "critic" ? "反驳员" : wantRole === "verifier" ? "核实员" : wantRole;
         await client.query(
           `update swarm_intervention set state='applied', result=$3, updated_at=now()
             where account_id=$1 and id=$2`,
           [
             account,
             entry.id,
-            `已按这张卡建出${wantRole === "researcher" ? "研究员" : wantRole === "critic" ? "反驳员" : wantRole} ${memberId}（${member.label ?? memberId}）。`,
+            byCard
+              ? `已按这张卡（${cardId.slice(0, 8)}）建出${roleWord} ${memberId}（${member.label ?? memberId}）。`
+              : `已建出${roleWord} ${memberId}（${member.label ?? memberId}）：这个角色的人数已经超过原计划编制（${sameRole.length} > ${planCount(wantRole)}）。`,
           ],
         );
         const updated = (await this.interventions(client, account, runId)).find(
@@ -2365,7 +2382,7 @@ export class SwarmService {
       const rows = (
         await client.query(
           `select id,text,kind,intervention_id from swarm_inbox
-            where account_id=$1 and run_id=$2 and target=$3 and state='pending'
+            where account_id=$1 and run_id=$2 and target=$3 and state in ('pending','queued')
             order by created_at limit 8`,
           [account, runId, target],
         )

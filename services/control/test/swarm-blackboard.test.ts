@@ -1085,12 +1085,12 @@ it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了�
     await swarm.registerMeta(f.account, runId, {
       kind: "member",
       refId: "extra-01",
-      data: { role: "researcher", label: "补招 01", routeId: "r9" },
+      data: { role: "researcher", label: "补招 01", routeId: "r9", cardId: String(card.id) },
     });
     const afterJoin = await swarm.snapshot(f.account, runId);
     const addEntry = afterJoin.interventions.find((entry) => entry.id === addMember.intervention.id)!;
     expect(addEntry.state).toBe("applied");
-    expect(addEntry.result ?? "").toContain("已按这张卡建出");
+    expect(addEntry.result ?? "").toContain("已按这张卡");
 
     // 负责人的那一轮挂了：群研转暂停并写清原因（不能还显示「运行中」）。
     await f.admin.query("update swarm_run set state='running' where run_id=$1", [runId]);
@@ -1131,26 +1131,22 @@ it("B14：加人指令真的送到负责人，且只有这张卡建出来的那�
     expect(decided?.note ?? "").toContain("已排进负责人的收件箱");
     expect(queued.some((entry) => entry.text.includes("research_spawn"))).toBe(true);
 
-    // 名册多出一个研究员（不是这张卡要的角色）：不算这张卡建的。
-    await swarm.registerMeta(f.account, runId, {
-      kind: "member",
-      refId: "extra-researcher",
-      data: { role: "researcher", label: "补招 01", routeId: "r9" },
-    });
+    // 计划编制里本来就有 1 名 critic（setup 已登记），人数没超过编制：还不算。
     let snapshot = await swarm.snapshot(f.account, runId);
     let entry = snapshot.interventions.find((item) => item.kind === "add_member")!;
     expect(entry.state).toBe("received");
 
-    // 真的建出 critic 了：这才算「已执行」，回执写明是哪个人。
+    // 真正按这张卡建的第二名 critic（research_spawn 带卡号）才算「已执行」。
     await swarm.registerMeta(f.account, runId, {
       kind: "member",
       refId: "extra-critic",
-      data: { role: "critic", label: "补招 02", routeId: null },
+      data: { role: "critic", label: "补招 02", routeId: null, cardId: String(card.id) },
     });
     snapshot = await swarm.snapshot(f.account, runId);
     entry = snapshot.interventions.find((item) => item.kind === "add_member")!;
     expect(entry.state).toBe("applied");
     expect(entry.result ?? "").toContain("extra-critic");
+    expect(entry.result ?? "").toContain(String(card.id).slice(0, 8));
   } finally {
     await f.close();
   }

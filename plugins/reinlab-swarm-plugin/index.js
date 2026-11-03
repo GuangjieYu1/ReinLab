@@ -288,6 +288,11 @@ export function apply(ctx, config) {
           label: { type: "string", description: "页面上显示的名字，如「研究员 01」。可留空。" },
           description: { type: "string", required: true, description: "这名队员负责什么，一句话。" },
           prompt: { type: "string", required: true, description: "交给他的完整任务（合同）。" },
+          add_card: {
+            type: "string",
+            description:
+              "如果这次建人是按某张加人卡建的，把那张卡的 id 原样带上（用户批准加人时会给）。页面据它核对「这张卡建出了谁」。",
+          },
         },
         timeoutMs: 120_000,
         async execute(args, exec) {
@@ -307,6 +312,7 @@ export function apply(ctx, config) {
               role: args.role,
               label: args.label ?? null,
               routeId: args.route_id ?? null,
+              ...(args.add_card ? { cardId: String(args.add_card) } : {}),
             },
           }).catch(() => undefined);
           return { member: { target: args.name, role: args.role, context } };
