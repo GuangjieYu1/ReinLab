@@ -48,6 +48,9 @@ const MSG: Record<BusType, { zh: string; glyph: string; desc: string }> = {
 const DELIVERY_ZH = { sent: '已发出', received: '已收到', failed: '发送失败', unknown: '结果未知' } as const;
 const CLAIM_ZH: Record<Claim['status'], string> = { candidate: '候选', awaiting_refute: '待反驳', awaiting_verify: '待核实', verified: '已核实', disputed: '有争议', falsified: '已证伪', insufficient: '证据不足' };
 const BASIS_ZH: Record<Claim['basis'], string> = { checked_fact: '核对过的事实', source_claim: '来源的说法', inference: '推断', observation: '实测' };
+const REVIEW_KIND_ZH = { refute: '反驳', need_evidence: '要求补证据', verify: '独立核实', downgrade: '降级' } as const;
+const VERDICT_ZH = { upheld: '反驳成立', rejected: '反驳不成立', verified: '核实通过', not_verifiable: '核不了', pending: '待定' } as const;
+const REPORT_ZH = { stage: '阶段结果', awaiting_review: '报告前有分歧，等你看', final: '正式报告', partial: '正式报告（部分完成）', unresolved: '没有可靠答案' } as const;
 const ACCESS_ZH: Record<Evidence['access'], string> = { full_text: '读了全文', abstract_only: '只有摘要', unavailable: '打不开' };
 const SOURCE_ZH: Record<Evidence['source']['kind'], string> = { paper: '论文', web: '网页', code: '代码', data: '数据', proof: '证明', other: '其他' };
 /** 来源能直接打开的就给链接：arXiv 号、DOI、网址。 */
@@ -396,7 +399,7 @@ function Board({ posts, claims, members, disabled, onPost, onClaim }: { posts: B
         <ol>{claims.slice().reverse().map(x => <li key={x.id} className="sw-claim" data-status={x.status}><button onClick={() => onClaim(x.id)}>
           <span><b>{label(x.author)}</b><small className="sw-cs" data-s={x.status}>{CLAIM_ZH[x.status]}</small></span>
           <p>{x.text}</p>
-          <small className="sw-claim-meta">{x.negative ? '负结果 · ' : ''}{BASIS_ZH[x.basis]}{x.routeId ? ` · ${x.routeId}` : ''} · 第 {x.round} 轮 · 证据 {x.evidenceIds.length}</small></button></li>)}
+          <small className="sw-claim-meta">{x.negative ? '负结果 · ' : ''}{BASIS_ZH[x.basis]}{x.routeId ? ` · ${x.routeId}` : ''} · 第 {x.round} 轮 · 证据 {x.evidenceIds.length}{x.reviews.length ? ` · 审查 ${x.reviews.length}` : ''}</small></button></li>)}
           {!claims.length && <li className="sw-none">还没有结论。研究员交上来的候选结论会出现在这里。</li>}</ol></section>;
       const list = posts.filter(p => p.col === c.id).slice().sort((a, b) => b.seq - a.seq);
       return <section key={c.id}><header><b>{c.zh}</b><small>{c.en} · {list.length}</small></header>
@@ -415,9 +418,14 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
   const open = snap.tasks.filter(t => !isRoot(t) && !['delivered', 'sync_pending', 'superseded'].includes(t.state));
   return <div className="sw-synth en-report">
     <article className="rh-read en-report-body">
-      <span className="rh-micro">SYNTHESIS · {r ? `报告 v${r.version}` : '阶段结果'} · {RUN_ZH[run.state]}</span>
+      <span className="rh-micro">SYNTHESIS · {r ? `${REPORT_ZH[r.state]} · v${r.version}` : '阶段结果'} · {RUN_ZH[run.state]}</span>
       <h2>{snap.plan?.question ?? run.question}</h2>
-      {(!r || !r.verified.length) && <p className="sw-candidate">核实还没接通：下面全部是<b>候选</b>，不是结论，也不出正式报告。</p>}
+      {!r ? <p className="sw-candidate">还没有阶段结果。</p>
+        : r.state === 'stage' ? <p className="sw-candidate">研究还在进行：这是<b>阶段结果</b>，只有标「已核实」的才算结论，其余都是候选。</p>
+        : r.state === 'unresolved' ? <p className="sw-candidate">这次没有一条结论通过独立核实，<b>没有可靠答案</b>；下面是候选、负结果和剩余缺口。</p>
+        : r.state === 'awaiting_review' ? <p className="sw-candidate">还有<b>没解决的分歧</b>，等你看一眼再定稿；正文只放已核实的结论。</p>
+        : <p className="sw-final">正文只放<b>通过独立核实</b>的结论（当前版本）；争议、候选、局限分开列出。</p>}
+      {r?.nextSuggestion && <div className="sw-suggest"><b>快到额度了</b><p>{r.nextSuggestion.why}</p><small>建议追加 {r.nextSuggestion.rounds} 轮 / {r.nextSuggestion.minutes} 分钟。批准追加在下一批接入，现在可以先结束或等到限自动收尾。</small></div>}
       {run.stateReason && <p>{run.stateReason}</p>}
       {r?.answer && <><h3>当前最强的已核实结论</h3><p>{r.answer}</p></>}
       {r && <ReportBody r={r} claims={snap.claims} evidence={snap.evidence} members={members} onClaim={onClaim} onEvidence={onEvidence} />}
@@ -440,10 +448,10 @@ function ReportBody({ r, claims, evidence, members, onClaim, onEvidence }: { r: 
     {c ? <><p>{c.text}</p><small>{label(c.author)} · {BASIS_ZH[c.basis]}{c.routeId ? ` · ${c.routeId}` : ''} · 证据 {c.evidenceIds.length} · <em className="sw-cs" data-s={c.status}>{CLAIM_ZH[c.status]}</em></small></> : <p>结论 {id}（快照里没有，点开看详情）</p>}</button></li>; })}</ol> : <p>{empty}</p>;
   const groups = [...new Set(r.unverified.map(id => byId.get(id)?.routeId ?? '—'))];
   return <>
-    {r.verified.length > 0 && <><h3>已核实 · {r.verified.length}</h3>{list(r.verified, '')}</>}
-    <h3>候选结论 · {r.unverified.length}</h3>
-    {r.unverified.length ? groups.map(g => <div key={g} className="sw-rep-group"><h4>{g === '—' ? '未归路线' : `路线 ${g}`}</h4>{list(r.unverified.filter(id => (byId.get(id)?.routeId ?? '—') === g), '')}</div>) : <p>还没有候选结论。</p>}
+    <h3>已核实 · {r.verified.length}</h3>{list(r.verified, '还没有通过独立核实的结论。')}
     {r.disputed.length > 0 && <><h3>有争议 · {r.disputed.length}</h3>{list(r.disputed, '')}</>}
+    <h3>未核实（候选） · {r.unverified.length}</h3>
+    {r.unverified.length ? groups.map(g => <div key={g} className="sw-rep-group"><h4>{g === '—' ? '未归路线' : `路线 ${g}`}</h4>{list(r.unverified.filter(id => (byId.get(id)?.routeId ?? '—') === g), '')}</div>) : <p>还没有候选结论。</p>}
     <h3>负结果 · {r.negative.length}</h3>{list(r.negative, '没有记录负结果。')}
     <h3>剩余缺口 · {r.gaps.length}</h3>{r.gaps.length ? <ul>{r.gaps.map(g => <li key={g}>{g}</li>)}</ul> : <p>还没有登记缺口。</p>}
     {r.limits.length > 0 && <><h3>局限</h3><ul>{r.limits.map(g => <li key={g}>{g}</li>)}</ul></>}
@@ -484,7 +492,12 @@ function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, 
           <dt>任务</dt><dd>{data.task ? `${data.task.id} · ${data.task.title}（${TASK_ZH[data.task.state]}）` : '没挂任务'}</dd>
           <dt>可见</dt><dd>{{ lead_reviewers: '负责人和审查方（独立阶段）', route: '本路线', all: '全队' }[c.visibility]}</dd>
         </dl>
-        {data.reviews.length > 0 && <><h4>审查 · {data.reviews.length}</h4><ul>{data.reviews.map(v => <li key={v.id}>{v.kind} · {label(v.by)}：{v.reason}</li>)}</ul></>}
+        <h4>审查 · {data.reviews.length}</h4>
+        {data.reviews.length ? <ol className="sw-reviews">{data.reviews.map(v => <li key={v.id} data-kind={v.kind} data-verdict={v.verdict} data-stale={v.claimVersion !== c.version || undefined}>
+          <span><b>{REVIEW_KIND_ZH[v.kind]}</b><em>{VERDICT_ZH[v.verdict]}</em><small>{label(v.by)} · 针对 v{v.claimVersion}{v.claimVersion !== c.version ? '（旧版本）' : ''} · 第 {v.round} 轮</small></span>
+          <p>{v.reason}</p>
+          {v.evidenceIds.length > 0 && <span className="sw-review-ev">{v.evidenceIds.map((id, i) => <button key={id} className="sw-link" onClick={() => onOpen('evidence', id)}>核到的证据 {i + 1}</button>)}</span>}
+        </li>)}</ol> : <p className="sw-none">还没有人审查这条结论。</p>}
       </div></div>;
   }
   const e = data.evidence, href = sourceHref(e.source.ref);

@@ -1,7 +1,7 @@
 // 群研 · 模拟适配器（CI 与 ?preview 用）：一份快照 + 一串事件按时间回放，和真实事件流同一种形状。
 // 内容是示意，不代表真实研究结论；真实模式下由 src/data/swarm-live.ts 接后端。
 import type {
-  Claim, ClaimDetail, Evidence, EvidenceDetail, SwarmReport, BoardPost, BusEntry, BusType, Intervention, SwarmAdapter, SwarmEvent, SwarmEventType, SwarmMember, SwarmPlan, SwarmRoute, SwarmRun, SwarmSnapshot, SwarmTask,
+  Review, Claim, ClaimDetail, Evidence, EvidenceDetail, SwarmReport, BoardPost, BusEntry, BusType, Intervention, SwarmAdapter, SwarmEvent, SwarmEventType, SwarmMember, SwarmPlan, SwarmRoute, SwarmRun, SwarmSnapshot, SwarmTask,
 } from './swarmTypes';
 import { applyEvent, createHub } from './swarmStore';
 
@@ -98,6 +98,11 @@ function script(): Step[] {
   at(25, 'task', task('task-5', { revision: 2, kind: 'review', title: '反驳：可比性与算力混淆', owner: C, board: 'in_progress', state: 'doing', dependsOn: ['task-2', 'task-3', 'task-4'] }));
   at(25.1, 'member', { ...member(C, 'critic', '反驳 01', 'running'), doing: { taskId: 'task-5', summary: '对照原文表格' } });
   at(25.2, 'run', run({ round: 2, used: { rounds: 1, activeMs: 25000, cost: { value: 0.31, known: true }, tokens: 120000 }, members: { used: 5, max: 16 } }));
+  at(27, 'review', { id: 'rv-1', claimId: 'c-1', claimVersion: 1, kind: 'verify', by: V, reason: '回到 MoA 原文 Table 4 逐格核对，四档数字一致。', evidenceIds: ['e-1'], verdict: 'verified', round: 2, taskId: 'task-6' } satisfies Review);
+  at(27.05, 'claim', { ...claim('c-1', R1, 'task-2', 'r1', 'MoA 的 agent 数消融：收益几乎全在 1→2 个（+11 分），再加 4 个只再得 +2.5 分。', 'checked_fact', ['e-1'], ['AlpacaEval 2.0 LC', '2 层 MoA']), status: 'verified', reviews: ['rv-1'] } satisfies Claim);
+  at(29.05, 'review', { id: 'rv-2', claimId: 'c-2', claimVersion: 1, kind: 'refute', by: C, reason: '「单调变好」只在同一算力口径下成立；原文 §5.1 没有控制总 token，不能外推成普遍结论。', evidenceIds: ['e-2'], verdict: 'upheld', round: 2, taskId: 'task-5' } satisfies Review);
+  at(29.1, 'claim', { ...claim('c-2', R1, 'task-2', 'r1', '投票式加采样在多数任务上随人数单调变好，但增益随难度变化。', 'source_claim', ['e-2', 'e-1'], ['采样 + 多数投票']), status: 'disputed', reviews: ['rv-2'] } satisfies Claim);
+  at(29.15, 'report', { ...report(['c-3'], ['c-3'], ['e-1', 'e-2'], ['缺同 token 预算下的头对头对照']), verified: ['c-1'], disputed: ['c-2'], answer: 'MoA 的 agent 数消融：收益几乎全在 1→2 个（+11 分），再加 4 个只再得 +2.5 分。' });
   at(29, 'bus', bus(C, R1, 'refute', 'r1 的饱和点把总 token 也翻倍了：同预算下比较时增益可能消失，要补同预算对照。', { taskId: 'task-5' }, { delivery: 'sent' }));
   at(31, 'bus', bus('lead', C, 'interrupt', '先停一下这条，等 r1 补同预算数据再继续。', { taskId: 'task-5' }));
   at(31.1, 'member', { ...member(C, 'critic', '反驳 01', 'interrupted'), doing: null });
@@ -191,7 +196,7 @@ export function mockSwarmAdapter(): SwarmAdapter {
       const snap = hub.get().snap!, c = snap.claims.find(x => x.id === claimId);
       if (!c) throw Error('这条结论不存在。');
       const t = snap.tasks.find(x => x.id === c.taskId), m = snap.members.find(x => x.id === c.author);
-      return { claim: c, evidence: snap.evidence.filter(e => c.evidenceIds.includes(e.id)), reviews: [], task: t ? { id: t.id, title: t.title, state: t.state, routeId: t.routeId } : null, member: m ? { id: m.id, label: m.label, role: m.role } : null };
+      return { claim: c, evidence: snap.evidence.filter(e => c.evidenceIds.includes(e.id)), reviews: snap.reviews.filter(r => r.claimId === c.id), task: t ? { id: t.id, title: t.title, state: t.state, routeId: t.routeId } : null, member: m ? { id: m.id, label: m.label, role: m.role } : null };
     },
     async evidence(evidenceId): Promise<EvidenceDetail> {
       const snap = hub.get().snap!, e = snap.evidence.find(x => x.id === evidenceId);
