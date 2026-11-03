@@ -326,18 +326,84 @@ export async function projectEvents(
    * 运行环境快照、建队提示词这类东西不是用户说的话，别在页面上显示成「你说的」。
    * 返回要记的类型：'user' 是真的用户，'system' 是环境，null 是直接丢掉。
    */
-  const classifyUserText = (text: string, who: string | null): "user" | "system" | null => {
-    // 运行环境快照：纯环境，不显示。
-    if (/^Current runtime context\b/.test(text)) return null;
-    // 建队提示词（负责人交给队员的初始任务）：不是用户说的话。会话映射可能还没到，
-    // 所以按内容认，不指望 who。
-    if (/^你是这次群研的/.test(text) || /共享任务 id 是 `?task-/.test(text)) return null;
+  /**
+   * 这些不是「谁说的话」：运行环境快照、建队提示词、系统自动发的「继续」、
+   * 「用户已回答这次提问」、子 agent 结束通知。先按正文认，再谈归属——
+   * 否则会被记成用户说的、或某个队员发给负责人的消息（验收里的 E3 余下项）。
+   */
+  const noiseKind = (text: string): "drop" | "system" | "team" | null => {
+    if (/^Current runtime context\b/.test(text)) return "drop";
+    if (/^你是这次群研的/.test(text) || /共享任务 id 是 `?task-/.test(text)) return "drop";
+    if (/^继续[。：]/.test(text) || text === "继续") return "drop";
+    // 队内消息要走进下面的「谁发给谁」分支，不能当成系统噪音。
+    if (/^Team message from /.test(text)) return "team";
+    if (/^用户已回答这次提问/.test(text)) return "system";
     if (/^档案变动：/.test(text)) return "system";
+    // 子 agent 结束通知带发送者会话，但它不是谁发给人说的话。
     if (/^Background subagent .* finished\b/.test(text)) return "system";
-    if (/^Team message from /.test(text)) return "system";
+    return null;
+  };
+
+  const classifyUserText = (text: string, who: string | null): "user" | "system" | null => {
+    const noise = noiseKind(text);
+    if (noise === "drop") return null;
+    if (noise === "system") return "system";
+    if (noise === "team") return "system";
     // 队员会话里收到的不是「用户」说的话：注入的上下文都不记成用户。
     if (who && who !== "lead") return null;
     return "user";
+  };
+
+  /** 系统类条目重复出现时只留一条（「用户已回答这次提问」实测出现过两次）。 */
+  const pushSystemBus = async (text: string, sourceSeq: number) => {
+    const seen = await client.query(
+      `select 1 from swarm_event
+        where account_id=$1 and run_id=$2 and type='bus'
+          and data->>'type'='system' and data->>'text'=$3 limit 1`,
+      [context.account, context.runId, text.slice(0, 2000)],
+    );
+    if (seen.rowCount) return null;
+    return push(
+      "bus",
+      {
+        seq: 0,
+        at: new Date().toISOString(),
+        type: "system",
+        from: "system",
+        to: null,
+        text: text.slice(0, 2000),
+        refs: {},
+      } satisfies BusEntry,
+      sourceSeq,
+    );
+  };
+
+  /**
+   * 一条消息只留一条：先在收件人会话那一侧找到「己经发出、还没确认」的那条，
+   * 把它改成已收到；找不到才新记。
+   */
+  const upgradeSentToReceived = async (
+    from: string,
+    text: string,
+    to: string | null,
+  ): Promise<boolean> => {
+    const row = (
+      await client.query(
+        `select seq, data from swarm_event
+          where account_id=$1 and run_id=$2 and type='bus'
+            and data->>'type'='message' and data->>'from'=$3
+            and data->>'text'=$4 and data->>'delivery' in ('sent','unknown')
+          order by seq desc limit 1`,
+        [context.account, context.runId, from, text.slice(0, 2000)],
+      )
+    ).rows[0];
+    if (!row) return false;
+    const data = { ...(row.data as BusEntry), delivery: "received" as const, ...(to ? { to } : {}) };
+    await client.query(
+      "update swarm_event set data=$3 where account_id=$1 and run_id=$2 and seq=$4",
+      [context.account, context.runId, JSON.stringify(data), Number(row.seq)],
+    );
+    return true;
   };
 
   /** 负责人是隐式的（DSH 没有它的成员事件）：名册第一行按 teamId=负责人会话补上。 */
@@ -639,6 +705,15 @@ export async function projectEvents(
         const text = content.map((block) => str(obj(block).text) ?? "").join("").trim();
         if (!text) break;
         const source = obj(payload.source);
+        // 环境快照 / 建队提示词 / 子 agent 结束通知：先按正文认掉，别按会话错误归属。
+        const noise = noiseKind(text);
+        if (noise === "drop") break;
+        // 系统类（档案变动、用户已回答、子 agent 结束）一律按系统条目记，
+        // 哪怕它带着发送者会话——不然会显示成某个队员发给负责人的消息。
+        if (noise === "system") {
+          await pushSystemBus(text, sourceSeq);
+          break;
+        }
         // 队内消息认两种证据：payload.source.senderSessionId（最准），
         // 以及正文开头的「Team message from <名字>:」。
         const senderSession = str(source.senderSessionId);
@@ -650,13 +725,17 @@ export async function projectEvents(
         const fromMember = senderBySession ?? (prefix && prefix[1] !== who ? prefix[1] : null);
         if (fromMember && fromMember !== who) {
           // 收件人是这条事件所属的会话，不是负责人：之前一律记成 lead → lead。
+          const body = (prefix ? prefix[2] : text).slice(0, 2000);
+          const to = who ?? (prefix ? prefix[1] : null);
+          // 同一条消息不要既记「已发出」又记「已收到」：能对上就升级原来那条。
+          if (await upgradeSentToReceived(fromMember, body, to)) break;
           const bus: BusEntry = {
             seq: 0,
             at: new Date().toISOString(),
             type: "message",
             from: fromMember,
-            to: who ?? (prefix ? prefix[1] : null),
-            text: (prefix ? prefix[2] : text).slice(0, 2000),
+            to,
+            text: body,
             delivery: "received",
             refs: {},
           };
@@ -677,82 +756,6 @@ export async function projectEvents(
           refs: {},
         };
         await push("bus", bus, sourceSeq);
-        break;
-      }
-      case "user/message": {
-        const content = arr(payload.content);
-        const text = content.map((block) => str(obj(block).text) ?? "").join("").trim();
-        if (!text) break;
-        const source = obj(payload.source);
-        // 队内消息认两种证据：payload.source.senderSessionId（最准），
-        // 以及正文开头的「Team message from <名字>:」。
-        const senderSession = str(source.senderSessionId);
-        // 发送者自己会话里也留了一份同样的正文（source.senderSessionId 就是本会话）：
-        // 这条不记，队内消息只在收件人那一侧记一条。同会话比对不依赖映射，先判。
-        if (senderSession && row.sessionId && senderSession === row.sessionId) break;
-        const senderBySession = senderSession ? (state.bySession.get(senderSession) ?? null) : null;
-        const prefix = /^Team message from ([A-Za-z0-9_-]+):\s*([\s\S]*)$/.exec(text);
-        const fromMember = senderBySession ?? (prefix && prefix[1] !== who ? prefix[1] : null);
-        if (fromMember && fromMember !== who) {
-          // 收件人是这条事件所属的会话，不是负责人：之前一律记成 lead → lead。
-          const bus: BusEntry = {
-            seq: 0,
-            at: new Date().toISOString(),
-            type: "message",
-            from: fromMember,
-            to: who ?? (prefix ? prefix[1] : null),
-            text: (prefix ? prefix[2] : text).slice(0, 2000),
-            delivery: "received",
-            refs: {},
-          };
-          await push("bus", bus, sourceSeq);
-          break;
-        }
-        // 发送者自己会话里也有一份同一句话的副本（to=自己）：不再记一遍。
-        if (fromMember && fromMember === who) break;
-        const kind = classifyUserText(text, who);
-        if (!kind) break;
-        const bus: BusEntry = {
-          seq: 0,
-          at: new Date().toISOString(),
-          type: kind === "user" ? "user" : "system",
-          from: kind === "user" ? "user" : "system",
-          to: who ?? "lead",
-          text: text.slice(0, 2000),
-          refs: {},
-        };
-        await push("bus", bus, sourceSeq);
-        break;
-      }
-      case "assistant/message": {
-        const content = arr(payload.content);
-        const text = content.map((block) => str(obj(block).text) ?? "").join("").trim();
-        if (!text) break;
-        const member = who ?? "lead";
-        // 谁说的话归到谁：负责人对用户的答复是一条 lead → user 的通信，
-        // 队员的输出进它自己的记录，不冒充负责人。
-        if (member === "lead") {
-          const bus: BusEntry = {
-            seq: 0,
-            at: new Date().toISOString(),
-            type: "deliver",
-            from: "lead",
-            to: "user",
-            text: text.slice(0, 2000),
-            refs: {},
-          };
-          await push("bus", bus, sourceSeq);
-        }
-        await push(
-          "member_log",
-          {
-            member,
-            kind: "output",
-            text: text.slice(0, 800),
-            ...(text.length > 800 ? { note: "已截断" } : {}),
-          } satisfies Partial<MemberLogItem> & { member: string },
-          sourceSeq,
-        );
         break;
       }
       default:

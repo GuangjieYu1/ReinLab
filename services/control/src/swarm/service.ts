@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import type {
+  MemberRole,
   SwarmRoute,
   BusEntry,
   Claim,
@@ -23,8 +24,31 @@ import { ApiFailure } from "../api/errors";
 import type { Database } from "../db/database";
 import type { KernelService } from "../kernel/service";
 import { labelOf, loadFold, projectEvents } from "./project";
+import {
+  buildReport,
+  claimEvidenceIds,
+  claimRow,
+  evidenceRow,
+  findSubmission,
+  latestClaims,
+  loadApproaches,
+  loadClaim,
+  loadEvidence,
+  MAX_EVIDENCE_PER_SUBMISSION,
+  putApproach,
+  putClaim,
+  putEvidence,
+  readApproach,
+  readClaim,
+  readEvidence,
+  recordSubmission,
+  type SubmissionResult,
+} from "./blackboard";
 
 /** 队员累计名额：完全沿用 DSH 的 maxMembers=16（负责人之外最多 16 个队员）。 */
+const obj = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
 export const MAX_MEMBERS = 16;
 /** 额度下限（12-swarm.md §3）：最少 4 轮 / 30 分钟，只做下限，不强制耗满。 */
 export const MIN_ROUNDS = 4;
@@ -436,8 +460,59 @@ export class SwarmService {
          where account_id=$1 and run_id=$2`,
         [account, runId, rounds, minutes],
       );
+      // 用户点确认时负责人可能刚说完「还在待确认」：那句在当时不算错，但用户读到就过期了。
+      // 确认落库之后立刻补一条系统说明，别让人以为卡住了（E8）。
+      const staleDelivers = (
+        await client.query(
+          `select seq, data from swarm_event
+            where account_id=$1 and run_id=$2 and type='bus'
+              and data->>'type'='deliver' and data->>'from'='lead'
+              and source='control'
+              and (data->>'text') ~ '(待确认|还没确认|未被确认|不能建队)'
+              and seq > coalesce((select max(seq) from swarm_event
+                                   where account_id=$1 and run_id=$2 and type='bus'
+                                     and data->>'type'='system'), 0)
+            order by seq desc limit 1`,
+          [account, runId],
+        )
+      ).rows[0];
+      if (staleDelivers)
+        await this.emitSimple(client, account, runId, "bus", {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: "system",
+          from: "system",
+          to: "user",
+          text: "（上一条「计划还卡在待确认」已经过期：计划已确认，团队已开跑。）",
+          refs: {},
+        } satisfies BusEntry);
       await this.emitRun(client, account, runId);
       const plan = await this.planOf(client, account, runId);
+      // 路线是确认后才真正建出来的：立刻推 route 事件，页面不用等刷新（E6）。
+      for (const route of plan?.routes ?? []) {
+        const existing = (
+          await client.query(
+            "select 1 from swarm_approach where account_id=$1 and run_id=$2 and route_id=$3",
+            [account, runId, route.id],
+          )
+        ).rowCount;
+        if (!existing)
+          await client.query(
+            `insert into swarm_approach(account_id,run_id,route_id,title,idea,approach_family,tags,state)
+             values($1,$2,$3,$4,$5,$6,'[]','active')`,
+            [account, runId, route.id, route.title, route.idea, route.idea.slice(0, 40)],
+          );
+        await this.emitSimple(client, account, runId, "route", {
+          id: route.id,
+          title: route.title,
+          idea: route.idea,
+          approachFamily: route.idea.slice(0, 40),
+          tags: [],
+          state: "active",
+          taskIds: [],
+          memberIds: [],
+        } satisfies SwarmRoute);
+      }
       return { plan };
     });
     // 确认之后真正开跑：同一段会话接着干，不新建会话。
@@ -550,8 +625,23 @@ export class SwarmService {
    */
   async onTurnOutput(account: string, runId: string, text: string): Promise<void> {
     await this.dependencies.db.withAccount(account, async (client) => {
-      await this.row(client, account, runId).catch(() => null);
+      const row = await this.row(client, account, runId).catch(() => null);
       const trimmed = text.slice(0, 4000);
+      // 计划已经确认、团队已经开跑，负责人却还在说「计划还卡在待确认」：
+      // 那是它上一回合的旧印象，照实纠正成一条系统说明，别当成它现在说的话。
+      const stale = /待确认|还没确认|未被确认|未确认/.test(trimmed) && row && row.state !== "awaiting_confirm";
+      if (stale) {
+        await this.emitSimple(client, account, runId, "bus", {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: "system",
+          from: "system",
+          to: "user",
+          text: "负责人刚才那句「计划还没确认」是上一回合的旧印象：计划已经确认，团队已经开跑。",
+          refs: {},
+        } satisfies BusEntry);
+        return;
+      }
       await this.emitSimple(client, account, runId, "bus", {
         seq: 0,
         at: new Date().toISOString(),
@@ -703,11 +793,16 @@ export class SwarmService {
         member.state = busy ? "running" : member.state === "running" ? "idle" : member.state;
       }
 
-      const claims: Claim[] = [];
-      const evidence: Evidence[] = [];
+      // 黑板：结论 + 证据 + 阶段结果（核实没接通，所以没有 verified）。
+      const claims: Claim[] = await latestClaims(client, account, runId, { limit: 200 });
+      const evidence: Evidence[] = await loadEvidence(client, account, runId);
       const reviews: Review[] = [];
-      // MVP-1 还没有黑板：汇总区显示「核实未接通，全部是候选」，不给正式报告。
-      const report: SwarmReport | null = null;
+      const report: SwarmReport | null = await buildReport(client, {
+        account,
+        runId,
+        version: row.plan_version,
+        stateReason: row.state_reason,
+      });
       // 路线状态按最后一条 route 事件走（运行结束时会发 stopped），没有事件才用默认。
       const routeEvents = (
         await client.query(
@@ -718,27 +813,44 @@ export class SwarmService {
         )
       ).rows.map((row) => row.data as SwarmRoute);
       const knownRoutes = new Map(routeEvents.map((route) => [route.id, route]));
-      const routes = plan
-        ? plan.routes.map((route) => {
-            const settled = knownRoutes.get(route.id);
-            return {
-              id: route.id,
-              title: route.title,
-              idea: route.idea,
-              approachFamily: route.idea.slice(0, 40),
-              tags: settled?.tags ?? [],
-              state: settled?.state ?? ("active" as const),
-              ...(settled?.blockedReason ? { blockedReason: settled.blockedReason } : {}),
-              ...(settled?.gap ? { gap: settled.gap } : {}),
-              taskIds: [...fold.tasks.values()]
-                .filter((task) => task.routeId === route.id)
-                .map((task) => task.id),
-              memberIds: [...fold.members.values()]
-                .filter((member) => member.tags.includes(route.id))
-                .map((member) => member.id),
-            };
-          })
-        : [];
+      const registered = await loadApproaches(client, account, runId);
+      const registeredById = new Map(registered.map((route) => [route.id, route]));
+      const tasksOf = (routeId: string) =>
+        [...fold.tasks.values()].filter((task) => task.routeId === routeId).map((task) => task.id);
+      const membersOf = (routeId: string) =>
+        [...fold.members.values()]
+          .filter((member) => member.tags.includes(routeId))
+          .map((member) => member.id);
+      const planRoutes = (plan?.routes ?? []).map((route) => {
+        const settled = knownRoutes.get(route.id);
+        const approach = registeredById.get(route.id);
+        return {
+          id: route.id,
+          title: approach?.title ?? route.title,
+          idea: approach?.idea || route.idea,
+          approachFamily: approach?.approachFamily || route.idea.slice(0, 40),
+          tags: approach?.tags ?? settled?.tags ?? [],
+          state: approach?.state ?? settled?.state ?? ("active" as const),
+          ...(approach?.gap ?? settled?.gap ? { gap: approach?.gap ?? settled?.gap } : {}),
+          ...(approach?.blockedReason ?? settled?.blockedReason
+            ? { blockedReason: approach?.blockedReason ?? settled?.blockedReason }
+            : {}),
+          ...(approach?.reopenReason ?? settled?.reopenReason
+            ? { reopenReason: approach?.reopenReason ?? settled?.reopenReason }
+            : {}),
+          taskIds: tasksOf(route.id),
+          memberIds: membersOf(route.id),
+        };
+      });
+      // 插件新登记、计划里没有的路线也要出现（同义不新开，新开就是真新路线）。
+      const extraRoutes = registered
+        .filter((route) => !planRoutes.some((entry) => entry.id === route.id))
+        .map((route) => ({
+          ...route,
+          taskIds: tasksOf(route.id),
+          memberIds: membersOf(route.id),
+        }));
+      const routes = [...planRoutes, ...extraRoutes];
       return {
         run,
         plan,
@@ -1119,15 +1231,29 @@ export class SwarmService {
       });
     }
     const plan = await this.planOf(client, account, runId);
+    // 路线状态的唯一真源是 swarm_approach（插件登记的那份）：收尾要落库，
+    // 只推事件的话快照仍会按库里的 active 显示成「进行中」。
+    await client.query(
+      `update swarm_approach
+         set state='stopped',
+             blocked_reason=coalesce(blocked_reason, $3),
+             version=version+1,
+             updated_at=now()
+       where account_id=$1 and run_id=$2 and state in ('active','reopened')`,
+      [account, runId, reason],
+    );
+    await this.emitReport(client, account, runId, (await this.row(client, account, runId)).plan_version, reason);
+    const settledRoutes = await loadApproaches(client, account, runId);
     for (const route of plan?.routes ?? []) {
+      const settled = settledRoutes.find((entry) => entry.id === route.id);
       await this.emitSimple(client, account, runId, "route", {
         id: route.id,
         title: route.title,
         idea: route.idea,
-        approachFamily: route.idea.slice(0, 40),
-        tags: [],
-        state: "stopped" as const,
-        blockedReason: reason,
+        approachFamily: settled?.approachFamily ?? route.idea.slice(0, 40),
+        tags: settled?.tags ?? [],
+        state: (settled?.state ?? "stopped") as SwarmRoute["state"],
+        blockedReason: settled?.blockedReason ?? reason,
         taskIds: [...fold.tasks.values()]
           .filter((task) => task.routeId === route.id)
           .map((task) => task.id),
@@ -1175,9 +1301,12 @@ export class SwarmService {
         // 会话读不回来不能当成「研究失败」：队伍和产出还在，标成暂停由用户决定。
         const restoreFailed = /KERNEL_SESSION_RESTORE_FAILED/.test(detail ?? "");
         const nextState = restoreFailed ? "paused" : "failed";
+        const quota = /QUOTA|Insufficient Balance|insufficient_quota|402/i.test(detail ?? "");
         const reason = restoreFailed
           ? "这一段会话读不回来，为避免重复建队没有继续；产出和名册都还在，可以稍后再试"
-          : "这一轮执行失败";
+          : quota
+            ? "模型账户额度不足（QUOTA），这一轮没法继续；已交的结论和证据都还在"
+            : "这一轮执行失败";
         await client.query(
           `update swarm_run set state=$3, end_reason=$4, state_reason=$5, active_since=null,
              ended_at=case when $3='failed' then now() else ended_at end, updated_at=now()
@@ -1393,6 +1522,453 @@ export class SwarmService {
     });
   }
 
+  // ── 黑板：提交 / 查询 / 路线登记 ────────────────────
+
+  /** 成员的研究身份：名字 → 角色与路线（插件建人时登记过）。 */
+  private async memberOf(
+    client: pg.PoolClient,
+    account: string,
+    runId: string,
+    name: string,
+  ): Promise<{ id: string; role: MemberRole; routeId: string | null }> {
+    if (name === "lead") return { id: "lead", role: "lead", routeId: null };
+    const meta = (
+      await client.query(
+        "select data from swarm_meta where account_id=$1 and run_id=$2 and kind='member' and ref_id=$3",
+        [account, runId, name],
+      )
+    ).rows[0]?.data as { role?: string; routeId?: string | null } | undefined;
+    const fold = await loadFold(client, account, runId);
+    const member = fold.members.get(name);
+    if (!meta && !member)
+      throw new ApiFailure("MEMBER_NOT_FOUND", 404, `名单里没有「${name}」这名队员。`);
+    const role = (meta?.role as MemberRole | undefined) ?? member?.role ?? "researcher";
+    return {
+      id: name,
+      role,
+      routeId: meta?.routeId ?? member?.tags?.[0] ?? null,
+    };
+  }
+
+  /**
+   * 提交（research_submit）：先落库再完成任务。按 submission_id 幂等，重试不会记两遍。
+   * 结论必须引用至少一条证据，或者写成负结果（找过什么、没找到什么）。
+   */
+  async submitResearch(
+    account: string,
+    runId: string,
+    input: {
+      kind?: unknown;
+      submissionId?: unknown;
+      member?: unknown;
+      taskId?: unknown;
+      routeId?: unknown;
+      claim?: unknown;
+      negative?: unknown;
+      text?: unknown;
+      evidence?: unknown;
+      post?: unknown;
+      answerTo?: unknown;
+    },
+  ): Promise<SubmissionResult> {
+    const kind = typeof input.kind === "string" ? input.kind : "";
+    if (!["claim", "negative", "evidence", "question", "answer", "help", "decision"].includes(kind))
+      throw new ApiFailure(
+        "SUBMIT_KIND_INVALID",
+        400,
+        "提交类型只能是 claim / negative / evidence / question / answer / help / decision。",
+      );
+    const submissionId =
+      typeof input.submissionId === "string" && input.submissionId.trim() !== ""
+        ? input.submissionId.trim().slice(0, 200)
+        : randomUUID();
+    const memberName =
+      typeof input.member === "string" && input.member.trim() !== "" ? input.member.trim() : "lead";
+    return this.dependencies.db.withAccount(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      // 幂等：同一份产出重试时原样返回第一次的结果。
+      const repeated = await findSubmission(client, account, runId, submissionId);
+      if (repeated) return repeated;
+      if (TERMINAL.has(row.state))
+        throw new ApiFailure("RUN_ENDED", 409, "这次群研已经结束，不再接收提交。");
+      const member = await this.memberOf(client, account, runId, memberName);
+      const taskId = typeof input.taskId === "string" ? input.taskId : null;
+      const fold = await loadFold(client, account, runId);
+      const task = taskId ? fold.tasks.get(taskId) : undefined;
+      const routeId =
+        (typeof input.routeId === "string" ? input.routeId : null) ??
+        member.routeId ??
+        task?.routeId ??
+        null;
+
+      const result: SubmissionResult = {
+        submissionId,
+        claimIds: [],
+        evidenceIds: [],
+        postIds: [],
+      };
+
+      // 1) 证据先落库（同来源 + 同版本 + 同定位只记一条，引用关系另记）。
+      const evidenceInput = Array.isArray(input.evidence)
+        ? input.evidence
+        : input.evidence
+          ? [input.evidence]
+          : [];
+      if (evidenceInput.length > MAX_EVIDENCE_PER_SUBMISSION)
+        throw new ApiFailure("EVIDENCE_TOO_MANY", 400, "一次最多交 20 条证据。");
+      for (const raw of evidenceInput) {
+        const parsed = readEvidence(raw);
+        const stored = await putEvidence(client, {
+          account,
+          runId,
+          submissionId,
+          evidence: parsed,
+        });
+        result.evidenceIds.push(stored.id);
+        if (stored.created)
+          await this.emitSimple(client, account, runId, "evidence", stored.evidence);
+      }
+
+      // 2) 结论（或负结果）：要么引用证据，要么是负结果。
+      if (kind === "claim" || kind === "negative") {
+        const claimInput =
+          kind === "negative"
+            ? readClaim({
+                ...(input.claim as Record<string, unknown> | undefined),
+                text:
+                  (input.claim as Record<string, unknown> | undefined)?.text ??
+                  input.text ??
+                  "负结果：这一路没有找到能支撑结论的证据",
+                negative:
+                  (input.claim as Record<string, unknown> | undefined)?.negative ?? input.negative,
+              })
+            : readClaim(input.claim);
+        if (claimInput.negative && !result.evidenceIds.length) claimInput.negative = claimInput.negative;
+        const stored = await putClaim(client, {
+          account,
+          runId,
+          submissionId,
+          member: member.id,
+          taskId,
+          routeId,
+          round: row.round,
+          claim: claimInput,
+          evidenceIds: result.evidenceIds,
+        });
+        result.claimIds.push(stored.claim.id);
+        await this.emitSimple(client, account, runId, "claim", stored.claim);
+        await this.emitSimple(client, account, runId, "bus", {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: "deliver",
+          from: member.id,
+          to: "board",
+          text: `交了结论：${claimInput.text.slice(0, 120)}`,
+          refs: { claimId: stored.claim.id, ...(taskId ? { taskId } : {}) },
+        } satisfies BusEntry);
+      }
+
+      // 3) 留言板四栏：问题 / 求助 / 决定 / 回答落到一条 BoardPost。
+      if (kind === "question" || kind === "help" || kind === "decision" || kind === "answer") {
+        const postInput = obj(input.post);
+        const body = String(postInput.text ?? input.text ?? "").trim();
+        if (!body) throw new ApiFailure("POST_TEXT_REQUIRED", 400, "留言要有正文。");
+        const col =
+          kind === "answer" ? "question" : (kind as "question" | "help" | "decision");
+        const postId = randomUUID();
+        const answerTo = typeof input.answerTo === "string" ? input.answerTo : null;
+        await client.query(
+          `insert into swarm_post(id,account_id,run_id,dossier_id,col,author,body,recipient,reply_to,refs)
+           values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [
+            postId,
+            account,
+            runId,
+            row.dossier_id,
+            col,
+            member.id,
+            body.slice(0, 8000),
+            typeof postInput.to === "string" ? postInput.to : null,
+            answerTo,
+            JSON.stringify({
+              ...(taskId ? { taskId } : {}),
+              ...(routeId ? { routeId } : {}),
+            }),
+          ],
+        );
+        if (answerTo)
+          await client.query(
+            "update swarm_post set answered=true where account_id=$1 and id=$2",
+            [account, answerTo],
+          );
+        result.postIds.push(postId);
+        const post = (await this.posts(client, account, runId)).find((entry) => entry.id === postId);
+        if (post) await this.emitSimple(client, account, runId, "post", post);
+        await this.emitSimple(client, account, runId, "bus", {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: kind === "question" ? "ask" : kind === "help" ? "help" : kind === "decision" ? "broadcast" : "deliver",
+          from: member.id,
+          to: kind === "decision" ? "board" : (post?.to ?? "board"),
+          text: body.slice(0, 200),
+          refs: { postId, ...(taskId ? { taskId } : {}) },
+        } satisfies BusEntry);
+      }
+
+      await recordSubmission(client, {
+        account,
+        runId,
+        submissionId,
+        member: member.id,
+        kind,
+        result,
+      });
+      await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
+      await this.emitRun(client, account, runId);
+      return result;
+    });
+  }
+
+  /**
+   * 查询（research_query）：按角色 / 路线 / 任务 / 版本增量读。
+   * 独立阶段（前 2 轮）研究员只能看到自己那条路线的结论——服务端裁，不靠前端隐藏。
+   */
+  async queryResearch(
+    account: string,
+    runId: string,
+    input: {
+      member?: unknown;
+      routeId?: unknown;
+      taskId?: unknown;
+      sinceVersion?: unknown;
+      sinceSeq?: unknown;
+      limit?: unknown;
+      include?: unknown;
+    },
+  ): Promise<{
+    phase: "independent" | "cross";
+    scope: string;
+    claims: Claim[];
+    evidence: Evidence[];
+    posts: BoardPost[];
+    routes: SwarmRoute[];
+    truncated: boolean;
+  }> {
+    return this.dependencies.db.withAccountSnapshot(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const memberName =
+        typeof input.member === "string" && input.member.trim() !== ""
+          ? input.member.trim()
+          : "lead";
+      const member = await this.memberOf(client, account, runId, memberName);
+      const phase: "independent" | "cross" = row.round <= 2 ? "independent" : "cross";
+      const limit = Math.min(Math.max(Number(input.limit ?? 30) || 30, 1), 100);
+      // 独立阶段：研究员只看自己路线；反驳 / 核实 / 负责人看全部（他们本来就要审）。
+      const scopedRoutes =
+        phase === "independent" && member.role === "researcher"
+          ? [member.routeId ?? "__none__"]
+          : null;
+      const claims = await latestClaims(client, account, runId, {
+        routeId: typeof input.routeId === "string" ? input.routeId : null,
+        taskId: typeof input.taskId === "string" ? input.taskId : null,
+        routes: scopedRoutes,
+        sinceVersion: Number.isFinite(Number(input.sinceVersion))
+          ? Number(input.sinceVersion)
+          : undefined,
+        limit: limit + 1,
+      });
+      const truncated = claims.length > limit;
+      const page = claims.slice(0, limit);
+      const evidenceIds = [...new Set(page.flatMap((claim) => claim.evidenceIds))];
+      const evidence = await loadEvidence(client, account, runId, evidenceIds);
+      const posts = (await this.posts(client, account, runId)).filter((post) =>
+        scopedRoutes
+          ? !post.refs.routeId || scopedRoutes.includes(post.refs.routeId)
+          : true,
+      );
+      const routes = await loadApproaches(client, account, runId);
+      return {
+        phase,
+        scope:
+          scopedRoutes === null
+            ? "all-routes"
+            : `route:${member.routeId ?? "none"}（独立阶段只给自己这条路线）`,
+        claims: page,
+        evidence,
+        posts,
+        routes,
+        truncated,
+      };
+    });
+  }
+
+  /** 登记路线（research_register_approach）：同义不新开；标阻塞要写原因；重开要写新机制。 */
+  async registerApproach(
+    account: string,
+    runId: string,
+    input: unknown,
+  ): Promise<{ route: SwarmRoute; created: boolean }> {
+    const approach = readApproach(input);
+    return this.dependencies.db.withAccount(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const stored = await putApproach(client, { account, runId, approach });
+      const fold = await loadFold(client, account, runId);
+      const route: SwarmRoute = {
+        ...stored.route,
+        taskIds: [...fold.tasks.values()]
+          .filter((task) => task.routeId === stored.route.id)
+          .map((task) => task.id),
+        memberIds: [...fold.members.values()]
+          .filter((member) => member.tags.includes(stored.route.id))
+          .map((member) => member.id),
+      };
+      await this.emitSimple(client, account, runId, "route", route);
+      await this.emitSimple(client, account, runId, "bus", {
+        seq: 0,
+        at: new Date().toISOString(),
+        type: "broadcast",
+        from: "lead",
+        to: "board",
+        text:
+          stored.route.state === "blocked"
+            ? `路线 ${stored.route.id} 标阻塞：${stored.route.blockedReason ?? stored.route.gap ?? "缺口未写"}`
+            : stored.route.reopenReason
+              ? `路线 ${stored.route.id} 重新开放：${stored.route.reopenReason}`
+              : `${stored.created ? "新路线" : "更新路线"} ${stored.route.id}：${stored.route.title}`,
+        refs: {},
+      } satisfies BusEntry);
+      await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
+      await this.emitRun(client, account, runId);
+      return { route, created: stored.created };
+    });
+  }
+
+  /** 结论详情：结论 + 它引用的证据 + 来自哪个任务、哪个队员。 */
+  async claimDetail(account: string, runId: string, claimId: string, version?: number) {
+    return this.dependencies.db.withAccountSnapshot(account, async (client) => {
+      await this.row(client, account, runId);
+      const claim = await loadClaim(client, account, runId, claimId, version);
+      const evidenceIds = await claimEvidenceIds(client, account, runId, claim.id, claim.version);
+      const evidence = await loadEvidence(client, account, runId, evidenceIds);
+      const fold = await loadFold(client, account, runId);
+      const task = claim.taskId ? fold.tasks.get(claim.taskId) : undefined;
+      const member = fold.members.get(claim.author);
+      const meta =
+        claim.author === "lead"
+          ? null
+          : ((
+              await client.query(
+                "select data from swarm_meta where account_id=$1 and run_id=$2 and kind='member' and ref_id=$3",
+                [account, runId, claim.author],
+              )
+            ).rows[0]?.data as { role?: string; label?: string | null } | undefined);
+      const role = (meta?.role as MemberRole | undefined) ?? member?.role ?? "researcher";
+      return {
+        claim: { ...claim, evidenceIds },
+        evidence,
+        reviews: [],
+        task: task
+          ? { id: task.id, title: task.title, state: task.state, routeId: task.routeId }
+          : null,
+        member:
+          claim.author === "lead"
+            ? { id: "lead", label: "负责人", role: "lead" as const }
+            : {
+                id: claim.author,
+                label: meta?.label ?? member?.label ?? labelOf(claim.author, role),
+                role,
+              },
+      };
+    });
+  }
+
+  /** 证据详情：证据 + 哪几条结论引用了它。 */
+  async evidenceDetail(account: string, runId: string, evidenceId: string) {
+    return this.dependencies.db.withAccountSnapshot(account, async (client) => {
+      await this.row(client, account, runId);
+      const rows = await loadEvidence(client, account, runId, [evidenceId]);
+      const evidence = rows[0];
+      if (!evidence) throw new ApiFailure("EVIDENCE_NOT_FOUND", 404, "这条证据不存在。");
+      const links = (
+        await client.query(
+          `select c.id, c.version, c.text from swarm_claim_evidence l
+             join swarm_claim c
+               on c.account_id=l.account_id and c.run_id=l.run_id
+              and c.id=l.claim_id and c.version=l.claim_version
+            where l.account_id=$1 and l.run_id=$2 and l.evidence_id=$3
+            order by c.created_at desc limit 50`,
+          [account, runId, evidenceId],
+        )
+      ).rows;
+      return {
+        evidence,
+        referencedBy: links.map((row) => ({
+          claimId: String(row.id),
+          claimVersion: Number(row.version),
+          text: String(row.text),
+        })),
+      };
+    });
+  }
+
+  /**
+   * 阶段结果事件（契约 §3 的 report）：候选集合、负结果、缺口或来源变了才推，
+   * 页面不用等刷新。和上一条一样就不推，避免每条提交都刷一帧。
+   */
+  private async emitReport(
+    client: pg.PoolClient,
+    account: string,
+    runId: string,
+    version: number,
+    stateReason: string | null,
+  ): Promise<boolean> {
+    const report = await buildReport(client, { account, runId, version, stateReason });
+    const signature = JSON.stringify({
+      state: report.state,
+      verified: report.verified,
+      unverified: report.unverified,
+      negative: report.negative,
+      gaps: report.gaps,
+      sources: report.sources,
+    });
+    const previous = (
+      await client.query(
+        `select data from swarm_event
+          where account_id=$1 and run_id=$2 and type='report'
+          order by seq desc limit 1`,
+        [account, runId],
+      )
+    ).rows[0]?.data as SwarmReport | undefined;
+    if (
+      previous &&
+      JSON.stringify({
+        state: previous.state,
+        verified: previous.verified,
+        unverified: previous.unverified,
+        negative: previous.negative,
+        gaps: previous.gaps,
+        sources: previous.sources,
+      }) === signature
+    )
+      return false;
+    await this.emitSimple(client, account, runId, "report", report);
+    return true;
+  }
+
+  /** 阶段结果（汇总面）：核实没接通，所以 verified 为空、候选全放 unverified。 */
+  async report(account: string, runId: string): Promise<SwarmReport> {
+    await this.project(account, runId);
+    return this.dependencies.db.withAccountSnapshot(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      return buildReport(client, {
+        account,
+        runId,
+        version: row.plan_version,
+        stateReason: row.state_reason,
+      });
+    });
+  }
+
   /** 内核把队员记录上报过来时落到同一条事件流（members/:id/log 读它）。 */
   async reportMemberLog(
     account: string,
@@ -1401,20 +1977,14 @@ export class SwarmService {
   ): Promise<{ seq: number | null }> {
     return this.dependencies.db.withAccount(account, async (client) => {
       const row = await this.row(client, account, runId);
-      // 队员发出的消息：插件知道是谁发的，按真实发送者记一条队内消息。
+      // 队员发出的消息只记进它自己的工作记录：通信面按「收件人会话里那一份」记一条，
+      // 不然同一条消息会既出现「已发出」又出现「已收到」（验收里的 E3 余下项）。
       if (item.kind === "message_out") {
-        const bus = {
-          seq: 0,
-          at: new Date().toISOString(),
-          type: "message",
-          from: item.member,
-          to: item.to ?? "lead",
-          text: item.text,
-          delivery: "sent",
-          refs: {},
-        };
-        const busSeq = await this.emitSimple(client, account, runId, "bus", bus);
-        return { seq: busSeq };
+        const seq = await this.emitSimple(client, account, runId, "member_log", {
+          ...item,
+          to: undefined,
+        });
+        return { seq };
       }
       const seq = await this.emitSimple(client, account, runId, "member_log", item);
       // 名册上「正在做什么」也按最新一条工具记录更新，页面不用自己猜。
@@ -1466,6 +2036,8 @@ function kickoffPrompt(plan: SwarmPlan | null): string {
     "建任务用 research_task（不要直接 team_task_create）：写清 kind、route_id、parent_id，有依赖写 blocked_by。",
     "这样页面上的路线卡、任务树和名册才对得上；靠描述里写 route= 是不算数的。",
     "一个研究员只跟一条路线，三条路线不要用同一种做法；反驳和核实读别人的产出用 research_files 的读。",
+    "每条结论都用 research_submit 交到黑板：结论要引用至少一条证据（来源 + 章节/表号 + 原文摘句），没有证据就写成负结果。",
+    "只把东西写进自己的 notes.md 不算交付——黑板和任务板都要动，页面才看得见；问题和求助也用 research_submit 发。",
     `这次额度是 ${rounds} 轮、${plan?.limits.minutes ?? MIN_MINUTES} 分钟。用 wait_agent 收齐产出，不要停下来等用户。`,
     "队员要用 research_files 在 team/<队员名>/ 里写自己的记录（目录会自己建出来）；不要读写别人的目录。",
     "根任务不要放进别的任务的 blocked_by：它不会被完成，团队会被自己卡死。",

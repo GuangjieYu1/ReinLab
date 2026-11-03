@@ -368,9 +368,12 @@ export function apply(ctx, config) {
     register;
     // 负责人也能读团队目录（只读在别人子目录里写的东西），方便汇总。
     register(filesTool(teamRoot, "lead", true, report));
+    for (const definition of researchTools(ctx, call, "lead", agent)) register(definition);
   };
 
   const installTeammate = (agent, scoped, memberName) => {
+    // 队员目录在装工具时一起建好：第一次 research_files 读自己目录才不会 ENOENT。
+    void mkdir(join(teamRoot, memberName), { recursive: true }).catch(() => {});
     // 先收窄工具：这一步失败就照实记下来，但不要把整个插件装崩。
     try {
       const visible = DENIED_TOOLS.filter((toolName) => {
@@ -396,6 +399,8 @@ export function apply(ctx, config) {
         role: memberRoleOf(memberName, role),
       }),
     );
+    for (const definition of researchTools(ctx, call, memberName, agent))
+      scoped.tools.register(definition);
     // 干活时要在名册上显示「运行中」：工具一开始就跑一条状态上来。
     scoped.on("tools/pre-execute", async (exec, next) => {
       if (exec && (exec.agent === undefined || exec.agent === agent))
@@ -476,6 +481,238 @@ export function apply(ctx, config) {
   ctx.effect(() => () => installed.clear(), "reinlab-swarm.tools()");
 }
 
+
+/** research_submit / research_query / research_register_approach：负责人和队员共用一套。 */
+function researchTools(ctx, call, memberName, agent) {
+  return [
+    defineTool({
+      name: "research_submit",
+      description:
+        "把研究的产出交到黑板上：结论（必须引用至少一条证据，或者写成负结果）、证据、问题、回答、求助、决定。先落库再标任务完成；同一次提交重试用同一个 submission_id，不会记两遍。",
+      parameters: {
+        kind: {
+          type: "string",
+          required: true,
+          enum: ["claim", "negative", "evidence", "question", "answer", "help", "decision"],
+        },
+        submission_id: {
+          type: "string",
+          description: "幂等键。重试同一次提交要原样带上（不给就由插件生成）。",
+        },
+        task_id: { type: "string", description: "这条产出属于哪个任务（task-2 之类）。" },
+        route_id: { type: "string", description: "属于哪条路线；不填就用你自己的路线。" },
+        claim: {
+          type: "object",
+          description: "kind=claim/negative 时用。",
+          properties: {
+            text: { type: "string", required: true, description: "具体主张，写清适用条件和范围。" },
+            basis: {
+              type: "string",
+              enum: ["checked_fact", "source_claim", "inference", "observation"],
+              description: "依据类型：核对过的事实 / 来源自己的说法 / 我们的推断 / 实测观察。",
+            },
+            conditions: { type: "array", items: { type: "string" }, description: "适用条件。" },
+            claim_id: { type: "string", description: "改自己之前交的结论时填原 claim id。" },
+            negative: {
+              type: "object",
+              description: "负结果：找过什么、范围、没找到什么。",
+              properties: {
+                searched: { type: "string", required: true },
+                scope: { type: "string" },
+                not_found: { type: "string", required: true },
+              },
+            },
+          },
+        },
+        evidence: {
+          type: "array",
+          description: "这次一并交的证据。同来源 + 同版本 + 同定位只记一条。",
+          items: {
+            type: "object",
+            properties: {
+              source: {
+                type: "object",
+                required: true,
+                properties: {
+                  kind: {
+                    type: "string",
+                    required: true,
+                    enum: ["paper", "web", "code", "data", "proof", "other"],
+                  },
+                  title: { type: "string", required: true },
+                  ref: {
+                    type: "string",
+                    required: true,
+                    description: "arXiv 号 / DOI / URL / 资产 id。",
+                  },
+                  asset_id: { type: "string" },
+                  version: { type: "string", description: "如 v3。" },
+                },
+              },
+              locator: {
+                type: "object",
+                description: "定位：章节 / 表号 / 图号 + 原文摘句。页码可选，没有不算降级。",
+                properties: {
+                  section: { type: "string", description: "如 §4.2 / Table 2 / Figure 3。" },
+                  quote: { type: "string", description: "原文摘句，逐字。" },
+                  page: { type: "integer" },
+                  lines: { type: "string" },
+                },
+              },
+              access: { type: "string", enum: ["full_text", "abstract_only", "unavailable"] },
+              how: { type: "string", required: true, description: "怎么拿到的：检索 / 下载 / 实测。" },
+            },
+          },
+        },
+        text: { type: "string", description: "kind=question/answer/help/decision 时的正文。" },
+        to: { type: "string", description: "提问 / 求助指定接收者；不填就是公开。" },
+        answer_to: { type: "string", description: "kind=answer 时，回答的是哪条留言（post id）。" },
+      },
+      timeoutMs: 60_000,
+      async execute(args) {
+        const submissionId =
+          typeof args.submission_id === "string" && args.submission_id !== ""
+            ? args.submission_id
+            : globalThis.crypto.randomUUID();
+        const payload = {
+          kind: args.kind,
+          submissionId,
+          member: memberName,
+          ...(args.task_id ? { taskId: args.task_id } : {}),
+          ...(args.route_id ? { routeId: args.route_id } : {}),
+          ...(args.claim
+            ? {
+                claim: {
+                  text: args.claim.text,
+                  basis: args.claim.basis,
+                  conditions: args.claim.conditions,
+                  claimId: args.claim.claim_id,
+                  ...(args.claim.negative
+                    ? {
+                        negative: {
+                          searched: args.claim.negative.searched,
+                          scope: args.claim.negative.scope ?? "",
+                          notFound: args.claim.negative.not_found ?? "",
+                        },
+                      }
+                    : {}),
+                },
+              }
+            : {}),
+          ...(Array.isArray(args.evidence)
+            ? {
+                evidence: args.evidence.map((entry) => ({
+                  source: {
+                    kind: entry.source?.kind,
+                    title: entry.source?.title,
+                    ref: entry.source?.ref,
+                    assetId: entry.source?.asset_id,
+                    version: entry.source?.version,
+                  },
+                  locator: entry.locator
+                    ? {
+                        section: entry.locator.section,
+                        quote: entry.locator.quote,
+                        page: entry.locator.page,
+                        lines: entry.locator.lines,
+                      }
+                    : null,
+                  access: entry.access ?? "full_text",
+                  how: entry.how,
+                })),
+              }
+            : {}),
+          ...(typeof args.text === "string" ? { text: args.text } : {}),
+          ...(args.answer_to ? { answerTo: args.answer_to } : {}),
+          post:
+            typeof args.text === "string"
+              ? { text: args.text, ...(args.to ? { to: args.to } : {}) }
+              : undefined,
+        };
+        const outcome = await call("swarm", "submit", payload);
+        if (outcome.error) return outcome.error;
+        // 先落库再完成任务：落库失败就不动任务板。
+        if (args.task_id && (args.kind === "claim" || args.kind === "negative" || args.kind === "evidence")) {
+          try {
+            let task = null;
+            try {
+              task = ctx.agentTeams.getTask(agent, args.task_id);
+            } catch {
+              task = null;
+            }
+            if (task && task.status !== "completed")
+              await ctx.agentTeams.updateTask(agent, {
+                taskId: args.task_id,
+                expectedRevision: task.revision,
+                action: "complete",
+              });
+          } catch (error) {
+            return {
+              ...outcome.result,
+              taskComplete: false,
+              note: `提交已落库，但任务没有标完成：${String(error?.message ?? error).slice(0, 120)}。可以稍后再标。`,
+            };
+          }
+        }
+        return { ...outcome.result, repeated: outcome.result?.repeated === true };
+      },
+    }),
+    defineTool({
+      name: "research_query",
+      description:
+        "读黑板：按路线 / 任务过滤、按版本增量读，分页返回。独立阶段（前 2 轮）你只能看到自己那条路线的结论——这是服务端裁的，不是页面隐藏。",
+      parameters: {
+        route_id: { type: "string", description: "只看某条路线。" },
+        task_id: { type: "string", description: "只看某个任务的产出。" },
+        since_version: { type: "integer", description: "只读版本号大于它的结论（增量）。" },
+        limit: { type: "integer", description: "最多返回几条，默认 30。" },
+      },
+      timeoutMs: 30_000,
+      async execute(args) {
+        const outcome = await call("swarm", "query", {
+          member: memberName,
+          ...(args.route_id ? { routeId: args.route_id } : {}),
+          ...(args.task_id ? { taskId: args.task_id } : {}),
+          ...(args.since_version ? { sinceVersion: args.since_version } : {}),
+          ...(args.limit ? { limit: args.limit } : {}),
+        });
+        return outcome.error ?? outcome.result;
+      },
+    }),
+    defineTool({
+      name: "research_register_approach",
+      description:
+        "登记路线和方法族：同义的路线不会新开一条；卡住了就标阻塞并写缺口；要重开一条阻塞路线必须写明新机制。",
+      parameters: {
+        title: { type: "string", required: true, description: "路线名。" },
+        idea: { type: "string", description: "这条路线怎么做。" },
+        approach_family: { type: "string", description: "方法族，同义判断看它。" },
+        route_id: { type: "string", description: "更新已有路线时填它的 id。" },
+        tags: { type: "array", items: { type: "string" } },
+        state: { type: "string", enum: ["active", "blocked", "stopped", "reopened", "merged"] },
+        gap: { type: "string", description: "当前缺口。" },
+        blocked_reason: { type: "string", description: "卡在哪（标阻塞时要写）。" },
+        reopen_reason: { type: "string", description: "重开的新机制（重开时要写）。" },
+      },
+      timeoutMs: 30_000,
+      async execute(args) {
+        const outcome = await call("swarm", "approach", {
+          ...(args.route_id ? { routeId: args.route_id } : {}),
+          title: args.title,
+          idea: args.idea ?? "",
+          approachFamily: args.approach_family ?? args.title,
+          tags: args.tags ?? [],
+          ...(args.state ? { state: args.state } : {}),
+          ...(args.gap ? { gap: args.gap } : {}),
+          ...(args.blocked_reason ? { blockedReason: args.blocked_reason } : {}),
+          ...(args.reopen_reason ? { reopenReason: args.reopen_reason } : {}),
+        });
+        return outcome.error ?? outcome.result;
+      },
+    }),
+  ];
+}
+
 /** 目录读写工具：研究员只在自己目录；反驳/核实读整个 team/ 但只写自己目录。 */
 export function filesTool(root, memberName, readOnly, report, options = {}) {
   const readRoot = options.readRoot ?? root;
@@ -496,12 +733,22 @@ export function filesTool(root, memberName, readOnly, report, options = {}) {
     timeoutMs: 30_000,
     async execute(args) {
       try {
+        // 队员常把路径写成「自己的名字/文件」（像 team 相对路径）：剥掉这一层，
+        // 它的根本来就是 team/<名字>/。
+        let rel = typeof args.path === "string" ? args.path.replace(/^(\.\/)+/, "") : args.path;
+        if (typeof rel === "string" && rel.startsWith(memberName + "/"))
+          rel = rel.slice(memberName.length + 1);
+        const path2 = rel;
         switch (args.op) {
           case "list": {
-            const target = args.path ? await resolveInside(readRoot, args.path) : { target: readRoot };
-            const entries = await readdir(target.target, { withFileTypes: true });
+            const target = path2 ? await resolveInside(readRoot, path2) : { target: readRoot };
+            const entries = await readdir(target.target, { withFileTypes: true }).catch((error) => {
+              // 目录还没建过就当空的：第一次看自己目录不该报错。
+              if (error?.code === "ENOENT") return [];
+              throw error;
+            });
             return {
-              path: args.path ?? ".",
+              path: path2 ?? ".",
               entries: entries.slice(0, 200).map((entry) => ({
                 name: entry.name,
                 kind: entry.isDirectory() ? "dir" : "file",
@@ -509,40 +756,42 @@ export function filesTool(root, memberName, readOnly, report, options = {}) {
             };
           }
           case "read": {
-            const resolved = await resolveInside(readRoot, args.path ?? "");
+            const resolved = await resolveInside(readRoot, path2 ?? "");
             const info = await stat(resolved.target);
             if (!info.isFile()) return { error: { code: "NOT_A_FILE", message: "这不是文件。" } };
             if (info.size > MAX_FILE_BYTES)
               return { error: { code: "TOO_LARGE", message: "文件太大，读不了。" } };
             const text = await readFile(resolved.target, "utf8");
-            return { path: args.path, text: text.slice(0, MAX_FILE_BYTES) };
+            return { path: path2, text: text.slice(0, MAX_FILE_BYTES) };
           }
           case "write": {
             if (readOnly)
               return { error: { code: "READ_ONLY", message: "负责人这档只读团队目录。" } };
             if (typeof args.text !== "string")
               return { error: { code: "TEXT_REQUIRED", message: "要写什么？" } };
-            const resolved = await resolveInside(root, args.path ?? "");
+            const resolved = await resolveInside(root, path2 ?? "");
             await mkdir(dirname(resolved.target), { recursive: true });
             await writeFile(resolved.target, args.text.slice(0, MAX_FILE_BYTES), {
               mode: 0o600,
             });
             await report(memberName, {
               kind: "output",
-              text: `写了自己的记录：${args.path}`,
+              text: `写了自己的记录：${path2}`,
             });
-            return { path: args.path, bytes: args.text.length };
+            return { path: path2, bytes: args.text.length };
           }
           default:
             return { error: { code: "OP_UNSUPPORTED", message: "只支持 list / read / write。" } };
         }
       } catch (error) {
         const code = String(error?.message ?? error);
+        const missing = /^ENOENT/.test(code);
         return {
           error: {
-            code: code.startsWith("PATH_") ? code : "FILES_FAILED",
-            message:
-              code === "PATH_OUTSIDE_SCOPE"
+            code: code.startsWith("PATH_") ? code : missing ? "NOT_FOUND" : "FILES_FAILED",
+            message: missing
+              ? "这个路径还不存在：先写再读。你自己的目录是 team/<你的名字>/，用相对路径就行。"
+              : code === "PATH_OUTSIDE_SCOPE"
                 ? "这个路径在你自己的目录外面，不能读写。"
                 : `没有成功：${code.slice(0, 200)}`,
           },

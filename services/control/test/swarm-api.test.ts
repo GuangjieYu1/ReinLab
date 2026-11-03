@@ -125,6 +125,19 @@ function teamTurn(): HarnessFactory {
       },
     },
     {
+      type: "user/message",
+      session: researcher,
+      data: {
+        source: { kind: "user", senderSessionId: researcher },
+        content: [
+          {
+            type: "text",
+            text: "Background subagent 313c8b56-a1b2-4c3d-9e8f-000000000000 finished and reported its result.",
+          },
+        ],
+      },
+    },
+    {
       type: "team/task",
       data: {
         teamId: lead,
@@ -211,8 +224,19 @@ async function readStream(
   return events;
 }
 
+/** 等这一 run 的回合都收尾再关库，否则后台回合会撞上「pool 已关闭」。 */
+async function quiesce(kernel: KernelService, runId: string, ms = 5000) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (kernel.liveTurns(runId) === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预，费用未知不记 0", async () => {
   const f = await kernelFixture();
+  let activeRun = "";
+  let activeKernel: KernelService | undefined;
   try {
     const issuer = "https://swarm.fixture/auth/v1";
     const kernel = new KernelService({
@@ -255,6 +279,8 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     const started = await request("/v1/kernel/runs", { dossierId: f.dossier, mode: "swarm", query: "多 Agent 数量增加是否一定提高研究质量？" });
     expect(started.status).toBe(201);
     const { id: runId } = (await started.json()) as { id: string };
+    activeRun = runId;
+    activeKernel = kernel;
     const firstSnapshot = await request(`/v1/swarm/runs/${runId}`);
     let snapshot: any = await firstSnapshot.json();
     if (!snapshot.run) throw new Error("snapshot=" + JSON.stringify(snapshot));
@@ -272,6 +298,7 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     expect(((await again.json()) as any).id).toBe(runId);
     const list = (await (await request(`/v1/swarm/dossiers/${f.dossier}/runs`)).json()) as any;
     expect(list.runs).toHaveLength(1);
+
 
     // 负责人交计划：入库、等确认。
     await swarm.publishPlan(f.account, runId, {
@@ -335,7 +362,9 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     expect(snapshot.run.members.used).toBe(1);
     expect(snapshot.run.members.max).toBe(16);
 
-    // 通信条目是这一批里最后几条：等它落库再断言，别拿半截快照当全部。
+    // 先把这一 run 的回合等干净：通信条目是这一批的最后几条，半截快照会误判。
+    await quiesce(kernel, runId);
+    // 再等它落库，别拿半截快照当全部。
     let timeline: any = { entries: [] };
     for (let i = 0; i < 60; i += 1) {
       timeline = await (await request(`/v1/swarm/runs/${runId}/timeline?after=0`)).json();
@@ -366,6 +395,13 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     );
     expect(teammateMessages).toHaveLength(1);
     expect(teammateMessages[0]).toMatchObject({ from: "researcher-01", to: "lead", delivery: "received" });
+    // 子 agent 结束通知不是谁发给人说的话：不能记成队员的消息。
+    expect(
+      timeline.entries.some(
+        (entry: any) =>
+          entry.type === "message" && /^Background subagent /.test(entry.text ?? ""),
+      ),
+    ).toBe(false);
     // 建队提示词不是用户说的话，不进通信面。
     expect(
       timeline.entries.some((entry: any) => /^你是这次群研的/.test(entry.text ?? "")),
@@ -421,6 +457,7 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
 
 
   } finally {
+    if (activeKernel && activeRun) await quiesce(activeKernel, activeRun);
     await f.close();
   }
 }, 120_000);
@@ -431,6 +468,8 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
  */
 it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
   const f = await kernelFixture();
+  let activeRun = "";
+  let activeKernel: KernelService | undefined;
   try {
     const issuer = "https://swarm-b1.fixture/auth/v1";
     // 这一档的两回合都不建队：用来验证「没有任务就不许判完成」。
@@ -500,6 +539,8 @@ it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
       query: "多 Agent 数量增加是否一定提高研究质量？",
     });
     const { id: runId } = (await started.json()) as { id: string };
+    activeRun = runId;
+    activeKernel = kernel;
     await swarm.publishPlan(f.account, runId, {
       question: "多 Agent 数量增加是否一定提高研究质量？",
       scope: "只查 LLM 多智能体",
@@ -512,11 +553,7 @@ it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
 
     // 上一回合结束：不能判成答完（0 任务 / 0 交付）。
     // 先等这一轮真的收尾（同一运行不允许两个回合并发，守卫会直接跳过）。
-    const quiesce = async () => {
-      for (let i = 0; i < 100 && kernel.liveTurns(runId) > 0; i += 1)
-        await new Promise((resolve) => setTimeout(resolve, 20));
-    };
-    await quiesce();
+    await quiesce(kernel, runId);
     await swarm.onTurnEnd(f.account, runId, "completed");
     let snapshot = (await (await request(`/v1/swarm/runs/${runId}`)).json()) as any;
     expect(snapshot.run.state).not.toBe("partial");
@@ -524,7 +561,7 @@ it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
 
     // 再结束几回合也不该答完，轮次按额度往上走、到限才收尾。
     for (let i = 0; i < 4; i += 1) {
-      await quiesce();
+      await quiesce(kernel, runId);
       await swarm.onTurnEnd(f.account, runId, "completed");
     }
     snapshot = (await (await request(`/v1/swarm/runs/${runId}`)).json()) as any;
@@ -535,6 +572,7 @@ it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
     // 开跑指令只发一遍。
     expect(prompts.filter((prompt) => prompt.includes("用户已确认计划")).length).toBe(1);
   } finally {
+    if (activeKernel && activeRun) await quiesce(activeKernel, activeRun);
     await f.close();
   }
 }, 120_000);
