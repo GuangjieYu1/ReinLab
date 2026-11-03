@@ -113,6 +113,37 @@ export function registerSwarmApi(app: Hono<ApiEnv>, dependencies: SwarmApiDepend
     return c.json(await swarm.timeline(account, runId, after, limit));
   });
 
+  // 结论详情：从结论一路追到证据、任务和队员（契约 §2 阶段 2）。
+  app.get("/v1/swarm/runs/:id/claims/:claimId", async (c) => {
+    const account = c.get("accountId");
+    const runId = runIdOf(c);
+    const claimId = c.req.param("claimId");
+    if (!uuid.safeParse(claimId).success)
+      throw new ApiFailure("CLAIM_NOT_FOUND", 404, "这条结论不存在。");
+    const versionRaw = c.req.query("version");
+    const version = versionRaw ? Number(versionRaw) : undefined;
+    if (versionRaw && (!Number.isSafeInteger(version) || Number(version) < 1))
+      throw new ApiFailure("INVALID_INPUT", 400, "版本号无效。");
+    return c.json(await swarm.claimDetail(account, runId, claimId, version));
+  });
+
+  // 证据详情：这条证据被哪几条结论引用。
+  app.get("/v1/swarm/runs/:id/evidence/:evidenceId", async (c) => {
+    const account = c.get("accountId");
+    const runId = runIdOf(c);
+    const evidenceId = c.req.param("evidenceId");
+    if (!uuid.safeParse(evidenceId).success)
+      throw new ApiFailure("EVIDENCE_NOT_FOUND", 404, "这条证据不存在。");
+    return c.json(await swarm.evidenceDetail(account, runId, evidenceId));
+  });
+
+  // 阶段结果：核实没接通，verified 为空，候选放 unverified。
+  app.get("/v1/swarm/runs/:id/report", async (c) => {
+    const account = c.get("accountId");
+    const runId = runIdOf(c);
+    return c.json(await swarm.report(account, runId));
+  });
+
   app.get("/v1/swarm/runs/:id/members/:memberId/log", async (c) => {
     const account = c.get("accountId");
     const runId = runIdOf(c);
@@ -186,7 +217,15 @@ export function registerSwarmApi(app: Hono<ApiEnv>, dependencies: SwarmApiDepend
           void (async () => {
             if (closed) return;
             try {
-              const events = await swarm.events(account, runId, cursor);
+              let events: Awaited<ReturnType<typeof swarm.events>> = [];
+              // 一次一拍可能装不下（回放时常见）：一拍里一直取到取完，
+              // 这样从头回放与分页时间线的条数才一致（验收里 47 对 26）。
+              for (let round = 0; round < 20; round += 1) {
+                const batch = await swarm.events(account, runId, cursor, 500);
+                events = events.concat(batch);
+                if (batch.length < 500) break;
+                cursor = batch[batch.length - 1].seq;
+              }
               for (const event of events) {
                 cursor = event.seq;
                 push(`data: ${JSON.stringify(event)}\n\n`);

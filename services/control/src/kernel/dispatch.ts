@@ -127,6 +127,12 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
           data: input.data as Record<string, unknown>,
         });
       }
+      if (call.tool === "submit")
+        return swarm.submitResearch(call.account, call.run, call.args as never);
+      if (call.tool === "query")
+        return swarm.queryResearch(call.account, call.run, call.args as never);
+      if (call.tool === "approach")
+        return swarm.registerApproach(call.account, call.run, call.args);
       if (call.tool === "status") {
         const snapshot = await swarm.snapshot(call.account, call.run);
         return {
