@@ -1010,3 +1010,71 @@ it("小项：answer 优先具体发现，剩余缺口不混路线合并说明", 
     await f.close();
   }
 }, 120_000);
+
+it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了转暂停", async () => {
+  const { f, kernel, swarm, runId } = await setup();
+  try {
+    // 负责人正忙：@队员 与 改方向 都不能另起回合，只能排进收件箱。
+    (kernel as any).isLive = () => true;
+    const mention = await swarm.createIntervention(f.account, runId, {
+      kind: "mention",
+      text: "先看同预算这一格。",
+      target: { memberId: "r1-scout" },
+    });
+    expect(mention.intervention.state).toBe("received");
+    expect(mention.intervention.result ?? "").toContain("收件箱");
+
+    const redirect = await swarm.createIntervention(f.account, runId, {
+      kind: "redirect",
+      text: "只看相同总 token 预算下的比较。",
+    });
+    expect(redirect.intervention.state).toBe("received");
+
+    // 队员与负责人各取自己的：@队员 那条只排在队员名下。
+    const forMember = await swarm.pendingFor(f.account, runId, "r1-scout");
+    expect(forMember).toHaveLength(1);
+    expect(forMember[0].text).toContain("先看同预算这一格");
+    const forLead = await swarm.pendingFor(f.account, runId, "lead");
+    expect(forLead).toHaveLength(1);
+    expect(forLead[0].text).toContain("只看相同总 token 预算");
+
+    // 真送到之后才写「已投递」。
+    await swarm.markDelivered(f.account, runId, forMember.map((entry) => entry.id));
+    const afterDelivery = await swarm.snapshot(f.account, runId);
+    const delivered = afterDelivery.interventions.find((entry) => entry.id === mention.intervention.id)!;
+    expect(delivered.state).toBe("delivered");
+    expect(delivered.result ?? "").toContain("已送到");
+
+    // 批卡后的指令也一样：负责人忙就排队，回执说清「下一步送到」。
+    const addMember = await swarm.createIntervention(f.account, runId, { kind: "add_member" });
+    const card = (
+      await f.admin.query(
+        "select id from approval where run_id=$1 and kind='swarm_add_member' and state='pending'",
+        [runId],
+      )
+    ).rows[0];
+    const decided = await swarm.decideCard(f.account, String(card.id), { decision: "approve" });
+    expect(decided?.note ?? "").toContain("下一步送到");
+    expect((await swarm.pendingFor(f.account, runId, "lead")).length).toBeGreaterThan(0);
+
+    // 真的多出队员之后，加人才算「已执行」。
+    await swarm.registerMeta(f.account, runId, {
+      kind: "member",
+      refId: "extra-01",
+      data: { role: "researcher", label: "补招 01", routeId: "r1" },
+    });
+    const afterJoin = await swarm.snapshot(f.account, runId);
+    const addEntry = afterJoin.interventions.find((entry) => entry.id === addMember.intervention.id)!;
+    expect(addEntry.state).toBe("applied");
+    expect(addEntry.result ?? "").toContain("已建出队员");
+
+    // 负责人的那一轮挂了：群研转暂停并写清原因（不能还显示「运行中」）。
+    await f.admin.query("update swarm_run set state='running' where run_id=$1", [runId]);
+    await swarm.onLeadTurnFailed(f.account, runId, "failed", "KERNEL_FAILED");
+    const paused = await swarm.run(f.account, runId);
+    expect(paused.state).toBe("paused");
+    expect(paused.stateReason ?? "").toContain("负责人那一轮失败了");
+  } finally {
+    await f.close();
+  }
+}, 120_000);

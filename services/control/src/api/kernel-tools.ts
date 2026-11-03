@@ -252,6 +252,14 @@ export type KernelToolDependencies = {
   auth: KernelAuth;
   db: Database;
   now: () => number;
+  /**
+   * 把用户排队的插话送进这一轮：返回要并进工具结果的字段（没有就是 null）。
+   * 放在这里是因为工具的返回就是模型的「下一步输入」，不另起回合。
+   */
+  swarmInbox?: (
+    call: KernelToolCall,
+    result: Record<string, unknown>,
+  ) => Promise<Record<string, unknown> | null>;
   /** 生成计划书（由控制面注入：需要文件存放与字体）。 */
   bookEngine?: (account: string, dossier: string, plan: import("../explore/book-job").BookPlan) => void;
   /** 网图入档要存副本；没有就只记来源。 */
@@ -687,7 +695,12 @@ export function registerKernelTools(
             throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这次动作没有可用的批准，请重新请求。");
           }
         }
-        const result = (await dependencies.dispatch(call)) as Record<string, unknown>;
+        let result = (await dependencies.dispatch(call)) as Record<string, unknown>;
+        // 用户在负责人忙时说的话排在收件箱里：随这次工具结果一起送进去（下一步边界）。
+        if (dependencies.swarmInbox) {
+          const delivered = await dependencies.swarmInbox(call, result).catch(() => null);
+          if (delivered) result = { ...result, ...delivered };
+        }
         // 选定并下载成功后按第 6 节补名：占位名换成论文名（用户改过的绝不动）。
         if (capability === "papers.fetch")
           await nameFromPaper(client, call.account, call.dossier).catch(() => null);

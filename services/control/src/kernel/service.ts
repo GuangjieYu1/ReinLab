@@ -62,6 +62,13 @@ export type SwarmHooks = {
     state: "completed" | "failed" | "cancelled" | "cancel_unconfirmed",
     detail?: string,
   ) => Promise<{ continued: boolean }>;
+  /** 负责人的那一轮挂了：群研要转成「已暂停」并写清原因（B11）。 */
+  onLeadTurnFailed: (
+    account: string,
+    runId: string,
+    state: string,
+    detail?: string,
+  ) => Promise<void>;
   /** 这次群研还没结束吗？没结束的运行在轮次之间不能把 run 行置成终态。 */
   isActive: (account: string, runId: string) => Promise<boolean>;
   /**
@@ -525,12 +532,19 @@ export class KernelService {
           });
           // 群研这一轮结束了：结算计时、按额度决定继续还是收尾。
           // 会话租约刚刚让出，等它真正生效再续，不然会被 SESSION_BUSY 挡掉。
-          if (prepared.mode === "swarm" && this.swarm)
+          if (prepared.mode === "swarm" && this.swarm) {
+            // 负责人的运行挂了（B11/B12）：先把群研标成「已暂停」并写清原因，
+            // 别让页面一直显示「运行中」。正常结束才走 onTurnEnd 的续跑判断。
+            if (state !== "completed")
+              void this.swarm
+                .onLeadTurnFailed(account, runId, state, detail)
+                .catch(() => undefined);
             setTimeout(() => {
               void this.swarm
                 ?.onTurnEnd(account, runId, state, detail)
                 .catch(() => undefined);
             }, 1200);
+          }
         },
         // 这一轮的产品承诺没兑现时，后端再提醒一次；补不回来就照实结束。
         // 不再往对话里注入「提醒」：那是系统替模型定步骤，还会以用户身份出现在
