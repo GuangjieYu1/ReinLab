@@ -39,6 +39,11 @@ export type HarnessLike = {
   session: (id: string) => HarnessSessionHandle;
   resumeSession: (id: string) => Promise<unknown>;
   close: () => Promise<void>;
+  /**
+   * 往某个会话的收件箱排一条用户消息（SDK 原生的 prompt 队列）：
+   * 返回这条消息的持久身份，运行时会在对方的步骤边界把它插进去。
+   */
+  prompt?: (sessionId: string, contentBlocks: { type: "text"; text: string }[]) => Promise<string>;
 };
 export type HarnessFactory = (options: LaunchPlan["options"]) => HarnessLike;
 

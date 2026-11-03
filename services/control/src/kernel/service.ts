@@ -622,6 +622,44 @@ export class KernelService {
   }
 
   /** 这一段执行此刻是否还挂在本进程里（残留判定用）。 */
+  /**
+   * 把一条用户消息排进某个会话的收件箱（DSH 原生的 prompt 队列）。
+   * 这一步是「排队」而不是「起一轮」：运行时会在对方的步骤边界插进去，
+   * 不会顶掉正在跑的那一轮。返回排队的持久身份。
+   */
+  async queuePrompt(
+    _account: string,
+    runId: string,
+    sessionId: string,
+    text: string,
+  ): Promise<{ ok: true; id: string } | { ok: false; reason: string }> {
+    const live = [...(this.handles.get(runId) ?? [])];
+    if (!live.length) return { ok: false, reason: "这一轮已经结束，没有可以排队送进去的会话" };
+    let lastReason = "这一轮的运行时已经关了";
+    for (const handle of live) {
+      try {
+        const harness = await handle.harness;
+        // DeepSeekHarness 把 JSON-RPC 客户端挂在 `client` 上，排队的 prompt 在那里。
+        const withPrompt = harness as unknown as {
+          prompt?: (sessionId: string, blocks: { type: "text"; text: string }[]) => Promise<string>;
+          client?: { prompt?: (sessionId: string, blocks: { type: "text"; text: string }[]) => Promise<string> };
+        };
+        const queue = withPrompt.prompt ?? withPrompt.client?.prompt;
+        if (!queue) {
+          lastReason = "这个运行时没有提供收件箱排队接口";
+          continue;
+        }
+        const id = await queue.call(withPrompt.client ?? withPrompt, sessionId, [
+          { type: "text", text },
+        ]);
+        return { ok: true, id };
+      } catch (error) {
+        lastReason = String((error as Error)?.message ?? error).slice(0, 200);
+      }
+    }
+    return { ok: false, reason: lastReason };
+  }
+
   isLive(runId: string): boolean {
     if (this.starting.has(runId)) return true;
     return (this.handles.get(runId)?.size ?? 0) > 0;

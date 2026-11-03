@@ -13,6 +13,8 @@ import type { HarnessFactory } from "../src/kernel/dsh/session";
 
 const HOME = mkdtempSync(join(tmpdir(), "swarm-blackboard-"));
 
+const queuedPrompts: { sessionId: string; text: string }[] = [];
+
 const io = {
   mkdir: async (path: string) => void (await mkdir(path, { recursive: true, mode: 0o700 })),
   write: async (file: string, body: string) => void (await writeFile(file, body, { mode: 0o600 })),
@@ -37,6 +39,11 @@ function quietKernel(): HarnessFactory {
       }),
     }),
     close: async () => {},
+    // 真实 SDK 的收件箱排队接口（B13）：测试里记下来就行。
+    prompt: async (sessionId: string, blocks: { type: "text"; text: string }[]) => {
+      queuedPrompts.push({ sessionId, text: blocks.map((block) => block.text).join("") });
+      return "msg-" + queuedPrompts.length;
+    },
   });
 }
 
@@ -79,12 +86,12 @@ async function setup() {
   await swarm.registerMeta(f.account, created.runId, {
     kind: "member",
     refId: "r1-scout",
-    data: { role: "researcher", label: "研究员 01", routeId: "r1" },
+    data: { role: "researcher", label: "研究员 01", routeId: "r1", sessionId: "sess-r1" },
   });
   await swarm.registerMeta(f.account, created.runId, {
     kind: "member",
     refId: "r2-mech",
-    data: { role: "researcher", label: "研究员 02", routeId: "r2" },
+    data: { role: "researcher", label: "研究员 02", routeId: "r2", sessionId: "sess-r2" },
   });
   await swarm.registerMeta(f.account, created.runId, {
     kind: "member",
@@ -838,6 +845,7 @@ it("第二批：mention 投递、redirect 出新版本计划、add_member/extend
     });
     expect(redirect.intervention.state).toBe("delivered");
     // 收窄口径（加「同预算」）不算扩大范围：新版本直接用，不出范围卡。
+    // 改方向之后交的新版本：自动继续（收窄口径不算扩大范围），并带 diffFrom。
     const narrowed = await swarm.publishPlan(f.account, runId, {
       question: "同预算下多 Agent 数量增加是否一定提高研究质量？",
       scope: "只看同总 token 预算的比较",
@@ -847,6 +855,9 @@ it("第二批：mention 投递、redirect 出新版本计划、add_member/extend
     });
     expect(narrowed.version).toBe(2);
     expect((await swarm.run(f.account, runId)).state).toBe("running");
+    const planV2 = await swarm.snapshot(f.account, runId);
+    expect(planV2.plan?.diffFrom?.version).toBe(1);
+    expect((planV2.plan?.diffFrom?.changes ?? []).length).toBeGreaterThan(0);
     expect(
       (await f.admin.query(
         "select count(*)::int n from approval where run_id=$1 and kind='swarm_scope'",
@@ -1014,8 +1025,18 @@ it("小项：answer 优先具体发现，剩余缺口不混路线合并说明", 
 it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了转暂停", async () => {
   const { f, kernel, swarm, runId } = await setup();
   try {
-    // 负责人正忙：@队员 与 改方向 都不能另起回合，只能排进收件箱。
+    // 负责人正忙：@队员 与 改方向 都不能另起回合，只能排进收件箱（SDK prompt 队列）。
     (kernel as any).isLive = () => true;
+    const queued: { sessionId: string; text: string }[] = [];
+    (kernel as any).queuePrompt = async (
+      _account: string,
+      _runId: string,
+      sessionId: string,
+      text: string,
+    ) => {
+      queued.push({ sessionId, text });
+      return { ok: true, id: "msg-" + queued.length };
+    };
     const mention = await swarm.createIntervention(f.account, runId, {
       kind: "mention",
       text: "先看同预算这一格。",
@@ -1037,6 +1058,9 @@ it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了�
     const forLead = await swarm.pendingFor(f.account, runId, "lead");
     expect(forLead).toHaveLength(1);
     expect(forLead[0].text).toContain("只看相同总 token 预算");
+
+    // 排进的是收件人自己的会话（队员那条走负责人转达，也在负责人会话里）。
+    expect(queued.length).toBeGreaterThanOrEqual(1);
 
     // 真送到之后才写「已投递」。
     await swarm.markDelivered(f.account, runId, forMember.map((entry) => entry.id));
@@ -1073,7 +1097,9 @@ it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了�
     await swarm.onLeadTurnFailed(f.account, runId, "failed", "KERNEL_FAILED");
     const paused = await swarm.run(f.account, runId);
     expect(paused.state).toBe("paused");
-    expect(paused.stateReason ?? "").toContain("负责人那一轮失败了");
+    // 说明写人话，不贴原始报错。
+    expect(paused.stateReason ?? "").toContain("负责人的运行时意外退出了");
+    expect(paused.stateReason ?? "").not.toContain("exit code");
   } finally {
     await f.close();
   }

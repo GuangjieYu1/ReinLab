@@ -486,10 +486,37 @@ export class SwarmService {
       const row = await this.row(client, account, runId);
       if (TERMINAL.has(row.state)) throw new ApiFailure("RUN_ENDED", 409, "这次群研已经结束。");
       const version = row.plan_version + 1;
+      // 改方向之后给前端比差异用：上一版和新版各改了什么（契约 §1 diffFrom）。
+      const previous = (
+        await client.query(
+          "select document from swarm_plan where account_id=$1 and run_id=$2 order by version desc limit 1",
+          [account, runId],
+        )
+      ).rows[0]?.document as SwarmPlan | undefined;
+      const changes: string[] = [];
+      if (previous) {
+        if (previous.question && previous.question !== plan.question)
+          changes.push(`研究问题：${previous.question.slice(0, 60)} → ${plan.question.slice(0, 60)}`);
+        if (previous.scope && previous.scope !== plan.scope)
+          changes.push(`范围：${previous.scope.slice(0, 60)} → ${plan.scope.slice(0, 60)}`);
+        const before = new Map((previous.routes ?? []).map((route) => [route.id, route.title]));
+        for (const route of plan.routes) {
+          const old = before.get(route.id);
+          if (!old) changes.push(`新增路线 ${route.id}：${route.title}`);
+          else if (old !== route.title) changes.push(`路线 ${route.id}：${old} → ${route.title}`);
+          before.delete(route.id);
+        }
+        for (const [id, title] of before) changes.push(`去掉路线 ${id}：${title}`);
+        if (previous.limits?.rounds !== plan.limits.rounds || previous.limits?.minutes !== plan.limits.minutes)
+          changes.push(
+            `额度：${previous.limits?.rounds} 轮 / ${previous.limits?.minutes} 分钟 → ${plan.limits.rounds} 轮 / ${plan.limits.minutes} 分钟`,
+          );
+      }
       const document: SwarmPlan = {
         ...plan,
         version,
-        needsConfirm: true,
+        needsConfirm: !row.redirect_pending,
+        ...(previous ? { diffFrom: { version: previous.version, changes: changes.slice(0, 8) } } : {}),
         roster: plan.roster.map((entry) => ({ ...entry, model: entry.model || this.dependencies.model })),
       };
       await client.query(
@@ -836,6 +863,63 @@ export class SwarmService {
         routeIds: (plan?.routes ?? []).map((route) => route.id),
       };
       await projectEvents(client, context, events, state);
+      // 送达确认（B13）：对方的会话里真的出现了这条消息，才算送到。
+      const textOfContent = (content: unknown): string =>
+        Array.isArray(content)
+          ? content
+              .map((block) =>
+                typeof (block as { text?: unknown })?.text === "string"
+                  ? (block as { text: string }).text
+                  : "",
+              )
+              .join("")
+          : "";
+      const seenTexts = events
+        .flatMap((event) => {
+          const payload = event.payload as Record<string, unknown> | undefined;
+          if (event.action === "user/message") {
+            const message = payload?.message as { content?: unknown } | undefined;
+            return [textOfContent(message?.content)];
+          }
+          // DSH 团队的收件箱：消息真的排进了对方会话的待办里（agent/inbox/spliced）。
+          if (event.action === "agent/inbox/spliced") {
+            const inserted = payload?.inserted;
+            if (!Array.isArray(inserted)) return [];
+            return inserted.map((message) =>
+              textOfContent((message as { content?: unknown })?.content),
+            );
+          }
+          return [];
+        })
+        .filter((text) => text !== "");
+      if (seenTexts.length) {
+        const queued = (
+          await client.query(
+            `select id, text, intervention_id from swarm_inbox
+              where account_id=$1 and run_id=$2 and state='pending'`,
+            [account, runId],
+          )
+        ).rows;
+        const delivered: string[] = [];
+        for (const entry of queued) {
+          const text = String(entry.text);
+          if (seenTexts.some((seen) => seen.includes(text) || text.includes(seen.slice(0, 80)))) {
+            delivered.push(String(entry.id));
+            if (entry.intervention_id)
+              await client.query(
+                `update swarm_intervention set state='delivered', result=$3, updated_at=now()
+                  where account_id=$1 and id=$2 and state in ('received')`,
+                [account, String(entry.intervention_id), "已送到，对方在这一轮里看到了。"],
+              );
+          }
+        }
+        if (delivered.length)
+          await client.query(
+            `update swarm_inbox set state='delivered', delivered_at=now()
+              where account_id=$1 and run_id=$2 and id = any($3::uuid[])`,
+            [account, runId, delivered],
+          );
+      }
       const last = Number(events[events.length - 1].seq);
       await client.query(
         `update swarm_run set projected_seq=$3, members_used=greatest(members_used,$4), updated_at=now()
@@ -1271,55 +1355,25 @@ export class SwarmService {
         await this.emitRun(client, account, runId);
         return applied;
       });
-      // 负责人有回合在跑：排进它的收件箱，下一次调用工具时送进去（不另起回合顶掉它）。
-      const busy = this.dependencies.kernel.isLive(runId);
+      // 投递走 DSH 原生的收件箱：按收件人的会话排队，运行时在它的步骤边界插进去。
+      // 不经工具返回（模型会把工具结果里的指令当成可疑注入拒掉），也不另起回合。
       const target = input.kind === "mention" && input.target?.memberId ? input.target.memberId : "lead";
       const text =
         input.kind === "mention"
           ? `用户在 @${target}：${input.text!.trim()}`
           : `用户改方向：${input.text!.trim()}（受影响的任务停下、旧证据保留；先出新的计划版本再继续）`;
-      await this.enqueueMessage(account, runId, {
+      const outcome = await this.deliverToInbox(account, runId, {
         target,
         kind: input.kind === "mention" ? "mention" : "redirect",
         text,
         interventionId: intervention.id,
       });
-      if (busy) {
-        // 已经排队：回执写「已收到，等下一步送到」，真正的 delivered 由送达时改。
-        await this.dependencies.db.withAccount(account, async (client) => {
-          await client.query(
-            `update swarm_intervention set state='received', result=$3, updated_at=now()
-              where account_id=$1 and id=$2`,
-            [account, intervention.id, "负责人这一轮还在跑：已排进它的收件箱，下一步边界送到。"],
-          );
-          const queued = (await this.interventions(client, account, runId)).find(
-            (entry) => entry.id === intervention.id,
-          )!;
-          await this.emitSimple(client, account, runId, "intervention", queued);
-          await this.emitInterventionBus(client, account, runId, queued);
-        });
-        return { intervention: await this.intervention(account, runId, intervention.id), run: await this.run(account, runId) };
-      }
-      // 空闲：起一轮把话送进去；起不来就如实写失败原因。
-      try {
-        await this.dependencies.kernel.submit(account, runId, {
-          mode: "swarm",
-          prompt: text,
-        });
-        await this.markDelivered(
-          account,
-          runId,
-          (await this.pendingFor(account, runId, target)).map((entry) => entry.id),
-        );
-      } catch (error) {
-        await this.failMessage(
-          account,
-          runId,
-          intervention.id,
-          `没能送进去：${String((error as Error)?.message ?? error).slice(0, 200)}`,
-        );
-      }
-      return { intervention: await this.intervention(account, runId, intervention.id), run: await this.run(account, runId) };
+      if (!outcome.ok)
+        await this.failMessage(account, runId, intervention.id, `没能送进去：${outcome.reason}`);
+      return {
+        intervention: await this.intervention(account, runId, intervention.id),
+        run: await this.run(account, runId),
+      };
     }
     if (input.kind === "add_member" || input.kind === "extend") {
       await this.dependencies.db.withAccount(account, async (client) => {
@@ -1529,9 +1583,16 @@ export class SwarmService {
       return;
     }
     // stop_route：只记录决定，任务归属由负责人显式处理（DSH 中断不释放归属）。
+    const routeId = input.target?.routeId ?? null;
+    const plan = await this.planOf(client, account, row.run_id).catch(() => null);
+    const approaches = await loadApproaches(client, account, row.run_id).catch(() => []);
+    const routeName =
+      plan?.routes.find((route) => route.id === routeId)?.title ??
+      approaches.find((route) => route.id === routeId)?.title ??
+      routeId;
     await client.query(
       `update swarm_run set state_reason=$3, updated_at=now() where account_id=$1 and run_id=$2`,
-      [account, row.run_id, `已停止路线 ${input.target?.routeId ?? ""}：需要新机制才能重开`],
+      [account, row.run_id, `已停止路线 ${routeName ?? "（未指定）"}：需要新机制才能重开`],
     );
   }
 
@@ -2061,6 +2122,161 @@ export class SwarmService {
     });
   }
 
+  /**
+   * 把一条消息按收件人投进 DSH 原生的收件箱（B13）。
+   * - 找收件人的会话：队员用名册里的会话 id，负责人用 lead_session；
+   * - 负责人这一轮在跑：`kernel.queuePrompt` 把消息排进那个会话的收件箱，
+   *   运行时会在它的步骤边界插进去（负责人那边作为一条用户消息）；
+   * - 空闲：没有可以排队的运行时，就起一轮把话送进去（这也是一次真实投递）。
+   * 回执先写「已排进收件箱」，等真的在会话里看到这条消息再改成「已送到」。
+   */
+  private async deliverToInbox(
+    account: string,
+    runId: string,
+    input: {
+      target: string;
+      kind: "mention" | "redirect" | "instruction" | "system";
+      text: string;
+      interventionId?: string | null;
+    },
+  ): Promise<{ ok: boolean; reason?: string; queuedId?: string }> {
+    const target = input.target === "lead" ? "lead" : input.target;
+    const session = await this.dependencies.db.withAccount(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const fold = await loadFold(client, account, runId);
+      if (target === "lead") {
+        const lead =
+          row.lead_session ??
+          [...fold.members.values()].find((member) => member.role === "lead")?.sessionId ??
+          null;
+        return { sessionId: lead ? String(lead) : null, exists: true };
+      }
+      const member = fold.members.get(target);
+      if (member?.sessionId) return { sessionId: String(member.sessionId), exists: true };
+      // 登记过、但还没拿到会话（插件先登记、DSH 后来才建会话）：如实说还没有会话。
+      const meta = (
+        await client.query(
+          `select data from swarm_meta
+            where account_id=$1 and run_id=$2 and kind='member' and ref_id=$3`,
+          [account, runId, target],
+        )
+      ).rows[0]?.data as { sessionId?: string } | undefined;
+      return {
+        sessionId: meta?.sessionId ? String(meta.sessionId) : null,
+        exists: !!member || !!meta,
+      };
+    });
+    if (!session.exists)
+      return { ok: false, reason: `名册里没有「${target}」这个人` };
+    const inboxId = await this.enqueueMessage(account, runId, {
+      target,
+      kind: input.kind,
+      text: input.text,
+      interventionId: input.interventionId ?? null,
+    });
+    // 改方向之后负责人交的新版本计划直接接着做（除非问题范围变了才出 swarm_scope 卡）。
+    if (input.kind === "redirect")
+      await this.dependencies.db.withAccount(account, async (client) => {
+        await client.query(
+          "update swarm_run set redirect_pending=true, updated_at=now() where account_id=$1 and run_id=$2",
+          [account, runId],
+        );
+      });
+
+    if (this.dependencies.kernel.isLive(runId) && session.sessionId) {
+      let queued = await this.dependencies.kernel.queuePrompt(
+        account,
+        runId,
+        session.sessionId,
+        input.text,
+      );
+      // 队员是团队里的子会话：直接排队会被运行时拒（session already exists）。
+      // 这时交给负责人转达——它用 send_message 把话送进队员的原生收件箱。
+      let relayed = false;
+      if (!queued.ok && target !== "lead") {
+        const lead = await this.dependencies.db.withAccount(account, async (client) => {
+          const row = await this.row(client, account, runId);
+          const fold = await loadFold(client, account, runId);
+          return (
+            row.lead_session ??
+            [...fold.members.values()].find((member) => member.role === "lead")?.sessionId ??
+            null
+          );
+        });
+        if (lead) {
+          queued = await this.dependencies.kernel.queuePrompt(
+            account,
+            runId,
+            String(lead),
+            `用户有话要转给 ${target}：${input.text}。请用 send_message 原样转达给它，然后按它的回应往下做。`,
+          );
+          relayed = queued.ok;
+        }
+      }
+      if (queued.ok) {
+        await this.dependencies.db.withAccount(account, async (client) => {
+          await client.query(
+            "update swarm_inbox set reason=$3 where account_id=$1 and id=$2",
+            [account, inboxId.id, `queued:${queued.id}`],
+          );
+        });
+        if (input.interventionId)
+          await this.dependencies.db.withAccount(account, async (client) => {
+            await client.query(
+              `update swarm_intervention set state='received', result=$3, updated_at=now()
+                where account_id=$1 and id=$2`,
+              [
+                account,
+                input.interventionId,
+                relayed
+                  ? `已交给负责人转达给 ${target}，它的下一个步骤会送到。`
+                  : `已排进${target === "lead" ? "负责人" : target}的收件箱，它的下一个步骤会看到。`,
+              ],
+            );
+            const queuedEntry = (await this.interventions(client, account, runId)).find(
+              (entry) => entry.id === input.interventionId,
+            );
+            if (queuedEntry) {
+              await this.emitSimple(client, account, runId, "intervention", queuedEntry);
+              await this.emitInterventionBus(client, account, runId, queuedEntry);
+            }
+          });
+        return { ok: true, queuedId: queued.id };
+      }
+      // 排队本身失败：如实写原因，不假装送到了。
+      await this.dependencies.db.withAccount(account, async (client) => {
+        await client.query(
+          "update swarm_inbox set state='failed', reason=$3 where account_id=$1 and id=$2",
+          [account, inboxId.id, queued.reason],
+        );
+      });
+      return { ok: false, reason: queued.reason };
+    }
+
+    // 负责人这一轮还在跑，但收件人还没有可排队的会话：如实说，不要另起一轮。
+    if (this.dependencies.kernel.isLive(runId))
+      return {
+        ok: false,
+        reason: `${target === "lead" ? "负责人" : target}还没有可投递的会话，稍后再试`,
+      };
+
+    // 空闲：起一轮把它送进去。
+    try {
+      await this.dependencies.kernel.submit(account, runId, { mode: "swarm", prompt: input.text });
+      await this.markDelivered(account, runId, [inboxId.id]);
+      return { ok: true };
+    } catch (error) {
+      const reason = String((error as Error)?.message ?? error).slice(0, 200);
+      await this.dependencies.db.withAccount(account, async (client) => {
+        await client.query(
+          "update swarm_inbox set state='failed', reason=$3 where account_id=$1 and id=$2",
+          [account, inboxId.id, reason],
+        );
+      });
+      return { ok: false, reason };
+    }
+  }
+
   /** 单条干预的回执（按 id 取）。 */
   private async intervention(
     account: string,
@@ -2211,11 +2427,15 @@ export class SwarmService {
     const network = /MODEL_UPSTREAM_UNAVAILABLE|fetch failed|ECONNRESET|ETIMEDOUT|5\d\d/i.test(
       detail ?? "",
     );
+    // 只写人话：原始报错留给日志，页面上的说明得让人看得懂。
+    const code = (detail ?? "").match(/KERNEL_[A-Z_]+|MODEL_UPSTREAM_UNAVAILABLE/)?.[0] ?? "";
     const reason = quota
       ? "负责人那一轮因为账户额度不足停下了：已交的结论和证据都在，充值后点继续。"
       : network
         ? "负责人那一轮撞上网络抖动停下了：已交的结论和证据都在，恢复后点继续就能接着跑。"
-        : `负责人那一轮失败了（${state}${detail ? "：" + detail.slice(0, 120) : ""}）：已交的结论和证据都在，可以点继续。`;
+        : code === "KERNEL_MAX_TOKENS"
+          ? "负责人那一轮的回答太长被截断了：已交的结论和证据都在，点继续就能接着做。"
+          : "负责人的运行时意外退出了：已交的结论和证据都在，点继续就能接着做。";
     await this.dependencies.db.withAccount(account, async (client) => {
       const row = await this.row(client, account, runId).catch(() => null);
       if (!row) return;

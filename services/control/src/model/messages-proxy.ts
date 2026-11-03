@@ -192,8 +192,14 @@ export function registerMessagesProxy(
       return new Response(text, { status: response.status, headers });
     }
     // Relays frames as they arrive and captures usage from the same bytes.
+    //
+    // 上游中途断开（用户网络或 DeepSeek 侧 ECONNRESET / ETIMEDOUT）时，别让这条
+    // 响应「硬断」：DSH 运行时的 undici 会抛 TypeError: terminated，整个运行时以
+    // 255 退出（现场见过三次）。这里改成发一个 SSE error 事件再正常收尾，
+    // 运行时按「模型这次失败」处理（它的重试策略会接手），进程不会崩。
     const decoder = new TextDecoder();
     let captured = "";
+    const encoder = new TextEncoder();
     const transform = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         captured += decoder.decode(chunk, { stream: true });
@@ -204,7 +210,51 @@ export function registerMessagesProxy(
         await recordUsage(dependencies, claims, model, extractUsage(captured), purpose);
       },
     });
-    return new Response(response.body.pipeThrough(transform), {
+    const relayed = response.body.pipeThrough(transform).pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          controller.enqueue(chunk);
+        },
+        flush(controller) {
+          // 上游正常结束：什么也不补。
+          void controller;
+        },
+      }),
+    );
+    const guarded = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const reader = relayed.getReader();
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+          controller.close();
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              code: "MODEL_UPSTREAM_STREAM_BROKEN",
+              message: String((error as Error)?.message ?? error).slice(0, 200),
+            }),
+          );
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `\n\nevent: error\ndata: ${JSON.stringify({
+                  type: "error",
+                  error: { type: "upstream_unavailable", message: "模型服务中途断开" },
+                })}\n\n`,
+              ),
+            );
+          } catch {
+            /* 对端已经关了：只收尾 */
+          }
+          controller.close();
+        }
+      },
+    });
+    return new Response(guarded, {
       status: response.status,
       headers,
     });

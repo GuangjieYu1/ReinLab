@@ -176,8 +176,15 @@ function teamTurn(): HarnessFactory {
     session: (id: string) => ({ run: (prompt: unknown, options: any) => execute(id, options) }),
     resumeSession: async () => ({ run: (prompt: unknown, options: any) => execute(lead, options) }),
     close: async () => {},
+    // 真实 SDK 的收件箱排队接口：测试里给一个能记下来的实现（B13）。
+    prompt: async (sessionId: string, blocks: { type: "text"; text: string }[]) => {
+      queuedPrompts.push({ sessionId, text: blocks.map((block) => block.text).join("") });
+      return "msg-" + queuedPrompts.length;
+    },
   });
 }
+
+const queuedPrompts: { sessionId: string; text: string }[] = [];
 
 const io = {
   mkdir: async (path: string) => void (await mkdir(path, { recursive: true, mode: 0o700 })),
@@ -497,6 +504,11 @@ it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
         }),
       }),
       close: async () => {},
+    // 真实 SDK 的收件箱排队接口：测试里给一个能记下来的实现（B13）。
+    prompt: async (sessionId: string, blocks: { type: "text"; text: string }[]) => {
+      queuedPrompts.push({ sessionId, text: blocks.map((block) => block.text).join("") });
+      return "msg-" + queuedPrompts.length;
+    },
     });
     const kernel = new KernelService({
       db: f.db,

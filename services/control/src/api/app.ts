@@ -244,31 +244,7 @@ export async function createApp(options: {
       db: database,
       now: () => Math.floor(Date.now() / 1000),
       dispatch: options.kernelTools.dispatch,
-      // 用户排队的插话随工具结果送进去：负责人的下一步就能看到，不另起回合。
-      ...(options.swarm
-        ? {
-            swarmInbox: async (call: KernelToolCall) => {
-              // 队员的工具一定带 member（插件填的）；只有负责人会调 plan/meta/status/log。
-              const LEAD_ONLY = new Set(["plan", "meta", "status", "log"]);
-              const named = typeof call.args?.member === "string" ? call.args.member.trim() : "";
-              const target = call.server !== "swarm"
-                ? "lead"
-                : named || (LEAD_ONLY.has(call.tool) ? "lead" : "");
-              if (!target) return null;
-              const pending = await options.swarm!.pendingFor(call.account, call.run, target);
-              if (!pending.length) return null;
-              await options.swarm!.markDelivered(
-                call.account,
-                call.run,
-                pending.map((entry) => entry.id),
-              );
-              return {
-                userMessages: pending.map((entry) => entry.text),
-                userMessagesNote: "用户在你这轮进行中说的话，按原样送到；先回应它，再继续手上的事。",
-              };
-            },
-          }
-        : {}),
+      // 用户插话不走工具返回（模型会当注入拒掉）：改走 DSH 原生收件箱，见 swarm/service.deliverToInbox。
       ...(options.kernelTools.bookEngine ? { bookEngine: options.kernelTools.bookEngine } : {}),
       // 网图入档和页面上传用同一个存放目录。
       ...(options.exploreStorage ? { exploreStorage: options.exploreStorage } : {}),
