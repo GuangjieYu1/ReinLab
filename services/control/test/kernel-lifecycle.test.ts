@@ -206,3 +206,52 @@ describe("运行生命周期收尾", () => {
     expect(byId.get(otherId)).toBe("expired");
   });
 });
+
+it("群研的卡不会被任何清扫作废（超时也不行），普通卡照旧", async () => {
+  const account = randomUUID();
+  const dossier = randomUUID();
+  await admin.query("insert into account(id) values($1)", [account]);
+  await admin.query(
+    "insert into dossier(id,account_id,bench,title,workspace_path) values($1::uuid,$2,'research','cards','/data/dossiers/'||$1::text)",
+    [dossier, account],
+  );
+  const swarmRun = randomUUID();
+  await admin.query(
+    `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+     values($1,$2,$3,'bench-swarm','swarm',$4,'completed',1,'{}')`,
+    [swarmRun, account, dossier, randomUUID()],
+  );
+  const readRun = randomUUID();
+  await admin.query(
+    `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+     values($1,$2,$3,'research-read','read',$4,'completed',1,'{}')`,
+    [readRun, account, dossier, randomUUID()],
+  );
+  const old = new Date(Date.now() - 48 * 3600_000).toISOString();
+  const ids: Record<string, string> = {};
+  for (const [label, kind, run] of [
+    ["scope", "swarm_scope", swarmRun],
+    ["divergence", "swarm_divergence", swarmRun],
+    ["result", "delegation_result", swarmRun],
+    ["plain", "question", readRun],
+  ] as const) {
+    const id = randomUUID();
+    ids[label] = id;
+    await admin.query(
+      `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key,created_at)
+       values($1,$2,$3,$4,'t','[]'::jsonb,'read','pending',$5,$6)`,
+      [id, account, run, kind, `${kind}:${id}`, old],
+    );
+  }
+  // 48 小时前的待处理：普通卡按超时作废，群研卡与委托结果卡必须留着等人决定。
+  await reconcileAccount(db, account);
+  const rows = await admin.query(
+    "select id, state from approval where account_id=$1",
+    [account],
+  );
+  const byId = new Map(rows.rows.map((row) => [String(row.id), String(row.state)]));
+  expect(byId.get(ids.scope)).toBe("pending");
+  expect(byId.get(ids.divergence)).toBe("pending");
+  expect(byId.get(ids.result)).toBe("pending");
+  expect(byId.get(ids.plain)).toBe("expired");
+});
