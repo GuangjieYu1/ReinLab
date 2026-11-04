@@ -1522,8 +1522,11 @@ export class SwarmService {
               .slice(0, 8)
               .map((claim) => ({
                 id: claim.id,
-                text: claim.text.slice(0, 120),
-                sides: ["主张方", "反驳方"],
+                text: claim.text.slice(0, 200),
+                sides: [
+                  `主张：${claim.text.slice(0, 160)}`,
+                  `反驳：${(claim.statusReason ?? "这一版还有未解决的反驳").slice(0, 160)}`,
+                ],
               })),
           },
         });
@@ -1768,8 +1771,14 @@ export class SwarmService {
                 .slice(0, 8)
                 .map((claim) => ({
                   id: claim.id,
-                  text: claim.text.slice(0, 120),
-                  sides: ["主张方", "反驳方"],
+                  text: claim.text.slice(0, 200),
+                  // 双方各自的说法：主张方是结论正文，反驳方是那条成立的的反驳理由。
+                  sides: [
+                    `主张：${claim.text.slice(0, 160)}`,
+                    `反驳：${
+                      (claim.statusReason ?? "这一版还有未解决的反驳").slice(0, 160)
+                    }`,
+                  ],
                 })),
             },
           });
@@ -3198,7 +3207,11 @@ export class SwarmService {
     runId: string,
     claimId: string,
     evidenceId: string,
-    startRead: (dossierId: string, paperRef: string) => Promise<{ runId: string }>,
+    startRead: (
+      dossierId: string,
+      paperRef: string,
+      paperTitle?: string | null,
+    ) => Promise<{ runId: string }>,
     createReadDossier: (input: { title: string; intent: string }) => Promise<{ id: string }>,
   ): Promise<{ readDossierId: string; href: string; resumed: boolean; readRunId: string | null }> {
     const prepared = await this.dependencies.db.withAccountSnapshot(account, async (client) => {
@@ -3232,7 +3245,11 @@ export class SwarmService {
 
     if (prepared.existing) {
       // 接着精读：同一个档案里再开一轮，用同一份材料。
-      const started = await startRead(prepared.existing.dossierId, String(prepared.evidence.source?.ref ?? ""));
+      const started = await startRead(
+        prepared.existing.dossierId,
+        String(prepared.evidence.source?.ref ?? ""),
+        prepared.evidence.source?.title ? String(prepared.evidence.source.title) : null,
+      );
       await this.dependencies.db.withAccount(account, (client) =>
         client.query(
           `update swarm_read_link set read_run_id=$6
@@ -3252,7 +3269,11 @@ export class SwarmService {
       title: `精读：${String(prepared.evidence.source?.title ?? "这份材料").slice(0, 30)}`,
       intent: prepared.claim.text.slice(0, 200),
     });
-    const started = await startRead(String(dossier.id), String(prepared.evidence.source?.ref ?? ""));
+    const started = await startRead(
+      String(dossier.id),
+      String(prepared.evidence.source?.ref ?? ""),
+      prepared.evidence.source?.title ? String(prepared.evidence.source.title) : null,
+    );
     await this.dependencies.db.withAccount(account, (client) => {
       return client
         .query(

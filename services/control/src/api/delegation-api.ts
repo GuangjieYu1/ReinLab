@@ -83,7 +83,7 @@ export function registerDelegationApi(
     const id = z.string().uuid().safeParse(c.req.param("id"));
     if (!id.success) throw new ApiFailure("INVALID_INPUT", 400, "委托 id 不对。");
     const view = await getDelegation(db, account, id.data);
-    // 有结果就把结果卡刷新到最新一版（重复查看不会造新卡，版本按报告内容递增）。
+    // 有结果就核一次结果卡：内容没变不动版本，变了才更新同一张卡（B17①②）。
     if (view.runId) await refreshResultCard(db, swarm, account, id.data).catch(() => undefined);
     return c.json(await getDelegation(db, account, id.data));
   });
@@ -119,6 +119,8 @@ export async function refreshResultCard(
   swarm: SwarmService,
   account: string,
   delegationId: string,
+  /** 只在决定之后（卡要关）时用；查看不碰。 */
+  options: { force?: boolean } = {},
 ) {
   return db.withAccount(account, async (client) => {
     const row = (
@@ -145,25 +147,34 @@ export async function refreshResultCard(
       limits: snapshot.report.limits,
       gaps: snapshot.report.gaps,
     });
-    const version = Number((result as { version: number }).version);
+    // 结果没变就不出新版本：查看只读，不能因为被点开一次就升版（B17①）。
+    const fingerprint = JSON.stringify({ ...(result as Record<string, unknown>), version: 0 });
+    const previous = row.result_ref
+      ? JSON.stringify({ ...(JSON.parse(String(row.result_ref)) as Record<string, unknown>), version: 0 })
+      : "";
+    if (!options.force && previous && previous === fingerprint)
+      return JSON.parse(String(row.result_ref));
+    const nextVersion = previous === fingerprint ? Number(row.result_version ?? 0) : Number(row.result_version ?? 0) + 1;
+    const card = { ...(result as Record<string, unknown>), version: nextVersion };
     await client.query(
       "update delegation set result_version=$3, result_ref=$4 where account_id=$1 and id=$2",
-      [account, delegationId, version, JSON.stringify(result)],
+      [account, delegationId, nextVersion, JSON.stringify(card)],
     );
+    // 同一份委托只有一张结果卡：内容更新、版本递增（契约 §6）。
     await client.query(
       `insert into approval(id,account_id,run_id,dossier_id,kind,title,effects,risk,state,effect_key)
        values(gen_random_uuid(),$1,$2,$3,'delegation_result',$4,$5,'read','pending',$6)
        on conflict (account_id,run_id,effect_key) where effect_key is not null and state='pending'
-       do nothing`,
+       do update set title=excluded.title, effects=excluded.effects`,
       [
         account,
         String(row.to_run),
         String(row.from_dossier),
-        `群研结果：第 ${version} 版`,
-        JSON.stringify([result]),
-        `delegation_result:${delegationId}:${version}`,
+        `群研结果：第 ${nextVersion} 版`,
+        JSON.stringify([card]),
+        `delegation_result:${delegationId}`,
       ],
     );
-    return result;
+    return card;
   });
 }

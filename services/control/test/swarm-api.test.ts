@@ -6,6 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { kernelFixture } from "./kernel-fixture";
 import { createApp } from "../src/api/app";
+import { refreshResultCard } from "../src/api/delegation-api";
+import { decideDelegation } from "../src/swarm/delegation";
+import { noteToDossier } from "../src/dossier/service";
 import { KernelAuth } from "../src/kernel/auth";
 import { KernelService } from "../src/kernel/service";
 import { SwarmService } from "../src/swarm/service";
@@ -668,6 +671,92 @@ it("第三批：跨台委托按 idempotency 幂等，确认建研究档案，决
     );
     expect(decided.status).toBe(200);
     expect(((await decided.json()) as any).adopted).toBe(true);
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("B17：查看不升版、同一张卡更新、决定后关卡且幂等", async () => {
+  const f = await kernelFixture();
+  try {
+    const swarm = new SwarmService({
+      db: f.db,
+      kernel: {
+        submit: async () => ({ runId: f.run, sessionId: "ds-quiet", resume: false }),
+        isLive: () => false,
+      } as never,
+      model: "deepseek-v4-flash",
+    });
+    // 委托 + 一份能出结果的群研运行
+    const source = randomUUID();
+    await f.admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path,bench_version) values($1::uuid,$2::uuid,'exploration','源','/data/dossiers/'||$1::text,'2.0.0')",
+      [source, f.account],
+    );
+    const research = randomUUID();
+    await f.admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path,bench_version) values($1::uuid,$2::uuid,'research','委托','/data/dossiers/'||$1::text,'2.0.0')",
+      [research, f.account],
+    );
+    await f.admin.query(
+      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+       values($1::uuid,$2::uuid,$3::uuid,'bench-swarm','swarm',$4,'waiting',1,$5::jsonb)`,
+      [research, f.account, research, randomUUID(), JSON.stringify({ query: "多 Agent 数量" })],
+    );
+    await f.admin.query(
+      `insert into swarm_run(account_id,run_id,dossier_id,question,state,plan_version,round,limit_rounds,limit_minutes)
+       values($1,$2,$3,'多 Agent 数量增加是否一定提高研究质量？','partial',1,1,4,30)`,
+      [f.account, research, research],
+    );
+    const delegated = await f.admin.query(
+      `insert into delegation(id,account_id,from_dossier,from_bench,to_bench,to_dossier,to_run,request,budget_cny,state)
+       values(gen_random_uuid(),$1,$2,'exploration','research',$3,$4,$5,8,'running') returning id`,
+      [
+        f.account,
+        source,
+        research,
+        research,
+        JSON.stringify({ question: "多 Agent 数量增加是否一定提高研究质量？" }),
+      ],
+    );
+    const delegationId = String(delegated.rows[0].id);
+
+    const first = await refreshResultCard(f.db, swarm, f.account, delegationId);
+    const second = await refreshResultCard(f.db, swarm, f.account, delegationId);
+    // 内容没变：版本不动（B17①）。
+    expect((first as any).version).toBe(1);
+    expect((second as any).version).toBe(1);
+    const cards = await f.admin.query(
+      "select id, state, title from approval where account_id=$1 and kind='delegation_result'",
+      [f.account],
+    );
+    // 只有一张卡（B17②）。
+    expect(cards.rows).toHaveLength(1);
+
+    // 决定：卡关掉 + 同版本重复决定幂等（B17③④）。
+    const decide = (decision: "adopt" | "dismiss") =>
+      decideDelegation(
+        f.db,
+        f.account,
+        delegationId,
+        { decision, resultVersion: 1 },
+        async (client, account, dossier, text) => {
+          await noteToDossier(client, account, dossier, text);
+        },
+      );
+    const once = await decide("adopt");
+    expect(once.adopted).toBe(true);
+    const closed = await f.admin.query(
+      "select state from approval where account_id=$1 and kind='delegation_result'",
+      [f.account],
+    );
+    expect(closed.rows[0]?.state).toBe("approved");
+    await decide("adopt");
+    const notes = await f.admin.query(
+      "select count(*)::int n from event where dossier_id=$1 and action='delegation.decide'",
+      [source],
+    );
+    expect(notes.rows[0].n).toBe(1);
   } finally {
     await f.close();
   }

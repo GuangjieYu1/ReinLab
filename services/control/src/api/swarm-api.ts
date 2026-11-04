@@ -149,10 +149,17 @@ export function registerSwarmApi(app: Hono<ApiEnv>, dependencies: SwarmApiDepend
       runId,
       claimId,
       body.evidenceId,
-      async (dossierId, paperRef) => {
+      async (
+        dossierId: string,
+        paperRef: string,
+        paperTitle?: string | null,
+      ) => {
         // 精读台按 run 的 input.chosenPaperId 选定材料：先建这一轮，再提交。
         if (!kernel) throw new ApiFailure("KERNEL_UNAVAILABLE", 503, "内核没起来，开不了精读。");
         const runId = randomUUID();
+        // 精读这一轮要能认出「已经选好这篇」：把论文 id 与标题都写进 run.input，
+        // 页面 GET /v1/kernel/runs/:id 才有 query 与选中的论文（B17 小问题）。
+        const title = paperTitle ? String(paperTitle) : paperRef;
         await db.withAccount(account, (client) =>
           client.query(
             `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
@@ -162,7 +169,12 @@ export function registerSwarmApi(app: Hono<ApiEnv>, dependencies: SwarmApiDepend
               account,
               dossierId,
               randomUUID(),
-              JSON.stringify({ chosenPaperId: paperRef, fromSwarmRun: runIdOfForRead }),
+              JSON.stringify({
+                query: title,
+                chosenPaperId: paperRef,
+                fromSwarmRun: runIdOfForRead,
+                claimId,
+              }),
             ],
           ),
         );

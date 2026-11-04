@@ -339,6 +339,8 @@ export function registerKernelRuns(
         id: run.id,
         state: run.state,
         query: (run.input as { query?: string })?.query ?? null,
+        // 精读运行选好的材料：页面据此认「已经选好这篇」，不再问「想读哪篇」。
+        chosenPaperId: (run.input as { chosenPaperId?: string })?.chosenPaperId ?? null,
         createdAt: run.created_at,
         endedAt: run.ended_at,
         session: turn

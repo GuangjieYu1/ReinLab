@@ -101,9 +101,9 @@ export async function createDelegation(
       idempotencyKey,
     };
     await client.query(
-      `insert into delegation(id,account_id,from_dossier,to_bench,request,budget_cny,state)
-       values($1,$2,$3,'research',$4,8,'awaiting_confirm')`,
-      [id, account, input.fromDossierId, JSON.stringify(request)],
+      `insert into delegation(id,account_id,from_dossier,from_bench,to_bench,request,budget_cny,state)
+       values($1,$2,$3,$4,'research',$5,8,'awaiting_confirm')`,
+      [id, account, input.fromDossierId, input.fromBench, JSON.stringify(request)],
     );
     return view(
       (
@@ -198,6 +198,26 @@ export async function decideDelegation(
         `结果卡已经更新到第 ${row.result_version} 版，请刷新后再决定。`,
       );
     const adopted = input.decision === "adopt";
+    /** 决定之后把结果卡关掉（B17③）：采用 = approved，不采用 = rejected。 */
+    const closeCard = async () => {
+      if (!row.to_run) return;
+      await client.query(
+        `update approval set state=$4, decided_at=coalesce(decided_at, now()), decided_scope='once'
+          where account_id=$1 and run_id=$2 and kind='delegation_result'
+            and effect_key = $3 and state='pending'`,
+        [
+          account,
+          String(row.to_run),
+          `delegation_result:${String(id)}`,
+          adopted ? "approved" : "rejected",
+        ],
+      );
+    };
+    // 同一版本重复决定：幂等，不再记第二条（B17④），但卡照样要关掉。
+    if (row.decided_at && Boolean(row.adopted) === adopted) {
+      await closeCard();
+      return { state: adopted ? "adopted" : "dismissed", adopted };
+    }
     await client.query(
       "update delegation set adopted=$3, decided_at=now() where account_id=$1 and id=$2",
       [account, id, adopted],
@@ -211,6 +231,7 @@ export async function decideDelegation(
         ? `采用了群研对「${question}」的结果（委托 ${String(id).slice(0, 8)}）`
         : `没有采用群研对「${question}」的结果（委托 ${String(id).slice(0, 8)}）`,
     );
+    await closeCard();
     return { state: adopted ? "adopted" : "dismissed", adopted };
   });
 }
@@ -248,6 +269,5 @@ export async function buildDelegationResult(
     limits: report.limits.slice(0, 6),
     openQuestions: report.gaps.slice(0, 6),
     href: `/research/swarm/${runId}`,
-    account,
   };
 }
