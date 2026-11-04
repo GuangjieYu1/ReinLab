@@ -248,7 +248,8 @@ export async function createApp(options: {
       ...(options.swarm
         ? {
             inboxFor: async (input: { account: string; run: string; member: string }) =>
-              options.swarm!.pendingFor(input.account, input.run, input.member),
+              // 取即领走：同一条消息只会交给一个步骤一次（B15）。
+              options.swarm!.pendingFor(input.account, input.run, input.member, true),
           }
         : {}),
       // 用户插话不走工具返回（模型会当注入拒掉）：改走 DSH 原生收件箱，见 swarm/service.deliverToInbox。

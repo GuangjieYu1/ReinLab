@@ -477,10 +477,13 @@ export function apply(ctx, config) {
     if (!Array.isArray(messages) || messages.length === 0) return;
     for (const message of messages) {
       const text = String(message?.text ?? "");
-      if (!text) continue;
+      const id = String(message?.id ?? "");
+      if (!text || !id) continue;
+      if (steeredIds.has(id)) continue; // 同一条只投一次
+      steeredIds.add(id);
       try {
         agent.steer({
-          id: message.id ?? globalThis.crypto.randomUUID(),
+          id,
           role: "user",
           content: [{ type: "text", text }],
           source: { kind: "user-rpc" },
@@ -498,6 +501,8 @@ export function apply(ctx, config) {
     }
   };
   const steerAt = new WeakMap();
+  /** 已经 steer 过的消息 id：同一个 id 只投一次（控制面领走是主要保证，这里兜底）。 */
+  const steeredIds = new Set();
 
   const install = (agent) => {
     if (installed.has(agent)) return;

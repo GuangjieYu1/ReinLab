@@ -863,56 +863,6 @@ export class SwarmService {
         routeIds: (plan?.routes ?? []).map((route) => route.id),
       };
       await projectEvents(client, context, events, state);
-      // 送达确认（B13）：对方的会话里真的出现了这条消息，才算送到。
-      const textOfContent = (content: unknown): string =>
-        Array.isArray(content)
-          ? content
-              .map((block) =>
-                typeof (block as { text?: unknown })?.text === "string"
-                  ? (block as { text: string }).text
-                  : "",
-              )
-              .join("")
-          : "";
-      const seenTexts = events
-        .flatMap((event) => {
-          const payload = event.payload as Record<string, unknown> | undefined;
-          if (event.action === "user/message") {
-            const message = payload?.message as { content?: unknown } | undefined;
-            return [textOfContent(message?.content)];
-          }
-          // 只认「对方会话里真的出现了这条消息」：splice 只说明排进了收件箱，不算送到。
-          return [];
-        })
-        .filter((text) => text !== "");
-      if (seenTexts.length) {
-        const queued = (
-          await client.query(
-            `select id, text, intervention_id from swarm_inbox
-              where account_id=$1 and run_id=$2 and state in ('pending','queued')`,
-            [account, runId],
-          )
-        ).rows;
-        const delivered: string[] = [];
-        for (const entry of queued) {
-          const text = String(entry.text);
-          if (seenTexts.some((seen) => seen.includes(text) || text.includes(seen.slice(0, 80)))) {
-            delivered.push(String(entry.id));
-            if (entry.intervention_id)
-              await client.query(
-                `update swarm_intervention set state='delivered', result=$3, updated_at=now()
-                  where account_id=$1 and id=$2 and state in ('received')`,
-                [account, String(entry.intervention_id), "已送到，对方在这一轮里看到了。"],
-              );
-          }
-        }
-        if (delivered.length)
-          await client.query(
-            `update swarm_inbox set state='delivered', delivered_at=now()
-              where account_id=$1 and run_id=$2 and id = any($3::uuid[])`,
-            [account, runId, delivered],
-          );
-      }
       const last = Number(events[events.length - 1].seq);
       await client.query(
         `update swarm_run set projected_seq=$3, members_used=greatest(members_used,$4), updated_at=now()
@@ -931,6 +881,8 @@ export class SwarmService {
     await this.project(account, runId);
     // 加人卡批准之后：真的多出队员才算「已执行」（B12：回执按实际写）。
     await this.settleAddMembers(account, runId).catch(() => undefined);
+    // 送达确认：对方会话里真的出现了这条消息，才把「已排队」改成「已送到」。
+    await this.settleDeliveries(account, runId).catch(() => undefined);
     return this.dependencies.db.withAccountSnapshot(account, async (client) => {
       const row = await this.row(client, account, runId);
       const run = await this.runOf(client, account, runId);
@@ -2321,6 +2273,71 @@ export class SwarmService {
     return roster;
   }
 
+  /**
+   * 送达确认（B13/B15）：对方的会话里真的出现了这条 user/message，才把收件箱条目与干预
+   * 从「handed / queued」改成「delivered」。每次取快照都核一次，重启后也能补上。
+   *
+   * 注意事件的形状：`user/message` 的 payload 就是消息本身（`{id, role, source, content}`），
+   * 正文在 `payload.content`，不是 `payload.message.content`——上一版读错了地方，
+   * 所以消息明明进了会话、回执还停在「已排队」。
+   */
+  private async settleDeliveries(account: string, runId: string): Promise<void> {
+    await this.dependencies.db.withAccount(account, async (client) => {
+      const rows = (
+        await client.query(
+          `select id, text, intervention_id from swarm_inbox
+            where account_id=$1 and run_id=$2
+              and state in ('pending','queued','handed')
+            order by created_at`,
+          [account, runId],
+        )
+      ).rows;
+      if (!rows.length) return;
+      // 只取这一 run 的会话里的用户消息正文（数量可控：一次运行几十到几百条）。
+      const texts = (
+        await client.query(
+          `select payload from event
+            where account_id=$1 and run_id=$2 and action='user/message'
+            order by seq`,
+          [account, runId],
+        )
+      ).rows
+        .map((row) => {
+          const payload = row.payload as { content?: unknown } | undefined;
+          const content = payload?.content;
+          if (!Array.isArray(content)) return "";
+          return content
+            .map((block) =>
+              typeof (block as { text?: unknown })?.text === "string"
+                ? (block as { text: string }).text
+                : "",
+            )
+            .join("");
+        })
+        .filter((text) => text !== "");
+      if (!texts.length) return;
+      const delivered: string[] = [];
+      for (const entry of rows) {
+        const text = String(entry.text).trim();
+        if (!text) continue;
+        if (!texts.some((seen) => seen.includes(text))) continue;
+        delivered.push(String(entry.id));
+        if (entry.intervention_id)
+          await client.query(
+            `update swarm_intervention set state='delivered', result=$3, updated_at=now()
+              where account_id=$1 and id=$2 and state in ('received')`,
+            [account, String(entry.intervention_id), "已送到，对方在这一轮里看到了。"],
+          );
+      }
+      if (!delivered.length) return;
+      await client.query(
+        `update swarm_inbox set state='delivered', delivered_at=now()
+          where account_id=$1 and run_id=$2 and id = any($3::uuid[])`,
+        [account, runId, delivered],
+      );
+    });
+  }
+
   /** 批过的加人卡：这张卡建出来的人真的出现在名册里，才把干预写成「已执行」。 */
   private async settleAddMembers(account: string, runId: string): Promise<void> {
     await this.dependencies.db.withAccount(account, async (client) => {
@@ -2370,6 +2387,12 @@ export class SwarmService {
               : `已建出${roleWord} ${memberId}（${member.label ?? memberId}）：这个角色的人数已经超过原计划编制（${sameRole.length} > ${planCount(wantRole)}）。`,
           ],
         );
+        // 一张加人卡只对应一次建人：卡就关掉（consumed），再要加人得另出卡等用户批准。
+        await client.query(
+          `update approval set state='approved', decided_at=coalesce(decided_at, now()), consumed_at=now()
+            where account_id=$1 and id=$2 and consumed_at is null`,
+          [account, cardId],
+        );
         const updated = (await this.interventions(client, account, runId)).find(
           (item) => item.id === String(entry.id),
         );
@@ -2382,17 +2405,35 @@ export class SwarmService {
   }
 
   /** 读某人待送的收件箱条目（插件调用时按名字送进去）。 */
+  /**
+   * 取走排给某人的待送消息（B15）。
+   *
+   * 这里**领走**：同一条消息只交给这一步一次——取到就把状态改成 `handed`，
+   * 之后再有工具边界来取也拿不到它。真正送达仍以会话里出现这条 user/message 为准
+   * （`delivered`）。不传 `claim` 时只读，给测试与只读查看用。
+   */
   async pendingFor(
     account: string,
     runId: string,
     target: string,
+    claim = false,
   ): Promise<{ id: string; text: string; kind: string; interventionId: string | null }[]> {
     return this.dependencies.db.withAccount(account, async (client) => {
       const rows = (
         await client.query(
-          `select id,text,kind,intervention_id from swarm_inbox
-            where account_id=$1 and run_id=$2 and target=$3 and state in ('pending','queued')
-            order by created_at limit 8`,
+          claim
+            ? `update swarm_inbox set state='handed', handed_at=now()
+                 where account_id=$1 and run_id=$2 and target=$3 and state in ('pending','queued')
+                   and id in (
+                     select id from swarm_inbox
+                      where account_id=$1 and run_id=$2 and target=$3
+                        and state in ('pending','queued')
+                      order by created_at limit 8
+                   )
+               returning id,text,kind,intervention_id`
+            : `select id,text,kind,intervention_id from swarm_inbox
+                where account_id=$1 and run_id=$2 and target=$3 and state in ('pending','queued')
+                order by created_at limit 8`,
           [account, runId, target],
         )
       ).rows;

@@ -1151,3 +1151,74 @@ it("B14：加人指令真的送到负责人，且只有这张卡建出来的那�
     await f.close();
   }
 }, 120_000);
+
+it("B15：待送消息取即领走，同一张加人卡建出一人就关掉", async () => {
+  const { f, kernel, swarm, runId } = await setup();
+  try {
+    (kernel as any).isLive = () => true;
+    (kernel as any).queuePrompt = async () => ({ ok: true, id: "msg-1", mode: "steer" });
+    await swarm.createIntervention(f.account, runId, {
+      kind: "mention",
+      text: "B15：只看同预算。",
+      target: { memberId: "r1-scout" },
+    });
+    // 第一次取走，第二次就取不到了（不再重复投递）。
+    const first = await swarm.pendingFor(f.account, runId, "r1-scout", true);
+    expect(first).toHaveLength(1);
+    const second = await swarm.pendingFor(f.account, runId, "r1-scout", true);
+    expect(second).toHaveLength(0);
+    const dbState = await f.admin.query(
+      "select state from swarm_inbox where run_id=$1 and target='r1-scout'",
+      [runId],
+    );
+    expect(dbState.rows[0]?.state).toBe("handed");
+
+    // 会话里真的出现这条消息之后，才从 handed 变 delivered（payload 就是消息本身）。
+    await f.admin.query(
+      `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+       values($1,$2,$3,'dsh','user/message',$4,$5)`,
+      [
+        f.account,
+        f.dossier,
+        runId,
+        JSON.stringify({
+          id: crypto.randomUUID(),
+          role: "user",
+          source: { kind: "user-rpc" },
+          content: [{ type: "text", text: "B15：只看同预算。" }],
+        }),
+        `b15-${runId}-${crypto.randomUUID()}`,
+      ],
+    );
+    await swarm.snapshot(f.account, runId);
+    const delivered = await f.admin.query(
+      "select state from swarm_inbox where run_id=$1 and target='r1-scout'",
+      [runId],
+    );
+    expect(delivered.rows[0]?.state).toBe("delivered");
+
+    // 一张加人卡只对应一次建人：建出一名之后卡被关掉。
+    await swarm.createIntervention(f.account, runId, { kind: "add_member", role: "critic" });
+    const card = (
+      await f.admin.query(
+        "select id from approval where run_id=$1 and kind='swarm_add_member' and state='pending'",
+        [runId],
+      )
+    ).rows[0];
+    await swarm.decideCard(f.account, String(card.id), { decision: "approve" });
+    await swarm.registerMeta(f.account, runId, {
+      kind: "member",
+      refId: "critic-2",
+      data: { role: "critic", label: "第二反驳", routeId: null, cardId: String(card.id) },
+    });
+    await swarm.snapshot(f.account, runId);
+    const applied = await f.admin.query(
+      "select state, consumed_at from approval where id=$1",
+      [card.id],
+    );
+    expect(applied.rows[0]?.state).toBe("approved");
+    expect(applied.rows[0]?.consumed_at).not.toBeNull();
+  } finally {
+    await f.close();
+  }
+}, 120_000);

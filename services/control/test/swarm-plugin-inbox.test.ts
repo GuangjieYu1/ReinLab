@@ -115,3 +115,58 @@ describe("研究插件：步骤边界投递", () => {
     ).toBe(true);
   });
 });
+
+describe("研究插件：同一条消息只投一次（B15）", () => {
+  it("连续经过多个工具边界，只被 steer 一次", async () => {
+    const plugin = await loadPlugin();
+    const { agent, handlers } = fakeAgent();
+    let inboxHits = 0;
+    const fetchImpl = async (url: string, _init: any) => {
+      if (url.endsWith("/kernel/inbox")) {
+        inboxHits += 1;
+        // 控制面「取即领走」：第一次给这条，之后给空（这正是修复后的行为）。
+        return {
+          ok: true,
+          json: async () =>
+            inboxHits === 1
+              ? { messages: [{ id: "m-dup", text: "用户批准加人：建一名 critic（add_card: card-1）" }] }
+              : { messages: [] },
+        };
+      }
+      return { ok: true, json: async () => ({ result: { ok: true } }) };
+    };
+    let created: ((payload: any) => unknown) | undefined;
+    plugin.apply(
+      {
+        tools: { register: () => undefined, restrict: () => undefined, get: () => undefined },
+        agents: { list: () => [] as any[], get: () => agent },
+        agentTeams: {
+          tryMembership: () => ({ role: "lead", name: "lead" }),
+          membership: () => ({ role: "lead", name: "lead" }),
+          getTask: () => null,
+          updateTask: async () => undefined,
+          spawnTeammate: async () => ({ id: "x" }),
+          createTask: async () => ({ id: "task-1", revision: 1 }),
+        },
+        systemPrompt: { append: () => undefined },
+        on: (name: string, handler: (payload: any) => unknown) => {
+          if (name === "agent/created") created = handler;
+          return () => undefined;
+        },
+        effect: (fn: () => unknown) => fn(),
+      },
+      { controlUrl: "http://control:3001", token: "run-token", workspace: "/tmp/ws", fetch: fetchImpl },
+    );
+    await created!({ agent });
+    const pre = handlers["tools/pre-execute"]![0];
+
+    // 连续五次工具边界（节流窗口内，等一会儿再走一次，确保每次都真的去取）。
+    for (let i = 0; i < 5; i += 1) {
+      await pre({ tool: { name: "research_plan" } }, async () => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+    }
+    // 即使控制面重复给同一条，插件侧也按 id 去重：只 steer 一次。
+    expect(agent.steered).toHaveLength(1);
+    expect(agent.steered[0].text).toContain("card-1");
+  }, 30_000);
+});
