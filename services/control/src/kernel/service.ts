@@ -508,9 +508,12 @@ export class KernelService {
             // 任务结束了，它名下的待批卡也就没有意义：一并关掉并写明原因，
             // 免得收件箱里一直挂着点不动的旧卡。
             if (next !== "waiting") {
+              // 群研自己的卡（加人/追加/范围/分歧）和委托结果卡不走这条：
+              // 它们的意义正是「运行结束之后由人来决定」，顺手作废等于把决定权拿掉。
               const closed = await client.query(
                 `update approval set state='expired'
                   where account_id=$1 and run_id=$2 and state='pending'
+                    and kind not like 'swarm%' and kind <> 'delegation_result'
                   returning id`,
                 [account, runId],
               );

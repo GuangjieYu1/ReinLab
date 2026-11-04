@@ -1043,7 +1043,7 @@ it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了�
       target: { memberId: "r1-scout" },
     });
     expect(mention.intervention.state).toBe("received");
-    expect(mention.intervention.result ?? "").toContain("收件箱");
+    expect(mention.intervention.result ?? "").toContain("已排队");
 
     const redirect = await swarm.createIntervention(f.account, runId, {
       kind: "redirect",
@@ -1059,8 +1059,8 @@ it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了�
     expect(forLead).toHaveLength(1);
     expect(forLead[0].text).toContain("只看相同总 token 预算");
 
-    // 排进的是收件人自己的会话（队员那条走负责人转达，也在负责人会话里）。
-    expect(queued.length).toBeGreaterThanOrEqual(1);
+    // B16：这一轮在跑时控制面只排队，由插件在步骤边界 steer（不再自己排一份到下一回合）。
+    expect(queued).toHaveLength(0);
 
     // 真送到之后才写「已投递」。
     await swarm.markDelivered(f.account, runId, forMember.map((entry) => entry.id));
@@ -1129,7 +1129,14 @@ it("B14：加人指令真的送到负责人，且只有这张卡建出来的那�
     ).rows[0];
     const decided = await swarm.decideCard(f.account, String(card.id), { decision: "approve" });
     expect(decided?.note ?? "").toContain("已排进负责人的收件箱");
-    expect(queued.some((entry) => entry.text.includes("research_spawn"))).toBe(true);
+    // B16：这一轮在跑时控制面只排队（由插件在步骤边界 steer），不再另排一份到下一回合。
+    expect(queued).toHaveLength(0);
+    const pendingInstruction = await f.admin.query(
+      "select text, state from swarm_inbox where run_id=$1 and kind='instruction'",
+      [runId],
+    );
+    expect(pendingInstruction.rows[0]?.state).toBe("queued");
+    expect(String(pendingInstruction.rows[0]?.text ?? "")).toContain("research_spawn");
 
     // 计划编制里本来就有 1 名 critic（setup 已登记），人数没超过编制：还不算。
     let snapshot = await swarm.snapshot(f.account, runId);
@@ -1218,6 +1225,56 @@ it("B15：待送消息取即领走，同一张加人卡建出一人就关掉", a
     );
     expect(applied.rows[0]?.state).toBe("approved");
     expect(applied.rows[0]?.consumed_at).not.toBeNull();
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("第三批：精读关联同一结论同一证据只建一次，再点接着精读", async () => {
+  const { randomUUID } = await import("node:crypto");
+  const { f, swarm, runId } = await setup();
+  try {
+    const submitted = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "read-claim",
+      member: "r1-scout",
+      claim: { text: "同预算下 agent 数超过 4 之后质量趋于平坦。", basis: "checked_fact" },
+      evidence: [evidenceOf("arXiv:2401.00091", "Table 9", "flat after 4")],
+    });
+    const started: string[] = [];
+    const dossiers: string[] = [];
+    const startRead = async (dossierId: string) => {
+      started.push(dossierId);
+      return { runId: randomUUID() };
+    };
+    const createRead = async () => {
+      const id = randomUUID();
+      dossiers.push(id);
+      return { id };
+    };
+    const first = await swarm.linkRead(
+      f.account,
+      runId,
+      submitted.claimIds[0],
+      submitted.evidenceIds[0],
+      startRead,
+      createRead,
+    );
+    expect(first.resumed).toBe(false);
+    expect(dossiers).toHaveLength(1);
+    expect(first.href).toContain(first.readDossierId);
+
+    const again = await swarm.linkRead(
+      f.account,
+      runId,
+      submitted.claimIds[0],
+      submitted.evidenceIds[0],
+      startRead,
+      createRead,
+    );
+    expect(again.resumed).toBe(true);
+    expect(again.readDossierId).toBe(first.readDossierId);
+    expect(dossiers).toHaveLength(1); // 不会建第二份精读档案
   } finally {
     await f.close();
   }

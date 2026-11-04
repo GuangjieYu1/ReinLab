@@ -1482,7 +1482,12 @@ export class SwarmService {
                where c.version = (select max(c2.version) from swarm_claim c2
                                    where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
                  and c.status in ('candidate','awaiting_refute','awaiting_verify','disputed','insufficient')
-             )::int pending
+             )::int pending,
+             count(*) filter (
+               where c.version = (select max(c2.version) from swarm_claim c2
+                                   where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
+                 and c.status in ('disputed','falsified')
+             )::int disputed
            from swarm_claim c where c.account_id=$1 and c.run_id=$2`,
           [account, row.run_id],
         )
@@ -1502,6 +1507,26 @@ export class SwarmService {
         [account, row.run_id, reason],
       );
       await this.settleTerminal(client, account, row.run_id, reason);
+      // 用户结束时还有分歧：也给出分歧卡，让他选「按有争议写入」还是「再查一轮」。
+      const disputedCount = Number(counts?.disputed ?? 0);
+      if (disputedCount > 0)
+        await createSwarmCard(client, {
+          account,
+          runId: row.run_id,
+          dossierId: row.dossier_id,
+          kind: "swarm_divergence",
+          title: "报告前还有分歧",
+          payload: {
+            claims: (await latestClaims(client, account, row.run_id, { limit: 50 }))
+              .filter((claim) => claim.status === "disputed" || claim.status === "falsified")
+              .slice(0, 8)
+              .map((claim) => ({
+                id: claim.id,
+                text: claim.text.slice(0, 120),
+                sides: ["主张方", "反驳方"],
+              })),
+          },
+        });
       return;
     }
     // stop_route：只记录决定，任务归属由负责人显式处理（DSH 中断不释放归属）。
@@ -2113,12 +2138,10 @@ export class SwarmService {
       });
 
     if (this.dependencies.kernel.isLive(runId) && session.sessionId) {
-      let queued = await this.dependencies.kernel.queuePrompt(
-        account,
-        runId,
-        session.sessionId,
-        outgoing,
-      );
+      // 这一轮在跑：研究插件会在下一个步骤边界把它 steer 进去（B15）。
+      // 所以这里**只排队**，不再用 JSON-RPC 另排一份到下一回合——那会让同一条消息
+      // 既被下一步送到、又在下一轮再送一次（B16）。
+      let queued: { ok: true; id: string; mode: "steer" | "queue"; note?: string } | { ok: false; reason: string } = { ok: true, id: "", mode: "steer" };
       // 队员是团队里的子会话：直接排队会被运行时拒（session already exists）。
       // 这时交给负责人转达——它用 send_message 把话送进队员的原生收件箱。
       let relayed = false;
@@ -2294,9 +2317,10 @@ export class SwarmService {
       ).rows;
       if (!rows.length) return;
       // 只取这一 run 的会话里的用户消息正文（数量可控：一次运行几十到几百条）。
+      // 同时取事件时间：送达时间要记「消息真的出现在会话里」的那一刻，不是事后补核的时间。
       const texts = (
         await client.query(
-          `select payload from event
+          `select payload, at from event
             where account_id=$1 and run_id=$2 and action='user/message'
             order by seq`,
           [account, runId],
@@ -2305,36 +2329,43 @@ export class SwarmService {
         .map((row) => {
           const payload = row.payload as { content?: unknown } | undefined;
           const content = payload?.content;
-          if (!Array.isArray(content)) return "";
-          return content
+          if (!Array.isArray(content)) return { text: "", at: null as Date | null };
+          const text = content
             .map((block) =>
               typeof (block as { text?: unknown })?.text === "string"
                 ? (block as { text: string }).text
                 : "",
             )
             .join("");
+          return { text, at: row.at ? new Date(row.at as string) : null };
         })
-        .filter((text) => text !== "");
+        .filter((entry) => entry.text !== "");
       if (!texts.length) return;
-      const delivered: string[] = [];
+      const delivered: { id: string; at: Date | null }[] = [];
       for (const entry of rows) {
         const text = String(entry.text).trim();
         if (!text) continue;
-        if (!texts.some((seen) => seen.includes(text))) continue;
-        delivered.push(String(entry.id));
-        if (entry.intervention_id)
+        const hit = texts.find((seen) => seen.text.includes(text));
+        if (!hit) continue;
+        delivered.push({ id: String(entry.id), at: hit.at });
+        if (entry.intervention_id) {
+          const at = hit.at ? new Date(hit.at) : new Date();
+          const clock = at.toLocaleTimeString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
           await client.query(
             `update swarm_intervention set state='delivered', result=$3, updated_at=now()
               where account_id=$1 and id=$2 and state in ('received')`,
-            [account, String(entry.intervention_id), "已送到，对方在这一轮里看到了。"],
+            [account, String(entry.intervention_id), `已送到（${clock}），对方在这一轮里看到了。`],
           );
+        }
       }
       if (!delivered.length) return;
-      await client.query(
-        `update swarm_inbox set state='delivered', delivered_at=now()
-          where account_id=$1 and run_id=$2 and id = any($3::uuid[])`,
-        [account, runId, delivered],
-      );
+      // 送达时间按每条消息自己的出现时刻写，不用 now()。
+      for (const message of delivered)
+        await client.query(
+          `update swarm_inbox set state='delivered', delivered_at=coalesce($3, now())
+            where account_id=$1 and id=$2`,
+          [account, message.id, message.at],
+        );
     });
   }
 
@@ -3156,6 +3187,111 @@ export class SwarmService {
   }
 
   /** 结论详情：结论 + 它引用的证据 + 来自哪个任务、哪个队员。 */
+  /**
+   * 精读关联（契约 §2、PRD §8）：用同一份材料版本与定位，建一份精读档案或接着已有的精读。
+   * - 同一 (跑, 结论, 版本, 证据) 只建一次；再点就是「接着精读」，在同一个精读档案里再开一轮。
+   * - 精读结果由精读台自己的档案承载，并通过 `swarm_read_link` 挂回这条结论；
+   *   群研已经结束的运行不改已发布的报告，只记成后续关联（mode='followup'）。
+   */
+  async linkRead(
+    account: string,
+    runId: string,
+    claimId: string,
+    evidenceId: string,
+    startRead: (dossierId: string, paperRef: string) => Promise<{ runId: string }>,
+    createReadDossier: (input: { title: string; intent: string }) => Promise<{ id: string }>,
+  ): Promise<{ readDossierId: string; href: string; resumed: boolean; readRunId: string | null }> {
+    const prepared = await this.dependencies.db.withAccountSnapshot(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const claim = await loadClaim(client, account, runId, claimId);
+      const ids = await claimEvidenceIds(client, account, runId, claim.id, claim.version);
+      if (!ids.includes(evidenceId))
+        throw new ApiFailure("EVIDENCE_NOT_ON_CLAIM", 400, "这条证据不属于这条结论的这一版。");
+      const evidence = (await loadEvidence(client, account, runId, [evidenceId]))[0];
+      if (!evidence) throw new ApiFailure("EVIDENCE_NOT_FOUND", 404, "找不到这条证据。");
+      const existing = (
+        await client.query(
+          `select read_dossier_id, read_run_id from swarm_read_link
+            where account_id=$1 and run_id=$2 and claim_id=$3 and claim_version=$4 and evidence_id=$5`,
+          [account, runId, claim.id, claim.version, evidenceId],
+        )
+      ).rows[0];
+      const terminal = ["done", "partial", "unresolved", "cancelled", "failed"].includes(
+        String(row.state),
+      );
+      return {
+        existing: existing
+          ? { dossierId: String(existing.read_dossier_id), runId: existing.read_run_id ? String(existing.read_run_id) : null }
+          : null,
+        claim,
+        evidence,
+        terminal,
+        mode: terminal ? "followup" : "fresh",
+      };
+    });
+
+    if (prepared.existing) {
+      // 接着精读：同一个档案里再开一轮，用同一份材料。
+      const started = await startRead(prepared.existing.dossierId, String(prepared.evidence.source?.ref ?? ""));
+      await this.dependencies.db.withAccount(account, (client) =>
+        client.query(
+          `update swarm_read_link set read_run_id=$6
+            where account_id=$1 and run_id=$2 and claim_id=$3 and claim_version=$4 and evidence_id=$5`,
+          [account, runId, prepared.claim.id, prepared.claim.version, evidenceId, started.runId],
+        ),
+      );
+      return {
+        readDossierId: prepared.existing.dossierId,
+        href: `/dossiers/${prepared.existing.dossierId}`,
+        resumed: true,
+        readRunId: started.runId,
+      };
+    }
+
+    const dossier = await createReadDossier({
+      title: `精读：${String(prepared.evidence.source?.title ?? "这份材料").slice(0, 30)}`,
+      intent: prepared.claim.text.slice(0, 200),
+    });
+    const started = await startRead(String(dossier.id), String(prepared.evidence.source?.ref ?? ""));
+    await this.dependencies.db.withAccount(account, (client) => {
+      return client
+        .query(
+          `insert into swarm_read_link(
+             account_id, run_id, claim_id, claim_version, evidence_id, read_dossier_id, read_run_id, mode
+           ) values($1,$2,$3,$4,$5,$6,$7,$8)
+           on conflict (account_id,run_id,claim_id,claim_version,evidence_id) do update
+             set read_run_id=excluded.read_run_id`,
+          [
+            account,
+            runId,
+            prepared.claim.id,
+            prepared.claim.version,
+            evidenceId,
+            String(dossier.id),
+            started.runId,
+            prepared.mode,
+          ],
+        )
+        .then(() =>
+          this.emitSimple(client as never as pg.PoolClient, account, runId, "bus", {
+            seq: 0,
+            at: new Date().toISOString(),
+            type: "system",
+            from: "system",
+            to: "user",
+            text: `（开了精读：${String(prepared.evidence.source?.ref ?? "")}，结果回到这条结论）`,
+            refs: { claimId: prepared.claim.id },
+          }),
+        );
+    });
+    return {
+      readDossierId: String(dossier.id),
+      href: `/dossiers/${dossier.id}`,
+      resumed: false,
+      readRunId: started.runId,
+    };
+  }
+
   async claimDetail(account: string, runId: string, claimId: string, version?: number) {
     return this.dependencies.db.withAccountSnapshot(account, async (client) => {
       await this.row(client, account, runId);
@@ -3163,6 +3299,20 @@ export class SwarmService {
       const evidenceIds = await claimEvidenceIds(client, account, runId, claim.id, claim.version);
       const evidence = await loadEvidence(client, account, runId, evidenceIds);
       const reviews = await loadReviews(client, account, runId, { claimId: claim.id });
+      // 精读关联：这条结论哪几处材料已经开了精读（契约 §2 阶段 3）。
+      const reads = (
+        await client.query(
+          `select read_dossier_id, read_run_id, evidence_id, mode from swarm_read_link
+            where account_id=$1 and run_id=$2 and claim_id=$3 order by created_at`,
+          [account, runId, claim.id],
+        )
+      ).rows.map((row) => ({
+        evidenceId: String(row.evidence_id),
+        readDossierId: String(row.read_dossier_id),
+        readRunId: row.read_run_id ? String(row.read_run_id) : null,
+        href: `/dossiers/${String(row.read_dossier_id)}`,
+        mode: String(row.mode),
+      }));
       const fold = await loadFold(client, account, runId);
       const task = claim.taskId ? fold.tasks.get(claim.taskId) : undefined;
       const member = fold.members.get(claim.author);
@@ -3180,6 +3330,7 @@ export class SwarmService {
         claim: { ...claim, evidenceIds, reviews: reviews.map((review) => review.id) },
         evidence,
         reviews,
+        reads,
         task: task
           ? { id: task.id, title: task.title, state: task.state, routeId: task.routeId }
           : null,

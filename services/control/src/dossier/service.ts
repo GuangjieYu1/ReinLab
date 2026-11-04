@@ -680,6 +680,22 @@ function activityOf(dossier: string, via: Via, action: string, text: string) {
 }
 
 /** 第 8 节：业务动作里同事务写一条 user_op，并把同一行推给页面。 */
+/** 别的模块（跨台委托）要往源档案记一笔时用这个。 */
+export async function noteToDossier(
+  client: Client,
+  account: string,
+  dossier: string,
+  text: string,
+): Promise<void> {
+  await note(client, account, {
+    dossier,
+    actor: "user",
+    via: "page",
+    action: "delegation.decide",
+    text,
+  });
+}
+
 async function note(
   client: Client,
   account: string,

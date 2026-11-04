@@ -1,5 +1,5 @@
 import { it, expect } from "vitest";
-import { randomBytes, generateKeyPairSync } from "node:crypto";
+import { randomBytes, randomUUID, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -594,6 +594,81 @@ it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
     expect(prompts.filter((prompt) => prompt.includes("用户已确认计划")).length).toBe(1);
   } finally {
     if (activeKernel && activeRun) await quiesce(activeKernel, activeRun);
+    await f.close();
+  }
+}, 120_000);
+
+it("第三批：跨台委托按 idempotency 幂等，确认建研究档案，决定只记一笔", async () => {
+  const f = await kernelFixture();
+  try {
+    const app = await createApp({
+      pool: f.pool,
+      auth: { issuer: "https://delegation.fixture/auth/v1", secret: "x".repeat(32) },
+      kernel: undefined,
+      // 这份用例只验委托的接口与幂等，不需要模型：用一个不回话的内核。
+      swarm: new SwarmService({
+        db: f.db,
+        kernel: {
+          submit: async () => ({ runId: f.run, sessionId: "ds-quiet", resume: false }),
+          isLive: () => false,
+        } as never,
+        model: "deepseek-v4-flash",
+      }),
+    });
+    const cookie = await f.sessionCookie();
+    // 源台：精读。直接建一份 read 档案（委托只要求它是本账户的源档案）。
+    const source = randomUUID();
+    await f.admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path,bench_version) values($1::uuid,$2::uuid,'exploration','探索到一半','/data/dossiers/'||$1::text,'2.0.0')",
+      [source, f.account],
+    );
+    const post = (path: string, body: unknown, key: string) =>
+      app.request(path, {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          "content-type": "application/json",
+          "Idempotency-Key": key,
+          Origin: "http://localhost",
+          "X-ReinLab-CSRF": "1",
+        },
+        body: JSON.stringify(body),
+      });
+    const first = await post(
+      "/v1/delegations",
+      {
+        fromBench: "exploration",
+        fromDossierId: source,
+        question: "多 Agent 数量增加是否一定提高研究质量？",
+        materials: [{ ref: "arXiv:2401.00001", version: "v3" }],
+      },
+      "delegation-1",
+    );
+    expect(first.status).toBe(201);
+    const created = (await first.json()) as any;
+    expect(created.state).toBe("awaiting_confirm");
+    // 同一个 Idempotency-Key 再来一次：还是这一份委托。
+    const again = await post(
+      "/v1/delegations",
+      {
+        fromBench: "exploration",
+        fromDossierId: source,
+        question: "多 Agent 数量增加是否一定提高研究质量？",
+        materials: [{ ref: "arXiv:2401.00001", version: "v3" }],
+      },
+      "delegation-1",
+    );
+    expect(((await again.json()) as any).id).toBe(created.id);
+
+    // 决定「采用」：只记一笔、不改源档案内容。
+    const decided = await post(
+      `/v1/delegations/${created.id}/decide`,
+      { decision: "adopt", resultVersion: 0 },
+      "delegation-decide-1",
+    );
+    expect(decided.status).toBe(200);
+    expect(((await decided.json()) as any).adopted).toBe(true);
+  } finally {
     await f.close();
   }
 }, 120_000);

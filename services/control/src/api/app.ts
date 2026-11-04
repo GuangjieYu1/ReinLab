@@ -22,6 +22,7 @@ import { ApiFailure, denied } from "./errors";
 import { registerKernelRuns } from "./kernel-runs";
 import { registerSwarmApi } from "./swarm-api";
 import { registerApprovalInbox, registerReports, decideInboxCard } from "./inbox-approvals";
+import { registerDelegationApi } from "./delegation-api";
 import { registerDossierApi } from "./dossier-api";
 import { publishOps, registerExploreApi } from "./explore-api";
 import { createUploads, type Uploads } from "../explore/uploads";
@@ -237,7 +238,15 @@ export async function createApp(options: {
       kernel: options.kernel,
       ...(options.swarm ? { swarm: options.swarm } : {}),
     });
-  if (options.swarm) registerSwarmApi(app, { db: database, swarm: options.swarm });
+  if (options.swarm) {
+    registerSwarmApi(app, {
+      db: database,
+      swarm: options.swarm,
+      ...(options.kernel ? { kernel: options.kernel } : {}),
+    });
+    // 跨台委托（契约 §6）：首个源台是精读。
+    registerDelegationApi(app, database, options.swarm);
+  }
   if (options.kernelTools)
     registerKernelTools(app, {
       auth: options.kernelTools.auth,

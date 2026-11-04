@@ -271,7 +271,7 @@ export function registerApprovalInbox(
           title: scrub(String(row.title).slice(0, 300)),
           // 群研的四张卡按契约把字段放在 effects[0]：原样交给前端渲染卡面，
           // 同时给一份人话说明，收件箱列表里也不至于只有结构化字段。
-          ...(isSwarmCardKind(row.kind)
+          ...(isSwarmCardKind(row.kind) || row.kind === "delegation_result"
             ? {
                 effects: scrub(
                   (Array.isArray(row.effects) ? row.effects : [row.effects]) as JsonValue,
