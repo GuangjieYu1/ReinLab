@@ -51,7 +51,6 @@ const CLAIM_ZH: Record<Claim['status'], string> = { candidate: '候选', awaitin
 const BASIS_ZH: Record<Claim['basis'], string> = { checked_fact: '核对过的事实', source_claim: '来源的说法', inference: '推断', observation: '实测' };
 const REVIEW_KIND_ZH = { refute: '反驳', need_evidence: '要求补证据', verify: '独立核实', downgrade: '降级' } as const;
 const VERDICT_ZH = { upheld: '反驳成立', rejected: '反驳不成立', verified: '核实通过', not_verifiable: '核不了', pending: '待定' } as const;
-const REPORT_ZH = { stage: '阶段结果', awaiting_review: '报告前有分歧，等你看', final: '正式报告', partial: '正式报告（部分完成）', unresolved: '没有可靠答案' } as const;
 const ACCESS_ZH: Record<Evidence['access'], string> = { full_text: '读了全文', abstract_only: '只有摘要', unavailable: '打不开' };
 const SOURCE_ZH: Record<Evidence['source']['kind'], string> = { paper: '论文', web: '网页', code: '代码', data: '数据', proof: '证明', other: '其他' };
 /** 来源能直接打开的就给链接：arXiv 号、DOI、网址。 */
@@ -124,8 +123,10 @@ export default function SwarmMode({ file, reduced, chrome, modeSwitch, question,
     if (!snap && !view.dock.length) out.push({ id: 'hello', kind: 'agent', at: '', text: <p>我是群研的负责人。说出你要研究的问题，我先和你把边界、质量判据、路线和编制谈清楚，出一份计划给你确认；<b>确认之前不建队、不检索</b>。</p> });
     for (const c of view.cards) out.push({ id: 'card:' + c.id, kind: 'card', body: <DockSwarmCard card={c} busy={!!busyAct} onDecide={(d, ans) => act(SWARM_CARD[c.kind].tag, () => adapter.decideCard(c.id, d, ans))} /> });
     if (snap?.plan?.diffFrom && run && run.state !== 'awaiting_confirm' && run.state !== 'clarifying') out.push({ id: 'diff:' + snap.plan.version, kind: 'card', body: <div className="sw-plan sw-diff"><span className="rh-micro">PLAN v{snap.plan.version} · 改方向后的新计划（已自动继续）</span><h4>和 v{snap.plan.diffFrom.version} 相比</h4><ul>{snap.plan.diffFrom.changes.map(x => <li key={x}>{x}</li>)}</ul></div> });
-    for (const a of view.asks) out.push({ id: 'ask:' + a.id, kind: 'card', body: <AskCard ask={a} onAnswer={b => act('回答', () => adapter.answer(a.id, b))} /> });
-    if (snap?.plan && run && (run.state === 'awaiting_confirm' || run.state === 'clarifying')) out.push({ id: 'plan:' + snap.plan.version, kind: 'card', body: <PlanCard plan={snap.plan} canConfirm={run.state === 'awaiting_confirm'} busy={busyAct === '确认计划'} onConfirm={l => act('确认计划', () => adapter.confirmPlan(snap.plan!.version, l))} /> });
+    // 负责人一次问了几个问题：合成一张，逐题选，全部答完一起交（服务端也是答完最后一题才续接）
+    if (view.asks.length) out.push({ id: 'asks:' + view.asks.map(a => a.id).join(','), kind: 'card', body: <AskCards asks={view.asks} onSubmit={all => act('回答', async () => { for (const [id, b] of all) await adapter.answer(id, b); })} /> });
+    if (snap?.plan && run && (run.state === 'awaiting_confirm' || run.state === 'clarifying')) out.push({ id: 'plan:' + snap.plan.version, kind: 'card', body: <PlanCard plan={snap.plan} canConfirm={run.state === 'awaiting_confirm'} busy={busyAct === '确认计划' || busyAct === '改编制'} onConfirm={l => act('确认计划', () => adapter.confirmPlan(snap.plan!.version, l))}
+      onReplan={text => act('改编制', () => adapter.send(text))} /> });
     for (const iv of snap?.interventions ?? []) out.push({ id: 'iv:' + iv.id + iv.state, kind: 'note', at: hhmm(iv.at), text: `${IV_KIND[iv.kind]}${iv.text ? `「${iv.text}」` : ''} · ${IV_ZH[iv.state]}${iv.result ? `：${iv.result}` : ''}` });
     if (actError) out.push({ id: 'err', kind: 'note', at: '', text: `没有完成：${actError}` });
     return out;
@@ -260,10 +261,17 @@ function DockSwarmCard({ card, busy, onDecide }: { card: SwarmCardView; busy: bo
 }
 
 /* ———— 计划卡 ———— */
-function PlanCard({ plan, canConfirm, busy, onConfirm }: { plan: SwarmPlan; canConfirm: boolean; busy: boolean; onConfirm: (limits: { rounds: number; minutes: number }) => void }) {
+function PlanCard({ plan, canConfirm, busy, onConfirm, onReplan }: { plan: SwarmPlan; canConfirm: boolean; busy: boolean; onConfirm: (limits: { rounds: number; minutes: number }) => void; onReplan: (text: string) => void }) {
   const [rounds, setRounds] = useState(plan.limits.rounds), [minutes, setMinutes] = useState(plan.limits.minutes);
-  useEffect(() => { setRounds(plan.limits.rounds); setMinutes(plan.limits.minutes); }, [plan.version, plan.limits.rounds, plan.limits.minutes]);
-  const people = plan.roster.reduce((n, r) => n + r.count, 0);
+  // 编制：负责人固定 1 人，其余角色可以加减；改了人数要让负责人按新编制重交计划（路线和分工跟着变）
+  const base = Object.fromEntries(plan.roster.map(r => [r.role, r.count])) as Partial<Record<MemberRole, number>>;
+  const [roster, setRoster] = useState<Partial<Record<MemberRole, number>>>(base);
+  useEffect(() => { setRounds(plan.limits.rounds); setMinutes(plan.limits.minutes); setRoster(Object.fromEntries(plan.roster.map(r => [r.role, r.count]))); }, [plan.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  const roles: MemberRole[] = ['researcher', 'critic', 'verifier'];
+  const people = 1 + roles.reduce((n, r) => n + (roster[r] ?? 0), 0);
+  const changed = roles.some(r => (roster[r] ?? 0) !== (base[r] ?? 0));
+  const bump = (r: MemberRole, d: number) => setRoster(m => { const next = Math.max(r === 'researcher' ? 1 : 0, (m[r] ?? 0) + d); return 1 + roles.reduce((n, x) => n + (x === r ? next : (m[x] ?? 0)), 0) > 16 ? m : { ...m, [r]: next }; });
+  const replanText = () => `编制改成：负责人 1、${roles.map(r => `${ROLE[r].zh} ${roster[r] ?? 0}`).join('、')}（共 ${people} 人）；额度 ${rounds} 轮 / ${minutes} 分钟。路线和分工按这个编制调整，其余不变，重新交计划。`;
   return <div className="sw-plan">
     <span className="rh-micro">PLAN v{plan.version} · {canConfirm ? '等你确认，确认后才建队' : '澄清中的草案'}</span>
     <b>{plan.question}</b>
@@ -271,30 +279,53 @@ function PlanCard({ plan, canConfirm, busy, onConfirm }: { plan: SwarmPlan; canC
     <h4>怎么算答得好</h4><ul>{plan.qualityCriteria.map(c => <li key={c}>{c}</li>)}</ul>
     <h4>路线 · {plan.routes.length}</h4>
     <ol className="sw-plan-routes">{plan.routes.map(r => <li key={r.id}><em>{r.id}</em><span><b>{r.title}</b><small>{r.idea}</small><i>不同在：{r.differsBy}</i></span></li>)}</ol>
-    <h4>编制 · {people} 人</h4>
-    <div className="sw-plan-roster">{plan.roster.map(r => <span key={r.role}>{ROLE[r.role].zh} × {r.count}<small>{r.model}</small></span>)}</div>
+    <h4>编制 · {people} 人{changed ? '（改过）' : ''}</h4>
+    <div className="sw-plan-roster">
+      <span>负责人 × 1<small>{plan.roster.find(r => r.role === 'lead')?.model ?? '默认'}</small></span>
+      {roles.map(r => <span key={r} className="sw-plan-count" data-changed={(roster[r] ?? 0) !== (base[r] ?? 0) || undefined}>
+        <em>{ROLE[r].zh}</em>
+        <span className="sw-stepper"><button type="button" disabled={!canConfirm || (roster[r] ?? 0) <= (r === 'researcher' ? 1 : 0)} onClick={() => bump(r, -1)} aria-label={`少一名${ROLE[r].zh}`}>−</button><b>{roster[r] ?? 0}</b><button type="button" disabled={!canConfirm || people >= 16} onClick={() => bump(r, 1)} aria-label={`多一名${ROLE[r].zh}`}>＋</button></span>
+        <small>{plan.roster.find(x => x.role === r)?.model ?? '默认'}</small></span>)}
+    </div>
     {plan.diffFrom && <><h4>和 v{plan.diffFrom.version} 相比</h4><ul>{plan.diffFrom.changes.map(c => <li key={c}>{c}</li>)}</ul></>}
     <h4>额度</h4>
     <div className="sw-plan-limits">
       <label>轮数<input type="number" min={4} value={rounds} disabled={!canConfirm} onChange={e => setRounds(Math.max(4, Number(e.target.value) || 4))} /></label>
       <label>分钟<input type="number" min={30} step={5} value={minutes} disabled={!canConfirm} onChange={e => setMinutes(Math.max(30, Number(e.target.value) || 30))} /></label>
-      <small>最少 4 轮 / 30 分钟；费用只记不拦</small>
+      <small>最少 4 轮 / 30 分钟。费用只记不拦，按峰值费率估算，跑的时候底部一直显示</small>
     </div>
-    {canConfirm && <button className="rh-btn is-solid" disabled={busy} onClick={() => onConfirm({ rounds, minutes })}>{busy ? '正在建队……' : `确认开跑 · ${people} 人`}</button>}
+    {canConfirm && (changed
+      ? <><button className="rh-btn is-solid" disabled={busy} onClick={() => onReplan(replanText())}>{busy ? '已发给负责人……' : `按这个编制重交计划 · ${people} 人`}</button>
+          <small className="sw-ask-hint">人数一变，路线和分工要跟着调，所以先让负责人重交一版，你再确认</small></>
+      : <button className="rh-btn is-solid" disabled={busy} onClick={() => onConfirm({ rounds, minutes })}>{busy ? '正在建队……' : `确认开跑 · ${people} 人`}</button>)}
   </div>;
 }
 
 /* ———— 提问卡（同收件箱同一张） ———— */
-function AskCard({ ask, onAnswer }: { ask: SwarmAsk; onAnswer: (b: { candidateId?: string; candidateIds?: string[]; text?: string }) => void }) {
-  const [pick, setPick] = useState<string[]>([]), [text, setText] = useState('');
-  const toggle = (id: string) => setPick(p => ask.multi ? (p.includes(id) ? p.filter(x => x !== id) : [...p, id]) : [id]);
-  const ok = pick.length > 0 || text.trim().length > 0;
+type AskAnswer = { candidateId?: string; candidateIds?: string[]; text?: string };
+function AskCards({ asks, onSubmit }: { asks: SwarmAsk[]; onSubmit: (all: [string, AskAnswer][]) => void }) {
+  const [at, setAt] = useState(0);
+  const [picks, setPicks] = useState<Record<string, string[]>>({}), [texts, setTexts] = useState<Record<string, string>>({});
+  const ask = asks[Math.min(at, asks.length - 1)];
+  const pick = picks[ask.id] ?? [], text = texts[ask.id] ?? '';
+  const answered = (a: SwarmAsk) => (picks[a.id] ?? []).length > 0 || (texts[a.id] ?? '').trim().length > 0;
+  const toggle = (id: string) => setPicks(m => ({ ...m, [ask.id]: ask.multi ? (pick.includes(id) ? pick.filter(x => x !== id) : [...pick, id]) : [id] }));
+  const body = (a: SwarmAsk): AskAnswer => { const p = picks[a.id] ?? [], t = (texts[a.id] ?? '').trim();
+    return { ...(p.length ? a.multi ? { candidateIds: p } : { candidateId: p[0] } : {}), ...(t ? { text: t } : {}) }; };
+  const last = at >= asks.length - 1, all = asks.every(answered);
   return <div className="sw-ask">
-    <span className="rh-micro">QUESTION · 负责人在问你（收件箱里也有这张）</span>
+    <span className="rh-micro">QUESTION · 负责人在问你{asks.length > 1 ? ` · 第 ${at + 1} / ${asks.length} 个，全部答完再一起交` : ''}（收件箱里也有）</span>
+    {asks.length > 1 && <div className="sw-ask-steps">{asks.map((a, i) => <button key={a.id} aria-current={i === at || undefined} data-done={answered(a) || undefined} onClick={() => setAt(i)}>{i + 1}</button>)}</div>}
     <p>{ask.title}</p>
     {ask.candidates.length > 0 && <div className="sw-ask-opts">{ask.candidates.map(c => <button key={c.id} aria-pressed={pick.includes(c.id)} onClick={() => toggle(c.id)}>{c.title}</button>)}</div>}
-    <textarea rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="直接写你的回答（选了也可以补一句）" />
-    <button className="rh-btn is-solid" disabled={!ok} onClick={() => onAnswer({ ...(pick.length ? ask.multi ? { candidateIds: pick } : { candidateId: pick[0] } : {}), ...(text.trim() ? { text: text.trim() } : {}) })}>提交回答</button>
+    {ask.candidates.length > 0 && <small className="sw-ask-hint">{ask.multi ? '可多选' : '单选'}；也可以直接写</small>}
+    <textarea rows={2} value={text} onChange={e => setTexts(m => ({ ...m, [ask.id]: e.target.value }))} placeholder="直接写你的回答（选了也可以补一句）" />
+    <span className="sw-card-act">
+      {at > 0 && <button className="rh-btn" onClick={() => setAt(at - 1)}>上一个</button>}
+      {!last ? <button className="rh-btn is-solid" disabled={!answered(ask)} onClick={() => setAt(at + 1)}>下一个</button>
+        : <button className="rh-btn is-solid" disabled={!all} onClick={() => onSubmit(asks.map(a => [a.id, body(a)]))}>{asks.length > 1 ? `提交全部 ${asks.length} 个回答` : '提交回答'}</button>}
+    </span>
+    {last && !all && asks.length > 1 && <small className="sw-ask-hint">还有没答的：第 {asks.map((a, i) => answered(a) ? null : i + 1).filter(Boolean).join('、')} 个</small>}
   </div>;
 }
 
@@ -322,7 +353,7 @@ function TimeBar({ bus, start, end, viewAt, onSeek }: { bus: BusEntry[]; start: 
 
 /* ———— 02 通信：星座 + 光点 ———— */
 function layout(members: SwarmMember[]) {
-  const out: Record<string, [number, number]> = { board: [50, 76] };
+  const out: Record<string, [number, number]> = { board: [50, 78], user: [9, 86] };
   const lead = members.find(m => m.role === 'lead');
   if (lead) out[lead.id] = [50, 44];
   const ring = members.filter(m => m.role !== 'lead');
@@ -332,6 +363,10 @@ function layout(members: SwarmMember[]) {
 function Bus({ members, bus, reduced, live, selMember, selMsg, onMember, onMsg }: { members: SwarmMember[]; bus: BusEntry[]; reduced: boolean; live: boolean; selMember: string | null; selMsg: number | null; onMember: (id: string | null) => void; onMsg: (seq: number | null) => void }) {
   const [proto, setProto] = useState(false);
   const pos = useMemo(() => layout(members), [members]);
+  // 连线用像素画（百分比拉伸会把箭头压扁）：跟着容器尺寸走
+  const box = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 800, h: 600 });
+  useEffect(() => { const el = box.current; if (!el) return; const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height })); ro.observe(el); return () => ro.disconnect(); }, []);
   const arrived = useRef(new Map<number, number>());
   const [, tick] = useState(0);
   const first = useRef(true);
@@ -346,19 +381,46 @@ function Bus({ members, bus, reduced, live, selMember, selMsg, onMember, onMsg }
   }, [bus, reduced, live]);
   const now = Date.now();
   const at = (id: string | null): [number, number] => (id ? pos[id] : undefined) ?? (id === 'board' || id === 'all' ? pos.board : pos.lead ?? [50, 44]);
-  const recent = bus.slice(-14);
+  const px = (id: string | null): [number, number] => { const [x, y] = at(id); return [x * size.w / 100, y * size.h / 100]; };
+  // 按「谁 → 谁」聚合：线越粗来回越多；最近 8 条在流动，方向朝收件人
+  const recentSeqs = new Set(bus.slice(-8).map(x => x.seq));
+  const edges = useMemo(() => {
+    const m = new Map<string, { key: string; from: string; to: string; count: number; type: BusType; last: number; recent: boolean; sel: boolean }>();
+    for (const x of bus) {
+      if (!x.to || x.to === 'all' || x.from === 'system' || x.from === x.to) continue;
+      const to = x.to === 'board' ? 'board' : x.to, key = `${x.from}>${to}`;
+      const e = m.get(key) ?? { key, from: x.from, to, count: 0, type: x.type, last: 0, recent: false, sel: false };
+      e.count++; e.type = x.type; e.last = x.seq; if (recentSeqs.has(x.seq)) e.recent = true; if (x.seq === selMsg) e.sel = true;
+      if (selMember && (x.from === selMember || x.to === selMember)) e.sel = true;
+      m.set(key, e);
+    }
+    return [...m.values()].sort((a, b) => a.last - b.last);
+  }, [bus, selMsg, selMember]); // eslint-disable-line react-hooks/exhaustive-deps
   const flying = live ? bus.filter(x => now - (arrived.current.get(x.seq) ?? 0) < 1100) : [];
   const sel = bus.find(x => x.seq === selMsg);
   const touched = (id: string) => selMember === id || (sel && (sel.from === id || sel.to === id));
   const types = [...new Set(bus.map(x => x.type))];
   const name = (id: string | null) => id === 'user' ? '你' : id === 'board' ? '黑板' : id === 'all' ? '全体' : id === 'system' ? '系统' : (members.find(m => m.id === id)?.label || id) ?? '—';
   if (!members.length) return <div className="sw-empty"><p>还没有成员。确认计划后，负责人建队，通信会出现在这里。</p></div>;
-  return <div className="sw-bus">
-    <svg className="sw-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-      {recent.filter(x => x.to && x.to !== 'all').map(x => { const [x1, y1] = at(x.from), [x2, y2] = at(x.to); return <line key={x.seq} x1={x1} y1={y1} x2={x2} y2={y2} data-type={x.type} data-sel={x.seq === selMsg || (selMember && (x.from === selMember || x.to === selMember)) || undefined} />; })}
+  return <div className="sw-bus" ref={box}>
+    <svg className="sw-edges" width={size.w} height={size.h} viewBox={`0 0 ${size.w} ${size.h}`} aria-hidden="true">
+      <defs>{(['ink', 'refute', 'warm', 'sel'] as const).map(k => <marker key={k} id={`sw-arrow-${k}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" className={`sw-arrowhead is-${k}`} /></marker>)}</defs>
+      {edges.map(e => { const [x1, y1] = px(e.from), [x2, y2] = px(e.to);
+        const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
+        // 起止各让开节点半个身位；向法线方向弯一点，A→B 与 B→A 分成两条弧
+        const sx = x1 + ux * 30, sy = y1 + uy * 22, ex = x2 - ux * 34, ey = y2 - uy * 26;
+        const bend = Math.min(46, len * .16), cx = (sx + ex) / 2 - uy * bend, cy = (sy + ey) / 2 + ux * bend;
+        const mx = .25 * sx + .5 * cx + .25 * ex, my = .25 * sy + .5 * cy + .25 * ey;
+        const tone = e.sel ? 'sel' : e.type === 'refute' ? 'refute' : e.type === 'help' || e.from === 'user' ? 'warm' : 'ink';
+        return <g key={e.key} className="sw-edge" data-tone={tone} data-recent={e.recent || undefined} data-sel={e.sel || undefined}>
+          <path d={`M${sx},${sy} Q${cx},${cy} ${ex},${ey}`} strokeWidth={Math.min(5, 1.2 + Math.log2(e.count + 1))} markerEnd={`url(#sw-arrow-${tone})`} />
+          {e.count > 1 && <g className="sw-edge-n" transform={`translate(${mx},${my})`}><rect x={-11} y={-8} width={22} height={16} /><text y={4}>{e.count}</text></g>}
+        </g>; })}
     </svg>
     {flying.map(x => { const p = Math.min(1, (now - (arrived.current.get(x.seq) ?? now)) / 1100), e = 1 - Math.pow(1 - p, 3), [x1, y1] = at(x.from), [x2, y2] = at(x.to);
       return <span key={x.seq} className="sw-packet" data-type={x.type} style={{ left: `${x1 + (x2 - x1) * e}%`, top: `${y1 + (y2 - y1) * e}%` }}>{MSG[x.type].glyph}</span>; })}
+    {bus.some(x => x.from === 'user') && <span className="sw-node is-you" style={{ left: `${pos.user[0]}%`, top: `${pos.user[1]}%` }}><b>你</b></span>}
+    <span className="sw-bus-legend">箭头指向收件人 · 线越粗来回越多 · 流动的是最近 8 条 · <i className="is-refute" />反驳 <i className="is-warm" />求助 / 你</span>
     <button className="sw-node is-board" style={{ left: `${pos.board[0]}%`, top: `${pos.board[1]}%` }} data-hot={flying.some(x => x.to === 'board') || undefined}><b>BOARD</b><small>研究黑板</small></button>
     {members.map(m => { const [x, y] = at(m.id);
       return <button key={m.id} className="sw-node" data-role={m.role} data-live={m.state === 'running' || undefined} data-state={m.state} data-sel={touched(m.id) || undefined} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => onMember(selMember === m.id ? null : m.id)} title={`${m.label} · ${MEMBER_ZH[m.state]} · ${m.model}`}>
@@ -457,54 +519,88 @@ function Board({ posts, claims, members, disabled, onPost, onClaim }: { posts: B
 }
 
 /* ———— 04 汇总 ———— */
-function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; members: SwarmMember[]; onClaim: (id: string) => void; onEvidence: (id: string) => void }) {
-  const snap = view.snap;
-  if (!snap) return <div className="sw-empty"><p>还没有群研，所以也没有汇总。</p></div>;
-  const r = snap.report, run = snap.run, rootIds = rootsOf(snap.tasks), isRoot = (t: SwarmTask) => rootIds.has(t.id);
-  const done = snap.tasks.filter(t => !isRoot(t) && (t.state === 'delivered' || t.state === 'sync_pending'));
-  const open = snap.tasks.filter(t => !isRoot(t) && !['delivered', 'sync_pending', 'superseded'].includes(t.state));
-  return <div className="sw-synth en-report">
-    <article className="rh-read en-report-body">
-      <span className="rh-micro">SYNTHESIS · {r ? `${REPORT_ZH[r.state]} · v${r.version}` : '阶段结果'} · {RUN_ZH[run.state]}</span>
-      <h2>{snap.plan?.question ?? run.question}</h2>
-      {!r ? <p className="sw-candidate">还没有阶段结果。</p>
-        : r.state === 'stage' ? <p className="sw-candidate">研究还在进行：这是<b>阶段结果</b>，只有标「已核实」的才算结论，其余都是候选。</p>
-        : r.state === 'unresolved' ? <p className="sw-candidate">这次没有一条结论通过独立核实，<b>没有可靠答案</b>；下面是候选、负结果和剩余缺口。</p>
-        : r.state === 'awaiting_review' ? <p className="sw-candidate">还有<b>没解决的分歧</b>，等你看一眼再定稿；正文只放已核实的结论。</p>
-        : <p className="sw-final">正文只放<b>通过独立核实</b>的结论（当前版本）；争议、候选、局限分开列出。</p>}
-      {r?.nextSuggestion && <div className="sw-suggest"><b>快到额度了</b><p>{r.nextSuggestion.why}</p><small>建议追加 {r.nextSuggestion.rounds} 轮 / {r.nextSuggestion.minutes} 分钟。批准追加在下一批接入，现在可以先结束或等到限自动收尾。</small></div>}
-      {run.stateReason && <p>{run.stateReason}</p>}
-      {r?.answer && <><h3>当前最强的已核实结论</h3><p>{r.answer}</p></>}
-      {r && <ReportBody r={r} claims={snap.claims} evidence={snap.evidence} members={members} onClaim={onClaim} onEvidence={onEvidence} />}
-      <h3>任务 · 已交付 {done.length}</h3>
-      {done.length ? <ul>{done.map(t => <li key={t.id}><b>{t.title}</b>（{t.owner ?? '—'}{t.state === 'sync_pending' ? '，状态待同步' : ''}）</li>)}</ul> : <p>还没有交付。</p>}
-      <h3>还没完成 · {open.length}</h3>
-      {open.length ? <ul>{open.map(t => <li key={t.id}>{t.title} · {TASK_ZH[t.state]}{t.blockedBy ? `：${t.blockedBy.reason}` : ''}</li>)}</ul> : <p>没有。</p>}
-      {snap.routes.some(x => x.gap || x.blockedReason) && <><h3>路线缺口</h3><ul>{snap.routes.filter(x => x.gap || x.blockedReason).map(x => <li key={x.id}>{x.id} {x.title}：{x.blockedReason ?? ''}{x.gap ? ` 缺口：${x.gap}` : ''}</li>)}</ul></>}
-      {snap.plan && <><h3>按计划，怎么算答得好</h3><ul>{snap.plan.qualityCriteria.map(c => <li key={c}>{c}</li>)}</ul></>}
-      <p className="sw-cost">用量：{run.used.rounds} 轮 · 活动 {dur(run.used.activeMs)} · {run.used.tokens === null ? 'token 未知' : `${run.used.tokens.toLocaleString()} token`} · {run.used.cost.known ? `约 ¥${(run.used.cost.value ?? 0).toFixed(2)}（峰值费率估算）` : '费用未知'}</p>
-    </article>
-  </div>;
+/** 一条结论的「标题」：取第一句（到第一个句号/冒号/分号，最多 60 字），全文折叠在下面。 */
+function headline(text: string) {
+  const t = text.replace(/\*\*/g, '').replace(/^【[^】]{1,12}】\s*/, '').replace(/\s+/g, ' ').trim();
+  const cut = t.slice(0, 64).search(/[。；;：:？?！!]/);
+  const head = cut >= 12 ? t.slice(0, cut) : t.length > 60 ? t.slice(0, 58) + '…' : t;
+  return { head, more: t.length > head.length + 2 };
 }
 
-/* ———— 汇总正文：阶段结果（服务端算好，前端只按 id 取对象） ———— */
-function ReportBody({ r, claims, evidence, members, onClaim, onEvidence }: { r: NonNullable<SwarmView['snap']>['report'] & object; claims: Claim[]; evidence: Evidence[]; members: SwarmMember[]; onClaim: (id: string) => void; onEvidence: (id: string) => void }) {
-  const byId = new Map(claims.map(c => [c.id, c])), ev = new Map(evidence.map(e => [e.id, e]));
+function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; members: SwarmMember[]; onClaim: (id: string) => void; onEvidence: (id: string) => void }) {
+  const snap = view.snap;
+  const scroller = useRef<HTMLDivElement>(null);
+  if (!snap) return <div className="sw-empty"><p>还没有群研，所以也没有汇总。</p></div>;
+  const r = snap.report, run = snap.run;
+  const byId = new Map(snap.claims.map(c => [c.id, c])), ev = new Map(snap.evidence.map(e => [e.id, e]));
   const label = (id: string) => members.find(m => m.id === id)?.label || id;
-  const list = (ids: string[], empty: string) => ids.length ? <ol className="sw-rep-claims">{ids.map(id => { const c = byId.get(id); return <li key={id}><button onClick={() => onClaim(id)}>
-    {c ? <><p>{c.text}</p><small>{label(c.author)} · {BASIS_ZH[c.basis]}{c.routeId ? ` · ${c.routeId}` : ''} · 证据 {c.evidenceIds.length} · <em className="sw-cs" data-s={c.status}>{CLAIM_ZH[c.status]}</em></small></> : <p>结论 {id}（快照里没有，点开看详情）</p>}</button></li>; })}</ol> : <p>{empty}</p>;
-  const groups = [...new Set(r.unverified.map(id => byId.get(id)?.routeId ?? '—'))];
-  return <>
-    <h3>已核实 · {r.verified.length}</h3>{list(r.verified, '还没有通过独立核实的结论。')}
-    {r.disputed.length > 0 && <><h3>有争议 · {r.disputed.length}</h3>{list(r.disputed, '')}</>}
-    <h3>未核实（候选） · {r.unverified.length}</h3>
-    {r.unverified.length ? groups.map(g => <div key={g} className="sw-rep-group"><h4>{g === '—' ? '未归路线' : `路线 ${g}`}</h4>{list(r.unverified.filter(id => (byId.get(id)?.routeId ?? '—') === g), '')}</div>) : <p>还没有候选结论。</p>}
-    <h3>负结果 · {r.negative.length}</h3>{list(r.negative, '没有记录负结果。')}
-    <h3>剩余缺口 · {r.gaps.length}</h3>{r.gaps.length ? <ul>{r.gaps.map(g => <li key={g}>{g}</li>)}</ul> : <p>还没有登记缺口。</p>}
-    {r.limits.length > 0 && <><h3>局限</h3><ul>{r.limits.map(g => <li key={g}>{g}</li>)}</ul></>}
-    <h3>来源 · {r.sources.length}</h3>
-    <ol className="sw-rep-sources">{r.sources.map(id => { const e = ev.get(id); return <li key={id}><button onClick={() => onEvidence(id)}>{e ? <><b>{e.source.title}</b><small>{e.source.ref}{e.locator?.section ? ` · ${e.locator.section}` : ''}</small></> : id}</button></li>; })}</ol>
-  </>;
+  const routeTitle = (id: string | null) => (id && snap.routes.find(x => x.id === id)?.title) || (id ? `路线 ${id}` : '未归路线');
+  // 负责人最后对你说的那段总结：往往最好读，但里面可能有没核实的内容，下面的分区以系统判定为准
+  const started = run.startedAt;
+  const leadNote = [...view.bus].reverse().find(x => x.type === 'deliver' && x.from === 'lead' && x.to === 'user' && (!started || x.at >= started))?.text ?? null;
+  const verified = (r?.verified ?? snap.claims.filter(c => c.status === 'verified').map(c => c.id)).map(id => byId.get(id)).filter(Boolean) as Claim[];
+  const disputed = (r?.disputed ?? []).map(id => byId.get(id)).filter(Boolean) as Claim[];
+  const candidates = (r?.unverified ?? snap.claims.filter(c => !['verified', 'disputed', 'falsified'].includes(c.status)).map(c => c.id)).map(id => byId.get(id)).filter(Boolean) as Claim[];
+  const negative = (r?.negative ?? []).map(id => byId.get(id)).filter(Boolean) as Claim[];
+  const gaps = r?.gaps ?? [], limits = r?.limits ?? [], sources = (r?.sources ?? []).map(id => ev.get(id)).filter(Boolean) as Evidence[];
+  const groups = [...new Set(candidates.map(c => c.routeId))];
+  const STATE = { stage: '阶段结果', awaiting_review: '报告前有分歧，等你看', final: '正式报告', partial: '正式报告（部分完成）', unresolved: '没有可靠答案' } as const;
+  const sections = [
+    { id: 'answer', zh: '结论', n: null },
+    { id: 'verified', zh: '已核实', n: verified.length },
+    { id: 'disputed', zh: '有争议', n: disputed.length },
+    { id: 'candidates', zh: '候选', n: candidates.length },
+    { id: 'negative', zh: '负结果', n: negative.length },
+    { id: 'gaps', zh: '缺口', n: gaps.length },
+    { id: 'sources', zh: '来源', n: sources.length },
+  ].filter(x => x.n === null || x.n > 0);
+  const go = (id: string) => scroller.current?.querySelector(`#syn-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const Item = ({ c, open }: { c: Claim; open?: boolean }) => { const h = headline(c.text);
+    return <li className="syn-claim" data-status={c.status}>
+      <details open={open}><summary><b>{h.head}</b><em className="sw-cs" data-s={c.status}>{CLAIM_ZH[c.status]}</em></summary>
+        {h.more && <p className="syn-full">{c.text}</p>}
+        <div className="syn-meta"><span>{routeTitle(c.routeId)}</span><span>{BASIS_ZH[c.basis]}</span><span>{label(c.author)}</span><span>证据 {c.evidenceIds.length}</span>{c.reviews.length > 0 && <span>审查 {c.reviews.length}</span>}
+          <button className="sw-link" onClick={() => onClaim(c.id)}>看证据与审查 →</button></div>
+      </details></li>; };
+  return <div className="sw-synth syn" ref={scroller}>
+    <nav className="syn-index"><span className="rh-micro">目录</span>{sections.map(x => <button key={x.id} onClick={() => go(x.id)}>{x.zh}{x.n !== null && <small>{x.n}</small>}</button>)}</nav>
+    <article className="syn-body">
+      <header className="syn-head">
+        <span className="rh-micro">{r ? STATE[r.state] : '阶段结果'} · {RUN_ZH[run.state]}</span>
+        <h2>{snap.plan?.question ?? run.question}</h2>
+        <div className="syn-stats">
+          <span><b>{verified.length}</b>已核实</span><span><b>{disputed.length}</b>有争议</span><span><b>{candidates.length}</b>候选</span><span><b>{negative.length}</b>负结果</span>
+          <span><b>{run.used.rounds}</b>轮</span><span><b>{dur(run.used.activeMs)}</b>活动</span><span><b>{run.used.cost.known ? `¥${(run.used.cost.value ?? 0).toFixed(2)}` : '未知'}</b>费用</span>
+        </div>
+      </header>
+
+      <section id="syn-answer" className="syn-sec">
+        <h3>结论</h3>
+        {r?.answer ? <div className="syn-answer"><span className="rh-micro">最强的已核实结论</span><p>{r.answer}</p></div>
+          : <p className="syn-note">{verified.length ? '下面是通过独立核实的结论。' : '还没有结论通过独立核实；下面的都只是候选。'}</p>}
+        {leadNote && <details className="syn-lead" open><summary>负责人的总结<small>其中没核实的内容，以下面分区为准</small></summary><Md text={leadNote} /></details>}
+      </section>
+
+      {verified.length > 0 && <section id="syn-verified" className="syn-sec"><h3>已核实 <small>{verified.length}</small></h3>
+        <ol className="syn-list">{verified.map((c, i) => <Item key={c.id} c={c} open={i < 3} />)}</ol></section>}
+      {disputed.length > 0 && <section id="syn-disputed" className="syn-sec"><h3>有争议 <small>{disputed.length} · 被反驳后仍有分歧，不能当定论</small></h3>
+        <ol className="syn-list">{disputed.map(c => <Item key={c.id} c={c} />)}</ol></section>}
+      {candidates.length > 0 && <section id="syn-candidates" className="syn-sec"><h3>候选 <small>{candidates.length} · 还没核实，按路线分</small></h3>
+        {groups.map(g => { const list = candidates.filter(c => c.routeId === g);
+          return <details key={String(g)} className="syn-group"><summary>{routeTitle(g)}<small>{list.length} 条</small></summary><ol className="syn-list">{list.map(c => <Item key={c.id} c={c} />)}</ol></details>; })}</section>}
+      {negative.length > 0 && <section id="syn-negative" className="syn-sec"><h3>负结果 <small>{negative.length} · 找过但没找到</small></h3>
+        <ol className="syn-list">{negative.map(c => <Item key={c.id} c={c} />)}</ol></section>}
+      {(gaps.length > 0 || limits.length > 0) && <section id="syn-gaps" className="syn-sec"><h3>缺口与局限</h3>
+        {gaps.length > 0 && <ul className="syn-bullets">{gaps.map(g => { const h = headline(g); return <li key={g}>{h.more ? <details className="syn-gap"><summary>{h.head}</summary><p>{g}</p></details> : g}</li>; })}</ul>}
+        {limits.length > 0 && <details className="syn-group"><summary>局限<small>{limits.length} 条</small></summary><ul className="syn-bullets">{limits.map(g => <li key={g}>{g}</li>)}</ul></details>}</section>}
+      {sources.length > 0 && <section id="syn-sources" className="syn-sec"><h3>来源 <small>{sources.length}</small></h3>
+        <details className="syn-group"><summary>展开全部来源</summary><ol className="sw-rep-sources">{sources.map(e => <li key={e.id}><button onClick={() => onEvidence(e.id)}><b>{e.source.title}</b><small>{e.source.ref}{e.locator?.section ? ` · ${e.locator.section}` : ''}</small></button></li>)}</ol></details></section>}
+
+      <section className="syn-sec syn-next"><h3>下一步</h3>
+        {r?.nextSuggestion ? <p>负责人建议再追加 <b>{r.nextSuggestion.rounds} 轮 / {r.nextSuggestion.minutes} 分钟</b>：{r.nextSuggestion.why}</p> : <p>{run.stateReason ?? '—'}</p>}
+      </section>
+    </article>
+  </div>;
 }
 
 /* ———— 结论 / 证据抽屉：从结论追到证据、任务、队员；从证据看谁引用了它 ———— */

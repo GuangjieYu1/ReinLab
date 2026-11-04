@@ -35,9 +35,9 @@ export default {
     await page.locator('.sw-ctl button', { hasText: '暂停' }).click(); await page.waitForTimeout(1200);
     if (!(await page.locator('.sw-ctl button', { hasText: '继续' }).count())) throw new Error('暂停后应能继续');
     await page.locator('.en-tabs button').nth(3).click(); await page.waitForTimeout(800);
-    if (!(await page.locator('.sw-candidate').count())) throw new Error('运行中汇总应标明是阶段结果');
-    if (!(await page.locator('.sw-rep-claims button').count())) throw new Error('汇总应列出结论');
-    if (!(await page.locator('.sw-synth h3', { hasText: '已核实 · 1' }).count())) throw new Error('汇总应把已核实的单独列出');
+    await page.locator('.syn-stats').waitFor();
+    if (!(await page.locator('#syn-verified .syn-claim').count())) throw new Error('汇总应把已核实的单独列出');
+    if (!(await page.locator('#syn-answer').count())) throw new Error('汇总应先给结论');
     await ctx.shot('W6.png');
   },
 };
