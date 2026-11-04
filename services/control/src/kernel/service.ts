@@ -656,15 +656,13 @@ export class KernelService {
         };
         if (rpc.request) {
           try {
+            // SDK 的 JSON-RPC 服务端读的是 { sessionId, contentBlocks }；
+            // 这个接口只会 followup（下一轮），所以只当退路，不能当 next-step。
             const result = (await rpc.request("session/prompt", {
-              request: {
-                requestId: `rl-${randomUUID()}`,
-                sessionId,
-                mode: delivery,
-                content: [{ type: "text", text }],
-              },
+              sessionId,
+              contentBlocks: [{ type: "text", text }],
             })) as { messageId?: string } | undefined;
-            return { ok: true, id: String(result?.messageId ?? ""), mode: delivery };
+            return { ok: true, id: String(result?.messageId ?? ""), mode: "queue" };
           } catch (error) {
             // 运行时不认这个形状：退回 SDK 自带的 prompt（下一轮送达）。
             lastReason = String((error as Error)?.message ?? error).slice(0, 200);

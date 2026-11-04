@@ -260,6 +260,10 @@ export type KernelToolDependencies = {
     call: KernelToolCall,
     result: Record<string, unknown>,
   ) => Promise<Record<string, unknown> | null>;
+  /** 研究插件来取排给某个成员的待送用户消息（步骤边界投递用）。 */
+  inboxFor?: (input: { account: string; run: string; member: string }) => Promise<
+    { id: string; text: string }[]
+  >;
   /** 生成计划书（由控制面注入：需要文件存放与字体）。 */
   bookEngine?: (account: string, dossier: string, plan: import("../explore/book-job").BookPlan) => void;
   /** 网图入档要存副本；没有就只记来源。 */
@@ -306,6 +310,24 @@ export function registerKernelTools(
       throw new ApiFailure("KERNEL_TOKEN_INVALID", 401, "运行令牌缺失或无效。");
     }
   };
+
+  /**
+   * 研究插件在步骤边界来取「排给自己的待送用户消息」（B14 next-step）。
+   * 只读、不改状态：真正送达以会话里出现这条 user/message 为准。
+   */
+  app.post("/kernel/inbox", async (c) => {
+    const claims = authenticate(c.req.raw);
+    const body = (await c.req.json().catch(() => ({}))) as { member?: unknown };
+    const member = typeof body.member === "string" ? body.member.trim() : "";
+    if (!member) return c.json({ messages: [] });
+    if (!dependencies.inboxFor) return c.json({ messages: [] });
+    const messages = await dependencies.inboxFor({
+      account: claims.account,
+      run: claims.run,
+      member,
+    });
+    return c.json({ messages });
+  });
 
   app.post("/kernel/tool", async (c) => {
     const claims = authenticate(c.req.raw);

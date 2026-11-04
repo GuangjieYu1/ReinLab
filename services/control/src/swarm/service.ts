@@ -1324,14 +1324,18 @@ export class SwarmService {
       // 投递走 DSH 原生的收件箱：按收件人的会话排队，运行时在它的步骤边界插进去。
       // 不经工具返回（模型会把工具结果里的指令当成可疑注入拒掉），也不另起回合。
       const target = input.kind === "mention" && input.target?.memberId ? input.target.memberId : "lead";
+      const bare = input.text!.trim();
       const text =
         input.kind === "mention"
-          ? `用户在 @${target}：${input.text!.trim()}`
-          : `用户改方向：${input.text!.trim()}（受影响的任务停下、旧证据保留；先出新的计划版本再继续）`;
+          ? bare
+          : `用户改方向：${bare}（受影响的任务停下、旧证据保留；先出新的计划版本再继续）`;
       const outcome = await this.deliverToInbox(account, runId, {
         target,
         kind: input.kind === "mention" ? "mention" : "redirect",
         text,
+        // 送给会话的正文：@ 的话要带上「用户对 X 说」这层，收件箱里留原话便于确认送达。
+        deliveryText:
+          input.kind === "mention" ? `用户在 @${target}：${bare}` : text,
         interventionId: intervention.id,
       });
       if (!outcome.ok)
@@ -2107,9 +2111,12 @@ export class SwarmService {
       target: string;
       kind: "mention" | "redirect" | "instruction" | "system";
       text: string;
+      /** 真正送进对方会话的正文（默认同 text）。 */
+      deliveryText?: string;
       interventionId?: string | null;
     },
   ): Promise<{ ok: boolean; reason?: string; queuedId?: string }> {
+    const outgoing = input.deliveryText ?? input.text;
     const target = input.target === "lead" ? "lead" : input.target;
     const session = await this.dependencies.db.withAccount(account, async (client) => {
       const row = await this.row(client, account, runId);
@@ -2158,7 +2165,7 @@ export class SwarmService {
         account,
         runId,
         session.sessionId,
-        input.text,
+        outgoing,
       );
       // 队员是团队里的子会话：直接排队会被运行时拒（session already exists）。
       // 这时交给负责人转达——它用 send_message 把话送进队员的原生收件箱。
@@ -2178,7 +2185,7 @@ export class SwarmService {
             account,
             runId,
             String(lead),
-            `用户有话要转给 ${target}：${input.text}。请用 send_message 原样转达给它，然后按它的回应往下做。`,
+            `用户有话要转给 ${target}：${outgoing}。请用 send_message 原样转达给它，然后按它的回应往下做。`,
           );
           relayed = queued.ok;
         }
@@ -2204,7 +2211,9 @@ export class SwarmService {
                 input.interventionId,
                 relayed
                   ? `已排队：交给负责人转达给 ${target}，等它取到才算送到。`
-                  : `已排队：排进${target === "lead" ? "负责人" : target}的收件箱，等它取到才算送到。`,
+                  : queued.mode === "steer"
+                    ? `已排队：研究插件会在${target === "lead" ? "负责人" : target}的下一个步骤边界交给它。`
+                    : `已排队：排进${target === "lead" ? "负责人" : target}的收件箱（下一轮送到），等它取到才算送到。`,
               ],
             );
             const queuedEntry = (await this.interventions(client, account, runId)).find(
@@ -2236,7 +2245,7 @@ export class SwarmService {
 
     // 空闲：起一轮把它送进去。
     try {
-      await this.dependencies.kernel.submit(account, runId, { mode: "swarm", prompt: input.text });
+      await this.dependencies.kernel.submit(account, runId, { mode: "swarm", prompt: outgoing });
       await this.markDelivered(account, runId, [inboxId.id]);
       return { ok: true };
     } catch (error) {

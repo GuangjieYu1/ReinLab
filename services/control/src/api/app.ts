@@ -244,6 +244,13 @@ export async function createApp(options: {
       db: database,
       now: () => Math.floor(Date.now() / 1000),
       dispatch: options.kernelTools.dispatch,
+      // 研究插件在步骤边界来取待送消息：控制面只读，送达由会话里出现消息确认。
+      ...(options.swarm
+        ? {
+            inboxFor: async (input: { account: string; run: string; member: string }) =>
+              options.swarm!.pendingFor(input.account, input.run, input.member),
+          }
+        : {}),
       // 用户插话不走工具返回（模型会当注入拒掉）：改走 DSH 原生收件箱，见 swarm/service.deliverToInbox。
       ...(options.kernelTools.bookEngine ? { bookEngine: options.kernelTools.bookEngine } : {}),
       // 网图入档和页面上传用同一个存放目录。
