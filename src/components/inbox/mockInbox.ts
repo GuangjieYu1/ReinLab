@@ -47,12 +47,15 @@ export const APPROVALS: InboxApproval[] = [
     effects: ['新建 1 个文件，约 1.2 KB', '内容是上面那条 L4 知识的长版本，带 3 处页码引用', '写入后可以在档案里撤销'] },
   { id: 'a-source', runId: 'run-automation-5', kind: 'live.params.set', title: 'LV-01 新能源车舆情 · 来源加上「短视频」', risk: 'write', state: 'pending', sent: false, source: src('automation', '新能源车舆情', 'maintainer', 5),
     effects: ['运行器会放行 1 个新域名', '下一拍开始生效，可以一键回到上一版'] },
-  { id: 'a-question', runId: 'run-research-7', kind: 'question', title: '群研第二轮：先往哪个方向查？', risk: 'read', state: 'pending', sent: false, source: src('research', '稀疏专家路由的稳定性', 'swarm-lead', 7),
+  { id: 'a-question', runId: 'run-research-7', kind: 'question', title: '群研第二轮开始前想先问你：上一轮 4 个子 Agent 的结论分成两派——一派认为路由塌缩来自**辅助损失系数过大**，另一派认为是**容量因子太小**、热门专家被挤爆。我可以集中查一边，也可以两边各派一半人手，但每边会浅一些。**你想先往哪个方向查？**顺便说一句允许用哪些来源。', risk: 'read', state: 'pending', sent: false, source: src('research', '稀疏专家路由的稳定性', 'swarm-lead', 7),
     effects: ['群研指挥暂停在第二轮开始前，等你回答', '回答后按你的选择分派 4 个子 Agent', '不回答也可以驳回，这一轮会结束'],
     questions: [
       { header: '方向', question: '第二轮先集中在哪个方向？', options: [{ label: '路由塌缩的成因', description: '读 3 篇近期分析论文，找共同机制' }, { label: '容量因子的工程取舍', description: '对比 4 个开源实现的默认值与报告' }, { label: '两边各一半', description: '每边 2 个子 Agent，深度会浅一些' }] },
       { header: '来源', question: '允许用哪些来源？', multiple: true, custom: false, options: [{ label: 'arXiv', description: '预印本，最新但未审稿' }, { label: '会议论文', description: 'NeurIPS / ICML / ICLR' }, { label: '技术博客', description: '工程经验，引用时要标注' }] },
     ] },
+  // 助手的提问卡（clarify.question）：没有候选，选项写在了问题正文里——只能打字回答
+  { id: 'a-ask', runId: 'run-research-8', kind: 'question', title: '这篇确实存在：arXiv:2602.03794《Understanding Agent Scaling in LLM-Based Multi-Agent Systems via Diversity》。要精读得先下 PDF 全文——**要不要我现在下载全文**？顺便说一句你想从哪个角度切入：① 只看理论 ② 只看实验 ③ 当作方法论读 ④ 从头到尾完整过一遍。', risk: 'read', state: 'pending', sent: false, source: src('research', 'Agent Scaling via Diversity', 'research-read', 8),
+    effects: [], ask: { multi: false, candidates: [] } },
   { id: 'a-unknown', runId: 'run-research-6', kind: 'files.write', title: '写入 read/layers/03-method.md', risk: 'write', state: 'indeterminate', sent: true, source: src('research', '稀疏专家路由的稳定性', 'research-read', 6),
     effects: ['你上次已批准，但发出后连接中断，结果未知', '不会自动重发；核对后会出现在档案的写入记录里'] },
 ];
@@ -81,6 +84,11 @@ export function mockAdapter(): InboxAdapter {
       await wait(220);
       const a = approvals.find(x => x.id === id);
       if (a?.kind === 'question' && decision === 'approve' && (!answers || answers.length !== a.questions?.length || answers.some(x => !x.length))) throw new Error('INVALID_ANSWER');
+      approvals = approvals.filter(x => x.id !== id);
+    },
+    async answer(id: string, body: { candidateId?: string; candidateIds?: string[]; text?: string }) {
+      await wait(220);
+      if (!body.candidateId && !body.candidateIds?.length && !body.text?.trim()) throw new Error('EMPTY_ANSWER');
       approvals = approvals.filter(x => x.id !== id);
     },
     async evidence(ref: string) { await wait(120); const e = EVIDENCE[ref]; if (!e) throw new Error('EVIDENCE_NOT_FOUND'); return { ref, ...e }; },
