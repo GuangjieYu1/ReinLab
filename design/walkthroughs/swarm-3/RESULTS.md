@@ -143,3 +143,14 @@
 1. 用户插话和批卡后的指令，真的排到 `next-step`（`agent/inbox/spliced` 的 `target` 要是 next-step）。
 2. 「已送到」以收件人会话里出现了这条 `user/message`（或团队消息）为准；只是排进了收件箱，最多写「已排队」。
 3. 判断加人成功，不能靠「批准后新出现的同角色成员」，因为原计划里还没建的人也会在批准之后才出现。可以让负责人建人时带上这张卡（比如 `research_spawn` 加一个卡 id 参数，指令里写明卡 id），按卡对人；或者至少要求这个角色的人数超过原计划编制里的人数。
+
+### 加人三验（2026-11-04，后端 `1022145`，看 DSH 的运行 `200c6a98`，没另花钱）
+
+**回执不再误报：通过。** 加人指令和 @ 都是「已排队：排进负责人的收件箱，等它取到才算送到」，加人卡停在「等你在收件箱处理」；`swarm_inbox` 是 `queued`，不再提前写 `delivered`。按卡认人的逻辑有单测（只建了计划内的反驳员时保持「已排队」，带卡号的第二个反驳员才算「已执行」）。真机上没跑到负责人真的按卡建人：指令一直没被取到，运行在 ¥3.93 时结束（超出 ¥2 的上限，DSH 已说明原因）。
+
+**next-step 送不到：原因已查清，不是运行时的 bug。**
+1. `kernel/service.ts` 的 `queuePrompt` 手拼了 `session/prompt`，参数是 `{ request: { sessionId, mode, content } }`。但 SDK 的 JSON-RPC 服务端（`dsh-sdk-jsonrpc-server` 的 `prompt(params)`）读的是 `params.sessionId` 和 `params.contentBlocks`，于是拿到 `sessionId=undefined`，转去 `getOrCreateSession(undefined)` 新建会话，所以报 `agent id "undefined" does not match session id`。
+2. 就算参数对了，这个接口也只调用 `rec.handle.agent.followup(message)`，只能排到下一回合，不认 `mode: "steer"`。真正「下一步就到」的是运行时内部 agent 上的 `steer(message)`（`dsh-agent-loop`：「Submit steering for the nearest step」），JSON-RPC 没有对外开放。
+3. 改法建议：研究插件本身就跑在运行时里，可以由插件在负责人（和队员）的步骤边界取一次待送的用户消息，对相应 agent 调 `steer`；控制面只管排队和回执。JSON-RPC 这条路只当退路（参数改成 `{ sessionId, contentBlocks }`），回执写「下一轮送到」。
+
+**余额：** 只剩约 ¥0.1。第三批首例和加人的端到端补验都要先充值。
