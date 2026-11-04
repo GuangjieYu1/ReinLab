@@ -1,6 +1,6 @@
 import type { InboxReport, InboxAdapter, InboxPromotion, InboxQuestion, PromotionItem, EvidenceView } from '../components/inbox/inboxTypes';
 import { api, decide, inbox, sessionGeneration } from './research-live';
-import { isSwarmCard } from '../components/inbox/SwarmCard';
+import { isInboxSwarmCard } from '../components/inbox/SwarmCard';
 
 type Ports = { api: typeof api; decide: typeof decide; inbox: typeof inbox; generation: typeof sessionGeneration };
 const unavailable = () => Error('收件箱来源或会话已变化，请刷新。');
@@ -35,7 +35,7 @@ function nativeQuestions(value: unknown): InboxQuestion[] | undefined {
 export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, generation: sessionGeneration }): InboxAdapter {
   let generation = -1;
   let promotions = new Map<string, InboxPromotion>();
-  let approvals = new Map<string, { state: string; kind: string; sent?: boolean }>();
+  let approvals = new Map<string, { state: string; kind: string; sent?: boolean; effects?: unknown }>();
   const current = () => { if (generation !== ports.generation()) throw unavailable(); };
   const source = (ref: string, field: 'evidence' | 'supersedes') => {
     current();
@@ -66,7 +66,7 @@ export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, gene
       promotions = new Map(mapped.map(p => [p.id, p]));
       approvals = new Map(data.approvals.map(a => [a.id, a]));
       generation = expected;
-      return { promotions: mapped, approvals: data.approvals.map(a => isSwarmCard(a.kind)
+      return { promotions: mapped, approvals: data.approvals.map(a => isInboxSwarmCard(a.kind)
         // 群研卡：卡面字段原样交给 SwarmCard；effects 只留服务端给的人话（lines）
         ? { ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects((a as { lines?: unknown }).lines), swarm: { kind: a.kind, data: (Array.isArray(a.effects) && object(a.effects[0]) ? a.effects[0] : {}) as Record<string, any> } }
         : ({ ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects(a.effects), ...(a.kind === 'question' ? { questions: nativeQuestions(a.effects) } : {}) })) };
@@ -81,6 +81,13 @@ export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, gene
       current();
       const entry = approvals.get(id);
       if (!entry || entry.state !== 'pending' || entry.sent || (entry.kind === 'question' && decision === 'approve' && answers === undefined)) throw unavailable();
+      // 委托结果卡：采用 / 不采用走委托接口（带结果版本，版本不符服务端 409）
+      if (entry.kind === 'delegation_result') {
+        const r = (Array.isArray(entry.effects) ? entry.effects[0] : null) as { delegationId?: string; version?: number } | null;
+        if (!r?.delegationId) throw unavailable();
+        await ports.api(`/v1/delegations/${r.delegationId}/decide`, { decision: decision === 'approve' ? 'adopt' : 'dismiss', ...(r.version ? { resultVersion: r.version } : {}) });
+        current(); return;
+      }
       // Keep labels, ordering and whitespace intact; the native decision API validates the answers.
       await ports.decide('approval', id, { decision, scope: 'once', ...(answers === undefined ? {} : { answers }) });
       current();

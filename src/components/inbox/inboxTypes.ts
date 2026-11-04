@@ -13,7 +13,7 @@ export type InboxPromotion = { id: string; target: PromotionTarget; items: Promo
 /** 原生 question：AI 在运行中问你的问题（与后端 question.asked 对齐）。custom 未设或为 true 时允许自己填答案。 */
 export type InboxQuestion = { question: string; header: string; options: { label: string; description: string }[]; multiple?: boolean; custom?: boolean };
 /** 群研的四种卡（契约 13 §5）：卡面字段原样带过来，由 SwarmCard 排版。 */
-export type InboxSwarmCard = { kind: 'swarm_add_member' | 'swarm_extend' | 'swarm_scope' | 'swarm_divergence'; data: Record<string, any> };
+export type InboxSwarmCard = { kind: 'swarm_add_member' | 'swarm_extend' | 'swarm_scope' | 'swarm_divergence' | 'delegation_result'; data: Record<string, any> };
 export type InboxApproval = { id: string; runId: string; kind: string; title: string; effects: string[]; risk: Risk; state: 'pending' | 'indeterminate'; sent: boolean; source: InboxSource; questions?: InboxQuestion[]; swarm?: InboxSwarmCard };
 
 export type PromotionDecision =

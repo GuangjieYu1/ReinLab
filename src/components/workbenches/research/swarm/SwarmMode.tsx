@@ -61,6 +61,8 @@ const IV_KIND: Record<InterventionKind, string> = { mention: '@队员', redirect
 
 const hhmm = (iso: string | undefined) => { const d = new Date(iso ?? ''); if (Number.isNaN(d.getTime())) return ''; return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`; };
 const dur = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+/** 精读档案在研究台的精读模式打开。 */
+const readHref = (dossierId: string) => `/?preview=workbench&studio=research&file=0&dossier=${encodeURIComponent(dossierId)}`;
 /** 根任务：明确标了 root，或是别的任务的上级而自己没有上级。没有上级也没有下级的就是普通任务。 */
 const rootsOf = (tasks: SwarmTask[]) => new Set(tasks.filter(t => t.kind === 'root' || ((!t.parentId || t.parentId === 'none') && tasks.some(x => x.parentId === t.id))).map(t => t.id));
 const errText = (e: unknown) => (e instanceof Error ? e.message : '请求没有完成，请稍后重试。');
@@ -513,6 +515,13 @@ function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, 
   const [data, setData] = useState<ClaimDetail | EvidenceDetail | null>(null), [err, setErr] = useState<string | null>(null);
   useEffect(() => { let alive = true; (item.kind === 'claim' ? adapter.claim(item.id) : adapter.evidence(item.id)).then(d => alive && setData(d)).catch(e => alive && setErr(errText(e))); return () => { alive = false; }; }, [adapter, item.kind, item.id]);
   const label = (id: string) => members.find(m => m.id === id)?.label || id;
+  // 用精读细看：同一版本 + 同一证据只开一次，再点接着原来那份
+  const [reads, setReads] = useState<Record<string, { readDossierId: string }>>({}), [reading, setReading] = useState<string | null>(null), [readErr, setReadErr] = useState<string | null>(null);
+  const openRead = async (evidenceId: string) => {
+    setReading(evidenceId); setReadErr(null);
+    try { const r = await adapter.readEvidence(item.id, evidenceId); setReads(m => ({ ...m, [evidenceId]: { readDossierId: r.readDossierId } })); window.open(readHref(r.readDossierId), '_blank'); }
+    catch (e) { setReadErr(errText(e)); } finally { setReading(null); }
+  };
   const head = <header><span className="rh-micro">{item.kind === 'claim' ? 'CLAIM · 结论' : 'EVIDENCE · 证据'}</span>
     <b>{item.kind === 'claim' ? '这条结论从哪来' : '这条证据'}</b><small>{depth > 1 ? '可以返回上一层' : '点证据、任务或队员继续追'}</small>
     <span className="sw-detail-act">{depth > 1 && <button className="rh-btn" onClick={onBack}>返回</button>}<button className="rh-btn" onClick={onClose}>关闭</button></span></header>;
@@ -530,7 +539,11 @@ function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, 
         {c.conditions.length > 0 && <><h4>适用条件</h4><ul>{c.conditions.map(x => <li key={x}>{x}</li>)}</ul></>}
         {c.negative && <><h4>负结果</h4><dl className="sw-task-meta"><dt>找过</dt><dd>{c.negative.searched}</dd><dt>范围</dt><dd>{c.negative.scope}</dd><dt>没找到</dt><dd>{c.negative.notFound}</dd></dl></>}
         <h4>证据 · {cited.length}</h4>
-        {cited.length ? <ol className="sw-ev-list">{cited.map(e => <li key={e.id}><button onClick={() => onOpen('evidence', e.id)}><EvidenceLine e={e} /></button></li>)}</ol> : <p className="sw-none">没有引用证据{c.negative ? '（负结果）' : ''}。</p>}
+        {cited.length ? <ol className="sw-ev-list">{cited.map(e => { const read = reads[e.id] ?? data.reads?.find(r => r.evidenceId === e.id);
+          return <li key={e.id}><button onClick={() => onOpen('evidence', e.id)}><EvidenceLine e={e} /></button>
+            <span className="sw-read">{read ? <a href={readHref(read.readDossierId)}>打开精读 ↗</a> : <button className="sw-link" disabled={reading === e.id} onClick={() => void openRead(e.id)}>{reading === e.id ? '正在开精读……' : '用精读细看这条'}</button>}</span></li>; })}</ol>
+          : <p className="sw-none">没有引用证据{c.negative ? '（负结果）' : ''}。</p>}
+        {readErr && <p className="sw-member-doing" data-bad>{readErr}</p>}
         <h4>来自</h4>
         <dl className="sw-task-meta">
           <dt>队员</dt><dd>{data.member ? <button className="sw-link" onClick={() => onMember(data.member!.id)}>{data.member.label || label(data.member.id)}</button> : label(c.author)}</dd>

@@ -36,7 +36,11 @@ const VIEWS: ExplorerViewDef[] = [
 const browserTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 const FIELD: Record<string, string> = { name: '名称', kind: '类型', geometry: '位置', day: '日期', window: '时段', reason: '理由', facing: '朝向', focal: '焦段', detail: '细节', refs: '参考', subjectPoint: '模特站位', cameraHeightM: '相机离地高度', subjectHeightM: '模特受光高度', areaRef: '片区参考点' };
 
-export default function LiveExplore({ file, reduced, chrome, dossier, adapter }: BenchProps & { adapter: ExploreAdapter }) {
+/** 交给群研：问题 + 背景 → 研究档案（研究台群研）。只有真实模式才传。 */
+export type DelegateFn = (question: string, background: string) => Promise<{ researchDossierId: string; href: string }>;
+
+export default function LiveExplore({ file, reduced, chrome, dossier, adapter, onDelegate }: BenchProps & { adapter: ExploreAdapter; onDelegate?: DelegateFn }) {
+  const [deleg, setDeleg] = useState<{ q: string; bg: string; busy?: boolean; done?: string; err?: string } | null>(null);
   const x = useExplore(adapter);
   const [face, setFace] = useState<Face>('plan');
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>(null);
@@ -384,6 +388,7 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
             { id: 'feel', label: '我贴几张参考图', fill: '这是我想要的感觉：' },
             ...(stop ? [{ id: 'when', label: `「${stop.name}」几点拍最好`, onClick: () => send(`「${stop.name}」几点拍最好？`) }] : []),
             { id: 'weather', label: '天气会影响哪些点', onClick: () => send('现在的预报会影响哪些停留点？') },
+            ...(onDelegate ? [{ id: 'swarm', label: '有个问题交给群研查清楚', onClick: () => setDeleg({ q: '', bg: `在探索台《${dossier?.title ?? '探索计划'}》里冒出来的问题。` }) }] : []),
           ]}
           events={events} busy={busy && !question} onSend={send}
           placeholder="说说想去哪、哪天、拍什么；图片可以直接粘贴或拖进来"
@@ -391,6 +396,18 @@ export default function LiveExplore({ file, reduced, chrome, dossier, adapter }:
         {attach.length > 0 && <div className="exl-attach">{attach.map(a => <span key={a.id}><img src={a.src} alt="" /><button aria-label="移除" onClick={() => setAttach(l => l.filter(y => y.id !== a.id))}>×</button></span>)}<small>{attach.length} 张参考图，随下一句发给助手</small></div>}
         {err && <p className="dm-msg exl-err" role="alert">{err}</p>}
       </div>
+      {deleg && <div className="exl-modal" role="dialog" aria-label="交给群研"><div>
+        <b>交给研究台 · 群研</b>
+        {deleg.done ? <><p>已经交过去了：新建了一个研究档案，负责人会先和你澄清、出计划，<b>你确认计划后才建队开跑</b>。结果出来会进收件箱，采不采用由你在这里决定。</p>
+          <div><a className="rh-btn is-solid" href={deleg.done}>去研究档案看 ↗</a><button className="rh-btn" onClick={() => setDeleg(null)}>关闭</button></div></>
+        : <><p>适合「要查清楚」的问题：会有几名研究员分头找证据、互相反驳和核实，最后给有出处的结论和剩余缺口。</p>
+          <label>要查清楚的问题<textarea rows={3} value={deleg.q} onChange={e => setDeleg({ ...deleg, q: e.target.value })} placeholder="例如：多 Agent 数量增加是否一定提高研究质量？" autoFocus /></label>
+          <label>背景（可改）<textarea rows={2} value={deleg.bg} onChange={e => setDeleg({ ...deleg, bg: e.target.value })} /></label>
+          {deleg.err && <p className="dm-msg exl-err" role="alert">{deleg.err}</p>}
+          <div><button className="rh-btn is-solid" disabled={deleg.busy || !deleg.q.trim()} onClick={() => { const d = deleg; setDeleg({ ...d, busy: true, err: undefined });
+            onDelegate!(d.q.trim(), d.bg.trim()).then(r => setDeleg({ ...d, busy: false, done: r.href }), e => setDeleg({ ...d, busy: false, err: e instanceof Error ? e.message : '没交过去，请重试' })); }}>{deleg.busy ? '正在交给群研……' : '交给群研'}</button>
+            <button className="rh-btn" onClick={() => setDeleg(null)}>取消</button></div></>}
+      </div></div>}
       {tzAsk !== null && <div className="exl-modal" role="dialog" aria-label="确认整份计划"><div>
         <b>确认整份计划</b>
         <p>确认后所有候选都变成已确认，计划进入待执行，后台每天按你所在时区的 08:00 / 16:00 / 23:00 检查天气。</p>

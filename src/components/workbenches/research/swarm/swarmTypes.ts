@@ -42,7 +42,11 @@ export type ClaimDetail = {
   claim: Claim; evidence: Evidence[]; reviews: Review[];
   task: { id: string; title: string; state: SwarmTaskState; routeId: string | null } | null;
   member: { id: string; label: string; role: MemberRole } | null;
+  /** 已经开过的精读（同一版本 + 同一证据只开一次）。 */
+  reads?: { evidenceId: string; readDossierId: string; readRunId?: string; href?: string; mode?: string }[];
 };
+/** 用精读细看某条证据：同一材料版本和定位；再点就接着原来那份精读。 */
+export type ReadLink = { readDossierId: string; href?: string; resumed: boolean; readRunId?: string };
 /** 证据详情（GET /runs/:id/evidence/:id）：哪几条结论引用了它。 */
 export type EvidenceDetail = { evidence: Evidence; referencedBy: { claimId: string; claimVersion: number; text: string }[] };
 
@@ -68,6 +72,7 @@ export interface SwarmAdapter {
   report(): Promise<SwarmReport | null>;
   claim(claimId: string, version?: number): Promise<ClaimDetail>;
   evidence(evidenceId: string): Promise<EvidenceDetail>;
+  readEvidence(claimId: string, evidenceId: string): Promise<ReadLink>;
 }
 
 /** 本批（MVP-1）服务端接受的干预；其余入口置灰。 */

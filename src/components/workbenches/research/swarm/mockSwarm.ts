@@ -220,6 +220,7 @@ export function mockSwarmAdapter(): SwarmAdapter {
       const t = snap.tasks.find(x => x.id === c.taskId), m = snap.members.find(x => x.id === c.author);
       return { claim: c, evidence: snap.evidence.filter(e => c.evidenceIds.includes(e.id)), reviews: snap.reviews.filter(r => r.claimId === c.id), task: t ? { id: t.id, title: t.title, state: t.state, routeId: t.routeId } : null, member: m ? { id: m.id, label: m.label, role: m.role } : null };
     },
+    async readEvidence() { return { readDossierId: 'mock-read', resumed: false }; },
     async evidence(evidenceId): Promise<EvidenceDetail> {
       const snap = hub.get().snap!, e = snap.evidence.find(x => x.id === evidenceId);
       if (!e) throw Error('这条证据不存在。');

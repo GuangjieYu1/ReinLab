@@ -2,7 +2,7 @@
 // 打开 / 重连：先取快照，再从快照的 cursor 订阅事件流；断开就重取快照再订阅。
 // 澄清阶段负责人说的话不在群研时间线里，取同一运行的内核事件（assistant/message）；提问卡从收件箱按 runId 取。
 import type {
-  ClaimDetail, EvidenceDetail, SwarmCardView, BusEntry, MemberLogItem, SwarmAdapter, SwarmAnswer, SwarmAsk, SwarmEvent, SwarmPlan, SwarmReport, SwarmSnapshot, DockLine,
+  ClaimDetail, EvidenceDetail, ReadLink, SwarmCardView, BusEntry, MemberLogItem, SwarmAdapter, SwarmAnswer, SwarmAsk, SwarmEvent, SwarmPlan, SwarmReport, SwarmSnapshot, DockLine,
 } from '../components/workbenches/research/swarm/swarmTypes';
 import { isTerminal } from '../components/workbenches/research/swarm/swarmTypes';
 import { applyEvent, createHub, emptyView, mergeBus } from '../components/workbenches/research/swarm/swarmStore';
@@ -213,6 +213,9 @@ export function createLiveSwarmAdapter(dossierId: string | undefined, ports: { r
     },
     async claim(claimId, version) {
       return ports.request('GET', swarm(`/runs/${runId}/claims/${encodeURIComponent(claimId)}${version ? `?version=${version}` : ''}`)) as Promise<ClaimDetail>;
+    },
+    async readEvidence(claimId, evidenceId) {
+      return ports.request('POST', swarm(`/runs/${runId}/claims/${encodeURIComponent(claimId)}/read`), { evidenceId }) as Promise<ReadLink>;
     },
     async evidence(evidenceId) {
       return ports.request('GET', swarm(`/runs/${runId}/evidence/${encodeURIComponent(evidenceId)}`)) as Promise<EvidenceDetail>;
