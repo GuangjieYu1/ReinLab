@@ -878,12 +878,19 @@ export function createLiveReadAdapter(
         const status = (await ports.api(`/v1/kernel/runs/${runId}`)) as {
           state?: string;
           usage?: { known?: boolean };
+          query?: string | null;
+          chosenPaperId?: string | null;
         };
         const loaded = readRunState(String(status.state ?? ""));
+        // 从群研「用精读细看」带着论文进来的运行：论文已经选好，不再显示「想读哪篇」
+        const carried = !snapshot.run.chosen && status.chosenPaperId
+          ? { chosen: { id: status.chosenPaperId, title: status.query || status.chosenPaperId, authors: "", venue: "", access: "full" as const }, query: status.query || status.chosenPaperId }
+          : {};
         patchRun({
           state: loaded,
           spentCny: null,
           unknownCost: status.usage?.known !== true,
+          ...carried,
           ...(loaded === "done" ? shortfall() : {}),
         });
         startPolling();
