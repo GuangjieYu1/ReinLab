@@ -205,6 +205,8 @@ it("T-MCP-7 fixture OA full text preserves original PDF page anchors; non-OA rem
         randomUUID(),
       ),
     ).toMatchObject({ status: "abstract_only", pages: [] });
+    await expect(handlers["papers.pages"](context, { assetId: "paper.pdf", pages: [1] }, randomUUID()))
+      .rejects.toMatchObject({ code: "PAPER_ASSET_ID_INVALID", status: 400 });
     expect(networkCalls).toBe(3);
     expect(deposits.map((d) => d.full)).toEqual([true, false]);
     await expect(

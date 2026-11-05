@@ -87,6 +87,8 @@ describe("papers.register 工作区登记", () => {
     expect(prepared.metadata.title).toBe("Registered Paper");
     expect(prepared.metadata.authors).toEqual([]);
     expect(prepared.metadata.doi).toBeNull();
+    const alias = await prepareRegistration({ filePath: "paper.pdf", title: "Registered Paper" }, roots());
+    expect(alias.digest).toBe(prepared.digest);
     const count = await admin.query("select count(*)::int n from paper_asset where dossier_id=$1", [dossier]);
     expect(count.rows[0].n).toBe(0);
   });

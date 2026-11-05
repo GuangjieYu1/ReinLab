@@ -287,6 +287,10 @@ export async function materializeLaunch(
       "  config:",
       "    personaPrefix: >-",
       ...PERSONA[plan.mode].map((line) => "      " + line),
+      // 澄清只能经业务工具请求下载审批，不能从 shell 绕过。
+      ...(plan.mode === "clarify"
+        ? ["- id: tool-bash", "  disabled: true", "- id: tool-pwsh", "  disabled: true", "- id: tool-jobs", "  disabled: true"]
+        : []),
       // 探索台会随消息带参考图：把当前模型在目录里声明成「能收图」。
       // DSH 的模型目录对没声明的模型默认按纯文本处理（会把图片换成一行占位符），
       // 这里只声明这一个模型，不动别的模式。

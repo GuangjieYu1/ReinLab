@@ -167,6 +167,27 @@ describe("live read adapter over the DSH kernel", () => {
     expect(calls.some((call) => call.path === "/v1/kernel/approvals/pick-1/answer" && (call.body as any)?.candidateId === "W1")).toBe(true);
   });
 
+  it("等待回答时，对话框里打的字当作提问卡的回答，不新开一轮", async () => {
+    // 提问卡没有候选（选项写进了正文）：run 停在 waiting，用户直接在对话框里回答
+    const { instance, calls } = adapter({
+      "/v1/dossiers": () => ({ items: [{ id: "d-1", title: "档案" }] }),
+      "/v1/kernel/dossiers/d-1/runs": () => ({ runs: [{ id: "r-1", state: "waiting" }] }),
+      "/v1/kernel/runs/r-1/events": () => ({ events: [] }),
+      "/v1/kernel/runs/r-1": () => ({ state: "waiting", usage: { known: true } }),
+      "/v1/approvals": () => ({
+        items: [{ id: "q-1", runId: "r-1", kind: "question", title: "要不要现在下载全文？从哪个角度切入：①…④", effects: [], question: { multi: false, candidates: [] }, source: { dossierId: "d-1" } }],
+      }),
+      "/v1/kernel/approvals/q-1/answer": () => ({ id: "q-1", state: "approved" }),
+      "/v1/kernel/runs": () => ({ id: "r-should-not-start" }),
+    });
+    await instance.load();
+    instance.subscribe(() => {});
+    await new Promise((r) => setTimeout(r, 1600));
+    await instance.clarify("④ 从头到尾完整过一遍，先下载全文");
+    expect(calls.some((call) => call.path === "/v1/kernel/approvals/q-1/answer" && (call.body as any)?.text === "④ 从头到尾完整过一遍，先下载全文")).toBe(true);
+    expect(calls.some((call) => call.path === "/v1/kernel/runs" && call.body !== undefined)).toBe(false);
+  });
+
   it("reports an unconfirmed stop instead of pretending the run stopped", async () => {
     const { instance } = adapter({
       "/v1/dossiers": () => ({ items: [{ id: "d-1", title: "档案" }] }),

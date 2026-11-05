@@ -89,6 +89,9 @@ describe("dsh launch plan", () => {
       expect(patch).not.toContain(banned);
     }
     expect(patch).toContain("searchProvider: deepseek-search-api");
+    expect(patch).toContain("- id: tool-bash\n  disabled: true");
+    expect(patch).toContain("- id: tool-pwsh\n  disabled: true");
+    expect(patch).toContain("- id: tool-jobs\n  disabled: true");
     expect(patch).toContain("fetchProvider: deepseek-fetch-api");
     expect(patch).toContain(base.controlUrl + "/llm/deepseek/v1/tools");
   });

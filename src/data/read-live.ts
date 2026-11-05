@@ -593,9 +593,14 @@ export function createLiveReadAdapter(
       if (card.kind === "question") {
         announced.add(card.id);
         questionCardId = card.id;
-        const candidates = Array.isArray((card as any).effects?.candidates)
-          ? (card as any).effects.candidates
-          : [];
+        // 列表接口把候选放在 question 里（effects 只剩说明文字）；兼容旧形状
+        const candidates = Array.isArray((card as any).question?.candidates)
+          ? (card as any).question.candidates
+          : Array.isArray((card as any).effects?.candidates)
+            ? (card as any).effects.candidates
+            : [];
+        // 不管有没有候选，这张卡等回答期间，对话框里打的字都当回答
+        pendingQuestion = { approvalId: card.id, text: String(card.title ?? "请补充线索。") };
         if (candidates.length > 0) {
           emit({
             type: "pick",
@@ -611,7 +616,6 @@ export function createLiveReadAdapter(
             state: "pending",
           });
         } else {
-          pendingQuestion = { approvalId: card.id, text: String(card.title ?? "请补充线索。") };
           emit({ type: "agent", id: "question:" + card.id, text: String(card.title ?? "请补充线索。") });
         }
         continue;
@@ -920,6 +924,14 @@ export function createLiveReadAdapter(
       };
     },
     async clarify(text) {
+      // 有待回答的提问卡就先当回答：等回答时 run 是 waiting（映射成 idle），
+      // 按「还在跑」判断会误开新一轮，把用户的回答丢掉。
+      const asked = existsPendingQuestion();
+      if (asked) {
+        await ports.api(`/v1/kernel/approvals/${asked.approvalId}/answer`, { text });
+        pendingQuestion = undefined;
+        return;
+      }
       // 每段新对话都在全新档案里开始：旧档案里已下载的论文会让「下载审批」直接消失，
       // 也违反「一次只批一次下载」的观看路径。
       const running = snapshot.run.state === "running" || snapshot.run.state === "estimating" || snapshot.run.state === "confirm";
@@ -1086,10 +1098,8 @@ export function createLiveReadAdapter(
         crypto.randomUUID(),
       );
       void answer;
-      if (candidateId === null) {
-        pendingQuestion = undefined;
-        return;
-      }
+      pendingQuestion = undefined;
+      if (candidateId === null) return;
       const pick = snapshot.history.find(
         (event): event is Extract<ReadEvent, { type: "pick" }> =>
           event.type === "pick" && event.id === pickId,

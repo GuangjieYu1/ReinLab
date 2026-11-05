@@ -44,10 +44,10 @@ describe("reading plugin", () => {
     }
   });
 
-  it("澄清阶段没有下载工具：还没选定论文，本来就不该有这张审批卡", () => {
-    // 这一步不是限制模型怎么做，而是这个阶段不该存在下载能力。
+  it("澄清续接可以提出下载和登记审批，执行仍由控制面批准", () => {
     const clarify = mount(vi.fn(), "clarify").registered.map((d) => d.name);
-    expect(clarify).not.toContain("papers_fetch");
+    expect(clarify).toContain("papers_fetch");
+    expect(clarify).toContain("papers_register");
     // 检索、提问、读页仍在：靠它们拿到真实候选并让用户选定。
     for (const name of ["papers_search", "clarify_question", "papers_pages", "card_layer", "card_finding", "course_plan"]) {
       expect(clarify).toContain(name);
