@@ -118,7 +118,7 @@ const kernel = new KernelService({
         dossier,
         run: runId,
         purpose: "vision",
-        provider: "deepseek-official",
+        provider: providerLabel,
         model: usage.model,
         known: usage.inputTokens !== null && usage.outputTokens !== null,
         inputTokens: usage.inputTokens,
@@ -253,6 +253,8 @@ const providerBaseUrl =
   localSecrets.REINLAB_MODEL_BASE_URL ?? "https://api.deepseek.com/anthropic";
 // opencodego 这类网关要求带一个会话 id 才能路由；没配就不带（官方 DeepSeek 不需要）。
 const providerSession = localSecrets.REINLAB_MODEL_SESSION ?? "";
+// 记账里的 provider 跟着网关走：官方是 deepseek-official，换网关就写网关名。
+const providerLabel = providerBaseUrl.includes("opencode.ai") ? "opencodego" : "deepseek-official";
 if (realModels && (!providerKey || /[\r\n]/.test(providerKey)))
   throw Error("LOCAL_MODEL_KEY_UNAVAILABLE");
 // 峰值费率（每百万 token）：配了就能在花之前估一次，没配就照实说估不了。
@@ -392,6 +394,8 @@ if (realModels && providerKey) {
     now: () => Math.floor(Date.now() / 1000),
     providerBaseUrl,
     providerKey,
+    // 记账里的 provider 跟着网关走（官方 deepseek-official / 网关 opencodego）。
+    provider: providerLabel,
     ...(providerSession ? { providerSession } : {}),
   });
   // DeepSeek Search / Fetch API：内核的 web_search / web_fetch 走这里，宿主密钥不外发。

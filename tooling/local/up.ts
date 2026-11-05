@@ -244,10 +244,10 @@ try {
     REINLAB_KERNEL_TRANSPORT: kernelTransport,
     // 内核拉起的 dsh 子进程也用同一个 Node 22。
     SHIM_NODE: nodeBin,
-    // 17 返工：用户确认 deepseek-v4.1-flash 就是官方 API 的 deepseek-flash，
-    // 所以走官方网关、型号用 deepseek-flash（群研与内核同款）。
-    REINLAB_KERNEL_MODEL: process.env.REINLAB_KERNEL_MODEL ?? "deepseek-flash",
-    REINLAB_SWARM_MODEL: process.env.REINLAB_SWARM_MODEL ?? "deepseek-flash",
+    // 17 返工：走用户的 opencodego 网关（base/key 在 ~/.config/reinlab/local.env），
+    // 型号 deepseek-v4.1-flash；群研与内核同款。
+    REINLAB_KERNEL_MODEL: process.env.REINLAB_KERNEL_MODEL ?? "deepseek-v4.1-flash",
+    REINLAB_SWARM_MODEL: process.env.REINLAB_SWARM_MODEL ?? "deepseek-v4.1-flash",
     REINLAB_KERNEL_MAX_TOKENS: "32768",
   });
   await stopOwnedControl(paths.process, resolve("tooling/local/control.ts"));

@@ -122,13 +122,59 @@ export function registerMessagesProxy(
     } catch {
       return c.json({ error: "KERNEL_TOKEN_INVALID" }, 401);
     }
-    const body = await c.req.text();
+    if (process.env.REINLAB_DEBUG_MODEL_HEADERS === "1")
+      console.error(
+        JSON.stringify({
+          code: "MODEL_HEADERS",
+          headers: Object.fromEntries(
+            [...c.req.raw.headers.entries()]
+              .filter(([name]) => !["cookie", "authorization", "x-api-key"].includes(name))
+              .map(([name, value]) => [name, value.slice(0, 80)]),
+          ),
+        }),
+      );
+    const rawBody = await c.req.text();
     let parsed: { model?: unknown; stream?: unknown };
     try {
-      parsed = JSON.parse(body);
+      parsed = JSON.parse(rawBody);
     } catch {
       return c.json({ error: "MESSAGES_BODY_INVALID" }, 400);
     }
+    // 只转发 Anthropic Messages 认的字段：DSH 会带自己的私有字段（比如 dsh_plugin_packages），
+    // 官方网关可能无视，但 opencodego 会直接 400（requires a native Anthropic Messages target）。
+    const ALLOWED_FIELDS = new Set([
+      "model",
+      "messages",
+      "system",
+      "tools",
+      "tool_choice",
+      "max_tokens",
+      "temperature",
+      "top_p",
+      "top_k",
+      "stop_sequences",
+      "stream",
+      "metadata",
+      "thinking",
+      "betas",
+      "service_tier",
+    ]);
+    const dropped = Object.keys(parsed as Record<string, unknown>).filter(
+      (key) => !ALLOWED_FIELDS.has(key),
+    );
+    const body = dropped.length
+      ? JSON.stringify(
+          Object.fromEntries(
+            Object.entries(parsed as Record<string, unknown>).filter(([key]) =>
+              ALLOWED_FIELDS.has(key),
+            ),
+          ),
+        )
+      : rawBody;
+    if (dropped.length)
+      console.error(
+        JSON.stringify({ code: "MODEL_BODY_FIELDS_DROPPED", fields: dropped.slice(0, 8) }),
+      );
     const model = typeof parsed.model === "string" ? parsed.model : "";
     // 只把「真正在首次读这几张图」的那一笔算读图：请求里**最后一条消息**带图片内容块才算。
     // 后续步骤会把历史里的图一起回传，那些只是在延续思考，按编排记。
