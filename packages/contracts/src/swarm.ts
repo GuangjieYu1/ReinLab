@@ -212,6 +212,9 @@ export type Claim = {
   negative?: { searched: string; scope: string; notFound: string } | null;
 };
 
+/** 证据是怎么找到的：搜出来的 / 早就知道的网址 / 顺着别的资料里的引用找过去的。 */
+export type EvidenceDiscovery = "search" | "known-url" | "citation";
+
 export type Evidence = {
   id: string;
   source: {
@@ -224,6 +227,8 @@ export type Evidence = {
   };
   locator: { page?: number; section?: string; lines?: string; quote?: string } | null;
   access: "full_text" | "abstract_only" | "unavailable";
+  /** 来路（18 广度返工）；老数据没有这个字段就缺省。 */
+  discovery?: EvidenceDiscovery;
   /** 怎么拿到的（检索 / 下载 / 实测）。 */
   how: string;
   /** 能跳精读的页码锚点（/v1/... 由前端补前缀）。 */
@@ -323,6 +328,16 @@ export type SwarmReport = {
   /** 精确剩余缺口。 */
   gaps: string[];
   sources: string[];
+  /**
+   * 按来路统计的证据数（18 广度返工）：search 搜出来的、knownUrl 直接抓已知网址、
+   * citation 顺着引用找的、unknown 没判出来源。页面显示「发现类 search / 共 M」。
+   */
+  discoveryCounts?: {
+    search: number;
+    knownUrl: number;
+    citation: number;
+    unknown: number;
+  } | null;
   /** 到限时的追加建议。 */
   nextSuggestion?: { rounds: number; minutes: number; why: string } | null;
   /**

@@ -378,6 +378,12 @@ if (realModels && providerKey) {
           config.MODEL_OUTPUT_CNY_PER_MILLION ??
           Number.NaN,
       );
+      // 缓存读单价（¥/百万 token）：命中缓存的 token 比输入便宜，默认 0.02，可配。
+      const cacheRate = Number(
+        config.REINLAB_MODEL_CACHE_READ_CNY_PER_MILLION ??
+          config.MODEL_CACHE_READ_CNY_PER_MILLION ??
+          0.02,
+      );
       let cost: string | null = usage.costCny ?? null;
       if (
         cost === null &&
@@ -388,7 +394,9 @@ if (realModels && providerKey) {
         usage.outputTokens !== null
       )
         cost = (
-          (usage.inputTokens * inRate + usage.outputTokens * outRate) /
+          (usage.inputTokens * inRate +
+            usage.outputTokens * outRate +
+            (usage.cacheReadTokens ?? 0) * (Number.isFinite(cacheRate) ? cacheRate : 0)) /
           1_000_000
         ).toFixed(6);
       await database.withAccount(usage.account, async (client) => {
@@ -415,6 +423,24 @@ if (realModels && providerKey) {
     providerKey,
     feeCny: config.DEEPSEEK_WEB_FEE_CNY ?? "0.005000",
     forward: (request: Request) => fetch(request, { redirect: "error" }),
+    // 来路线索：搜索命中的 URL、已抓页面里的外链，记进 swarm_source_hit。
+    noteSources: async ({ account, run, urls, kind }) => {
+      const rows = urls
+        .map((url) => String(url).slice(0, 500))
+        .filter((url) => url.startsWith("http"))
+        .slice(0, 80);
+      if (!rows.length) return;
+      await database.withAccount(account, async (client) => {
+        for (const url of rows)
+          await client.query(
+            `insert into swarm_source_hit(account_id,run_id,url,kind) values($1,$2,$3,$4)
+             on conflict (account_id,run_id,url,kind) do update
+               set hits = swarm_source_hit.hits + 1, last_seen = now()`,
+            [account, run, url, kind],
+          );
+      });
+    },
+
     record: async (usage) => {
       await database.withAccount(usage.account, (client) => recordUsage(client, usage));
     },

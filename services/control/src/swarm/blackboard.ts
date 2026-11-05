@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { buildCoverage, coverageGaps } from "./coverage";
 import type pg from "pg";
 import type {
   Claim,
@@ -37,6 +38,8 @@ export type EvidenceInput = {
   locator: Evidence["locator"];
   access: Evidence["access"];
   how: string;
+  /** 来路；不填就按控制面见过的网址自动判（search / citation / known-url）。 */
+  discovery?: Evidence["discovery"] | null;
 };
 
 /**
@@ -153,6 +156,48 @@ export async function recordSubmission(
  * 记一条证据；同来源 + 同版本 + 同定位已经有就复用那一条（引用关系另外记）。
  * 返回证据 id 和它是不是新记的。
  */
+/** 把 ref / 网址归一成可以互相比较的形状（去协议、去尾斜杠、小写）。 */
+function normalizeRef(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "")
+    .split("?")[0] ?? "";
+}
+
+/**
+ * 判这条证据的来路（18 广度返工）：
+ * - 网址在「搜索结果」里出现过 → search；
+ * - 网址在「已抓页面里的外链」里出现过 → citation；
+ * - 都没有 → known-url（早就知道、直接抓的）。
+ * 只看控制面自己记的转发记录，不问模型「你是怎么找到的」。
+ */
+export async function inferDiscovery(
+  client: Client,
+  account: string,
+  runId: string,
+  source: Evidence["source"],
+): Promise<Evidence["discovery"]> {
+  const ref = normalizeRef([source.ref, source.assetId].filter(Boolean).join(" "));
+  if (!ref) return "known-url";
+  const hits = (
+    await client.query(
+      "select url, kind from swarm_source_hit where account_id=$1 and run_id=$2",
+      [account, runId],
+    )
+  ).rows as Array<{ url: string; kind: string }>;
+  const match = (kind: string) =>
+    hits.some((hit) => {
+      const url = normalizeRef(String(hit.url));
+      if (hit.kind !== kind || !url) return false;
+      return ref.includes(url) || url.includes(ref);
+    });
+  if (match("search")) return "search";
+  if (match("citation")) return "citation";
+  return "known-url";
+}
+
 export async function putEvidence(
   client: Client,
   input: { account: string; runId: string; submissionId: string; evidence: EvidenceInput },
@@ -164,19 +209,21 @@ export async function putEvidence(
       [input.account, input.runId, key],
     )
   ).rows[0];
-  if (existing)
+  if (existing) {
+    const { discovery: ignoredDiscovery, ...rest } = input.evidence;
+    void ignoredDiscovery;
     return {
       id: String(existing.id),
       created: false,
-      evidence: {
-        id: String(existing.id),
-        ...input.evidence,
-      },
+      evidence: { id: String(existing.id), ...rest },
     };
+  }
   const id = randomUUID();
+  const discovery =
+    input.evidence.discovery ?? (await inferDiscovery(client, input.account, input.runId, input.evidence.source));
   await client.query(
-    `insert into swarm_evidence(id,account_id,run_id,submission_id,source,locator,access,how,dedupe_key)
-     values($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    `insert into swarm_evidence(id,account_id,run_id,submission_id,source,locator,access,how,dedupe_key,discovery)
+     values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     [
       id,
       input.account,
@@ -187,9 +234,16 @@ export async function putEvidence(
       input.evidence.access,
       input.evidence.how,
       key,
+      discovery ?? null,
     ],
   );
-  return { id, created: true, evidence: { id, ...input.evidence } };
+  const { discovery: ignoredExplicit, ...evidenceRest } = input.evidence;
+  void ignoredExplicit;
+  return {
+    id,
+    created: true,
+    evidence: { id, ...evidenceRest, ...(discovery ? { discovery } : {}) },
+  };
 }
 
 export type ClaimInput = {
@@ -370,6 +424,7 @@ export function evidenceRow(row: Record<string, unknown>): Evidence {
     locator: (row.locator as Evidence["locator"]) ?? null,
     access: row.access as Evidence["access"],
     how: String(row.how),
+    ...(row.discovery ? { discovery: String(row.discovery) as Evidence["discovery"] } : {}),
   };
 }
 
@@ -564,6 +619,24 @@ export async function buildReport(
       .map((route) => `${String(route.title)}：${String(route.gap ?? route.blocked_reason)}`)
       .filter((line) => !/(重复登记|已并入|同一条路线)/.test(line)),
     ...insufficient.map((claim) => `证据不足：${claim.text.slice(0, 80)}（${claim.statusReason ?? "未说明"}）`),
+    // 覆盖缺口（18 广度返工）：结论里提到、但没有任何证据指向的名字。
+    ...coverageGaps(
+      buildCoverage({
+        routes: routes.map((route) => ({ id: String(route.id), title: String(route.title ?? "") })),
+        claims: claims.map((claim) => ({
+          id: claim.id,
+          text: claim.text,
+          routeId: claim.routeId,
+          evidenceIds: claim.evidenceIds,
+        })),
+        evidence: [...evidence.values()].map((entry) => ({
+          id: entry.id,
+          claimIds: [],
+          source: { title: entry.source.title, ref: entry.source.ref },
+          locator: entry.locator,
+        })),
+      }),
+    ),
     ...(input.stateReason ? [input.stateReason] : []),
   ];
   const limits = [
@@ -620,6 +693,17 @@ export async function buildReport(
     negative: negative.map((claim) => claim.id),
     gaps: [...new Set(gaps)].slice(0, 20),
     sources: [...usedEvidence].filter((id) => evidence.some((entry) => entry.id === id)),
+    // 按来路统计（18 广度返工）：页面显示「发现类 search / 共 M」。
+    discoveryCounts: (() => {
+      const counts = { search: 0, knownUrl: 0, citation: 0, unknown: 0 };
+      for (const entry of evidence) {
+        if (entry.discovery === "search") counts.search += 1;
+        else if (entry.discovery === "known-url") counts.knownUrl += 1;
+        else if (entry.discovery === "citation") counts.citation += 1;
+        else counts.unknown += 1;
+      }
+      return counts;
+    })(),
     nextSuggestion,
     narrative: input.narrative ?? null,
     updatedAt: new Date().toISOString(),

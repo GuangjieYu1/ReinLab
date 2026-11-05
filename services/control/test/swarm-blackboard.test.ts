@@ -1439,3 +1439,93 @@ it("17 返工：黑板默认只回摘要与增量，按 id 取全文，成稿进
     await f.close();
   }
 }, 120_000);
+
+it("18 广度：证据来路自动判定（搜出来的 / 引用里的 / 已知网址）", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    await f.admin.query(
+      `insert into swarm_source_hit(account_id,run_id,url,kind) values
+         ($1,$2,'https://worldanvil.com/features','search'),
+         ($1,$2,'https://example.org/aeon','citation')`,
+      [f.account, runId],
+    );
+    const searched = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "disc-1",
+      member: "r1-scout",
+      claim: { text: "World Anvil 提供事件-时间轴联动。", basis: "checked_fact" },
+      evidence: [evidenceOf("https://worldanvil.com/features", "Timeline", "event timeline")],
+    });
+    const cited = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "disc-2",
+      member: "r1-scout",
+      claim: { text: "Aeon 做时间约束。", basis: "checked_fact" },
+      evidence: [evidenceOf("https://example.org/aeon", "docs", "constraints")],
+    });
+    const known = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "disc-3",
+      member: "r1-scout",
+      claim: { text: "其他产品没有这个字段。", basis: "checked_fact" },
+      evidence: [evidenceOf("https://folklore.io/docs", "docs", "no status field")],
+    });
+    const byId = new Map(
+      (await swarm.snapshot(f.account, runId)).evidence.map((entry) => [entry.id, entry]),
+    );
+    const discoveryOf = (claimId: string) => {
+      const claim = (searched.claimIds.includes(claimId) ? searched : cited.claimIds.includes(claimId) ? cited : known);
+      void claim;
+    };
+    void discoveryOf;
+    const snapshot = await swarm.snapshot(f.account, runId);
+    const pick = (ref: string) =>
+      snapshot.evidence.find((entry) => String(entry.source.ref).includes(ref))?.discovery;
+    expect(pick("worldanvil.com")).toBe("search");
+    expect(pick("example.org/aeon")).toBe("citation");
+    expect(pick("folklore.io")).toBe("known-url");
+    expect(snapshot.report?.discoveryCounts).toMatchObject({ search: 1, citation: 1, knownUrl: 1 });
+    void byId;
+    const coverage = await swarm.coverage(f.account, runId);
+    expect(coverage.axes.length).toBeGreaterThan(0);
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("18 广度：覆盖视图把「提到但没查」的名字列出来，并进缺口", async () => {
+  const { extractNames, buildCoverage } = await import("../src/swarm/coverage");
+  const names = extractNames(
+    "World Anvil 可以做时间轴；Aeon Timeline 能逐条标红；《51码字》是国内的写作工具；Wikidata 区分未知与确定没有。",
+  );
+  expect(names).toContain("World Anvil");
+  expect(names).toContain("Aeon Timeline");
+  expect(names.some((name) => name.includes("51码字") || name.includes("51码字".slice(0, 3)))).toBe(true);
+  expect(names).toContain("Wikidata");
+
+  const coverage = buildCoverage({
+    routes: [{ id: "r1", title: "产品盘点" }],
+    claims: [
+      {
+        id: "c1",
+        text: "World Anvil 有时间轴；Aeon Timeline 更严格；OnlyWorlds 没查到。",
+        routeId: "r1",
+        evidenceIds: ["e1"],
+      },
+    ],
+    evidence: [
+      {
+        id: "e1",
+        claimIds: ["c1"],
+        source: { title: "World Anvil features", ref: "https://worldanvil.com" },
+        locator: { quote: "event timeline" },
+      },
+    ],
+  });
+  const axis = coverage.axes[0];
+  expect(axis.checked).toContain("World Anvil");
+  expect(axis.mentioned).toContain("Aeon Timeline");
+  expect(axis.mentioned).toContain("OnlyWorlds");
+  const { coverageGaps } = await import("../src/swarm/coverage");
+  expect(coverageGaps(coverage).join("\n")).toContain("OnlyWorlds");
+});

@@ -378,6 +378,20 @@ export function apply(ctx, config) {
         },
       }),
     );
+    // 覆盖视图（18 广度返工）：只给数据，查不查由负责人自己定。
+    register(
+      defineTool({
+        name: "research_coverage",
+        description:
+          "看广度：按计划里的几条路线，列出「已经有证据的名字」和「结论里提到、但还没有任何证据指向的名字」。只是数据，不替你做决定。",
+        parameters: {},
+        timeoutMs: 30_000,
+        async execute() {
+          const outcome = await call("swarm", "coverage", {});
+          return outcome.error ?? outcome.result;
+        },
+      }),
+    );
     // 成稿（17 返工）：结束前写一份贯穿全局的报告，进 report.narrative。
     register(
       defineTool({

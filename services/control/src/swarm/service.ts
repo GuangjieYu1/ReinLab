@@ -23,6 +23,7 @@ import type {
 import { ApiFailure } from "../api/errors";
 import type { Database } from "../db/database";
 import type { KernelService } from "../kernel/service";
+import { buildCoverage, coverageGaps } from "./coverage";
 import { labelOf, loadFold, projectEvents } from "./project";
 import {
   cardLabel,
@@ -3270,6 +3271,44 @@ export class SwarmService {
    * - 精读结果由精读台自己的档案承载，并通过 `swarm_read_link` 挂回这条结论；
    *   群研已经结束的运行不改已发布的报告，只记成后续关联（mode='followup'）。
    */
+  /**
+   * 覆盖视图（18 广度返工 B4②）：按计划里的几条路线，给「已查证的名字」和「提到但没查的名字」。
+   * 只给数据，查不查由负责人自己定。
+   */
+  async coverage(account: string, runId: string) {
+    return this.dependencies.db.withAccountSnapshot(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const plan = await this.planOf(client, account, runId);
+      const claims = await latestClaims(client, account, runId, { limit: 300 });
+      const evidence = await loadEvidence(client, account, runId);
+      const evidenceById = new Map(evidence.map((entry) => [entry.id, entry]));
+      return buildCoverage({
+        routes: (plan?.routes ?? []).map((route) => ({ id: route.id, title: route.title })),
+        claims: claims.map((claim) => ({
+          id: claim.id,
+          text: claim.text,
+          routeId: claim.routeId,
+          evidenceIds: claim.evidenceIds,
+        })),
+        evidence: claims
+          .flatMap((claim) =>
+            claim.evidenceIds.map((id) => {
+              const found = evidenceById.get(id);
+              return found
+                ? {
+                    id: found.id,
+                    claimIds: [claim.id],
+                    source: { title: found.source.title, ref: found.source.ref },
+                    locator: found.locator,
+                  }
+                : null;
+            }),
+          )
+          .filter(Boolean) as never,
+      });
+    });
+  }
+
   /**
    * 成稿（17 返工）：负责人在运行结束前写一份贯穿全局的报告（markdown），
    * 放进 report.narrative。引用只能指黑板上的结论/证据 id；没核实的要在文中标出来。
