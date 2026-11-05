@@ -241,6 +241,8 @@ export type Review = {
   verdict: "upheld" | "rejected" | "verified" | "not_verifiable" | "pending";
   round: number;
   taskId: string;
+  /** 核实者自报读没读全原文（17 返工）。否定式结论判 verified 必须是 full。旧记录没有。 */
+  readCompleteness?: "full" | "partial" | null;
 };
 
 // ── 留言板四栏 ────────────────────────────────────

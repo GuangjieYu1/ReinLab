@@ -7,18 +7,37 @@ const TOKEN = /!\[([^\]]*)\]\(photo:([\w-]+)\)|\[([^\]]+)\]\((https?:\/\/[^\s)]+
 /** 照片 id → 图片地址。没有宿主时照片引用显示成文字。 */
 export const PhotoRef = createContext<((id: string) => string) | null>(null);
 
+/** 正文里出现的 id（如群研成稿引用的结论 / 证据 id）→ 可点的小标签。宿主认不出就返回 null，原样显示。 */
+export type IdLookup = (id: string) => { label: string; title?: string; open: () => void } | null;
+export const IdRef = createContext<IdLookup | null>(null);
+// 完整 uuid，或写作 8 位前缀（成稿里常写成〔af7b43dc〕）；认不出的原样留着
+const UUID = /`?\b([0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)\b(?!-)`?/gi;
+function linkIds(text: string, ref: IdLookup, key: string): ReactNode[] {
+  const out: ReactNode[] = []; let last = 0, k = 0;
+  for (const m of text.matchAll(UUID)) {
+    const hit = ref(m[1].toLowerCase());
+    if (!hit) continue;
+    if (m.index! > last) out.push(text.slice(last, m.index));
+    out.push(<button key={`${key}-${k++}`} type="button" className="rt-id" title={hit.title} onClick={hit.open}>{hit.label}</button>);
+    last = m.index! + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
 export function RichText({ text }: { text: string }) {
-  const photo = useContext(PhotoRef);
+  const photo = useContext(PhotoRef), ids = useContext(IdRef);
   const out: ReactNode[] = [];
   let last = 0, k = 0;
+  const plain = (t: string) => ids ? out.push(...linkIds(t, ids, `t${k++}`)) : out.push(t);
   for (const m of text.matchAll(TOKEN)) {
-    if (m.index! > last) out.push(text.slice(last, m.index));
+    if (m.index! > last) plain(text.slice(last, m.index));
     if (m[2]) out.push(photo ? <figure key={k++} className="rt-photo"><img src={photo(m[2])} alt={m[1]} loading="lazy" />{m[1] && <figcaption>{m[1]}</figcaption>}</figure> : <span key={k++}>［照片：{m[1] || m[2].slice(0, 8)}］</span>);
     else if (m[3]) out.push(<a key={k++} href={m[4]} target="_blank" rel="noopener noreferrer">{m[3]}</a>);
     else out.push(<b key={k++}>{m[5]}</b>);
     last = m.index! + m[0].length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) plain(text.slice(last));
   return <>{out}</>;
 }
 

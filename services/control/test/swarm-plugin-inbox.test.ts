@@ -224,3 +224,61 @@ describe("研究插件：工具面（17 返工）", () => {
     expect(flat).toContain("present");
   });
 });
+
+describe("研究插件：成稿工具（B1）", () => {
+  it("负责人能注册到 research_narrative，队员拿不到", async () => {
+    const plugin = await loadPlugin();
+    const leadTools: string[] = [];
+    const teammateTools: string[] = [];
+    let created: ((payload: any) => unknown) | undefined;
+    const ctx = (bucket: string[]) => ({
+      tools: {
+        register: (definition: { name: string }) => {
+          bucket.push(definition.name);
+        },
+        get: () => undefined,
+        restrict: () => undefined,
+      },
+      on: () => () => undefined,
+      effect: (fn: () => unknown) => fn(),
+    });
+    const leadAgent: any = { id: "session-lead", ctx: ctx(leadTools) };
+    const teammateAgent: any = { id: "session-mate", ctx: ctx(teammateTools) };
+    plugin.apply(
+      {
+        tools: { register: () => undefined, restrict: () => undefined, get: () => undefined },
+        agents: { list: () => [leadAgent, teammateAgent] as any[], get: (id: string) => (id === "session-lead" ? leadAgent : teammateAgent) },
+        agentTeams: {
+          tryMembership: (agent: any) =>
+            agent.id === "session-lead"
+              ? { role: "lead", name: "lead" }
+              : { role: "researcher", name: "r1-scout" },
+          membership: (agent: any) =>
+            agent.id === "session-lead"
+              ? { role: "lead", name: "lead" }
+              : { role: "researcher", name: "r1-scout" },
+          getTask: () => null,
+          updateTask: async () => undefined,
+          spawnTeammate: async () => ({ id: "x" }),
+          createTask: async () => ({ id: "task-1", revision: 1 }),
+        },
+        systemPrompt: { append: () => undefined },
+        on: (name: string, handler: (payload: any) => unknown) => {
+          if (name === "agent/created") created = handler;
+          return () => undefined;
+        },
+        effect: (fn: () => unknown) => fn(),
+      },
+      {
+        controlUrl: "http://control:3001",
+        token: "run-token",
+        workspace: "/tmp/reinlab-ws-narrative",
+        fetch: async () => ({ ok: true, json: async () => ({ result: { ok: true } }) }),
+      },
+    );
+    await created!({ agent: leadAgent });
+    await created!({ agent: teammateAgent });
+    expect(leadTools).toContain("research_narrative");
+    expect(teammateTools).not.toContain("research_narrative");
+  });
+});

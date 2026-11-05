@@ -10,11 +10,11 @@ export function defaultModelEnvironment() {
     MODEL_ROUTE_MID: 'deepseek/deepseek-v4-flash',
     MODEL_ROUTE_STRONG: 'deepseek/deepseek-v4-flash',
     MODEL_USD_CNY_RATE: '7.2',
-    // 17 返工：换到 opencodego 后不按官方费率估钱（用户 2026-11-05：只记 token）。
-    // 没配这两个值时，金额照实记为「未知」，不会被当成 0；
-    // 真要按费率算，用 REINLAB_MODEL_INPUT_CNY_PER_MILLION / REINLAB_MODEL_OUTPUT_CNY_PER_MILLION 显式配。
-    MODEL_INPUT_CNY_PER_MILLION: '',
-    MODEL_OUTPUT_CNY_PER_MILLION: '',
+    // 17 返工 B3：账本要能算钱。网关换了但费率还没拿到，先用 DeepSeek 峰值费率做**估算**，
+    // 拿到 opencodego 的真实费率就用 REINLAB_MODEL_INPUT_CNY_PER_MILLION /
+    // REINLAB_MODEL_OUTPUT_CNY_PER_MILLION 覆盖（只影响记账，不拦调用）。
+    MODEL_INPUT_CNY_PER_MILLION: '2',
+    MODEL_OUTPUT_CNY_PER_MILLION: '8',
   };
 }
 

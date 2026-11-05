@@ -1306,7 +1306,7 @@ it("17 返工：否定式结论读不全不能判已核实；事实结论照旧"
         readCompleteness: "partial",
         evidence: [evidenceOf("arXiv:2401.00001", "摘要", "no cost mentioned")],
       }),
-    ).rejects.toThrow(/否定式结论/);
+    ).rejects.toThrow(/读不全/);
 
     // 理由里自己写了「截断」：也不能判已核实。
     await expect(
@@ -1319,7 +1319,27 @@ it("17 返工：否定式结论读不全不能判已核实；事实结论照旧"
         readCompleteness: "full",
         evidence: [evidenceOf("arXiv:2401.00001", "§5", "cost")],
       }),
-    ).rejects.toThrow(/截断/);
+    ).rejects.toThrow(/读不全|核不了|打不开/);
+
+    // B2：非否定式的结论也不能靠「读不全」的核实拿「已核实」。
+    const fact = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "fact-b2",
+      member: "r1-scout",
+      claim: { text: "四家里只有 World Anvil 有平台状态字段。", basis: "checked_fact" },
+      evidence: [evidenceOf("arXiv:2401.00001", "§2", "platform status field")],
+    });
+    await expect(
+      swarm.reviewResearch(f.account, runId, {
+        member: "verifier",
+        claimId: fact.claimIds[0],
+        kind: "verify",
+        verdict: "verified",
+        reason: "这条我核不了，如实写「打不开」。",
+        readCompleteness: "partial",
+        evidence: [evidenceOf("arXiv:2401.00001", "§2", "platform status")],
+      }),
+    ).rejects.toThrow(/读不全|核不了|打不开/);
 
     // 正确做法：读不全就判 not_verifiable（进「证据不足」）。
     const shrunk = await swarm.reviewResearch(f.account, runId, {

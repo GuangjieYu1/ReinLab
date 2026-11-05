@@ -854,24 +854,34 @@ export async function reviewClaim(
         409,
         `这一版还有没解决的反驳（${String(openRefute.by_member)}：${String(openRefute.reason).slice(0, 80)}）。先改主张或补证据出新版本，或者让反驳者撤回，再核实。`,
       );
-    // 否定式结论（「X 里没有 Y」）只有核实者确认读全了原文才能判已核实；
-    // 读不全（截断、只看摘要、无法穷举）只能判证据不足（17 返工，PRD §5「回到原始出处去核」）。
-    const negativeClaim = !!claim.negative;
-    const saysTruncated = /截断|读不全|没法穷举|未能穷举|无法穷举|只读了摘要|打不开|乱码/.test(
+    // 核实门禁（17 返工 B2）：**任何**结论，只要核实者自己说读不全 / 核不了 / 打不开，
+    // 就不能判「已核实」，只能判 not_verifiable（证据不足）。
+    // 依据：PRD §5「回到原始出处去核」——读不全的核实不算核实。
+    const incompleteReading = /截断|读不全|没法穷举|未能穷举|无法穷举|只读了摘要|打不开|乱码|核不了|没核到|无法确认全文/.test(
       review.reason,
     );
+    if (review.verdict === "verified") {
+      if (review.readCompleteness === "partial")
+        throw new ApiFailure(
+          "VERIFY_NEEDS_FULL_TEXT",
+          409,
+          "核实自己标了 read_completeness=partial（读不全）：这种情况不能判已核实，请改判 not_verifiable，让结论进「证据不足」。",
+        );
+      if (incompleteReading)
+        throw new ApiFailure(
+          "VERIFY_NEEDS_FULL_TEXT",
+          409,
+          "你写的理由里提到读不全 / 核不了 / 打不开：这种情况不能判已核实，请改判 not_verifiable（证据不足）。",
+        );
+    }
+    // 否定式结论（「X 里没有 Y」）额外要求核实者明确确认读全了原文。
+    const negativeClaim = !!claim.negative;
     if (negativeClaim && review.verdict === "verified") {
       if (review.readCompleteness !== "full")
         throw new ApiFailure(
           "VERIFY_NEEDS_FULL_TEXT",
           409,
           "这是否定式结论（某处没有某样东西）：核实要确认自己读全了原文才能判已核实（read_completeness: \"full\"）；读不全就判 not_verifiable，让它进「证据不足」。",
-        );
-      if (saysTruncated)
-        throw new ApiFailure(
-          "VERIFY_NEEDS_FULL_TEXT",
-          409,
-          "你写的理由里提到截断 / 读不全 / 穷举不了：这种情况不能判已核实，请改判 not_verifiable（证据不足）。",
         );
     }
     if (review.evidenceIds.length === 0)

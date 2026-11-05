@@ -11,6 +11,7 @@ import {
   type SwarmMember, type SwarmCardView, type Claim, type ClaimDetail, type EvidenceDetail, type Evidence, type SwarmPlan, type SwarmRoute, type SwarmRunState, type SwarmTask, type SwarmTaskState, type SwarmView,
 } from './swarmTypes';
 import { SWARM_CARD, SwarmCardBody, cardAnswers, type SwarmCardAnswers } from '../../../inbox/SwarmCard';
+import { IdRef, RichBlocks, type IdLookup } from '../../richText';
 import '../../engineering/dev.css';
 import './swarm.css';
 // 研究台 · 群研模式：一个负责人带一队 agent 攻一个问题。四个面只读服务端投影（design/prd/13-swarm-contract.md）：
@@ -264,9 +265,11 @@ function DockSwarmCard({ card, busy, onDecide }: { card: SwarmCardView; busy: bo
 function PlanCard({ plan, canConfirm, busy, onConfirm, onReplan }: { plan: SwarmPlan; canConfirm: boolean; busy: boolean; onConfirm: (limits: { rounds: number; minutes: number }) => void; onReplan: (text: string) => void }) {
   const [rounds, setRounds] = useState(plan.limits.rounds), [minutes, setMinutes] = useState(plan.limits.minutes);
   // 编制：负责人固定 1 人，其余角色可以加减；改了人数要让负责人按新编制重交计划（路线和分工跟着变）
-  const base = Object.fromEntries(plan.roster.map(r => [r.role, r.count])) as Partial<Record<MemberRole, number>>;
+  // 同一角色可能按路线分成多行（研究员 r1、r2…各 1 人），要加起来
+  const sumRoles = (rs: typeof plan.roster) => rs.reduce<Partial<Record<MemberRole, number>>>((m, r) => ({ ...m, [r.role]: (m[r.role] ?? 0) + r.count }), {});
+  const base = sumRoles(plan.roster);
   const [roster, setRoster] = useState<Partial<Record<MemberRole, number>>>(base);
-  useEffect(() => { setRounds(plan.limits.rounds); setMinutes(plan.limits.minutes); setRoster(Object.fromEntries(plan.roster.map(r => [r.role, r.count]))); }, [plan.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setRounds(plan.limits.rounds); setMinutes(plan.limits.minutes); setRoster(sumRoles(plan.roster)); }, [plan.version]); // eslint-disable-line react-hooks/exhaustive-deps
   const roles: MemberRole[] = ['researcher', 'critic', 'verifier'];
   const people = 1 + roles.reduce((n, r) => n + (roster[r] ?? 0), 0);
   const changed = roles.some(r => (roster[r] ?? 0) !== (base[r] ?? 0));
@@ -545,7 +548,19 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
   const gaps = r?.gaps ?? [], limits = r?.limits ?? [], sources = (r?.sources ?? []).map(id => ev.get(id)).filter(Boolean) as Evidence[];
   const groups = [...new Set(candidates.map(c => c.routeId))];
   const STATE = { stage: '阶段结果', awaiting_review: '报告前有分歧，等你看', final: '正式报告', partial: '正式报告（部分完成）', unresolved: '没有可靠答案' } as const;
+  const narrative = r?.narrative?.trim() || null;
+  // 成稿里引用的 id → 可点的小标签：结论标序号和状态，证据标来源，点开走同一个抽屉
+  const claimNo = new Map(snap.claims.map((c, i) => [c.id, i + 1]));
+  const full = (id: string) => byId.has(id) || ev.has(id) ? id
+    : (snap.claims.find(c => c.id.startsWith(id))?.id ?? snap.evidence.find(e => e.id.startsWith(id))?.id ?? id);
+  const idRef: IdLookup = raw => {
+    const id = full(raw);
+    const c = byId.get(id); if (c) return { label: `结论 ${claimNo.get(id)} · ${CLAIM_ZH[c.status]}`, title: c.text.slice(0, 160), open: () => onClaim(id) };
+    const e = ev.get(id); if (e) return { label: `证据 · ${e.source.title.slice(0, 18)}${e.source.title.length > 18 ? '…' : ''}`, title: `${e.source.title} ${e.source.ref}`, open: () => onEvidence(id) };
+    return null;
+  };
   const sections = [
+    ...(narrative ? [{ id: 'narrative', zh: '成稿', n: null }] : []),
     { id: 'answer', zh: '结论', n: null },
     { id: 'verified', zh: '已核实', n: verified.length },
     { id: 'disputed', zh: '有争议', n: disputed.length },
@@ -573,6 +588,11 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
           <span><b>{run.used.rounds}</b>轮</span><span><b>{dur(run.used.activeMs)}</b>活动</span><span><b>{run.used.cost.known ? `¥${(run.used.cost.value ?? 0).toFixed(2)}` : '未知'}</b>费用</span>
         </div>
       </header>
+
+      {narrative && <section id="syn-narrative" className="syn-sec syn-narrative">
+        <h3>成稿 <small>负责人写的全局报告 · 里面的标签点开看原结论和证据</small></h3>
+        <IdRef.Provider value={idRef}><div className="sw-md syn-prose"><RichBlocks text={narrative} /></div></IdRef.Provider>
+      </section>}
 
       <section id="syn-answer" className="syn-sec">
         <h3>结论</h3>
@@ -648,7 +668,7 @@ function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, 
         </dl>
         <h4>审查 · {data.reviews.length}</h4>
         {data.reviews.length ? <ol className="sw-reviews">{data.reviews.map(v => <li key={v.id} data-kind={v.kind} data-verdict={v.verdict} data-stale={v.claimVersion !== c.version || undefined}>
-          <span><b>{REVIEW_KIND_ZH[v.kind]}</b><em>{VERDICT_ZH[v.verdict]}</em><small>{label(v.by)} · 针对 v{v.claimVersion}{v.claimVersion !== c.version ? '（旧版本）' : ''} · 第 {v.round} 轮</small></span>
+          <span><b>{REVIEW_KIND_ZH[v.kind]}</b><em>{VERDICT_ZH[v.verdict]}</em><small>{label(v.by)} · 针对 v{v.claimVersion}{v.claimVersion !== c.version ? '（旧版本）' : ''} · 第 {v.round} 轮</small>{v.readCompleteness && <i className="sw-readfull" data-full={v.readCompleteness === 'full' || undefined}>{v.readCompleteness === 'full' ? '读全了原文' : '只读了部分'}</i>}</span>
           <p>{v.reason}</p>
           {v.evidenceIds.length > 0 && <span className="sw-review-ev">{v.evidenceIds.map((id, i) => <button key={id} className="sw-link" onClick={() => onOpen('evidence', id)}>核到的证据 {i + 1}</button>)}</span>}
         </li>)}</ol> : <p className="sw-none">还没有人审查这条结论。</p>}

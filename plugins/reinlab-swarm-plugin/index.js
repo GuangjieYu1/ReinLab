@@ -378,6 +378,30 @@ export function apply(ctx, config) {
         },
       }),
     );
+    // 成稿（17 返工）：结束前写一份贯穿全局的报告，进 report.narrative。
+    register(
+      defineTool({
+        name: "research_narrative",
+        description:
+          "交成稿：一份贯穿全局的报告（markdown），显示在汇总面的最上方。写之前先把已核实的结论读一遍；引用只写黑板上真实存在的结论/证据 id，没核实的在文中标明「未核实」。运行结束前交一次。",
+        parameters: {
+          markdown: {
+            type: "string",
+            required: true,
+            description:
+              "报告正文（markdown）。建议结构：框架 → 结论与判断（带结论 id）→ 现状与缺口 → 我们能照搬什么 / 要自己做什么 → 风险。",
+          },
+        },
+        timeoutMs: 60_000,
+        async execute(args) {
+          const outcome = await call("swarm", "narrative", {
+            member: "lead",
+            markdown: args.markdown,
+          });
+          return outcome.error ?? outcome.result;
+        },
+      }),
+    );
     register;
     // 负责人也能读团队目录（只读在别人子目录里写的东西），方便汇总。
     register(filesTool(teamRoot, "lead", true, report));
