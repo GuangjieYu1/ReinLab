@@ -367,8 +367,9 @@ if (realModels && providerKey) {
     record: async (usage) => {
       // Cost from the configured per-million rates; without rates it stays
       // unknown instead of inventing a number.
-      const inRate = Number(config.MODEL_INPUT_CNY_PER_MILLION ?? Number.NaN);
-      const outRate = Number(config.MODEL_OUTPUT_CNY_PER_MILLION ?? Number.NaN);
+      // 只在显式配了费率时才算钱；否则记 token、金额留未知（别用别的网关的费率硬估）。
+      const inRate = Number(config.REINLAB_MODEL_INPUT_CNY_PER_MILLION ?? Number.NaN);
+      const outRate = Number(config.REINLAB_MODEL_OUTPUT_CNY_PER_MILLION ?? Number.NaN);
       let cost: string | null = usage.costCny ?? null;
       if (
         cost === null &&
