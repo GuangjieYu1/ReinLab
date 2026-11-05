@@ -1,11 +1,14 @@
 import { it, expect } from "vitest";
-import { randomBytes, generateKeyPairSync } from "node:crypto";
+import { randomBytes, randomUUID, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { kernelFixture } from "./kernel-fixture";
 import { createApp } from "../src/api/app";
+import { refreshResultCard } from "../src/api/delegation-api";
+import { decideDelegation } from "../src/swarm/delegation";
+import { noteToDossier } from "../src/dossier/service";
 import { KernelAuth } from "../src/kernel/auth";
 import { KernelService } from "../src/kernel/service";
 import { SwarmService } from "../src/swarm/service";
@@ -176,8 +179,15 @@ function teamTurn(): HarnessFactory {
     session: (id: string) => ({ run: (prompt: unknown, options: any) => execute(id, options) }),
     resumeSession: async () => ({ run: (prompt: unknown, options: any) => execute(lead, options) }),
     close: async () => {},
+    // 真实 SDK 的收件箱排队接口：测试里给一个能记下来的实现（B13）。
+    prompt: async (sessionId: string, blocks: { type: "text"; text: string }[]) => {
+      queuedPrompts.push({ sessionId, text: blocks.map((block) => block.text).join("") });
+      return "msg-" + queuedPrompts.length;
+    },
   });
 }
+
+const queuedPrompts: { sessionId: string; text: string }[] = [];
 
 const io = {
   mkdir: async (path: string) => void (await mkdir(path, { recursive: true, mode: 0o700 })),
@@ -448,12 +458,20 @@ it("群研：发起 → 计划 → 确认 → 名册/任务/通信/留言/干预
     snapshot = await (await request(`/v1/swarm/runs/${runId}`)).json();
     expect(snapshot.run.state).toBe("partial");
     expect(snapshot.run.endReason).toBe("user_finished");
-    expect(snapshot.run.stateReason).toContain("没有经过核实");
+    // 这条运行一条结论都没有：说明里不能凭空说「没有经过核实的结论」。
+    expect(snapshot.run.stateReason).toContain("已交付的产出保留");
+    expect(snapshot.run.stateReason).not.toContain("没有经过核实");
 
-    // 靠后阶段的干预现在明确拒绝，而不是假装做掉。
-    const unsupported = await request(`/v1/swarm/runs/${runId}/interventions`, { kind: "add_member" });
-    expect(unsupported.status).toBe(409);
-    expect(((await unsupported.json()) as any).code).toBe("INTERVENTION_UNSUPPORTED");
+    // MVP-3 第二批：加人走收件箱卡，先落成待处理，不直接建人。
+    const addMember = await request(`/v1/swarm/runs/${runId}/interventions`, {
+      kind: "add_member",
+      role: "researcher",
+    });
+    expect(addMember.status).toBe(201);
+    expect(((await addMember.json()) as any).state).toBe("pending_approval");
+    // 契约里没有的干预照旧不认。
+    const unknown = await request(`/v1/swarm/runs/${runId}/interventions`, { kind: "delegate_all" });
+    expect(unknown.status).toBe(400);
 
 
   } finally {
@@ -489,6 +507,11 @@ it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
         }),
       }),
       close: async () => {},
+    // 真实 SDK 的收件箱排队接口：测试里给一个能记下来的实现（B13）。
+    prompt: async (sessionId: string, blocks: { type: "text"; text: string }[]) => {
+      queuedPrompts.push({ sessionId, text: blocks.map((block) => block.text).join("") });
+      return "msg-" + queuedPrompts.length;
+    },
     });
     const kernel = new KernelService({
       db: f.db,
@@ -567,12 +590,174 @@ it("群研：0 个任务不算答完，开跑指令只发一次", async () => {
     snapshot = (await (await request(`/v1/swarm/runs/${runId}`)).json()) as any;
     expect(snapshot.run.state).toBe("partial");
     expect(snapshot.run.endReason).toBe("limit");
-    expect(snapshot.run.stateReason).toContain("没有建出任何任务");
+    expect(snapshot.run.stateReason).toContain("没有交出可核实的结论");
+    expect(snapshot.run.stateReason).not.toContain("任务都交付了");
 
     // 开跑指令只发一遍。
     expect(prompts.filter((prompt) => prompt.includes("用户已确认计划")).length).toBe(1);
   } finally {
     if (activeKernel && activeRun) await quiesce(activeKernel, activeRun);
+    await f.close();
+  }
+}, 120_000);
+
+it("第三批：跨台委托按 idempotency 幂等，确认建研究档案，决定只记一笔", async () => {
+  const f = await kernelFixture();
+  try {
+    const app = await createApp({
+      pool: f.pool,
+      auth: { issuer: "https://delegation.fixture/auth/v1", secret: "x".repeat(32) },
+      kernel: undefined,
+      // 这份用例只验委托的接口与幂等，不需要模型：用一个不回话的内核。
+      swarm: new SwarmService({
+        db: f.db,
+        kernel: {
+          submit: async () => ({ runId: f.run, sessionId: "ds-quiet", resume: false }),
+          isLive: () => false,
+        } as never,
+        model: "deepseek-v4-flash",
+      }),
+    });
+    const cookie = await f.sessionCookie();
+    // 源台：精读。直接建一份 read 档案（委托只要求它是本账户的源档案）。
+    const source = randomUUID();
+    await f.admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path,bench_version) values($1::uuid,$2::uuid,'exploration','探索到一半','/data/dossiers/'||$1::text,'2.0.0')",
+      [source, f.account],
+    );
+    const post = (path: string, body: unknown, key: string) =>
+      app.request(path, {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          "content-type": "application/json",
+          "Idempotency-Key": key,
+          Origin: "http://localhost",
+          "X-ReinLab-CSRF": "1",
+        },
+        body: JSON.stringify(body),
+      });
+    const first = await post(
+      "/v1/delegations",
+      {
+        fromBench: "exploration",
+        fromDossierId: source,
+        question: "多 Agent 数量增加是否一定提高研究质量？",
+        materials: [{ ref: "arXiv:2401.00001", version: "v3" }],
+      },
+      "delegation-1",
+    );
+    expect(first.status).toBe(201);
+    const created = (await first.json()) as any;
+    expect(created.state).toBe("awaiting_confirm");
+    // 同一个 Idempotency-Key 再来一次：还是这一份委托。
+    const again = await post(
+      "/v1/delegations",
+      {
+        fromBench: "exploration",
+        fromDossierId: source,
+        question: "多 Agent 数量增加是否一定提高研究质量？",
+        materials: [{ ref: "arXiv:2401.00001", version: "v3" }],
+      },
+      "delegation-1",
+    );
+    expect(((await again.json()) as any).id).toBe(created.id);
+
+    // 决定「采用」：只记一笔、不改源档案内容。
+    const decided = await post(
+      `/v1/delegations/${created.id}/decide`,
+      { decision: "adopt", resultVersion: 0 },
+      "delegation-decide-1",
+    );
+    expect(decided.status).toBe(200);
+    expect(((await decided.json()) as any).adopted).toBe(true);
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("B17：查看不升版、同一张卡更新、决定后关卡且幂等", async () => {
+  const f = await kernelFixture();
+  try {
+    const swarm = new SwarmService({
+      db: f.db,
+      kernel: {
+        submit: async () => ({ runId: f.run, sessionId: "ds-quiet", resume: false }),
+        isLive: () => false,
+      } as never,
+      model: "deepseek-v4-flash",
+    });
+    // 委托 + 一份能出结果的群研运行
+    const source = randomUUID();
+    await f.admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path,bench_version) values($1::uuid,$2::uuid,'exploration','源','/data/dossiers/'||$1::text,'2.0.0')",
+      [source, f.account],
+    );
+    const research = randomUUID();
+    await f.admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path,bench_version) values($1::uuid,$2::uuid,'research','委托','/data/dossiers/'||$1::text,'2.0.0')",
+      [research, f.account],
+    );
+    await f.admin.query(
+      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+       values($1::uuid,$2::uuid,$3::uuid,'bench-swarm','swarm',$4,'waiting',1,$5::jsonb)`,
+      [research, f.account, research, randomUUID(), JSON.stringify({ query: "多 Agent 数量" })],
+    );
+    await f.admin.query(
+      `insert into swarm_run(account_id,run_id,dossier_id,question,state,plan_version,round,limit_rounds,limit_minutes)
+       values($1,$2,$3,'多 Agent 数量增加是否一定提高研究质量？','partial',1,1,4,30)`,
+      [f.account, research, research],
+    );
+    const delegated = await f.admin.query(
+      `insert into delegation(id,account_id,from_dossier,from_bench,to_bench,to_dossier,to_run,request,budget_cny,state)
+       values(gen_random_uuid(),$1,$2,'exploration','research',$3,$4,$5,8,'running') returning id`,
+      [
+        f.account,
+        source,
+        research,
+        research,
+        JSON.stringify({ question: "多 Agent 数量增加是否一定提高研究质量？" }),
+      ],
+    );
+    const delegationId = String(delegated.rows[0].id);
+
+    const first = await refreshResultCard(f.db, swarm, f.account, delegationId);
+    const second = await refreshResultCard(f.db, swarm, f.account, delegationId);
+    // 内容没变：版本不动（B17①）。
+    expect((first as any).version).toBe(1);
+    expect((second as any).version).toBe(1);
+    const cards = await f.admin.query(
+      "select id, state, title from approval where account_id=$1 and kind='delegation_result'",
+      [f.account],
+    );
+    // 只有一张卡（B17②）。
+    expect(cards.rows).toHaveLength(1);
+
+    // 决定：卡关掉 + 同版本重复决定幂等（B17③④）。
+    const decide = (decision: "adopt" | "dismiss") =>
+      decideDelegation(
+        f.db,
+        f.account,
+        delegationId,
+        { decision, resultVersion: 1 },
+        async (client, account, dossier, text) => {
+          await noteToDossier(client, account, dossier, text);
+        },
+      );
+    const once = await decide("adopt");
+    expect(once.adopted).toBe(true);
+    const closed = await f.admin.query(
+      "select state from approval where account_id=$1 and kind='delegation_result'",
+      [f.account],
+    );
+    expect(closed.rows[0]?.state).toBe("approved");
+    await decide("adopt");
+    const notes = await f.admin.query(
+      "select count(*)::int n from event where dossier_id=$1 and action='delegation.decide'",
+      [source],
+    );
+    expect(notes.rows[0].n).toBe(1);
+  } finally {
     await f.close();
   }
 }, 120_000);

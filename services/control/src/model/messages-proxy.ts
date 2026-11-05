@@ -143,7 +143,43 @@ export function registerMessagesProxy(
       },
       signal: c.req.raw.signal,
     });
-    const response = await dependencies.forward(upstream);
+    // 网络抖动先重试：转发层偶发 fetch failed / 上游 5xx 时，这一次请求还没拿到
+    // 任何内容（也没记用量），重发同一条请求是安全的；三次都失败才把失败交上去。
+    const forwardWithRetry = async (): Promise<Response> => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const response = await dependencies.forward(upstream.clone());
+          if (response.status < 500 && response.status !== 429) return response;
+          lastError = new Error(`MODEL_UPSTREAM_${response.status}`);
+          await response.body?.cancel().catch(() => undefined);
+        } catch (error) {
+          lastError = error;
+        }
+        if (attempt < 2)
+          await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 400 : 1200));
+      }
+      throw lastError;
+    };
+    let response: Response;
+    try {
+      response = await forwardWithRetry();
+    } catch (error) {
+      // 重试也失败：给 DSH 一个明确的、可重试的上游不可用，而不是 500 内部错误。
+      console.error(
+        JSON.stringify({
+          code: "MODEL_UPSTREAM_UNAVAILABLE",
+          message: String((error as Error)?.message ?? error).slice(0, 200),
+        }),
+      );
+      return c.json(
+        {
+          error: "MODEL_UPSTREAM_UNAVAILABLE",
+          message: "模型服务暂时连不上（网络或上游 5xx），这次请求没有拿到任何内容。",
+        },
+        503,
+      );
+    }
     const streamed = typeof parsed.stream === "boolean" ? parsed.stream : false;
     const headers = new Headers();
     headers.set("content-type", response.headers.get("content-type") ?? (streamed ? "text/event-stream" : "application/json"));
@@ -156,8 +192,14 @@ export function registerMessagesProxy(
       return new Response(text, { status: response.status, headers });
     }
     // Relays frames as they arrive and captures usage from the same bytes.
+    //
+    // 上游中途断开（用户网络或 DeepSeek 侧 ECONNRESET / ETIMEDOUT）时，别让这条
+    // 响应「硬断」：DSH 运行时的 undici 会抛 TypeError: terminated，整个运行时以
+    // 255 退出（现场见过三次）。这里改成发一个 SSE error 事件再正常收尾，
+    // 运行时按「模型这次失败」处理（它的重试策略会接手），进程不会崩。
     const decoder = new TextDecoder();
     let captured = "";
+    const encoder = new TextEncoder();
     const transform = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         captured += decoder.decode(chunk, { stream: true });
@@ -168,7 +210,51 @@ export function registerMessagesProxy(
         await recordUsage(dependencies, claims, model, extractUsage(captured), purpose);
       },
     });
-    return new Response(response.body.pipeThrough(transform), {
+    const relayed = response.body.pipeThrough(transform).pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          controller.enqueue(chunk);
+        },
+        flush(controller) {
+          // 上游正常结束：什么也不补。
+          void controller;
+        },
+      }),
+    );
+    const guarded = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const reader = relayed.getReader();
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+          controller.close();
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              code: "MODEL_UPSTREAM_STREAM_BROKEN",
+              message: String((error as Error)?.message ?? error).slice(0, 200),
+            }),
+          );
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `\n\nevent: error\ndata: ${JSON.stringify({
+                  type: "error",
+                  error: { type: "upstream_unavailable", message: "模型服务中途断开" },
+                })}\n\n`,
+              ),
+            );
+          } catch {
+            /* 对端已经关了：只收尾 */
+          }
+          controller.close();
+        }
+      },
+    });
+    return new Response(guarded, {
       status: response.status,
       headers,
     });

@@ -1,5 +1,6 @@
-import type { InboxReport, InboxAdapter, InboxPromotion, InboxQuestion, PromotionItem, EvidenceView } from '../components/inbox/inboxTypes';
+import type { InboxReport, InboxAdapter, InboxPromotion, InboxQuestion, InboxAsk, PromotionItem, EvidenceView } from '../components/inbox/inboxTypes';
 import { api, decide, inbox, sessionGeneration } from './research-live';
+import { isInboxSwarmCard } from '../components/inbox/SwarmCard';
 
 type Ports = { api: typeof api; decide: typeof decide; inbox: typeof inbox; generation: typeof sessionGeneration };
 const unavailable = () => Error('收件箱来源或会话已变化，请刷新。');
@@ -31,10 +32,16 @@ function nativeQuestions(value: unknown): InboxQuestion[] | undefined {
     ...(q.custom === undefined ? {} : { custom: q.custom }),
   }));
 }
+function askOf(value: unknown): InboxAsk | undefined {
+  if (!object(value) || !Array.isArray(value.candidates)) return undefined;
+  const candidates = value.candidates.filter((c: unknown) => object(c) && typeof c.id === 'string' && typeof c.title === 'string')
+    .map((c: any) => ({ id: c.id, title: c.title, ...(typeof c.authors === 'string' ? { authors: c.authors } : {}), ...(typeof c.venue === 'string' ? { venue: c.venue } : {}) }));
+  return { multi: value.multi === true, candidates };
+}
 export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, generation: sessionGeneration }): InboxAdapter {
   let generation = -1;
   let promotions = new Map<string, InboxPromotion>();
-  let approvals = new Map<string, { state: string; kind: string; sent?: boolean }>();
+  let approvals = new Map<string, { state: string; kind: string; sent?: boolean; effects?: unknown }>();
   const current = () => { if (generation !== ports.generation()) throw unavailable(); };
   const source = (ref: string, field: 'evidence' | 'supersedes') => {
     current();
@@ -65,7 +72,10 @@ export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, gene
       promotions = new Map(mapped.map(p => [p.id, p]));
       approvals = new Map(data.approvals.map(a => [a.id, a]));
       generation = expected;
-      return { promotions: mapped, approvals: data.approvals.map(a => ({ ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects(a.effects), ...(a.kind === 'question' ? { questions: nativeQuestions(a.effects) } : {}) })) };
+      return { promotions: mapped, approvals: data.approvals.map(a => isInboxSwarmCard(a.kind)
+        // 群研卡：卡面字段原样交给 SwarmCard；effects 只留服务端给的人话（lines）
+        ? { ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects((a as { lines?: unknown }).lines), swarm: { kind: a.kind, data: (Array.isArray(a.effects) && object(a.effects[0]) ? a.effects[0] : {}) as Record<string, any> } }
+        : ({ ...a, state: a.sent ? 'indeterminate' as const : a.state, effects: effects(a.effects), ...(a.kind === 'question' ? (() => { const questions = nativeQuestions(a.effects); return questions ? { questions } : { ask: askOf((a as { question?: unknown }).question) ?? { multi: false, candidates: [] } }; })() : {}) })) };
     },
     async decidePromotion(id, decision) {
       current();
@@ -77,8 +87,23 @@ export function createLiveInboxAdapter(ports: Ports = { api, decide, inbox, gene
       current();
       const entry = approvals.get(id);
       if (!entry || entry.state !== 'pending' || entry.sent || (entry.kind === 'question' && decision === 'approve' && answers === undefined)) throw unavailable();
+      // 委托结果卡：采用 / 不采用走委托接口（带结果版本，版本不符服务端 409）
+      if (entry.kind === 'delegation_result') {
+        const r = (Array.isArray(entry.effects) ? entry.effects[0] : null) as { delegationId?: string; version?: number } | null;
+        if (!r?.delegationId) throw unavailable();
+        await ports.api(`/v1/delegations/${r.delegationId}/decide`, { decision: decision === 'approve' ? 'adopt' : 'dismiss', ...(r.version ? { resultVersion: r.version } : {}) });
+        current(); return;
+      }
       // Keep labels, ordering and whitespace intact; the native decision API validates the answers.
       await ports.decide('approval', id, { decision, scope: 'once', ...(answers === undefined ? {} : { answers }) });
+      current();
+    },
+    // 助手提问卡：POST /v1/kernel/approvals/:id/answer，回答续接原任务；重复提交服务端返回 repeated，不会重复续接
+    async answer(id, body) {
+      current();
+      const entry = approvals.get(id);
+      if (!entry || entry.state !== 'pending' || entry.kind !== 'question') throw unavailable();
+      await ports.api(`/v1/kernel/approvals/${encodeURIComponent(id)}/answer`, body);
       current();
     },
     async evidence(ref) {

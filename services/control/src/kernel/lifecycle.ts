@@ -34,8 +34,11 @@ export async function reconcileAccount(
     // 1) 超时未处理的请求
     const stale = (
       await client.query(
+        // 群研的四种卡和委托结果卡只能由用户决定、或被新卡替换（B17 复验的回退）：
+        // 它们常常要等很久才有人处理，不能按「超时」作废。
         `update approval set state='expired'
           where account_id=$1 and state='pending' and created_at < $2
+            and kind not like 'swarm%' and kind <> 'delegation_result'
           returning id, run_id`,
         [account, cutoff.toISOString()],
       )
@@ -53,10 +56,13 @@ export async function reconcileAccount(
     // 1a) 任务已经结束、卡还挂着的：一并关掉（历史遗留与漏网都在这收）。
     const orphanCards = (
       await client.query(
+        // 群研的卡要等人处理：底下的那一回合结束后 run 会先变成 completed，
+        // 但群研运行本身可能还在跑下一轮，卡片不能被顺手作废（否则加人/追加额度
+        // 一出现就被清掉）。群研自己的卡片由群研服务在收尾时处理。
         `update approval set state='expired'
           where account_id=$1 and state='pending'
             and run_id in (select id from run
-                            where account_id=$1
+                            where account_id=$1 and mode <> 'swarm'
                               and state in ('completed','failed','cancelled','interrupted'))
           returning id, run_id`,
         [account],
@@ -80,6 +86,9 @@ export async function reconcileAccount(
         // 否则批准后紧接着的一次收件箱刷新就会把它误标成 interrupted。
         `update run set state='interrupted', ended_at=now()
           where account_id=$1 and state='waiting' and ended_at is null
+            -- 群研有自己的状态（等你确认计划、刚答完提问、暂停）和恢复：不归这里收尾，
+            -- 否则计划一交上来、收件箱一刷新，就会被误标成 interrupted，确认后负责人起不来。
+            and mode <> 'swarm'
             and not exists (select 1 from approval a where a.run_id=run.id and a.state='pending')
             -- 刚批准、正在续接的那一轮不算残留：批准后的那次收件箱刷新
             -- 不能把还在跑的 run 误标成 interrupted。
@@ -138,9 +147,12 @@ export async function reconcileAccount(
         "update dsh_session set lease_run_id=null, lease_state='active', leased_until=null where account_id=$1 and lease_run_id=$2",
         [account, row.id],
       );
-      // 这一段的待办已经没有执行者，关掉并说明原因。
+      // 这一段的待办已经没有执行者，关掉并说明原因（群研卡与委托结果卡除外：
+      // 它们只能由用户决定或被新卡替换）。
       await client.query(
-        "update approval set state='expired' where account_id=$1 and run_id=$2 and state='pending'",
+        `update approval set state='expired'
+          where account_id=$1 and run_id=$2 and state='pending'
+            and kind not like 'swarm%' and kind <> 'delegation_result'`,
         [account, row.id],
       );
     }
@@ -166,16 +178,21 @@ export async function reconcileOnStartup(
   try {
     await client.query("begin");
     const stale = await client.query(
+      // 与按账户的清扫一致：群研四种卡与委托结果卡只由用户决定。
       `update approval set state='expired'
-        where state='pending' and created_at < $1 returning id, account_id, run_id`,
+        where state='pending' and created_at < $1
+          and kind not like 'swarm%' and kind <> 'delegation_result'
+        returning id, account_id, run_id`,
       [cutoff],
     );
     // 已结束任务名下还挂着的待批卡：跨账户一并关掉（启动时有管理员权限）。
     await client.query(
       `update approval set state='expired'
         where state='pending'
+          and kind not like 'swarm%' and kind <> 'delegation_result'
           and run_id in (select id from run
-                          where state in ('completed','failed','cancelled','interrupted'))`,
+                          where mode <> 'swarm'
+                            and state in ('completed','failed','cancelled','interrupted'))`,
     );
 
     const orphaned = await client.query(

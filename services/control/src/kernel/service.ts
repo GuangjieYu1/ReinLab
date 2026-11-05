@@ -62,6 +62,13 @@ export type SwarmHooks = {
     state: "completed" | "failed" | "cancelled" | "cancel_unconfirmed",
     detail?: string,
   ) => Promise<{ continued: boolean }>;
+  /** 负责人的那一轮挂了：群研要转成「已暂停」并写清原因（B11）。 */
+  onLeadTurnFailed: (
+    account: string,
+    runId: string,
+    state: string,
+    detail?: string,
+  ) => Promise<void>;
   /** 这次群研还没结束吗？没结束的运行在轮次之间不能把 run 行置成终态。 */
   isActive: (account: string, runId: string) => Promise<boolean>;
   /**
@@ -501,9 +508,12 @@ export class KernelService {
             // 任务结束了，它名下的待批卡也就没有意义：一并关掉并写明原因，
             // 免得收件箱里一直挂着点不动的旧卡。
             if (next !== "waiting") {
+              // 群研自己的卡（加人/追加/范围/分歧）和委托结果卡不走这条：
+              // 它们的意义正是「运行结束之后由人来决定」，顺手作废等于把决定权拿掉。
               const closed = await client.query(
                 `update approval set state='expired'
                   where account_id=$1 and run_id=$2 and state='pending'
+                    and kind not like 'swarm%' and kind <> 'delegation_result'
                   returning id`,
                 [account, runId],
               );
@@ -525,12 +535,19 @@ export class KernelService {
           });
           // 群研这一轮结束了：结算计时、按额度决定继续还是收尾。
           // 会话租约刚刚让出，等它真正生效再续，不然会被 SESSION_BUSY 挡掉。
-          if (prepared.mode === "swarm" && this.swarm)
+          if (prepared.mode === "swarm" && this.swarm) {
+            // 负责人的运行挂了（B11/B12）：先把群研标成「已暂停」并写清原因，
+            // 别让页面一直显示「运行中」。正常结束才走 onTurnEnd 的续跑判断。
+            if (state !== "completed")
+              void this.swarm
+                .onLeadTurnFailed(account, runId, state, detail)
+                .catch(() => undefined);
             setTimeout(() => {
               void this.swarm
                 ?.onTurnEnd(account, runId, state, detail)
                 .catch(() => undefined);
             }, 1200);
+          }
         },
         // 这一轮的产品承诺没兑现时，后端再提醒一次；补不回来就照实结束。
         // 不再往对话里注入「提醒」：那是系统替模型定步骤，还会以用户身份出现在
@@ -608,6 +625,69 @@ export class KernelService {
   }
 
   /** 这一段执行此刻是否还挂在本进程里（残留判定用）。 */
+  /**
+   * 把一条用户消息排进某个会话的收件箱（DSH 原生的 prompt 队列）。
+   * 这一步是「排队」而不是「起一轮」：运行时会在对方的步骤边界插进去，
+   * 不会顶掉正在跑的那一轮。返回排队的持久身份。
+   */
+  async queuePrompt(
+    _account: string,
+    runId: string,
+    sessionId: string,
+    text: string,
+    /** queue = 下一轮；steer = 下一个步骤边界（用户插话要这个）。 */
+    delivery: "queue" | "steer" = "steer",
+  ): Promise<
+    | { ok: true; id: string; mode: "steer" | "queue"; note?: string }
+    | { ok: false; reason: string }
+  > {
+    const live = [...(this.handles.get(runId) ?? [])];
+    if (!live.length) return { ok: false, reason: "这一轮已经结束，没有可以排队送进去的会话" };
+    let lastReason = "这一轮的运行时已经关了";
+    for (const handle of live) {
+      try {
+        const harness = await handle.harness;
+        // DeepSeekHarness 把 JSON-RPC 客户端挂在 `client` 上，排队的 prompt 在那里。
+        const withPrompt = harness as unknown as {
+          prompt?: (sessionId: string, blocks: { type: "text"; text: string }[]) => Promise<string>;
+          client?: { prompt?: (sessionId: string, blocks: { type: "text"; text: string }[]) => Promise<string> };
+        };
+        // 走 JSON-RPC 的 session/prompt：它认 mode=steer（下一步就到）与 queue（下一轮）。
+        const client = withPrompt.client ?? withPrompt;
+        const rpc = client as unknown as {
+          request?: (method: string, params: object) => Promise<unknown>;
+        };
+        if (rpc.request) {
+          try {
+            // SDK 的 JSON-RPC 服务端读的是 { sessionId, contentBlocks }；
+            // 这个接口只会 followup（下一轮），所以只当退路，不能当 next-step。
+            const result = (await rpc.request("session/prompt", {
+              sessionId,
+              contentBlocks: [{ type: "text", text }],
+            })) as { messageId?: string } | undefined;
+            return { ok: true, id: String(result?.messageId ?? ""), mode: "queue" };
+          } catch (error) {
+            // 运行时不认这个形状：退回 SDK 自带的 prompt（下一轮送达）。
+            lastReason = String((error as Error)?.message ?? error).slice(0, 200);
+            console.error(
+              JSON.stringify({ code: "SWARM_STEER_FAILED", message: lastReason }),
+            );
+          }
+        }
+        const queue = withPrompt.prompt ?? withPrompt.client?.prompt;
+        if (!queue) {
+          lastReason = "这个运行时没有提供收件箱排队接口";
+          continue;
+        }
+        const id = await queue.call(client, sessionId, [{ type: "text", text }]);
+        return { ok: true, id, mode: "queue", ...(lastReason ? { note: lastReason } : {}) };
+      } catch (error) {
+        lastReason = String((error as Error)?.message ?? error).slice(0, 200);
+      }
+    }
+    return { ok: false, reason: lastReason };
+  }
+
   isLive(runId: string): boolean {
     if (this.starting.has(runId)) return true;
     return (this.handles.get(runId)?.size ?? 0) > 0;

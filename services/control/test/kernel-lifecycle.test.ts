@@ -103,6 +103,14 @@ describe("运行生命周期收尾", () => {
     expect(await state(own.run)).toBe("waiting");
   });
 
+  it("群研在等确认计划、刚答完提问时不算残留：收件箱刷新不能把它标成中断", async () => {
+    const own = await runWith("waiting");
+    await admin.query("update run set mode='swarm', role_id='bench-swarm' where id=$1", [own.run]);
+    await reconcileAccount(db, account);
+    expect(await state(own.run)).toBe("waiting");
+    expect(await events(own.run, "run.interrupted")).toHaveLength(0);
+  });
+
   it("进程已经不在了、状态还停在执行中的任务，补成中断并释放占用", async () => {
     const own = await runWith("running");
     const card1 = await pendingCard(own.run, 1_000, "papers.fetch:orphan");
@@ -153,4 +161,97 @@ describe("运行生命周期收尾", () => {
     expect(await card(keep)).toBe("pending");
   });
 
+
+  it("群研的卡不因为底层那一回合结束就被顺手作废", async () => {
+    // 一个已经收尾的底层 run + 一张待处理的群研卡：非群研的卡会被清，
+    // 群研的要留给人处理（否则加人 / 追加额度一出现就没了）。
+    const account = randomUUID();
+    const dossier = randomUUID();
+    await admin.query("insert into account(id) values($1)", [account]);
+    await admin.query(
+      "insert into dossier(id,account_id,bench,title,workspace_path) values($1::uuid,$2,'research','card','/data/dossiers/'||$1::text)",
+      [dossier, account],
+    );
+    const runId = randomUUID();
+    await admin.query(
+      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+       values($1,$2,$3,'bench-swarm','swarm',$4,'completed',1,'{}')`,
+      [runId, account, dossier, randomUUID()],
+    );
+    const cardId = randomUUID();
+    await admin.query(
+      `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key)
+       values($1,$2,$3,'swarm_extend','追加额度','[]'::jsonb,'read','pending',$4)`,
+      [cardId, account, runId, "swarm.swarm_extend:" + cardId],
+    );
+    const otherId = randomUUID();
+    const otherRun = randomUUID();
+    await admin.query(
+      `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+       values($1,$2,$3,'research-read','read',$4,'completed',1,'{}')`,
+      [otherRun, account, dossier, randomUUID()],
+    );
+    await admin.query(
+      `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key)
+       values($1,$2,$3,'question','普通提问','[]'::jsonb,'read','pending',$4)`,
+      [otherId, account, otherRun, "q:" + otherId],
+    );
+    await reconcileAccount(db, account);
+    const rows = await admin.query(
+      "select id,state from approval where account_id=$1 order by id",
+      [account],
+    );
+    const byId = new Map(rows.rows.map((row) => [String(row.id), String(row.state)]));
+    expect(byId.get(cardId)).toBe("pending");
+    expect(byId.get(otherId)).toBe("expired");
+  });
+});
+
+it("群研的卡不会被任何清扫作废（超时也不行），普通卡照旧", async () => {
+  const account = randomUUID();
+  const dossier = randomUUID();
+  await admin.query("insert into account(id) values($1)", [account]);
+  await admin.query(
+    "insert into dossier(id,account_id,bench,title,workspace_path) values($1::uuid,$2,'research','cards','/data/dossiers/'||$1::text)",
+    [dossier, account],
+  );
+  const swarmRun = randomUUID();
+  await admin.query(
+    `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+     values($1,$2,$3,'bench-swarm','swarm',$4,'completed',1,'{}')`,
+    [swarmRun, account, dossier, randomUUID()],
+  );
+  const readRun = randomUUID();
+  await admin.query(
+    `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+     values($1,$2,$3,'research-read','read',$4,'completed',1,'{}')`,
+    [readRun, account, dossier, randomUUID()],
+  );
+  const old = new Date(Date.now() - 48 * 3600_000).toISOString();
+  const ids: Record<string, string> = {};
+  for (const [label, kind, run] of [
+    ["scope", "swarm_scope", swarmRun],
+    ["divergence", "swarm_divergence", swarmRun],
+    ["result", "delegation_result", swarmRun],
+    ["plain", "question", readRun],
+  ] as const) {
+    const id = randomUUID();
+    ids[label] = id;
+    await admin.query(
+      `insert into approval(id,account_id,run_id,kind,title,effects,risk,state,effect_key,created_at)
+       values($1,$2,$3,$4,'t','[]'::jsonb,'read','pending',$5,$6)`,
+      [id, account, run, kind, `${kind}:${id}`, old],
+    );
+  }
+  // 48 小时前的待处理：普通卡按超时作废，群研卡与委托结果卡必须留着等人决定。
+  await reconcileAccount(db, account);
+  const rows = await admin.query(
+    "select id, state from approval where account_id=$1",
+    [account],
+  );
+  const byId = new Map(rows.rows.map((row) => [String(row.id), String(row.state)]));
+  expect(byId.get(ids.scope)).toBe("pending");
+  expect(byId.get(ids.divergence)).toBe("pending");
+  expect(byId.get(ids.result)).toBe("pending");
+  expect(byId.get(ids.plain)).toBe("expired");
 });

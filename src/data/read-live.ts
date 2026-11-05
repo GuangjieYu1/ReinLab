@@ -687,6 +687,8 @@ export function createLiveReadAdapter(
     // the start (start() clears it); a finished clarify turn must not yank the
     // candidate/chosen card away.
     if (localPhase) state = localPhase;
+    // 已经带着论文开读的运行（从群研「用精读细看」进来）：等审批仍是「开始读」，不退回空闲
+    else if (status.state === "waiting" && (status as { chosenPaperId?: string | null }).chosenPaperId) state = "waiting";
     const known = status.usage?.known === true;
     const spent = known && status.usage?.knownCny ? Number(status.usage.knownCny) : null;
     patchRun({
@@ -878,12 +880,25 @@ export function createLiveReadAdapter(
         const status = (await ports.api(`/v1/kernel/runs/${runId}`)) as {
           state?: string;
           usage?: { known?: boolean };
+          query?: string | null;
+          chosenPaperId?: string | null;
         };
         const loaded = readRunState(String(status.state ?? ""));
+        // 从群研「用精读细看」带着论文进来的运行：论文已经选好，不再显示「想读哪篇」
+        const carried = !snapshot.run.chosen && status.chosenPaperId
+          ? {
+              chosen: { id: status.chosenPaperId, title: status.query || status.chosenPaperId, authors: "", venue: "", access: "full" as const },
+              query: status.query || status.chosenPaperId,
+            }
+          : {};
+        // 这种运行一开始就带着论文开读了：等审批时显示「开始读 · 等你批准」，不走预估
+        const startedWithPaper = Boolean(status.chosenPaperId) && status.state === "waiting";
         patchRun({
           state: loaded,
           spentCny: null,
           unknownCost: status.usage?.known !== true,
+          ...carried,
+          ...(startedWithPaper ? { state: "waiting" as const } : {}),
           ...(loaded === "done" ? shortfall() : {}),
         });
         startPolling();

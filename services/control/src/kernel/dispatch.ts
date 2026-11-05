@@ -129,6 +129,8 @@ export function createKernelDispatch(dependencies: DispatchDependencies) {
       }
       if (call.tool === "submit")
         return swarm.submitResearch(call.account, call.run, call.args as never);
+      if (call.tool === "review")
+        return swarm.reviewResearch(call.account, call.run, call.args as never);
       if (call.tool === "query")
         return swarm.queryResearch(call.account, call.run, call.args as never);
       if (call.tool === "approach")

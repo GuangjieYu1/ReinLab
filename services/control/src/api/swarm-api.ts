@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Hono } from "hono";
 import { ApiFailure } from "./errors";
+import { createDossier } from "../dossier/service";
 import { mutate, type ApiEnv } from "./context";
 import type { Database } from "../db/database";
 import type { SwarmService } from "../swarm/service";
@@ -42,6 +44,8 @@ const Intervene = z
       "extend",
     ]),
     text: z.string().max(8000).optional(),
+    /** 加人时可以指定角色 / 模型。 */
+    role: z.enum(["researcher", "critic", "verifier"]).optional(),
     target: z
       .object({
         memberId: z.string().min(1).max(120).optional(),
@@ -62,6 +66,8 @@ const Intervene = z
 export type SwarmApiDependencies = {
   db: Database;
   swarm: SwarmService;
+  /** 精读关联要开一轮精读：只用到内核的 submit。 */
+  kernel?: import("../kernel/service").KernelService;
 };
 
 /**
@@ -71,7 +77,7 @@ export type SwarmApiDependencies = {
  * 事件流按 seq 递增给出，前端按 seq 去重；断线重连带最后一条 seq 回来即可。
  */
 export function registerSwarmApi(app: Hono<ApiEnv>, dependencies: SwarmApiDependencies) {
-  const { db, swarm } = dependencies;
+  const { db, swarm, kernel } = dependencies;
 
   const runIdOf = (c: { req: { param: (key: string) => string } }) => {
     const runId = c.req.param("id");
@@ -125,6 +131,72 @@ export function registerSwarmApi(app: Hono<ApiEnv>, dependencies: SwarmApiDepend
     if (versionRaw && (!Number.isSafeInteger(version) || Number(version) < 1))
       throw new ApiFailure("INVALID_INPUT", 400, "版本号无效。");
     return c.json(await swarm.claimDetail(account, runId, claimId, version));
+  });
+
+  // 精读关联（契约 §2 阶段 3）：用同一材料版本与定位建精读或接着精读。
+  app.post("/v1/swarm/runs/:id/claims/:claimId/read", async (c) => {
+    const account = c.get("accountId");
+    const runId = runIdOf(c);
+    const runIdOfForRead = runId;
+    const claimId = c.req.param("claimId");
+    if (!uuid.safeParse(claimId).success)
+      throw new ApiFailure("CLAIM_NOT_FOUND", 404, "这条结论不存在。");
+    const body = (await c.req.json().catch(() => ({}))) as { evidenceId?: unknown };
+    if (typeof body.evidenceId !== "string" || !uuid.safeParse(body.evidenceId).success)
+      throw new ApiFailure("EVIDENCE_NOT_FOUND", 404, "要精读的是哪条证据？");
+    const outcome = await swarm.linkRead(
+      account,
+      runId,
+      claimId,
+      body.evidenceId,
+      async (
+        dossierId: string,
+        paperRef: string,
+        paperTitle?: string | null,
+      ) => {
+        // 精读台按 run 的 input.chosenPaperId 选定材料：先建这一轮，再提交。
+        if (!kernel) throw new ApiFailure("KERNEL_UNAVAILABLE", 503, "内核没起来，开不了精读。");
+        const runId = randomUUID();
+        // 精读这一轮要能认出「已经选好这篇」：把论文 id 与标题都写进 run.input，
+        // 页面 GET /v1/kernel/runs/:id 才有 query 与选中的论文（B17 小问题）。
+        const title = paperTitle ? String(paperTitle) : paperRef;
+        await db.withAccount(account, (client) =>
+          client.query(
+            `insert into run(id,account_id,dossier_id,role_id,mode,request_id,state,budget_cny,input)
+             values($1,$2,$3,'research-read','read',$4,'queued',1,$5)`,
+            [
+              runId,
+              account,
+              dossierId,
+              randomUUID(),
+              JSON.stringify({
+                query: title,
+                chosenPaperId: paperRef,
+                fromSwarmRun: runIdOfForRead,
+                claimId,
+              }),
+            ],
+          ),
+        );
+        await kernel.submit(account, runId, {
+          prompt: "请把这份材料的原文仔细读一遍，重点核这条结论引用的那处定位。",
+        });
+        return { runId };
+      },
+      async (input) => {
+        // 精读档案走和页面同一个建档案入口（bench=read）。
+        const created = await db.withAccount(account, (client) =>
+          createDossier(
+            client,
+            account,
+            { bench: "research", kind: "reading", title: input.title, intent: input.intent },
+            "page",
+          ),
+        );
+        return { id: String(created.id) };
+      },
+    );
+    return c.json(outcome);
   });
 
   // 证据详情：这条证据被哪几条结论引用。

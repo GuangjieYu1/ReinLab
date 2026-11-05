@@ -25,7 +25,15 @@ import type { Database } from "../db/database";
 import type { KernelService } from "../kernel/service";
 import { labelOf, loadFold, projectEvents } from "./project";
 import {
+  cardLabel,
+  createSwarmCard,
+  readSwarmCard,
+  requireLiveCard,
+  type SwarmCardKind,
+} from "./cards";
+import {
   buildReport,
+  contextPacket,
   claimEvidenceIds,
   claimRow,
   evidenceRow,
@@ -42,6 +50,9 @@ import {
   readClaim,
   readEvidence,
   recordSubmission,
+  loadReviews,
+  readReview,
+  reviewClaim,
   type SubmissionResult,
 } from "./blackboard";
 
@@ -53,6 +64,18 @@ export const MAX_MEMBERS = 16;
 /** 额度下限（12-swarm.md §3）：最少 4 轮 / 30 分钟，只做下限，不强制耗满。 */
 export const MIN_ROUNDS = 4;
 export const MIN_MINUTES = 30;
+
+/** MVP-3 第二批接通的全部干预（契约 §2：1 的三种 + 3 的四种）。 */
+export const INTERVENTIONS_READY: InterventionKind[] = [
+  "stop_route",
+  "pause",
+  "resume",
+  "finish",
+  "mention",
+  "redirect",
+  "add_member",
+  "extend",
+];
 
 /** 计时中（活动时长在走）的状态。 */
 const TIMED = new Set<SwarmRunState>(["running", "near_limit", "finishing"]);
@@ -140,6 +163,8 @@ type RunRow = {
   delegation: SwarmRun["delegation"] | null;
   started_at: Date | null;
   ended_at: Date | null;
+  /** 用户改过方向、等负责人交新版本计划：交了就直接接着做，不再等确认。 */
+  redirect_pending?: boolean;
 };
 
 /** 一条运行的研究投影：所有接口都从这里算，页面不自己推断。 */
@@ -253,7 +278,7 @@ export class SwarmService {
       await client.query(
         `select run_id,dossier_id,question,state,phase,round,plan_version,limit_rounds,limit_minutes,
                 active_ms,active_since,members_used,kickoff_at,lead_session,projected_seq,
-                state_reason,end_reason,delegation,started_at,ended_at
+                state_reason,end_reason,delegation,started_at,ended_at,redirect_pending
            from swarm_run where account_id=$1 and run_id=$2`,
         [account, runId],
       )
@@ -395,6 +420,62 @@ export class SwarmService {
   // ── 计划 ──────────────────────────────────────────
 
   /** 负责人通过 research_plan 工具交上来的计划：入库并等用户确认。 */
+  /** 改方向之后负责人交了新版本计划、问题本身变了：要用户批一次范围（契约 §5 swarm_scope）。 */
+  private async maybeScopeCard(
+    client: pg.PoolClient,
+    account: string,
+    runId: string,
+  ): Promise<void> {
+    const row = (
+      await client.query(
+        `select plan_version, dossier_id, state from swarm_run where account_id=$1 and run_id=$2`,
+        [account, runId],
+      )
+    ).rows[0];
+    if (!row || Number(row.plan_version) < 2) return;
+    // 比的是两份计划文档里的问题：run.question 是发起时那句，改方向后要看新版本。
+    const previous = (
+      await client.query(
+        `select document->>'question' question from swarm_plan
+          where account_id=$1 and run_id=$2 and version=$3`,
+        [account, runId, Number(row.plan_version) - 1],
+      )
+    ).rows[0];
+    const current = (
+      await client.query(
+        `select document->>'question' question from swarm_plan
+          where account_id=$1 and run_id=$2 and version=$3`,
+        [account, runId, Number(row.plan_version)],
+      )
+    ).rows[0];
+    const before = String(previous?.question ?? "");
+    const after = String(current?.question ?? "");
+    if (!before || !after || before === after) return;
+    // 只有「问题本身变了」才要批：只是措辞调整（互相包含）不算扩大范围。
+    const normalize = (text: string) => text.replace(/\s+/g, "").replace(/[，。、；：]/g, "");
+    const a = normalize(before);
+    const b = normalize(after);
+    if (a && b && (a.includes(b) || b.includes(a))) return;
+    const card = await createSwarmCard(client, {
+      account,
+      runId,
+      dossierId: String(row.dossier_id),
+      kind: "swarm_scope",
+      title: "问题范围变了，需要你确认",
+      payload: {
+        from: Number(row.plan_version) - 1,
+        to: Number(row.plan_version),
+        changes: [`原问题：${before.slice(0, 100)}`, `新问题：${after.slice(0, 100)}`],
+      },
+    });
+    if (card.created)
+      await client.query(
+        `update swarm_run set state='awaiting_confirm', state_reason=$3, updated_at=now()
+         where account_id=$1 and run_id=$2 and state in ('running','near_limit')`,
+        [account, runId, "问题范围变了，等你确认新版本计划"],
+      );
+  }
+
   async publishPlan(
     account: string,
     runId: string,
@@ -405,22 +486,61 @@ export class SwarmService {
       const row = await this.row(client, account, runId);
       if (TERMINAL.has(row.state)) throw new ApiFailure("RUN_ENDED", 409, "这次群研已经结束。");
       const version = row.plan_version + 1;
+      // 改方向之后给前端比差异用：上一版和新版各改了什么（契约 §1 diffFrom）。
+      const previous = (
+        await client.query(
+          "select document from swarm_plan where account_id=$1 and run_id=$2 order by version desc limit 1",
+          [account, runId],
+        )
+      ).rows[0]?.document as SwarmPlan | undefined;
+      const changes: string[] = [];
+      if (previous) {
+        if (previous.question && previous.question !== plan.question)
+          changes.push(`研究问题：${previous.question.slice(0, 60)} → ${plan.question.slice(0, 60)}`);
+        if (previous.scope && previous.scope !== plan.scope)
+          changes.push(`范围：${previous.scope.slice(0, 60)} → ${plan.scope.slice(0, 60)}`);
+        const before = new Map((previous.routes ?? []).map((route) => [route.id, route.title]));
+        for (const route of plan.routes) {
+          const old = before.get(route.id);
+          if (!old) changes.push(`新增路线 ${route.id}：${route.title}`);
+          else if (old !== route.title) changes.push(`路线 ${route.id}：${old} → ${route.title}`);
+          before.delete(route.id);
+        }
+        for (const [id, title] of before) changes.push(`去掉路线 ${id}：${title}`);
+        if (previous.limits?.rounds !== plan.limits.rounds || previous.limits?.minutes !== plan.limits.minutes)
+          changes.push(
+            `额度：${previous.limits?.rounds} 轮 / ${previous.limits?.minutes} 分钟 → ${plan.limits.rounds} 轮 / ${plan.limits.minutes} 分钟`,
+          );
+      }
       const document: SwarmPlan = {
         ...plan,
         version,
-        needsConfirm: true,
+        needsConfirm: !row.redirect_pending,
+        ...(previous ? { diffFrom: { version: previous.version, changes: changes.slice(0, 8) } } : {}),
         roster: plan.roster.map((entry) => ({ ...entry, model: entry.model || this.dependencies.model })),
       };
       await client.query(
         `insert into swarm_plan(account_id,run_id,version,document) values($1,$2,$3,$4)`,
         [account, runId, version, JSON.stringify(document)],
       );
+      // 改方向之后交上来的新版本：直接接着做；只有问题范围变了才要用户批一次（swarm_scope）。
+      const afterRedirect = Boolean(row.redirect_pending);
       await client.query(
-        `update swarm_run set plan_version=$3, limit_rounds=$4, limit_minutes=$5, state='awaiting_confirm',
-           state_reason='等你确认计划', updated_at=now()
+        `update swarm_run set plan_version=$3, limit_rounds=$4, limit_minutes=$5,
+           state=$6, state_reason=$7, redirect_pending=false, question=$8, updated_at=now()
          where account_id=$1 and run_id=$2`,
-        [account, runId, version, document.limits.rounds, document.limits.minutes],
+        [
+          account,
+          runId,
+          version,
+          document.limits.rounds,
+          document.limits.minutes,
+          afterRedirect ? "running" : "awaiting_confirm",
+          afterRedirect ? null : "等你确认计划",
+          document.question,
+        ],
       );
+      if (afterRedirect) await this.maybeScopeCard(client, account, runId);
       await this.emitRun(client, account, runId);
       await this.emitSimple(client, account, runId, "plan", document);
       return { version };
@@ -675,6 +795,33 @@ export class SwarmService {
     return db.withAccount(account, async (client) => {
       let row = await this.row(client, account, runId);
       row = await this.recoverIfInterrupted(client, account, row);
+      // 快到额度：一回合可能跑很久（负责人一次派完所有任务），不能等他这一轮结束
+      // 才标 near_limit——到了 80% 时长就切过去，页面才有机会给追加建议。
+      if (row.state === "running") {
+        const active = this.accumulate(row);
+        if (active >= row.limit_minutes * 60_000 * 0.8) {
+          const updated = (
+            await client.query(
+              `update swarm_run set state='near_limit',
+                 state_reason=$3, updated_at=now()
+               where account_id=$1 and run_id=$2 and state='running'
+               returning run_id,dossier_id,question,state,phase,round,plan_version,limit_rounds,limit_minutes,
+                 active_ms,active_since,members_used,kickoff_at,lead_session,projected_seq,
+                 state_reason,end_reason,delegation,started_at,ended_at`,
+              [
+                account,
+                runId,
+                `快到额度了（已用 ${Math.round(active / 60_000)} 分钟 / ${row.limit_minutes} 分钟）`,
+              ],
+            )
+          ).rows[0] as RunRow | undefined;
+          if (updated) {
+            row = updated;
+            await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
+            await this.emitRun(client, account, runId);
+          }
+        }
+      }
       const cursor = Number(row.projected_seq ?? 0);
       const events = (
         await client.query(
@@ -732,6 +879,10 @@ export class SwarmService {
 
   async snapshot(account: string, runId: string): Promise<SwarmSnapshot> {
     await this.project(account, runId);
+    // 加人卡批准之后：真的多出队员才算「已执行」（B12：回执按实际写）。
+    await this.settleAddMembers(account, runId).catch(() => undefined);
+    // 送达确认：对方会话里真的出现了这条消息，才把「已排队」改成「已送到」。
+    await this.settleDeliveries(account, runId).catch(() => undefined);
     return this.dependencies.db.withAccountSnapshot(account, async (client) => {
       const row = await this.row(client, account, runId);
       const run = await this.runOf(client, account, runId);
@@ -796,13 +947,16 @@ export class SwarmService {
       // 黑板：结论 + 证据 + 阶段结果（核实没接通，所以没有 verified）。
       const claims: Claim[] = await latestClaims(client, account, runId, { limit: 200 });
       const evidence: Evidence[] = await loadEvidence(client, account, runId);
-      const reviews: Review[] = [];
       const report: SwarmReport | null = await buildReport(client, {
         account,
         runId,
         version: row.plan_version,
         stateReason: row.state_reason,
+        runState: run.state,
+        limits: run.limits,
+        used: { rounds: run.used.rounds, activeMs: run.used.activeMs },
       });
+      const reviews: Review[] = await loadReviews(client, account, runId);
       // 路线状态按最后一条 route 事件走（运行结束时会发 stopped），没有事件才用默认。
       const routeEvents = (
         await client.query(
@@ -1047,12 +1201,15 @@ export class SwarmService {
     input: {
       kind: InterventionKind;
       text?: string;
+      role?: MemberRole;
       target?: { memberId?: string; routeId?: string };
       limits?: { rounds?: number; minutes?: number };
     },
   ): Promise<{ intervention: Intervention; run: SwarmRun }> {
-    if (!["stop_route", "pause", "resume", "finish"].includes(input.kind))
+    if (!INTERVENTIONS_READY.includes(input.kind))
       throw new ApiFailure("INTERVENTION_UNSUPPORTED", 409, "这种干预还没接通（靠后阶段）。");
+    if ((input.kind === "mention" || input.kind === "redirect") && !input.text?.trim())
+      throw new ApiFailure("INTERVENTION_TEXT_REQUIRED", 400, "这句话要先写出来。");
     const intervention = await this.dependencies.db.withAccount(account, async (client) => {
       const current = await this.row(client, account, runId);
       const id = randomUUID();
@@ -1078,6 +1235,136 @@ export class SwarmService {
       await this.emitRun(client, account, runId);
       return intervention;
     });
+    // 说话（mention）与改方向（redirect）要真的到人 / 真的改：都在事务外提交一轮。
+    if (input.kind === "mention" || input.kind === "redirect") {
+      let settled = intervention;
+      settled = await this.dependencies.db.withAccount(account, async (client) => {
+        const current = await this.row(client, account, runId);
+        const target = input.target?.memberId ?? null;
+        if (input.kind === "redirect")
+          await client.query(
+            "update swarm_run set redirect_pending=true, updated_at=now() where account_id=$1 and run_id=$2",
+            [account, runId],
+          );
+        await client.query(
+          `update swarm_intervention set state='delivered', result=$3, updated_at=now()
+             where account_id=$1 and id=$2`,
+          [
+            account,
+            intervention.id,
+            input.kind === "mention"
+              ? `已投递给 ${target ?? "负责人"}，等它回应。`
+              : "已改方向：受影响的任务停下、旧证据保留，负责人会出新的计划版本再继续。",
+          ],
+        );
+        const applied = (await this.interventions(client, account, runId)).find(
+          (entry) => entry.id === intervention.id,
+        )!;
+        await this.emitSimple(client, account, runId, "intervention", applied);
+        await this.emitInterventionBus(client, account, runId, applied);
+        if (current.state === "paused") {
+          await client.query(
+            `update swarm_run set state='running', state_reason=null,
+               active_since=coalesce(active_since, now()), updated_at=now()
+             where account_id=$1 and run_id=$2`,
+            [account, runId],
+          );
+        }
+        await this.emitRun(client, account, runId);
+        return applied;
+      });
+      // 投递走 DSH 原生的收件箱：按收件人的会话排队，运行时在它的步骤边界插进去。
+      // 不经工具返回（模型会把工具结果里的指令当成可疑注入拒掉），也不另起回合。
+      const target = input.kind === "mention" && input.target?.memberId ? input.target.memberId : "lead";
+      const bare = input.text!.trim();
+      const text =
+        input.kind === "mention"
+          ? bare
+          : `用户改方向：${bare}（受影响的任务停下、旧证据保留；先出新的计划版本再继续）`;
+      const outcome = await this.deliverToInbox(account, runId, {
+        target,
+        kind: input.kind === "mention" ? "mention" : "redirect",
+        text,
+        // 送给会话的正文：@ 的话要带上「用户对 X 说」这层，收件箱里留原话便于确认送达。
+        deliveryText:
+          input.kind === "mention" ? `用户在 @${target}：${bare}` : text,
+        interventionId: intervention.id,
+      });
+      if (!outcome.ok)
+        await this.failMessage(account, runId, intervention.id, `没能送进去：${outcome.reason}`);
+      return {
+        intervention: await this.intervention(account, runId, intervention.id),
+        run: await this.run(account, runId),
+      };
+    }
+    if (input.kind === "add_member" || input.kind === "extend") {
+      await this.dependencies.db.withAccount(account, async (client) => {
+        const current = await this.row(client, account, runId);
+        const members = await loadFold(client, account, runId);
+        const used = members.members.size;
+        const card =
+          input.kind === "add_member"
+            ? await createSwarmCard(client, {
+                account,
+                runId,
+                dossierId: current.dossier_id,
+                kind: "swarm_add_member" as SwarmCardKind,
+                title: "中途加人",
+                payload: {
+                  role: input.role ?? "researcher",
+                  routeId: input.target?.routeId ?? null,
+                  model: this.dependencies.model,
+                  count: 1,
+                  membersAfter: used + 1,
+                  max: MAX_MEMBERS,
+                },
+              })
+            : await createSwarmCard(client, {
+                account,
+                runId,
+                dossierId: current.dossier_id,
+                kind: "swarm_extend" as SwarmCardKind,
+                title: "临近额度，要不要追加",
+                payload: {
+                  findings: await this.verifiedFindings(client, account, runId),
+                  gaps: await this.openGaps(client, account, runId),
+                  suggest: { rounds: 2, minutes: 15 },
+                  used: {
+                    rounds: current.round,
+                    minutes: Math.round(Number(current.active_ms ?? 0) / 60_000),
+                  },
+                },
+              });
+        await client.query(
+          `update swarm_intervention set state='pending_approval', approval_id=$3,
+             result=$4, updated_at=now()
+           where account_id=$1 and id=$2`,
+          [
+            account,
+            intervention.id,
+            card.id,
+            `等你在收件箱处理${
+              cardLabel(input.kind === "add_member" ? "swarm_add_member" : "swarm_extend")
+            }。`,
+          ],
+        );
+        const pending = (await this.interventions(client, account, runId)).find(
+          (entry) => entry.id === intervention.id,
+        )!;
+        await this.emitSimple(client, account, runId, "intervention", pending);
+        await this.emitInterventionBus(client, account, runId, pending);
+        await this.emitRun(client, account, runId);
+      });
+      return {
+        intervention: await this.dependencies.db.withAccount(account, async (client) =>
+          (await this.interventions(client, account, runId)).find(
+            (entry) => entry.id === intervention.id,
+          )!,
+        ),
+        run: await this.run(account, runId),
+      };
+    }
+
     // 暂停 / 结束要真的把这一轮停下来；继续要把同一段会话接着跑起来。
     if (input.kind === "pause" || input.kind === "finish") {
       await this.dependencies.kernel.cancel(account, runId).catch(() => "cancel_unconfirmed" as const);
@@ -1181,9 +1468,38 @@ export class SwarmService {
       return;
     }
     if (input.kind === "finish") {
-      // 用户结束：不伪装成功。核实还没接通，所以按「部分完成」收尾并写明原因。
+      // 用户结束：不伪装成功，但说明要按实际情况写——有已核实的就别写成「没有经过核实」。
       await this.settleTiming(client, account, row, now);
-      const reason = "你结束了这次群研；已交付的产出保留，但没有经过核实的结论。";
+      const counts = (
+        await client.query(
+          `select
+             count(*) filter (
+               where c.verified_version = c.version and c.status='verified'
+                 and c.version = (select max(c2.version) from swarm_claim c2
+                                   where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
+             )::int verified,
+             count(*) filter (
+               where c.version = (select max(c2.version) from swarm_claim c2
+                                   where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
+                 and c.status in ('candidate','awaiting_refute','awaiting_verify','disputed','insufficient')
+             )::int pending,
+             count(*) filter (
+               where c.version = (select max(c2.version) from swarm_claim c2
+                                   where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
+                 and c.status in ('disputed','falsified')
+             )::int disputed
+           from swarm_claim c where c.account_id=$1 and c.run_id=$2`,
+          [account, row.run_id],
+        )
+      ).rows[0];
+      const verifiedCount = Number(counts?.verified ?? 0);
+      const pendingCount = Number(counts?.pending ?? 0);
+      const reason =
+        verifiedCount > 0
+          ? `你结束了这次群研：已核实 ${verifiedCount} 条，另有 ${pendingCount} 条候选/有争议；已交付的产出保留。`
+          : pendingCount > 0
+            ? `你结束了这次群研：${pendingCount} 条结论没有通过核实，仍是候选；已交付的产出保留。`
+            : "你结束了这次群研；已交付的产出保留。";
       await client.query(
         `update swarm_run set state='partial', end_reason='user_finished',
            state_reason=$3, active_since=null, ended_at=coalesce(ended_at, now()), updated_at=now()
@@ -1191,12 +1507,42 @@ export class SwarmService {
         [account, row.run_id, reason],
       );
       await this.settleTerminal(client, account, row.run_id, reason);
+      // 用户结束时还有分歧：也给出分歧卡，让他选「按有争议写入」还是「再查一轮」。
+      const disputedCount = Number(counts?.disputed ?? 0);
+      if (disputedCount > 0)
+        await createSwarmCard(client, {
+          account,
+          runId: row.run_id,
+          dossierId: row.dossier_id,
+          kind: "swarm_divergence",
+          title: "报告前还有分歧",
+          payload: {
+            claims: (await latestClaims(client, account, row.run_id, { limit: 50 }))
+              .filter((claim) => claim.status === "disputed" || claim.status === "falsified")
+              .slice(0, 8)
+              .map((claim) => ({
+                id: claim.id,
+                text: claim.text.slice(0, 200),
+                sides: [
+                  `主张：${claim.text.slice(0, 160)}`,
+                  `反驳：${(claim.statusReason ?? "这一版还有未解决的反驳").slice(0, 160)}`,
+                ],
+              })),
+          },
+        });
       return;
     }
     // stop_route：只记录决定，任务归属由负责人显式处理（DSH 中断不释放归属）。
+    const routeId = input.target?.routeId ?? null;
+    const plan = await this.planOf(client, account, row.run_id).catch(() => null);
+    const approaches = await loadApproaches(client, account, row.run_id).catch(() => []);
+    const routeName =
+      plan?.routes.find((route) => route.id === routeId)?.title ??
+      approaches.find((route) => route.id === routeId)?.title ??
+      routeId;
     await client.query(
       `update swarm_run set state_reason=$3, updated_at=now() where account_id=$1 and run_id=$2`,
-      [account, row.run_id, `已停止路线 ${input.target?.routeId ?? ""}：需要新机制才能重开`],
+      [account, row.run_id, `已停止路线 ${routeName ?? "（未指定）"}：需要新机制才能重开`],
     );
   }
 
@@ -1240,7 +1586,7 @@ export class SwarmService {
              version=version+1,
              updated_at=now()
        where account_id=$1 and run_id=$2 and state in ('active','reopened')`,
-      [account, runId, reason],
+      [account, runId, "这次群研结束时，这条路线的任务还没全部交付"],
     );
     await this.emitReport(client, account, runId, (await this.row(client, account, runId)).plan_version, reason);
     const settledRoutes = await loadApproaches(client, account, runId);
@@ -1302,18 +1648,29 @@ export class SwarmService {
         const restoreFailed = /KERNEL_SESSION_RESTORE_FAILED/.test(detail ?? "");
         const nextState = restoreFailed ? "paused" : "failed";
         const quota = /QUOTA|Insufficient Balance|insufficient_quota|402/i.test(detail ?? "");
+        // 网络抖动（模型转发 fetch failed / 上游 5xx / 超时）不是研究失败：
+        // 转成暂停、写清原因、保留名册与已有产出，用户点继续就能接着跑。
+        const transient =
+          /MODEL_UPSTREAM_UNAVAILABLE|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|network|503|502|504/i.test(
+            detail ?? "",
+          );
+        // 结算这一段的活动时长：失败也要如实记上，不能清零。
+        await this.settleTiming(client, account, row);
+        const state = restoreFailed || transient ? "paused" : "failed";
         const reason = restoreFailed
           ? "这一段会话读不回来，为避免重复建队没有继续；产出和名册都还在，可以稍后再试"
           : quota
             ? "模型账户额度不足（QUOTA），这一轮没法继续；已交的结论和证据都还在"
-            : "这一轮执行失败";
+            : transient
+              ? "模型服务暂时连不上（网络抖动或上游 5xx，已重试过），这一轮停在这里；恢复后点继续就能接着跑"
+              : "这一轮执行失败";
         await client.query(
           `update swarm_run set state=$3, end_reason=$4, state_reason=$5, active_since=null,
              ended_at=case when $3='failed' then now() else ended_at end, updated_at=now()
            where account_id=$1 and run_id=$2`,
-          [account, runId, nextState, restoreFailed ? null : "error", reason],
+          [account, runId, state, state === "failed" ? "error" : null, reason],
         );
-        if (!restoreFailed) await this.settleTerminal(client, account, runId, reason);
+        if (state === "failed") await this.settleTerminal(client, account, runId, reason);
         await this.emitRun(client, account, runId);
         return null;
       }
@@ -1332,23 +1689,100 @@ export class SwarmService {
       );
       const outOfTime = active >= row.limit_minutes * 60_000;
       const outOfRounds = row.round >= row.limit_rounds;
-      // 「完成」必须真有交付：0 个任务、0 条交付一律不算答完。
-      // 验收里就是这一条把刚确认的运行 2 秒后判成了「任务都交付了」。
-      const answered = tasks.length > 0 && open === 0 && delivered > 0;
-      if (answered || outOfTime || outOfRounds) {
-        const reason = answered
-          ? "任务都交付了；核实还没接通，结论仍然是候选"
-          : outOfTime
-            ? `到达 ${row.limit_minutes} 分钟`
-            : tasks.length === 0
-              ? `到达 ${row.limit_rounds} 轮，这一轮没有建出任何任务`
-              : `到达 ${row.limit_rounds} 轮`;
-        await client.query(
-          `update swarm_run set state='partial', state_reason=$3, end_reason=$4, active_since=null,
-             ended_at=now(), updated_at=now() where account_id=$1 and run_id=$2`,
-          [account, runId, reason, answered ? "answered" : "limit"],
+      // 结论的核实情况决定「能不能收尾」：负责人交完一批（哪怕发了最终答复）但还有
+      // 候选 / 待核实 / 待反驳的结论时，按 PRD §3 不满足提前收尾，由服务端推进下一轮，
+      // 把这些未核实的结论当缺口交回去（用户 2026-11-03 定）。
+      const claims = await latestClaims(client, account, runId, { limit: 200 });
+      const pending = claims.filter(
+        (claim) =>
+          claim.status === "candidate" ||
+          claim.status === "awaiting_refute" ||
+          claim.status === "awaiting_verify" ||
+          claim.status === "disputed" ||
+          claim.status === "insufficient",
+      );
+      const verifiedCount = Number(
+        (
+          await client.query(
+            `select count(*)::int n from swarm_claim c
+              where c.account_id=$1 and c.run_id=$2
+                and c.verified_version = c.version and c.status='verified'
+                and c.version = (select max(c2.version) from swarm_claim c2
+                                  where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)`,
+            [account, runId],
+          )
+        ).rows[0]?.n ?? 0,
+      );
+      const routes = await loadApproaches(client, account, runId);
+      // PRD §3 的三种提前收尾：问题已回答且通过核实；剩余路线全阻塞且没有新机制；用户要求结束（另一条路径）。
+      const answered = pending.length === 0 && (verifiedCount > 0 || claims.length > 0);
+      const allBlocked =
+        routes.length > 0 &&
+        routes.every((route) => ["blocked", "stopped", "merged"].includes(route.state));
+      if (answered || allBlocked || outOfTime || outOfRounds) {
+        // 报告前还有分歧就进 awaiting_review（等人看分歧），不硬写成完成或部分完成。
+        const disputed = Number(
+          (
+            await client.query(
+              `select count(*)::int n from swarm_claim
+                where account_id=$1 and run_id=$2 and version=(
+                  select max(version) from swarm_claim c2
+                   where c2.account_id=$1 and c2.run_id=$2 and c2.id=swarm_claim.id
+                ) and status in ('disputed','falsified')`,
+              [account, runId],
+            )
+          ).rows[0]?.n ?? 0,
         );
-        await this.settleTerminal(client, account, runId, reason);
+        // 结束说明按实际情况写：有已核实的就不能说「没有经过核实的结论」。
+        const head =
+          verifiedCount > 0
+            ? `已核实 ${verifiedCount} 条，还有 ${pending.length} 条候选/待核实`
+            : pending.length > 0
+              ? `没有通过核实的结论，${pending.length} 条仍是候选或待核实`
+              : "这一轮没有交出可核实的结论";
+        const reason = disputed
+          ? `${head}；报告前还有分歧，先看你决定按「有争议」写入还是再查一轮`
+          : answered
+            ? `问题已回答并通过核实（${verifiedCount} 条）`
+            : allBlocked
+              ? `${head}；剩余路线全部阻塞，没有实质新机制`
+              : outOfTime
+                ? `到达 ${row.limit_minutes} 分钟：${head}`
+                : `${head}；到达 ${row.limit_rounds} 轮`;
+        await client.query(
+          `update swarm_run set state=$3, state_reason=$4, end_reason=$5, active_since=null,
+             ended_at=case when $3='awaiting_review' then ended_at else now() end, updated_at=now()
+           where account_id=$1 and run_id=$2`,
+          [account, runId, disputed ? "awaiting_review" : "partial", reason, answered ? "answered" : "limit"],
+        );
+        if (!disputed) await this.settleTerminal(client, account, runId, reason);
+        if (disputed)
+          await createSwarmCard(client, {
+            account,
+            runId,
+            dossierId: row.dossier_id,
+            kind: "swarm_divergence",
+            title: "报告前还有分歧",
+            payload: {
+              claims: (
+                await latestClaims(client, account, runId, { limit: 50 })
+              )
+                .filter((claim) => claim.status === "disputed" || claim.status === "falsified")
+                .slice(0, 8)
+                .map((claim) => ({
+                  id: claim.id,
+                  text: claim.text.slice(0, 200),
+                  // 双方各自的说法：主张方是结论正文，反驳方是那条成立的的反驳理由。
+                  sides: [
+                    `主张：${claim.text.slice(0, 160)}`,
+                    `反驳：${
+                      (claim.statusReason ?? "这一版还有未解决的反驳").slice(0, 160)
+                    }`,
+                  ],
+                })),
+            },
+          });
+        await this.emitReport(client, account, runId, row.plan_version, reason);
         await this.emitRun(client, account, runId);
         return null;
       }
@@ -1361,28 +1795,839 @@ export class SwarmService {
         await this.emitRun(client, account, runId);
         return { round: 1, kickoff: true };
       }
+      // 轮次和阶段由服务端推进：前 2 轮独立，第 3 轮起交叉。
+      const nextRound = row.round + 1;
+      const phase = nextRound >= 3 ? "cross" : "independent";
+      // 临近额度：时长到 80%，或者下一轮就是最后一轮，都算「快到额度」。
+      // 进 near_limit 后仍在跑，报告里给追加建议（PRD §3）。
+      const near =
+        active >= row.limit_minutes * 60_000 * 0.8 || nextRound >= row.limit_rounds;
       await client.query(
-        `update swarm_run set round=round+1, state='running', state_reason=null, active_since=now(), updated_at=now()
+        `update swarm_run set round=$3, phase=$4, state=$5, state_reason=$6,
+           active_since=now(), updated_at=now()
          where account_id=$1 and run_id=$2`,
-        [account, runId],
+        [
+          account,
+          runId,
+          nextRound,
+          phase,
+          near ? "near_limit" : "running",
+          near ? `快到额度了（已用 ${Math.round(active / 60_000)} 分钟 / ${row.limit_minutes} 分钟）` : null,
+        ],
       );
+      await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
       await this.emitRun(client, account, runId);
-      return { round: row.round + 1, kickoff: false };
+      return {
+        round: nextRound,
+        kickoff: false,
+        phase,
+        // 未核实的结论当缺口交给负责人：只给 id、一句话和状态，不教它怎么分轮。
+        gaps: pending.slice(0, 12).map((claim) => ({
+          id: claim.id,
+          status: claim.status,
+          text: claim.text.slice(0, 120),
+        })),
+      };
     });
     if (!decision) return { continued: false };
-    // 第 1 轮是开跑（要带上计划与编制），之后的轮次只看还差什么。
-    const prompt =
-      decision.kickoff
-        ? kickoffPrompt(
-            await this.dependencies.db.withAccount(account, (client) =>
-              this.planOf(client, account, runId),
+    // 第 1 轮是开跑（要带上计划与编制）；第 3 轮起附精简的 Context Packet。
+    const packet = decision.kickoff
+      ? ""
+      : await this.dependencies.db.withAccount(account, (client) =>
+          decision.round >= 3 ? contextPacket(client, { account, runId }) : Promise.resolve(""),
+        );
+    const gapLines =
+      decision.gaps && decision.gaps.length
+        ? [
+            "这些结论还没有通过独立核实，是这一批要补的缺口（补齐后才算交付）：",
+            ...decision.gaps.map(
+              (gap, index) =>
+                `${index + 1}. [${gap.status}] ${gap.text}（${gap.id}）`,
             ),
-          )
-        : `第 ${decision.round} 轮。先看任务板还有哪些没交付，把没人做的分给队员，收齐之后再综合。不要重复已经交付的结果。`;
+            "已经核实的不必重做；也不要重复已经交付过的结果。",
+          ].join("\n")
+        : "";
+    const prompt = decision.kickoff
+      ? kickoffPrompt(
+          await this.dependencies.db.withAccount(account, (client) =>
+            this.planOf(client, account, runId),
+          ),
+        )
+      : ["继续推进这一批任务。先看任务板还有哪些没交付，把没人做的分给队员，收齐之后再综合。", gapLines, packet]
+          .filter(Boolean)
+          .join("\n\n");
     await this.dependencies.kernel
       .submit(account, runId, { mode: "swarm", prompt })
       .catch(() => undefined);
     return { continued: true };
+  }
+
+  /**
+   * 收件箱里群研卡的决定（契约 §5）。不是群研卡就返回 null，交回原来的审批流程。
+   * 批准 = 真的做下去（加人 / 追加额度 / 接受扩大范围 / 再查一轮），驳回 = 收尾或维持原样。
+   */
+  async decideCard(
+    account: string,
+    approvalId: string,
+    body: { decision?: unknown; answers?: unknown },
+  ): Promise<{ state: string; runId: string; note: string } | null> {
+    const decision = body.decision === "reject" ? "reject" : "approve";
+    const answers =
+      body.answers && typeof body.answers === "object"
+        ? (body.answers as Record<string, unknown>)
+        : {};
+    const card = await this.dependencies.db.withAccount(account, (client) =>
+      readSwarmCard(client, account, approvalId),
+    );
+    if (!card) return null;
+    if (card.state !== "pending")
+      throw new ApiFailure("APPROVAL_CONFLICT", 409, `这张${cardLabel(card.kind)}已经处理过了，请刷新。`);
+
+    if (card.kind === "swarm_divergence") {
+      // 批准 = 再查一轮；驳回 = 按「有争议」写入报告。
+      await this.dependencies.db.withAccount(account, async (client) => {
+        await client.query(
+          "update approval set state=$3, decided_at=now(), decided_scope='once' where account_id=$1 and id=$2",
+          [account, approvalId, decision === "approve" ? "approved" : "rejected"],
+        );
+        await this.closeInterventionForCard(client, account, approvalId);
+      });
+      if (decision === "approve") {
+        await this.dependencies.db.withAccount(account, async (client) => {
+          const row = await this.row(client, account, card.runId);
+          await client.query(
+            `update swarm_run set state='running', state_reason=null, end_reason=null, ended_at=null,
+               round=round+1, phase=case when round+1 >= 3 then 'cross' else phase end,
+               active_since=now(), updated_at=now()
+             where account_id=$1 and run_id=$2`,
+            [account, row.run_id],
+          );
+          await this.emitRun(client, account, row.run_id);
+        });
+        await this.dependencies.kernel
+          .submit(account, card.runId, {
+            mode: "swarm",
+            prompt: `用户希望把分歧再查一轮。先看还有哪些结论停留在「有争议」，针对它们继续找证据或改主张，再重新核实一遍。`,
+          })
+          .catch(() => undefined);
+        return { state: "approved", runId: card.runId, note: "已再查一轮。" };
+      }
+      return { state: "rejected", runId: card.runId, note: "按「有争议」写入报告，不再查。" };
+    }
+
+    await this.dependencies.db.withAccount(account, async (client) => {
+      await client.query(
+        "update approval set state=$3, decided_at=now(), decided_scope='once' where account_id=$1 and id=$2",
+        [account, approvalId, decision === "approve" ? "approved" : "rejected"],
+      );
+      await this.closeInterventionForCard(client, account, approvalId);
+      const row = await this.row(client, account, card.runId);
+      if (decision === "reject") {
+        await this.emitSimple(client, account, card.runId, "bus", {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: "system",
+          from: "system",
+          to: "user",
+          text: `（${cardLabel(card.kind)}已驳回，维持原样。）`,
+          refs: {},
+        } satisfies BusEntry);
+      } else if (card.kind === "swarm_extend") {
+        // 追加额度：按卡上的建议或用户在 answers 里改的数值延长，然后继续。
+        const suggest = (card.payload.suggest ?? {}) as { rounds?: number; minutes?: number };
+        const rounds = Math.max(1, Number(answers.rounds ?? suggest.rounds ?? 2));
+        const minutes = Math.max(5, Number(answers.minutes ?? suggest.minutes ?? 15));
+        await client.query(
+          `update swarm_run set limit_rounds=limit_rounds+$3, limit_minutes=limit_minutes+$4,
+             state='running', state_reason=null, end_reason=null, ended_at=null,
+             active_since=coalesce(active_since, now()), updated_at=now()
+           where account_id=$1 and run_id=$2`,
+          [account, card.runId, rounds, minutes],
+        );
+        await this.emitSimple(client, account, card.runId, "bus", {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: "system",
+          from: "system",
+          to: "user",
+          text: `（已追加 ${rounds} 轮 / ${minutes} 分钟，继续往下做。）`,
+          refs: {},
+        } satisfies BusEntry);
+        await this.emitRun(client, account, card.runId);
+      } else if (card.kind === "swarm_add_member") {
+        // 记下批准这一刻的名册：之后只认「不在这份名单里、角色对得上」的新人。
+        const before = await this.memberRoster(client, account, card.runId);
+        await client.query(
+          `update approval set effects=$3 where account_id=$1 and id=$2`,
+          [
+            account,
+            approvalId,
+            JSON.stringify([
+              {
+                ...card.payload,
+                approvedMemberIds: [...before.keys()],
+              },
+            ]),
+          ],
+        );
+        await client.query(
+          `update swarm_intervention set state='received', updated_at=now()
+            where account_id=$1 and approval_id=$2`,
+          [account, approvalId],
+        );
+        await this.emitSimple(client, account, card.runId, "bus", {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: "system",
+          from: "system",
+          to: "user",
+          text: "（加人已批准，等负责人在下一个步骤建人；建出来才算执行。）",
+          refs: {},
+        } satisfies BusEntry);
+      } else if (card.kind === "swarm_scope") {
+        // 扩大范围获批：计划已经由负责人交上来了，这里只负责让它继续。
+        await client.query(
+          `update swarm_run set state='running', state_reason=null, end_reason=null, ended_at=null,
+             active_since=coalesce(active_since, now()), updated_at=now()
+           where account_id=$1 and run_id=$2`,
+          [account, row.run_id],
+        );
+        await this.emitRun(client, account, row.run_id);
+      }
+    });
+
+    if (decision === "approve") {
+      const prompt =
+        card.kind === "swarm_extend"
+          ? "用户批准追加额度，继续往下做：先把还没核实的结论补齐，再更新汇总。"
+          : card.kind === "swarm_add_member"
+            ? `用户批准加人（${
+                (card.payload.role as string) ?? "researcher"
+              }${card.payload.routeId ? "，路线 " + String(card.payload.routeId) : ""}）。用 research_spawn 建一名新队员，派给还没做完的部分。`
+            : "扩大范围已获批准，按新版本计划继续。";
+      // 和 @队员 / 改方向同一条路：经负责人的原生收件箱，在它的下一步送到。
+      const outcome = await this.deliverToInbox(account, card.runId, {
+        target: "lead",
+        kind: "instruction",
+        text: prompt,
+      });
+      if (!outcome.ok)
+        return {
+          state: "approved",
+          runId: card.runId,
+          note: `已批准${cardLabel(card.kind)}，但没能把指令送进去（${outcome.reason}）；负责人恢复后点继续会重新取这条指令。`,
+        };
+      return {
+        state: "approved",
+        runId: card.runId,
+        note: `已批准${cardLabel(card.kind)}，指令已排进负责人的收件箱（下一步送到）。`,
+      };
+    }
+    return { state: "rejected", runId: card.runId, note: `已驳回${cardLabel(card.kind)}。` };
+  }
+
+  /** 卡一决定，就把发起它的那条干预收到终态。 */
+  private async closeInterventionForCard(
+    client: pg.PoolClient,
+    account: string,
+    approvalId: string,
+  ): Promise<void> {
+    const row = (
+      await client.query(
+        `update swarm_intervention set state='applied', updated_at=now()
+          where account_id=$1 and approval_id=$2 and state='pending_approval'
+          returning id,run_id`,
+        [account, approvalId],
+      )
+    ).rows[0];
+    if (!row) return;
+    const updated = (await this.interventions(client, account, String(row.run_id))).find(
+      (entry) => entry.id === String(row.id),
+    );
+    if (updated) await this.emitSimple(client, account, String(row.run_id), "intervention", updated);
+  }
+
+  // ── 收件箱（B12）：插话排进负责人的下一步，不另起回合 ──
+
+  /**
+   * 把用户的话排进某人的收件箱。负责人有回合在跑时不另起回合（那会把正在跑的那一轮
+   * 顶掉），而是在它下一次调用工具时随工具结果送进去。
+   */
+  async enqueueMessage(
+    account: string,
+    runId: string,
+    input: {
+      target?: "lead" | string;
+      kind: "mention" | "redirect" | "instruction" | "system";
+      text: string;
+      interventionId?: string | null;
+    },
+  ): Promise<{ id: string }> {
+    return this.dependencies.db.withAccount(account, async (client) => {
+      const id = randomUUID();
+      await client.query(
+        `insert into swarm_inbox(id,account_id,run_id,target,kind,text,intervention_id)
+         values($1,$2,$3,$4,$5,$6,$7)`,
+        [
+          id,
+          account,
+          runId,
+          input.target ?? "lead",
+          input.kind,
+          input.text.slice(0, 8000),
+          input.interventionId ?? null,
+        ],
+      );
+      return { id };
+    });
+  }
+
+  /**
+   * 把一条消息按收件人投进 DSH 原生的收件箱（B13）。
+   * - 找收件人的会话：队员用名册里的会话 id，负责人用 lead_session；
+   * - 负责人这一轮在跑：`kernel.queuePrompt` 把消息排进那个会话的收件箱，
+   *   运行时会在它的步骤边界插进去（负责人那边作为一条用户消息）；
+   * - 空闲：没有可以排队的运行时，就起一轮把话送进去（这也是一次真实投递）。
+   * 回执先写「已排进收件箱」，等真的在会话里看到这条消息再改成「已送到」。
+   */
+  private async deliverToInbox(
+    account: string,
+    runId: string,
+    input: {
+      target: string;
+      kind: "mention" | "redirect" | "instruction" | "system";
+      text: string;
+      /** 真正送进对方会话的正文（默认同 text）。 */
+      deliveryText?: string;
+      interventionId?: string | null;
+    },
+  ): Promise<{ ok: boolean; reason?: string; queuedId?: string }> {
+    const outgoing = input.deliveryText ?? input.text;
+    const target = input.target === "lead" ? "lead" : input.target;
+    const session = await this.dependencies.db.withAccount(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const fold = await loadFold(client, account, runId);
+      if (target === "lead") {
+        const lead =
+          row.lead_session ??
+          [...fold.members.values()].find((member) => member.role === "lead")?.sessionId ??
+          null;
+        return { sessionId: lead ? String(lead) : null, exists: true };
+      }
+      const member = fold.members.get(target);
+      if (member?.sessionId) return { sessionId: String(member.sessionId), exists: true };
+      // 登记过、但还没拿到会话（插件先登记、DSH 后来才建会话）：如实说还没有会话。
+      const meta = (
+        await client.query(
+          `select data from swarm_meta
+            where account_id=$1 and run_id=$2 and kind='member' and ref_id=$3`,
+          [account, runId, target],
+        )
+      ).rows[0]?.data as { sessionId?: string } | undefined;
+      return {
+        sessionId: meta?.sessionId ? String(meta.sessionId) : null,
+        exists: !!member || !!meta,
+      };
+    });
+    if (!session.exists)
+      return { ok: false, reason: `名册里没有「${target}」这个人` };
+    const inboxId = await this.enqueueMessage(account, runId, {
+      target,
+      kind: input.kind,
+      text: input.text,
+      interventionId: input.interventionId ?? null,
+    });
+    // 改方向之后负责人交的新版本计划直接接着做（除非问题范围变了才出 swarm_scope 卡）。
+    if (input.kind === "redirect")
+      await this.dependencies.db.withAccount(account, async (client) => {
+        await client.query(
+          "update swarm_run set redirect_pending=true, updated_at=now() where account_id=$1 and run_id=$2",
+          [account, runId],
+        );
+      });
+
+    if (this.dependencies.kernel.isLive(runId) && session.sessionId) {
+      // 这一轮在跑：研究插件会在下一个步骤边界把它 steer 进去（B15）。
+      // 所以这里**只排队**，不再用 JSON-RPC 另排一份到下一回合——那会让同一条消息
+      // 既被下一步送到、又在下一轮再送一次（B16）。
+      let queued: { ok: true; id: string; mode: "steer" | "queue"; note?: string } | { ok: false; reason: string } = { ok: true, id: "", mode: "steer" };
+      // 队员是团队里的子会话：直接排队会被运行时拒（session already exists）。
+      // 这时交给负责人转达——它用 send_message 把话送进队员的原生收件箱。
+      let relayed = false;
+      if (!queued.ok && target !== "lead") {
+        const lead = await this.dependencies.db.withAccount(account, async (client) => {
+          const row = await this.row(client, account, runId);
+          const fold = await loadFold(client, account, runId);
+          return (
+            row.lead_session ??
+            [...fold.members.values()].find((member) => member.role === "lead")?.sessionId ??
+            null
+          );
+        });
+        if (lead) {
+          queued = await this.dependencies.kernel.queuePrompt(
+            account,
+            runId,
+            String(lead),
+            `用户有话要转给 ${target}：${outgoing}。请用 send_message 原样转达给它，然后按它的回应往下做。`,
+          );
+          relayed = queued.ok;
+        }
+      }
+      if (queued.ok) {
+        await this.dependencies.db.withAccount(account, async (client) => {
+          await client.query(
+            "update swarm_inbox set state='queued', reason=$3 where account_id=$1 and id=$2",
+            [
+              account,
+              inboxId.id,
+              `queued:${queued.mode}:${queued.id}${queued.note ? `:${queued.note}` : ""}`,
+            ],
+          );
+        });
+        if (input.interventionId)
+          await this.dependencies.db.withAccount(account, async (client) => {
+            await client.query(
+              `update swarm_intervention set state='received', result=$3, updated_at=now()
+                where account_id=$1 and id=$2`,
+              [
+                account,
+                input.interventionId,
+                relayed
+                  ? `已排队：交给负责人转达给 ${target}，等它取到才算送到。`
+                  : queued.mode === "steer"
+                    ? `已排队：研究插件会在${target === "lead" ? "负责人" : target}的下一个步骤边界交给它。`
+                    : `已排队：排进${target === "lead" ? "负责人" : target}的收件箱（下一轮送到），等它取到才算送到。`,
+              ],
+            );
+            const queuedEntry = (await this.interventions(client, account, runId)).find(
+              (entry) => entry.id === input.interventionId,
+            );
+            if (queuedEntry) {
+              await this.emitSimple(client, account, runId, "intervention", queuedEntry);
+              await this.emitInterventionBus(client, account, runId, queuedEntry);
+            }
+          });
+        return { ok: true, queuedId: queued.id };
+      }
+      // 排队本身失败：如实写原因，不假装送到了。
+      await this.dependencies.db.withAccount(account, async (client) => {
+        await client.query(
+          "update swarm_inbox set state='failed', reason=$3 where account_id=$1 and id=$2",
+          [account, inboxId.id, queued.reason],
+        );
+      });
+      return { ok: false, reason: queued.reason };
+    }
+
+    // 负责人这一轮还在跑，但收件人还没有可排队的会话：如实说，不要另起一轮。
+    if (this.dependencies.kernel.isLive(runId))
+      return {
+        ok: false,
+        reason: `${target === "lead" ? "负责人" : target}还没有可投递的会话，稍后再试`,
+      };
+
+    // 空闲：起一轮把它送进去。
+    try {
+      await this.dependencies.kernel.submit(account, runId, { mode: "swarm", prompt: outgoing });
+      await this.markDelivered(account, runId, [inboxId.id]);
+      return { ok: true };
+    } catch (error) {
+      const reason = String((error as Error)?.message ?? error).slice(0, 200);
+      await this.dependencies.db.withAccount(account, async (client) => {
+        await client.query(
+          "update swarm_inbox set state='failed', reason=$3 where account_id=$1 and id=$2",
+          [account, inboxId.id, reason],
+        );
+      });
+      return { ok: false, reason };
+    }
+  }
+
+  /** 单条干预的回执（按 id 取）。 */
+  private async intervention(
+    account: string,
+    runId: string,
+    id: string,
+  ): Promise<Intervention> {
+    return this.dependencies.db.withAccount(account, async (client) => {
+      const found = (await this.interventions(client, account, runId)).find(
+        (entry) => entry.id === id,
+      );
+      if (!found) throw new ApiFailure("INTERVENTION_NOT_FOUND", 404, "这条干预不在了。");
+      return found;
+    });
+  }
+
+  /** 当前名册：成员 id → 角色 / 名字 / 路线（两条来源合并）。 */
+  private async memberRoster(
+    client: pg.PoolClient,
+    account: string,
+    runId: string,
+  ): Promise<
+    Map<string, { role: string; label?: string; routeId: string | null; cardId?: string }>
+  > {
+    const roster = new Map<
+      string,
+      { role: string; label?: string; routeId: string | null; cardId?: string }
+    >();
+    const meta = (
+      await client.query(
+        `select ref_id, data from swarm_meta
+          where account_id=$1 and run_id=$2 and kind='member'`,
+        [account, runId],
+      )
+    ).rows;
+    for (const row of meta) {
+      const data = row.data as {
+        role?: string;
+        label?: string;
+        routeId?: string | null;
+        cardId?: string;
+      };
+      roster.set(String(row.ref_id), {
+        role: data.role ?? "researcher",
+        ...(data.label ? { label: data.label } : {}),
+        routeId: data.routeId ?? null,
+        ...(data.cardId ? { cardId: String(data.cardId) } : {}),
+      });
+    }
+    const fold = await loadFold(client, account, runId);
+    for (const [id, member] of fold.members) {
+      const existing = roster.get(id);
+      roster.set(id, {
+        role: member.role,
+        label: member.label ?? existing?.label,
+        routeId: existing?.routeId ?? null,
+        ...(existing?.cardId ? { cardId: existing.cardId } : {}),
+      });
+    }
+    return roster;
+  }
+
+  /**
+   * 送达确认（B13/B15）：对方的会话里真的出现了这条 user/message，才把收件箱条目与干预
+   * 从「handed / queued」改成「delivered」。每次取快照都核一次，重启后也能补上。
+   *
+   * 注意事件的形状：`user/message` 的 payload 就是消息本身（`{id, role, source, content}`），
+   * 正文在 `payload.content`，不是 `payload.message.content`——上一版读错了地方，
+   * 所以消息明明进了会话、回执还停在「已排队」。
+   */
+  private async settleDeliveries(account: string, runId: string): Promise<void> {
+    await this.dependencies.db.withAccount(account, async (client) => {
+      const rows = (
+        await client.query(
+          `select id, text, intervention_id from swarm_inbox
+            where account_id=$1 and run_id=$2
+              and state in ('pending','queued','handed')
+            order by created_at`,
+          [account, runId],
+        )
+      ).rows;
+      if (!rows.length) return;
+      // 只取这一 run 的会话里的用户消息正文（数量可控：一次运行几十到几百条）。
+      // 同时取事件时间：送达时间要记「消息真的出现在会话里」的那一刻，不是事后补核的时间。
+      const texts = (
+        await client.query(
+          `select payload, at from event
+            where account_id=$1 and run_id=$2 and action='user/message'
+            order by seq`,
+          [account, runId],
+        )
+      ).rows
+        .map((row) => {
+          const payload = row.payload as { content?: unknown } | undefined;
+          const content = payload?.content;
+          if (!Array.isArray(content)) return { text: "", at: null as Date | null };
+          const text = content
+            .map((block) =>
+              typeof (block as { text?: unknown })?.text === "string"
+                ? (block as { text: string }).text
+                : "",
+            )
+            .join("");
+          return { text, at: row.at ? new Date(row.at as string) : null };
+        })
+        .filter((entry) => entry.text !== "");
+      if (!texts.length) return;
+      const delivered: { id: string; at: Date | null }[] = [];
+      for (const entry of rows) {
+        const text = String(entry.text).trim();
+        if (!text) continue;
+        const hit = texts.find((seen) => seen.text.includes(text));
+        if (!hit) continue;
+        delivered.push({ id: String(entry.id), at: hit.at });
+        if (entry.intervention_id) {
+          const at = hit.at ? new Date(hit.at) : new Date();
+          const clock = at.toLocaleTimeString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
+          await client.query(
+            `update swarm_intervention set state='delivered', result=$3, updated_at=now()
+              where account_id=$1 and id=$2 and state in ('received')`,
+            [account, String(entry.intervention_id), `已送到（${clock}），对方在这一轮里看到了。`],
+          );
+        }
+      }
+      if (!delivered.length) return;
+      // 送达时间按每条消息自己的出现时刻写，不用 now()。
+      for (const message of delivered)
+        await client.query(
+          `update swarm_inbox set state='delivered', delivered_at=coalesce($3, now())
+            where account_id=$1 and id=$2`,
+          [account, message.id, message.at],
+        );
+    });
+  }
+
+  /** 批过的加人卡：这张卡建出来的人真的出现在名册里，才把干预写成「已执行」。 */
+  private async settleAddMembers(account: string, runId: string): Promise<void> {
+    await this.dependencies.db.withAccount(account, async (client) => {
+      const rows = (
+        await client.query(
+          `select i.id, i.approval_id, i.approval_id card_id, a.effects from swarm_intervention i
+             join approval a on a.account_id=i.account_id and a.id=i.approval_id
+            where i.account_id=$1 and i.run_id=$2 and i.kind='add_member'
+              and i.state='received'`,
+          [account, runId],
+        )
+      ).rows;
+      if (!rows.length) return;
+      const roster = await this.memberRoster(client, account, runId);
+      const plan = await this.planOf(client, account, runId);
+      const planCount = (role: string) =>
+        (plan?.roster ?? []).find((entry) => entry.role === role)?.count ?? 0;
+      for (const entry of rows) {
+        const effects = (Array.isArray(entry.effects) ? entry.effects[0] : entry.effects) as {
+          role?: string;
+          routeId?: string | null;
+          approvedMemberIds?: string[];
+        };
+        const before = new Set(effects?.approvedMemberIds ?? []);
+        const wantRole = effects.role ?? "researcher";
+        // 按卡认人：优先找「research_spawn 带了这张卡号」的成员；
+        // 没带卡号的，至少要这个角色的人数超过原计划编制——计划里本来就会建的人不算。
+        const cardId = entry.card_id ? String(entry.card_id) : String(entry.id);
+        const byCard = [...roster.entries()].find(
+          ([id, member]) => !before.has(id) && member.cardId === cardId,
+        );
+        const sameRole = [...roster.entries()].filter(([, member]) => member.role === wantRole);
+        const overPlan = sameRole.length > planCount(wantRole);
+        const created = byCard ?? (overPlan ? sameRole[sameRole.length - 1] : undefined);
+        if (!created) continue;
+        const [memberId, member] = created;
+        const roleWord =
+          wantRole === "researcher" ? "研究员" : wantRole === "critic" ? "反驳员" : wantRole === "verifier" ? "核实员" : wantRole;
+        await client.query(
+          `update swarm_intervention set state='applied', result=$3, updated_at=now()
+            where account_id=$1 and id=$2`,
+          [
+            account,
+            entry.id,
+            byCard
+              ? `已按这张卡（${cardId.slice(0, 8)}）建出${roleWord} ${memberId}（${member.label ?? memberId}）。`
+              : `已建出${roleWord} ${memberId}（${member.label ?? memberId}）：这个角色的人数已经超过原计划编制（${sameRole.length} > ${planCount(wantRole)}）。`,
+          ],
+        );
+        // 一张加人卡只对应一次建人：卡就关掉（consumed），再要加人得另出卡等用户批准。
+        await client.query(
+          `update approval set state='approved', decided_at=coalesce(decided_at, now()), consumed_at=now()
+            where account_id=$1 and id=$2 and consumed_at is null`,
+          [account, cardId],
+        );
+        const updated = (await this.interventions(client, account, runId)).find(
+          (item) => item.id === String(entry.id),
+        );
+        if (updated) {
+          await this.emitSimple(client, account, runId, "intervention", updated);
+          await this.emitInterventionBus(client, account, runId, updated);
+        }
+      }
+    });
+  }
+
+  /** 读某人待送的收件箱条目（插件调用时按名字送进去）。 */
+  /**
+   * 取走排给某人的待送消息（B15）。
+   *
+   * 这里**领走**：同一条消息只交给这一步一次——取到就把状态改成 `handed`，
+   * 之后再有工具边界来取也拿不到它。真正送达仍以会话里出现这条 user/message 为准
+   * （`delivered`）。不传 `claim` 时只读，给测试与只读查看用。
+   */
+  async pendingFor(
+    account: string,
+    runId: string,
+    target: string,
+    claim = false,
+  ): Promise<{ id: string; text: string; kind: string; interventionId: string | null }[]> {
+    return this.dependencies.db.withAccount(account, async (client) => {
+      const rows = (
+        await client.query(
+          claim
+            ? `update swarm_inbox set state='handed', handed_at=now()
+                 where account_id=$1 and run_id=$2 and target=$3 and state in ('pending','queued')
+                   and id in (
+                     select id from swarm_inbox
+                      where account_id=$1 and run_id=$2 and target=$3
+                        and state in ('pending','queued')
+                      order by created_at limit 8
+                   )
+               returning id,text,kind,intervention_id`
+            : `select id,text,kind,intervention_id from swarm_inbox
+                where account_id=$1 and run_id=$2 and target=$3 and state in ('pending','queued')
+                order by created_at limit 8`,
+          [account, runId, target],
+        )
+      ).rows;
+      return rows.map((row) => ({
+        id: String(row.id),
+        text: String(row.text),
+        kind: String(row.kind),
+        interventionId: row.intervention_id ? String(row.intervention_id) : null,
+      }));
+    });
+  }
+
+  /** 送进去了：条目记 delivered，发起的干预回执改成「已投递」。 */
+  async markDelivered(
+    account: string,
+    runId: string,
+    ids: string[],
+  ): Promise<void> {
+    if (!ids.length) return;
+    await this.dependencies.db.withAccount(account, async (client) => {
+      const rows = (
+        await client.query(
+          `update swarm_inbox set state='delivered', delivered_at=now()
+            where account_id=$1 and run_id=$2 and id = any($3::uuid[])
+            returning intervention_id`,
+          [account, runId, ids],
+        )
+      ).rows;
+      const interventionIds = rows
+        .map((row) => (row.intervention_id ? String(row.intervention_id) : null))
+        .filter((value): value is string => !!value);
+      for (const interventionId of interventionIds) {
+        await client.query(
+          `update swarm_intervention set state='delivered', result=$3, updated_at=now()
+            where account_id=$1 and id=$2 and state in ('received','pending_approval')`,
+          [account, interventionId, "已送到，负责人在这一轮里会看到。"],
+        );
+        const updated = (await this.interventions(client, account, runId)).find(
+          (entry) => entry.id === interventionId,
+        );
+        if (updated) {
+          await this.emitSimple(client, account, runId, "intervention", updated);
+          await this.emitInterventionBus(client, account, runId, updated);
+        }
+      }
+      await this.emitRun(client, account, runId);
+    });
+  }
+
+  /** 送不进去：如实写成 failed 并写明原因（不再一律写「已投递」）。 */
+  async failMessage(account: string, runId: string, interventionId: string, reason: string): Promise<void> {
+    await this.dependencies.db.withAccount(account, async (client) => {
+      await client.query(
+        `update swarm_intervention set state='failed', result=$3, updated_at=now()
+          where account_id=$1 and id=$2`,
+        [account, interventionId, reason.slice(0, 500)],
+      );
+      const updated = (await this.interventions(client, account, runId)).find(
+        (entry) => entry.id === interventionId,
+      );
+      if (updated) await this.emitSimple(client, account, runId, "intervention", updated);
+      await this.emitRun(client, account, runId);
+    });
+  }
+
+  /**
+   * 负责人的那一轮挂了（B11）：群研不能还显示「运行中」。
+   * 队员可能还在各自会话里跑，但没人汇总了，所以转成「已暂停」并写清原因。
+   */
+  async onLeadTurnFailed(
+    account: string,
+    runId: string,
+    state: string,
+    detail?: string,
+  ): Promise<void> {
+    const quota = /QUOTA|Insufficient Balance|402/i.test(detail ?? "");
+    const network = /MODEL_UPSTREAM_UNAVAILABLE|fetch failed|ECONNRESET|ETIMEDOUT|5\d\d/i.test(
+      detail ?? "",
+    );
+    // 只写人话：原始报错留给日志，页面上的说明得让人看得懂。
+    const code = (detail ?? "").match(/KERNEL_[A-Z_]+|MODEL_UPSTREAM_UNAVAILABLE/)?.[0] ?? "";
+    const reason = quota
+      ? "负责人那一轮因为账户额度不足停下了：已交的结论和证据都在，充值后点继续。"
+      : network
+        ? "负责人那一轮撞上网络抖动停下了：已交的结论和证据都在，恢复后点继续就能接着跑。"
+        : code === "KERNEL_MAX_TOKENS"
+          ? "负责人那一轮的回答太长被截断了：已交的结论和证据都在，点继续就能接着做。"
+          : "负责人的运行时意外退出了：已交的结论和证据都在，点继续就能接着做。";
+    await this.dependencies.db.withAccount(account, async (client) => {
+      const row = await this.row(client, account, runId).catch(() => null);
+      if (!row) return;
+      if (TERMINAL.has(row.state) || row.state === "paused") return;
+      await this.settleTiming(client, account, row);
+      await client.query(
+        `update swarm_run set state='paused', state_reason=$3, active_since=null, updated_at=now()
+         where account_id=$1 and run_id=$2 and state not in ('paused','partial','done','unresolved','cancelled','failed')`,
+        [account, runId, reason],
+      );
+      await this.emitSimple(client, account, runId, "bus", {
+        seq: 0,
+        at: new Date().toISOString(),
+        type: "system",
+        from: "system",
+        to: "user",
+        text: `（${reason}）`,
+        refs: {},
+      } satisfies BusEntry);
+      await this.emitReport(client, account, runId, row.plan_version, reason);
+      await this.emitRun(client, account, runId);
+    });
+  }
+
+  /** 已核实结论的原文（追加卡上「新发现」用）。 */
+  private async verifiedFindings(
+    client: pg.PoolClient,
+    account: string,
+    runId: string,
+    limit = 5,
+  ): Promise<string[]> {
+    const rows = (
+      await client.query(
+        `select c.text from swarm_claim c
+          where c.account_id=$1 and c.run_id=$2 and c.verified_version=c.version and c.status='verified'
+            and c.version = (select max(c2.version) from swarm_claim c2
+                              where c2.account_id=c.account_id and c2.run_id=c.run_id and c2.id=c.id)
+          order by c.created_at limit $3`,
+        [account, runId, limit],
+      )
+    ).rows;
+    return rows.map((row) => String(row.text).slice(0, 120));
+  }
+
+  /** 还没解决的缺口：未核实的结论 + 路线自己记的缺口（合并说明不算缺口）。 */
+  private async openGaps(
+    client: pg.PoolClient,
+    account: string,
+    runId: string,
+    limit = 6,
+  ): Promise<string[]> {
+    const claims = await latestClaims(client, account, runId, { limit: 200 });
+    const pending = claims
+      .filter((claim) =>
+        ["candidate", "awaiting_refute", "awaiting_verify", "disputed", "insufficient"].includes(
+          claim.status,
+        ),
+      )
+      .map((claim) => `${claim.status}：${claim.text.slice(0, 80)}`);
+    const routes = await loadApproaches(client, account, runId);
+    const routeGaps = routes
+      .filter((route) => route.state !== "merged")
+      .map((route) => route.gap ?? route.blockedReason)
+      .filter((text): text is string => typeof text === "string" && text.trim() !== "")
+      .map((text) => text.slice(0, 80));
+    return [...new Set([...pending, ...routeGaps])].slice(0, limit);
   }
 
   // ── 小工具 ────────────────────────────────────────
@@ -1730,6 +2975,113 @@ export class SwarmService {
   }
 
   /**
+   * 审查（research_review_claim）：反驳 / 补证据 / 独立核实 / 降级。
+   * 审查者自己的证据先落库，再落 review，最后按规则改结论状态；推 review 与 claim 两条事件。
+   */
+  async reviewResearch(
+    account: string,
+    runId: string,
+    input: {
+      member?: unknown;
+      claimId?: unknown;
+      claimVersion?: unknown;
+      kind?: unknown;
+      verdict?: unknown;
+      reason?: unknown;
+      evidence?: unknown;
+      evidenceIds?: unknown;
+      taskId?: unknown;
+      submissionId?: unknown;
+    },
+  ): Promise<{ review: Review; claim: Claim }> {
+    const memberName =
+      typeof input.member === "string" && input.member.trim() !== "" ? input.member.trim() : "lead";
+    const submissionId =
+      typeof input.submissionId === "string" && input.submissionId.trim() !== ""
+        ? input.submissionId.trim().slice(0, 200)
+        : randomUUID();
+    return this.dependencies.db.withAccount(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const repeated = await findSubmission(client, account, runId, submissionId);
+      if (repeated && repeated.reviewId) {
+        const claim = await loadClaim(client, account, runId, repeated.claimIds[0] ?? "");
+        return {
+          review: (await loadReviews(client, account, runId, { claimId: claim.id })).slice(-1)[0],
+          claim,
+        };
+      }
+      if (TERMINAL.has(row.state))
+        throw new ApiFailure("RUN_ENDED", 409, "这次群研已经结束，不再接收审查。");
+      const member = await this.memberOf(client, account, runId, memberName);
+      // 审查者自己的证据（核实必须带）先落库。
+      const evidenceInput = Array.isArray(input.evidence)
+        ? input.evidence
+        : input.evidence
+          ? [input.evidence]
+          : [];
+      const evidenceIds: string[] = Array.isArray(input.evidenceIds)
+        ? input.evidenceIds.map(String)
+        : [];
+      for (const raw of evidenceInput) {
+        const parsed = readEvidence(raw);
+        const stored = await putEvidence(client, { account, runId, submissionId, evidence: parsed });
+        evidenceIds.push(stored.id);
+        if (stored.created) await this.emitSimple(client, account, runId, "evidence", stored.evidence);
+      }
+      const reviewInput = readReview({
+        claimId: input.claimId,
+        claimVersion: input.claimVersion,
+        kind: input.kind,
+        verdict: input.verdict,
+        reason: input.reason,
+        evidenceIds,
+        taskId: input.taskId,
+      });
+      const outcome = await reviewClaim(client, {
+        account,
+        runId,
+        member: member.id,
+        round: row.round,
+        submissionId,
+        review: reviewInput,
+      });
+      await recordSubmission(client, {
+        account,
+        runId,
+        submissionId,
+        member: member.id,
+        kind: `review:${reviewInput.kind}`,
+        result: {
+          submissionId,
+          claimIds: [outcome.claim.id],
+          evidenceIds,
+          postIds: [],
+          reviewId: outcome.review.id,
+        } satisfies SubmissionResult,
+      });
+      await this.emitSimple(client, account, runId, "review", outcome.review);
+      await this.emitSimple(client, account, runId, "claim", outcome.claim);
+      await this.emitSimple(client, account, runId, "bus", {
+        seq: 0,
+        at: new Date().toISOString(),
+        type: reviewInput.kind === "verify" ? "verify" : reviewInput.kind === "refute" ? "refute" : "deliver",
+        from: member.id,
+        to: "board",
+        text:
+          reviewInput.kind === "verify"
+            ? `核实了「${outcome.claim.text.slice(0, 60)}」：${reviewInput.verdict}`
+            : reviewInput.kind === "refute"
+              ? `反驳「${outcome.claim.text.slice(0, 60)}」：${reviewInput.reason.slice(0, 60)}`
+              : `${reviewInput.kind}：${outcome.claim.text.slice(0, 60)}`,
+        refs: { claimId: outcome.claim.id, reviewId: outcome.review.id },
+      } satisfies BusEntry);
+      await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
+      await this.emitRun(client, account, runId);
+      return { review: outcome.review, claim: outcome.claim };
+    });
+  }
+
+  /**
    * 查询（research_query）：按角色 / 路线 / 任务 / 版本增量读。
    * 独立阶段（前 2 轮）研究员只能看到自己那条路线的结论——服务端裁，不靠前端隐藏。
    */
@@ -1844,12 +3196,144 @@ export class SwarmService {
   }
 
   /** 结论详情：结论 + 它引用的证据 + 来自哪个任务、哪个队员。 */
+  /**
+   * 精读关联（契约 §2、PRD §8）：用同一份材料版本与定位，建一份精读档案或接着已有的精读。
+   * - 同一 (跑, 结论, 版本, 证据) 只建一次；再点就是「接着精读」，在同一个精读档案里再开一轮。
+   * - 精读结果由精读台自己的档案承载，并通过 `swarm_read_link` 挂回这条结论；
+   *   群研已经结束的运行不改已发布的报告，只记成后续关联（mode='followup'）。
+   */
+  async linkRead(
+    account: string,
+    runId: string,
+    claimId: string,
+    evidenceId: string,
+    startRead: (
+      dossierId: string,
+      paperRef: string,
+      paperTitle?: string | null,
+    ) => Promise<{ runId: string }>,
+    createReadDossier: (input: { title: string; intent: string }) => Promise<{ id: string }>,
+  ): Promise<{ readDossierId: string; href: string; resumed: boolean; readRunId: string | null }> {
+    const prepared = await this.dependencies.db.withAccountSnapshot(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const claim = await loadClaim(client, account, runId, claimId);
+      const ids = await claimEvidenceIds(client, account, runId, claim.id, claim.version);
+      if (!ids.includes(evidenceId))
+        throw new ApiFailure("EVIDENCE_NOT_ON_CLAIM", 400, "这条证据不属于这条结论的这一版。");
+      const evidence = (await loadEvidence(client, account, runId, [evidenceId]))[0];
+      if (!evidence) throw new ApiFailure("EVIDENCE_NOT_FOUND", 404, "找不到这条证据。");
+      const existing = (
+        await client.query(
+          `select read_dossier_id, read_run_id from swarm_read_link
+            where account_id=$1 and run_id=$2 and claim_id=$3 and claim_version=$4 and evidence_id=$5`,
+          [account, runId, claim.id, claim.version, evidenceId],
+        )
+      ).rows[0];
+      const terminal = ["done", "partial", "unresolved", "cancelled", "failed"].includes(
+        String(row.state),
+      );
+      return {
+        existing: existing
+          ? { dossierId: String(existing.read_dossier_id), runId: existing.read_run_id ? String(existing.read_run_id) : null }
+          : null,
+        claim,
+        evidence,
+        terminal,
+        mode: terminal ? "followup" : "fresh",
+      };
+    });
+
+    if (prepared.existing) {
+      // 接着精读：同一个档案里再开一轮，用同一份材料。
+      const started = await startRead(
+        prepared.existing.dossierId,
+        String(prepared.evidence.source?.ref ?? ""),
+        prepared.evidence.source?.title ? String(prepared.evidence.source.title) : null,
+      );
+      await this.dependencies.db.withAccount(account, (client) =>
+        client.query(
+          `update swarm_read_link set read_run_id=$6
+            where account_id=$1 and run_id=$2 and claim_id=$3 and claim_version=$4 and evidence_id=$5`,
+          [account, runId, prepared.claim.id, prepared.claim.version, evidenceId, started.runId],
+        ),
+      );
+      return {
+        readDossierId: prepared.existing.dossierId,
+        href: `/dossiers/${prepared.existing.dossierId}`,
+        resumed: true,
+        readRunId: started.runId,
+      };
+    }
+
+    const dossier = await createReadDossier({
+      title: `精读：${String(prepared.evidence.source?.title ?? "这份材料").slice(0, 30)}`,
+      intent: prepared.claim.text.slice(0, 200),
+    });
+    const started = await startRead(
+      String(dossier.id),
+      String(prepared.evidence.source?.ref ?? ""),
+      prepared.evidence.source?.title ? String(prepared.evidence.source.title) : null,
+    );
+    await this.dependencies.db.withAccount(account, (client) => {
+      return client
+        .query(
+          `insert into swarm_read_link(
+             account_id, run_id, claim_id, claim_version, evidence_id, read_dossier_id, read_run_id, mode
+           ) values($1,$2,$3,$4,$5,$6,$7,$8)
+           on conflict (account_id,run_id,claim_id,claim_version,evidence_id) do update
+             set read_run_id=excluded.read_run_id`,
+          [
+            account,
+            runId,
+            prepared.claim.id,
+            prepared.claim.version,
+            evidenceId,
+            String(dossier.id),
+            started.runId,
+            prepared.mode,
+          ],
+        )
+        .then(() =>
+          this.emitSimple(client as never as pg.PoolClient, account, runId, "bus", {
+            seq: 0,
+            at: new Date().toISOString(),
+            type: "system",
+            from: "system",
+            to: "user",
+            text: `（开了精读：${String(prepared.evidence.source?.ref ?? "")}，结果回到这条结论）`,
+            refs: { claimId: prepared.claim.id },
+          }),
+        );
+    });
+    return {
+      readDossierId: String(dossier.id),
+      href: `/dossiers/${dossier.id}`,
+      resumed: false,
+      readRunId: started.runId,
+    };
+  }
+
   async claimDetail(account: string, runId: string, claimId: string, version?: number) {
     return this.dependencies.db.withAccountSnapshot(account, async (client) => {
       await this.row(client, account, runId);
       const claim = await loadClaim(client, account, runId, claimId, version);
       const evidenceIds = await claimEvidenceIds(client, account, runId, claim.id, claim.version);
       const evidence = await loadEvidence(client, account, runId, evidenceIds);
+      const reviews = await loadReviews(client, account, runId, { claimId: claim.id });
+      // 精读关联：这条结论哪几处材料已经开了精读（契约 §2 阶段 3）。
+      const reads = (
+        await client.query(
+          `select read_dossier_id, read_run_id, evidence_id, mode from swarm_read_link
+            where account_id=$1 and run_id=$2 and claim_id=$3 order by created_at`,
+          [account, runId, claim.id],
+        )
+      ).rows.map((row) => ({
+        evidenceId: String(row.evidence_id),
+        readDossierId: String(row.read_dossier_id),
+        readRunId: row.read_run_id ? String(row.read_run_id) : null,
+        href: `/dossiers/${String(row.read_dossier_id)}`,
+        mode: String(row.mode),
+      }));
       const fold = await loadFold(client, account, runId);
       const task = claim.taskId ? fold.tasks.get(claim.taskId) : undefined;
       const member = fold.members.get(claim.author);
@@ -1864,9 +3348,10 @@ export class SwarmService {
             ).rows[0]?.data as { role?: string; label?: string | null } | undefined);
       const role = (meta?.role as MemberRole | undefined) ?? member?.role ?? "researcher";
       return {
-        claim: { ...claim, evidenceIds },
+        claim: { ...claim, evidenceIds, reviews: reviews.map((review) => review.id) },
         evidence,
-        reviews: [],
+        reviews,
+        reads,
         task: task
           ? { id: task.id, title: task.title, state: task.state, routeId: task.routeId }
           : null,
@@ -1960,11 +3445,15 @@ export class SwarmService {
     await this.project(account, runId);
     return this.dependencies.db.withAccountSnapshot(account, async (client) => {
       const row = await this.row(client, account, runId);
+      const run = await this.runOf(client, account, runId);
       return buildReport(client, {
         account,
         runId,
         version: row.plan_version,
         stateReason: row.state_reason,
+        runState: run.state,
+        limits: run.limits,
+        used: { rounds: run.used.rounds, activeMs: run.used.activeMs },
       });
     });
   }
@@ -2037,6 +3526,7 @@ function kickoffPrompt(plan: SwarmPlan | null): string {
     "这样页面上的路线卡、任务树和名册才对得上；靠描述里写 route= 是不算数的。",
     "一个研究员只跟一条路线，三条路线不要用同一种做法；反驳和核实读别人的产出用 research_files 的读。",
     "每条结论都用 research_submit 交到黑板：结论要引用至少一条证据（来源 + 章节/表号 + 原文摘句），没有证据就写成负结果。",
+    "候选结论要有人独立反驳、另一个人独立核实（用 research_review_claim）：核实要自己回原文核、把核到的证据一起交上来，不能只复述反驳意见，也不能核自己交的结论。",
     "只把东西写进自己的 notes.md 不算交付——黑板和任务板都要动，页面才看得见；问题和求助也用 research_submit 发。",
     `这次额度是 ${rounds} 轮、${plan?.limits.minutes ?? MIN_MINUTES} 分钟。用 wait_agent 收齐产出，不要停下来等用户。`,
     "队员要用 research_files 在 team/<队员名>/ 里写自己的记录（目录会自己建出来）；不要读写别人的目录。",

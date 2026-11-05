@@ -2,11 +2,12 @@
 // 打开 / 重连：先取快照，再从快照的 cursor 订阅事件流；断开就重取快照再订阅。
 // 澄清阶段负责人说的话不在群研时间线里，取同一运行的内核事件（assistant/message）；提问卡从收件箱按 runId 取。
 import type {
-  ClaimDetail, EvidenceDetail, BusEntry, MemberLogItem, SwarmAdapter, SwarmAnswer, SwarmAsk, SwarmEvent, SwarmPlan, SwarmReport, SwarmSnapshot, DockLine,
+  ClaimDetail, EvidenceDetail, ReadLink, SwarmCardView, BusEntry, MemberLogItem, SwarmAdapter, SwarmAnswer, SwarmAsk, SwarmEvent, SwarmPlan, SwarmReport, SwarmSnapshot, DockLine,
 } from '../components/workbenches/research/swarm/swarmTypes';
 import { isTerminal } from '../components/workbenches/research/swarm/swarmTypes';
 import { applyEvent, createHub, emptyView, mergeBus } from '../components/workbenches/research/swarm/swarmStore';
 import { request } from './research-live';
+import { isSwarmCard } from '../components/inbox/SwarmCard';
 
 type Req = typeof request;
 const clock = () => new Date().toISOString();
@@ -108,8 +109,11 @@ export function createLiveSwarmAdapter(dossierId: string | undefined, ports: { r
         id: a.id, title: String(a.title ?? ''), multi: a.question?.multi === true,
         candidates: Array.isArray(a.question?.candidates) ? a.question.candidates.map((c: any) => ({ id: String(c.id), title: String(c.title ?? c.id) })) : [],
       }));
+      const cards: SwarmCardView[] = (approvals.items ?? []).filter(a => a.runId === id && isSwarmCard(String(a.kind))).map(a => ({
+        id: a.id, kind: a.kind, title: String(a.title ?? ''), data: Array.isArray(a.effects) && a.effects[0] && typeof a.effects[0] === 'object' ? a.effects[0] : {},
+      }));
       if (runId !== id) return;
-      hub.set(v => ({ ...v, dock: dockOf(), asks, thinking }));
+      hub.set(v => ({ ...v, dock: dockOf(), asks, cards, thinking }));
     } catch { /* 侧边信息拿不到不影响主视图，下次再取 */ }
   }
 
@@ -182,7 +186,7 @@ export function createLiveSwarmAdapter(dossierId: string | undefined, ports: { r
       return ports.request('POST', swarm(`/runs/${runId}/posts`), { col: 'question', text });
     },
     async intervene(kind, extra = {}) {
-      const body = { kind, ...(extra.text ? { text: extra.text } : {}), ...(extra.routeId || extra.memberId ? { target: { routeId: extra.routeId, memberId: extra.memberId } } : {}) };
+      const body = { kind, ...(extra.text ? { text: extra.text } : {}), ...(extra.role ? { role: extra.role } : {}), ...(extra.limits ? { limits: extra.limits } : {}), ...(extra.routeId || extra.memberId ? { target: { ...(extra.routeId ? { routeId: extra.routeId } : {}), ...(extra.memberId ? { memberId: extra.memberId } : {}) } } : {}) };
       const made = await ports.request('POST', swarm(`/runs/${runId}/interventions`), body);
       hub.set(v => v.snap ? { ...v, snap: { ...v.snap, interventions: v.snap.interventions.some(x => x.id === made.id) ? v.snap.interventions : [...v.snap.interventions, made] } } : v);
       return made;
@@ -198,12 +202,20 @@ export function createLiveSwarmAdapter(dossierId: string | undefined, ports: { r
         throw e;
       }
     },
+    async decideCard(id, decision, answers) {
+      await ports.request('POST', `/v1/approvals/${id}/decide`, { decision, scope: 'once', ...(answers ? { answers } : {}) });
+      hub.set(v => ({ ...v, cards: v.cards.filter(c => c.id !== id) }));
+      void pollSide(); void snapshot();
+    },
     async report() {
       if (!runId) return null;
       return ports.request('GET', swarm(`/runs/${runId}/report`)) as Promise<SwarmReport>;
     },
     async claim(claimId, version) {
       return ports.request('GET', swarm(`/runs/${runId}/claims/${encodeURIComponent(claimId)}${version ? `?version=${version}` : ''}`)) as Promise<ClaimDetail>;
+    },
+    async readEvidence(claimId, evidenceId) {
+      return ports.request('POST', swarm(`/runs/${runId}/claims/${encodeURIComponent(claimId)}/read`), { evidenceId }) as Promise<ReadLink>;
     },
     async evidence(evidenceId) {
       return ports.request('GET', swarm(`/runs/${runId}/evidence/${encodeURIComponent(evidenceId)}`)) as Promise<EvidenceDetail>;

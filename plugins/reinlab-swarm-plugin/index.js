@@ -55,7 +55,21 @@ async function readToken(config) {
 /** 控制面客户端：和精读插件同一个入口，令牌只在运行目录的只读文件里。 */
 export function createClient(config, fetchImpl = fetch) {
   const controlUrl = required(config, "controlUrl").replace(/\/+$/, "");
-  return async function call(server, tool, args) {
+  /**
+   * 通用控制面调用（不经过工具入口）：取待送的用户消息时用。
+   * 令牌和工具调用一样，只在运行目录的只读文件里。
+   */
+  async function post(path, body) {
+    const token = await readToken(config);
+    const response = await fetchImpl(`${controlUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": token },
+      body: JSON.stringify(body ?? {}),
+    });
+    if (!response.ok) return { error: { code: `CONTROL_${response.status}` } };
+    return { result: await response.json().catch(() => ({})) };
+  }
+  const call = async function call(server, tool, args) {
     const token = await readToken(config);
     const response = await fetchImpl(`${controlUrl}/kernel/tool`, {
       method: "POST",
@@ -81,6 +95,9 @@ export function createClient(config, fetchImpl = fetch) {
       };
     return { result: body.result };
   };
+  // 取待送消息走同一个客户端（同一个令牌、同一个控制面地址）。
+  call.post = post;
+  return call;
 }
 
 // ── 手写工具规格（参数对象 → JSON Schema）──────────────
@@ -288,6 +305,11 @@ export function apply(ctx, config) {
           label: { type: "string", description: "页面上显示的名字，如「研究员 01」。可留空。" },
           description: { type: "string", required: true, description: "这名队员负责什么，一句话。" },
           prompt: { type: "string", required: true, description: "交给他的完整任务（合同）。" },
+          add_card: {
+            type: "string",
+            description:
+              "如果这次建人是按某张加人卡建的，把那张卡的 id 原样带上（用户批准加人时会给）。页面据它核对「这张卡建出了谁」。",
+          },
         },
         timeoutMs: 120_000,
         async execute(args, exec) {
@@ -307,6 +329,7 @@ export function apply(ctx, config) {
               role: args.role,
               label: args.label ?? null,
               routeId: args.route_id ?? null,
+              ...(args.add_card ? { cardId: String(args.add_card) } : {}),
             },
           }).catch(() => undefined);
           return { member: { target: args.name, role: args.role, context } };
@@ -434,6 +457,53 @@ export function apply(ctx, config) {
     });
   };
 
+  /**
+   * 步骤边界取一次待送的用户消息，对这名 agent 调 steer（下一次边界就到）。
+   *
+   * DSH 的 `agent.steer(message)` 就是「Submit steering for the nearest step」：
+   * 空闲时它会自己开一轮，运行中则插到最近的步骤边界。控制面只负责排队和回执，
+   * 真正把消息送进会话的是这里，所以不再依赖 JSON-RPC 的 prompt 接口。
+   */
+  const steerPending = async (agent, memberName) => {
+    if (!agent || typeof agent.steer !== "function") return;
+    const now = Date.now();
+    const last = steerAt.get(agent) ?? 0;
+    if (now - last < 1500) return; // 一次工具调用只取一次，别把控制面打爆
+    steerAt.set(agent, now);
+    const picked = await call
+      .post("/kernel/inbox", { member: memberName })
+      .catch(() => null);
+    const messages = picked?.result?.messages;
+    if (!Array.isArray(messages) || messages.length === 0) return;
+    for (const message of messages) {
+      const text = String(message?.text ?? "");
+      const id = String(message?.id ?? "");
+      if (!text || !id) continue;
+      if (steeredIds.has(id)) continue; // 同一条只投一次
+      steeredIds.add(id);
+      try {
+        agent.steer({
+          id,
+          role: "user",
+          content: [{ type: "text", text }],
+          source: { kind: "user-rpc" },
+        });
+        void report(memberName, {
+          kind: "summary",
+          text: `收到用户插话并交给这一轮的下一步：${text.slice(0, 80)}`,
+        });
+      } catch (error) {
+        void report(memberName, {
+          kind: "summary",
+          text: `用户插话没能交给下一步：${String(error?.message ?? error).slice(0, 160)}`,
+        });
+      }
+    }
+  };
+  const steerAt = new WeakMap();
+  /** 已经 steer 过的消息 id：同一个 id 只投一次（控制面领走是主要保证，这里兜底）。 */
+  const steeredIds = new Set();
+
   const install = (agent) => {
     if (installed.has(agent)) return;
     let membership;
@@ -464,6 +534,11 @@ export function apply(ctx, config) {
       });
       return;
     }
+    // 负责人和队员都在自己的工具边界看一眼：控制面有没有用户的话要交给这一步。
+    scoped.on("tools/pre-execute", async (_exec, next) => {
+      void steerPending(agent, memberName);
+      return next();
+    });
     installed.set(agent, true);
     debug(`${memberName} 工具已装载（${role}）`);
   };
@@ -677,6 +752,126 @@ function researchTools(ctx, call, memberName, agent) {
           ...(args.limit ? { limit: args.limit } : {}),
         });
         return outcome.error ?? outcome.result;
+      },
+    }),
+    defineTool({
+      name: "research_review_claim",
+      description:
+        "审一条候选结论：独立反驳（refute）、要求补证据（need_evidence）、独立核实（verify）、降级/证伪（downgrade）。不能审自己交的结论；核实必须自己回原始出处核，把核到的证据一起交上来，不能只复述反驳意见。每条结论最多两轮反驳。",
+      parameters: {
+        claim_id: { type: "string", required: true, description: "要审的结论 id。" },
+        claim_version: { type: "integer", description: "审哪一版；不填就审当前最新版。" },
+        kind: {
+          type: "string",
+          required: true,
+          enum: ["refute", "need_evidence", "verify", "downgrade"],
+        },
+        verdict: {
+          type: "string",
+          required: true,
+          enum: ["upheld", "rejected", "verified", "not_verifiable", "pending"],
+          description:
+            "判定：反驳成立 upheld / 不成立 rejected；核实通过 verified / 核不了 not_verifiable；待定 pending。",
+        },
+        reason: {
+          type: "string",
+          required: true,
+          description: "看到了什么、为什么这样判（核实要写清回到哪一处原文核的）。",
+        },
+        evidence: {
+          type: "array",
+          description: "核实必须带：你自己核到的那条证据（来源 + 章节/表号 + 摘句）。",
+          items: {
+            type: "object",
+            properties: {
+              source: {
+                type: "object",
+                required: true,
+                properties: {
+                  kind: {
+                    type: "string",
+                    required: true,
+                    enum: ["paper", "web", "code", "data", "proof", "other"],
+                  },
+                  title: { type: "string", required: true },
+                  ref: { type: "string", required: true },
+                  version: { type: "string" },
+                },
+              },
+              locator: {
+                type: "object",
+                properties: {
+                  section: { type: "string" },
+                  quote: { type: "string" },
+                  page: { type: "integer" },
+                  lines: { type: "string" },
+                },
+              },
+              access: { type: "string", enum: ["full_text", "abstract_only", "unavailable"] },
+              how: { type: "string", required: true },
+            },
+          },
+        },
+        task_id: { type: "string", description: "这次审查对应的任务 id。" },
+      },
+      timeoutMs: 90_000,
+      async execute(args) {
+        const outcome = await call("swarm", "review", {
+          member: memberName,
+          claimId: args.claim_id,
+          ...(args.claim_version ? { claimVersion: args.claim_version } : {}),
+          kind: args.kind,
+          verdict: args.verdict,
+          reason: args.reason,
+          ...(args.task_id ? { taskId: args.task_id } : {}),
+          ...(Array.isArray(args.evidence)
+            ? {
+                evidence: args.evidence.map((entry) => ({
+                  source: {
+                    kind: entry.source?.kind,
+                    title: entry.source?.title,
+                    ref: entry.source?.ref,
+                    version: entry.source?.version,
+                  },
+                  locator: entry.locator
+                    ? {
+                        section: entry.locator.section,
+                        quote: entry.locator.quote,
+                        page: entry.locator.page,
+                        lines: entry.locator.lines,
+                      }
+                    : null,
+                  access: entry.access ?? "full_text",
+                  how: entry.how,
+                })),
+              }
+            : {}),
+        });
+        if (outcome.error) return outcome.error;
+        // 审查落库之后再标任务完成（和交结论一样的顺序）。
+        if (args.task_id) {
+          try {
+            let task = null;
+            try {
+              task = ctx.agentTeams.getTask(agent, args.task_id);
+            } catch {
+              task = null;
+            }
+            if (task && task.status !== "completed")
+              await ctx.agentTeams.updateTask(agent, {
+                taskId: args.task_id,
+                expectedRevision: task.revision,
+                action: "complete",
+              });
+          } catch (error) {
+            return {
+              ...outcome.result,
+              taskComplete: false,
+              note: `审查已落库，但任务没有标完成：${String(error?.message ?? error).slice(0, 120)}。`,
+            };
+          }
+        }
+        return outcome.result;
       },
     }),
     defineTool({

@@ -296,21 +296,44 @@ export function registerKernelRuns(
         "update approval set state='approved', decided_at=now(), decided_scope='once' where id=$1",
         [id],
       );
+      // 一回合里问了好几个问题：都答完才续上，一次把这一批回答交回去（和 DSH 里的体验一样）。
+      // 只算这一回合提的卡（最近一回合开始之后建的），已经交回去过的不再算。
+      const sinceTurn = `coalesce((select max(t.started_at) from dsh_turn t where t.run_id=$2), '-infinity'::timestamptz)`;
+      const waiting = Number(
+        (
+          await client.query(
+            `select count(*)::int n from approval
+              where account_id=$1 and run_id=$2 and kind='question' and state='pending'
+                and created_at >= ${sinceTurn}`,
+            [account, row.run_id],
+          )
+        ).rows[0]?.n ?? 0,
+      );
+      if (waiting > 0)
+        return c.json({ id, state: "approved", answer: { candidateId, candidateIds, text }, waitingFor: waiting });
       // 用户答完就按同一会话续上，把回答作为这一轮的输入送回原任务。
       if (row.run_state === "waiting") {
-        const chosen =
-          candidateIds.length > 1
-            ? `用户选择了 ${candidateIds.join("、")}。`
-            : candidateId
-              ? `用户选择了 ${candidateId}。`
-              : "";
-        void dependencies.kernel
-          ?.resumeAfterAnswer(
-            account,
-            row.run_id,
-            `用户已回答这次提问（审批 ${id}）。${chosen}${text ? "补充：" + text : ""} 继续原来的任务。`,
+        const batch = (
+          await client.query(
+            `select id,title,effects->'answer' as answer from approval
+              where account_id=$1 and run_id=$2 and kind='question' and state='approved'
+                and consumed_at is null and created_at >= ${sinceTurn}
+              order by created_at`,
+            [account, row.run_id],
           )
-          .catch(() => {});
+        ).rows as Array<{ id: string; title: string; answer: { candidateIds?: string[]; text?: string | null } | null }>;
+        const said = (answer: { candidateIds?: string[]; text?: string | null } | null) =>
+          `${answer?.candidateIds?.length ? `用户选择了 ${answer.candidateIds.join("、")}。` : ""}${answer?.text ? "补充：" + answer.text : ""}`;
+        const prompt =
+          batch.length > 1
+            ? `用户依次回答了这 ${batch.length} 个提问：\n${batch
+                .map((card, index) => `${index + 1}.「${String(card.title).slice(0, 120)}」（审批 ${card.id}）${said(card.answer)}`)
+                .join("\n")}\n继续原来的任务。`
+            : `用户已回答这次提问（审批 ${id}）。${said({ candidateIds, text })} 继续原来的任务。`;
+        await client.query("update approval set consumed_at=now() where id = any($1::uuid[])", [
+          batch.length ? batch.map((card) => card.id) : [id],
+        ]);
+        void dependencies.kernel?.resumeAfterAnswer(account, row.run_id, prompt).catch(() => {});
       }
       return c.json({ id, state: "approved", answer: { candidateId, candidateIds, text } });
     });
@@ -339,6 +362,8 @@ export function registerKernelRuns(
         id: run.id,
         state: run.state,
         query: (run.input as { query?: string })?.query ?? null,
+        // 精读运行选好的材料：页面据此认「已经选好这篇」，不再问「想读哪篇」。
+        chosenPaperId: (run.input as { chosenPaperId?: string })?.chosenPaperId ?? null,
         createdAt: run.created_at,
         endedAt: run.ended_at,
         session: turn

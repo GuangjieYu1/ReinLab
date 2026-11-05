@@ -13,6 +13,8 @@ import type { HarnessFactory } from "../src/kernel/dsh/session";
 
 const HOME = mkdtempSync(join(tmpdir(), "swarm-blackboard-"));
 
+const queuedPrompts: { sessionId: string; text: string }[] = [];
+
 const io = {
   mkdir: async (path: string) => void (await mkdir(path, { recursive: true, mode: 0o700 })),
   write: async (file: string, body: string) => void (await writeFile(file, body, { mode: 0o600 })),
@@ -37,6 +39,11 @@ function quietKernel(): HarnessFactory {
       }),
     }),
     close: async () => {},
+    // 真实 SDK 的收件箱排队接口（B13）：测试里记下来就行。
+    prompt: async (sessionId: string, blocks: { type: "text"; text: string }[]) => {
+      queuedPrompts.push({ sessionId, text: blocks.map((block) => block.text).join("") });
+      return "msg-" + queuedPrompts.length;
+    },
   });
 }
 
@@ -79,17 +86,22 @@ async function setup() {
   await swarm.registerMeta(f.account, created.runId, {
     kind: "member",
     refId: "r1-scout",
-    data: { role: "researcher", label: "研究员 01", routeId: "r1" },
+    data: { role: "researcher", label: "研究员 01", routeId: "r1", sessionId: "sess-r1" },
   });
   await swarm.registerMeta(f.account, created.runId, {
     kind: "member",
     refId: "r2-mech",
-    data: { role: "researcher", label: "研究员 02", routeId: "r2" },
+    data: { role: "researcher", label: "研究员 02", routeId: "r2", sessionId: "sess-r2" },
   });
   await swarm.registerMeta(f.account, created.runId, {
     kind: "member",
     refId: "critic",
     data: { role: "critic", label: "反驳 01", routeId: null },
+  });
+  await swarm.registerMeta(f.account, created.runId, {
+    kind: "member",
+    refId: "verifier",
+    data: { role: "verifier", label: "核实 01", routeId: null },
   });
   return { f, kernel, swarm, runId: created.runId };
 }
@@ -471,6 +483,798 @@ it("黑板接口：结论详情、证据详情、阶段结果都能按契约形�
     // 不存在的结论 / 证据给 404，不拿空对象冒充。
     expect((await get(`/v1/swarm/runs/${runId}/claims/${randomUUID()}`)).status).toBe(404);
     expect((await get(`/v1/swarm/runs/${runId}/evidence/${randomUUID()}`)).status).toBe(404);
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("审查与门禁：独立反驳、独立核实、两份人、改版作废、两轮上限、报告分区", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    // 交一条结论（r1 研究员），由反驳员和核实员分别审。
+    const submitted = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "rev-claim",
+      member: "r1-scout",
+      claim: {
+        text: "同预算下 agent 数超过 4 之后质量不再上升。",
+        basis: "checked_fact",
+        conditions: ["同一任务族"],
+      },
+      evidence: [evidenceOf("arXiv:2401.00041", "Table 3", "plateau after 4")],
+    });
+    const claimId = submitted.claimIds[0];
+
+    // 不能审自己。
+    await expect(
+      swarm.reviewResearch(f.account, runId, {
+        member: "r1-scout",
+        claimId,
+        kind: "refute",
+        verdict: "upheld",
+        reason: "自己反驳自己",
+      }),
+    ).rejects.toThrow(/不能审自己/);
+
+    // 核实必须带自己的证据、且不能只复述。
+    await expect(
+      swarm.reviewResearch(f.account, runId, {
+        member: "critic",
+        claimId,
+        kind: "verify",
+        verdict: "verified",
+        reason: "我看了原文",
+      }),
+    ).rejects.toThrow(/证据/);
+
+    // 反驳成立 → 有争议。
+    const refute = await swarm.reviewResearch(f.account, runId, {
+      member: "critic",
+      claimId,
+      kind: "refute",
+      verdict: "upheld",
+      reason: "表 3 只报了 4 之后的分差，没有控制预算，不能推出「不再上升」。",
+    });
+    expect(refute.claim.status).toBe("disputed");
+    expect(refute.claim.refuteRounds).toBe(1);
+
+    // 反驳者不能再给同一条结论签核实（反驳与核实分人）。
+    await expect(
+      swarm.reviewResearch(f.account, runId, {
+        member: "critic",
+        claimId,
+        kind: "verify",
+        verdict: "verified",
+        reason: "我回去复核了一遍，觉得可以签核实。",
+        evidence: [evidenceOf("arXiv:2401.00041", "Table 3", "plateau after 4")],
+      }),
+    ).rejects.toThrow(/分开人做/);
+
+    // 这一版还有没解决的反驳：不能直接签核实，必须先改版本。
+    await expect(
+      swarm.reviewResearch(f.account, runId, {
+        member: "verifier",
+        claimId,
+        kind: "verify",
+        verdict: "verified",
+        reason: "回到 §5.2 的 Table 3，固定预算那一列确实在 4 之后持平。",
+        evidence: [evidenceOf("arXiv:2401.00041", "§5.2 Table 3", "flat after N=4 under fixed budget")],
+      }),
+    ).rejects.toThrow(/没解决的反驳/);
+
+    // 改版（补上限定条件）之后才能核实。
+    await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "rev-claim-1b",
+      member: "r1-scout",
+      claim: {
+        claimId,
+        text: "同预算下 agent 数超过 4 之后质量不再上升（限定：同模型、同提示词、同一任务族）。",
+        basis: "checked_fact",
+        conditions: ["同一任务族", "同模型同提示词"],
+      },
+      evidence: [evidenceOf("arXiv:2401.00041", "Table 3", "plateau after 4")],
+    });
+    const verify = await swarm.reviewResearch(f.account, runId, {
+      member: "verifier",
+      claimId,
+      kind: "verify",
+      verdict: "verified",
+      reason: "回到 §5.2 的 Table 3，固定预算那一列确实在 4 之后持平。",
+      evidence: [evidenceOf("arXiv:2401.00041", "§5.2 Table 3", "flat after N=4 under fixed budget")],
+    });
+    expect(verify.claim.status).toBe("verified");
+    // 反驳 1 条 + 核实 1 条（中间那次被拒的核实不留记录）。
+    expect(verify.claim.reviews).toHaveLength(2);
+
+    // 门禁：这条已核实，进正式报告的 verified；answer 取它。
+    // 快照里这条也带得出审查记录（页面不打开详情就能看「有几条审查」）。
+    let snapshot = await swarm.snapshot(f.account, runId);
+    const inSnapshot = snapshot.claims.find((claim) => claim.id === claimId)!;
+    expect(inSnapshot.reviews.length).toBeGreaterThanOrEqual(2);
+    expect(snapshot.reviews.length).toBeGreaterThanOrEqual(2);
+    expect(snapshot.report!.verified).toEqual([claimId]);
+    expect(snapshot.report!.answer).toContain("同预算下 agent 数超过 4");
+
+    // 再改一次版：旧的核实作废，不再算已核实。
+    const revised = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "rev-claim-2",
+      member: "r1-scout",
+      claim: {
+        claimId,
+        text: "同预算下 agent 数超过 4 之后质量不再上升（限定：同模型、同提示词、同一任务族、同一预算口径）。",
+        basis: "checked_fact",
+        conditions: ["同一任务族", "同模型同提示词", "同预算口径"],
+      },
+      evidence: [evidenceOf("arXiv:2401.00041", "Table 3", "plateau after 4")],
+    });
+    expect(revised.claimIds).toEqual([claimId]);
+    snapshot = await swarm.snapshot(f.account, runId);
+    expect(snapshot.report!.verified).toEqual([]);
+    expect(snapshot.report!.answer).toBeNull();
+    expect(snapshot.report!.unverified).toContain(claimId);
+
+    // 两轮反驳上限：第二轮到顶，第三轮拒。
+    const second = await swarm.reviewResearch(f.account, runId, {
+      member: "critic",
+      claimId,
+      kind: "refute",
+      verdict: "upheld",
+      reason: "补充：这张表用的是 AlpacaEval，换任务未必成立。",
+    });
+    expect(second.claim.refuteRounds).toBe(2);
+    await expect(
+      swarm.reviewResearch(f.account, runId, {
+        member: "critic",
+        claimId,
+        kind: "refute",
+        verdict: "upheld",
+        reason: "还想再驳一次",
+      }),
+    ).rejects.toThrow(/反驳过/);
+
+    // 自动到限结束、但还有分歧 → awaiting_review（报告状态也跟着走），不硬写成完成。
+    await f.admin.query("update swarm_run set round=limit_rounds where run_id=$1", [runId]);
+    await swarm.onTurnEnd(f.account, runId, "completed");
+    snapshot = await swarm.snapshot(f.account, runId);
+    expect(snapshot.run.state).toBe("awaiting_review");
+    expect(snapshot.report!.state).toBe("awaiting_review");
+    expect(snapshot.report!.disputed).toContain(claimId);
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("多轮推进：轮次与阶段由服务端推进，临近额度给 near_limit 与追加建议", async () => {
+  const { f, kernel, swarm, runId } = await setup();
+  const quiet = async () => {
+    for (let i = 0; i < 100 && kernel.liveTurns(runId) > 0; i += 1)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+  };
+  try {
+    // 没有任务、没有结论时不会「答完」：先跑起来看轮次怎么推。
+    // 交一条候选结论（不核实），这就是「还有未核实的结论」。
+    await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "round-claim",
+      member: "r1-scout",
+      claim: { text: "同预算下 agent 数超过 4 之后质量趋于平坦。", basis: "checked_fact" },
+      evidence: [evidenceOf("arXiv:2401.00051", "Table 5", "flat after 4")],
+    });
+
+    // 第 2 轮：仍是独立阶段（负责人交完一批也不能收尾，还有候选要核）。
+    await quiet();
+    await swarm.onTurnEnd(f.account, runId, "completed");
+    let run = await swarm.run(f.account, runId);
+    expect(run.round).toBe(2);
+    expect(run.phase).toBe("independent");
+
+    // 第 3 轮：进交叉阶段。
+    await quiet();
+    await swarm.onTurnEnd(f.account, runId, "completed");
+    run = await swarm.run(f.account, runId);
+    expect(run.round).toBe(3);
+    expect(run.phase).toBe("cross");
+
+    // 一回合跑得久也要在 80% 时长切 near_limit：这里把活动时长顶到 85% 再看快照。
+    await f.admin.query("update swarm_run set active_ms=$2 where run_id=$1", [
+      runId,
+      Math.round(30 * 60_000 * 0.85),
+    ]);
+    let near = await swarm.snapshot(f.account, runId);
+    expect(near.run.state).toBe("near_limit");
+    expect(near.report!.nextSuggestion).toMatchObject({ rounds: 2 });
+    // 到限收尾之后建议也要留着（用户看着它决定要不要追加）。
+    await f.admin.query("update swarm_run set state='partial' where run_id=$1", [runId]);
+    const endedNear = await swarm.snapshot(f.account, runId);
+    expect(endedNear.report!.nextSuggestion).toMatchObject({ rounds: 2 });
+    await f.admin.query("update swarm_run set active_ms=0, state='running' where run_id=$1", [runId]);
+
+    // 推进到最后一轮 → 同样进 near_limit（仍在跑），并在 report 里给出追加建议。
+    await quiet();
+    await swarm.onTurnEnd(f.account, runId, "completed");
+    run = await swarm.run(f.account, runId);
+    expect(run.round).toBe(4);
+    expect(run.state).toBe("near_limit");
+    const snapshot = await swarm.snapshot(f.account, runId);
+    expect(snapshot.report!.nextSuggestion).toMatchObject({ rounds: 2 });
+    expect(snapshot.report!.nextSuggestion!.why).toContain("剩余缺口");
+    expect(snapshot.report!.state).toBe("stage");
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("B10：负责人交完一批但还有未核实的结论时，服务端推进下一轮并把缺口交回去", async () => {
+  const { f, kernel, swarm, runId } = await setup();
+  const quiet = async () => {
+    for (let i = 0; i < 100 && kernel.liveTurns(runId) > 0; i += 1)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+  };
+  try {
+    // 一条候选结论（没核实）：这就是下一轮要补的缺口。
+    const submitted = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "b10-claim",
+      member: "r1-scout",
+      claim: { text: "同预算下 agent 数超过 4 之后质量趋于平坦。", basis: "checked_fact" },
+      evidence: [evidenceOf("arXiv:2401.00061", "Table 6", "flat after 4")],
+    });
+    const prompts: string[] = [];
+    const realSubmit = kernel.submit.bind(kernel);
+    kernel.submit = (async (account: string, run: string, options: any = {}) => {
+      if (typeof options.prompt === "string") prompts.push(options.prompt);
+      return realSubmit(account, run, options);
+    }) as typeof kernel.submit;
+
+    await quiet();
+    await swarm.onTurnEnd(f.account, runId, "completed");
+    const run = await swarm.run(f.account, runId);
+    // 收尾条件都不满足（问题还没通过核实）：推进到第 2 轮，不结束。
+    expect(run.state).toBe("running");
+    expect(run.round).toBe(2);
+    // 提示里把未核实的结论当缺口交回负责人，而不是教它分轮。
+    const last = prompts.at(-1) ?? "";
+    expect(last).toContain(submitted.claimIds[0]);
+    expect(last).toContain("还没有通过独立核实");
+    expect(last).not.toMatch(/第 [0-9]+ 轮/);
+
+    // 核实通过之后就不再推进：按「问题已回答且通过核实」收尾。
+    await swarm.reviewResearch(f.account, runId, {
+      member: "critic",
+      claimId: submitted.claimIds[0],
+      kind: "refute",
+      verdict: "rejected",
+      reason: "我试着反驳，没找到反例，这一版站得住。",
+    });
+    await swarm.reviewResearch(f.account, runId, {
+      member: "verifier",
+      claimId: submitted.claimIds[0],
+      kind: "verify",
+      verdict: "verified",
+      reason: "回到 Table 6 逐字核对，固定预算那一列确实在 4 之后持平。",
+      evidence: [evidenceOf("arXiv:2401.00061", "Table 6", "flat after 4")],
+    });
+    await quiet();
+    await swarm.onTurnEnd(f.account, runId, "completed");
+    const done = await swarm.run(f.account, runId);
+    expect(done.state).not.toBe("running");
+    expect(done.stateReason ?? "").toContain("通过核实（1 条）");
+    expect(done.stateReason ?? "").not.toContain("没有经过核实");
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("B9：网络抖动转成暂停，不清零活动时长，也不判失败", async () => {
+  const { f, kernel, swarm, runId } = await setup();
+  try {
+    await f.admin.query("update swarm_run set round=2, active_ms=90000 where run_id=$1", [runId]);
+    // 直接走挂钩：失败原因是网络类 → 暂停，而不是 failed。
+    await swarm.onTurnEnd(f.account, runId, "failed", "MODEL_UPSTREAM_UNAVAILABLE: fetch failed");
+    const run = await swarm.run(f.account, runId);
+    expect(run.state).toBe("paused");
+    expect(run.stateReason ?? "").toContain("模型服务暂时连不上");
+    // 活动时长保留（不清零，而且把这一段也算上）。
+    expect(run.used.activeMs).toBeGreaterThanOrEqual(90_000);
+    expect(run.endReason).toBeUndefined();
+
+    // 真正的逻辑失败仍然判 failed（别把一切都当成网络抖动）。
+    await f.admin.query("update swarm_run set state='running' where run_id=$1", [runId]);
+    await swarm.onTurnEnd(f.account, runId, "failed", "KERNEL_MAX_TOKENS");
+    const failed = await swarm.run(f.account, runId);
+    expect(failed.state).toBe("failed");
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("用户点结束时，说明按实际情况写：有已核实就不说「没有经过核实」", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    const submitted = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "finish-claim",
+      member: "r1-scout",
+      claim: { text: "同预算下 agent 数超过 4 之后质量趋于平坦。", basis: "checked_fact" },
+      evidence: [evidenceOf("arXiv:2401.00071", "Table 7", "flat after 4")],
+    });
+    await swarm.reviewResearch(f.account, runId, {
+      member: "critic",
+      claimId: submitted.claimIds[0],
+      kind: "refute",
+      verdict: "rejected",
+      reason: "试着反驳没找到反例。",
+    });
+    await swarm.reviewResearch(f.account, runId, {
+      member: "verifier",
+      claimId: submitted.claimIds[0],
+      kind: "verify",
+      verdict: "verified",
+      reason: "回 Table 7 逐字核对，固定预算那一列确实在 4 之后持平。",
+      evidence: [evidenceOf("arXiv:2401.00071", "Table 7", "flat after 4")],
+    });
+    await swarm.createIntervention(f.account, runId, { kind: "finish" });
+    const run = await swarm.run(f.account, runId);
+    expect(run.state).toBe("partial");
+    expect(run.stateReason ?? "").toContain("已核实 1 条");
+    expect(run.stateReason ?? "").not.toContain("没有经过核实");
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("第二批：mention 投递、redirect 出新版本计划、add_member/extend/divergence 四种卡", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    // mention：投递到指定队员，回执是 delivered。
+    const mention = await swarm.createIntervention(f.account, runId, {
+      kind: "mention",
+      text: "请把 Table 3 的预算口径说清楚。",
+      target: { memberId: "r1-scout" },
+    });
+    expect(mention.intervention.kind).toBe("mention");
+    expect(mention.intervention.state).toBe("delivered");
+    expect(mention.intervention.result ?? "").toContain("r1-scout");
+
+    // redirect：改方向之后负责人交新版本计划，直接接着做（不再等确认）。
+    const redirect = await swarm.createIntervention(f.account, runId, {
+      kind: "redirect",
+      text: "只看相同总 token 预算下的比较。",
+    });
+    expect(redirect.intervention.state).toBe("delivered");
+    // 收窄口径（加「同预算」）不算扩大范围：新版本直接用，不出范围卡。
+    // 改方向之后交的新版本：自动继续（收窄口径不算扩大范围），并带 diffFrom。
+    const narrowed = await swarm.publishPlan(f.account, runId, {
+      question: "同预算下多 Agent 数量增加是否一定提高研究质量？",
+      scope: "只看同总 token 预算的比较",
+      qualityCriteria: ["有对照实验", "同预算"],
+      routes: [{ id: "r1", title: "规模曲线", idea: "同预算下的曲线", differsBy: "同预算" }],
+      limits: { rounds: 4, minutes: 30 },
+    });
+    expect(narrowed.version).toBe(2);
+    expect((await swarm.run(f.account, runId)).state).toBe("running");
+    const planV2 = await swarm.snapshot(f.account, runId);
+    expect(planV2.plan?.diffFrom?.version).toBe(1);
+    expect((planV2.plan?.diffFrom?.changes ?? []).length).toBeGreaterThan(0);
+    expect(
+      (await f.admin.query(
+        "select count(*)::int n from approval where run_id=$1 and kind='swarm_scope'",
+        [runId],
+      )).rows[0].n,
+    ).toBe(0);
+
+    // 扩大范围（问题本身变了）：要用户批一次（swarm_scope 卡），状态回到等确认。
+    await swarm.createIntervention(f.account, runId, {
+      kind: "redirect",
+      text: "把范围扩到评测基准与成本结构。",
+    });
+    const expanded = await swarm.publishPlan(f.account, runId, {
+      question:
+        "多 Agent 数量增加是否一定提高研究质量？再加一层：2026 年之后的评测基准与成本结构会怎么改变结论？",
+      scope: "原问题 + 评测基准与成本结构",
+      qualityCriteria: ["有对照实验", "同预算"],
+      routes: [{ id: "r1", title: "规模曲线", idea: "同预算下的曲线", differsBy: "同预算" }],
+      limits: { rounds: 4, minutes: 30 },
+    });
+    expect(expanded.version).toBe(3);
+    const afterRedirect = await swarm.run(f.account, runId);
+    expect(afterRedirect.state).toBe("awaiting_confirm");
+    const cards = await f.admin.query(
+      "select id, kind, state, effects from approval where run_id=$1 order by created_at",
+      [runId],
+    );
+    const scope = cards.rows.find((row) => row.kind === "swarm_scope");
+    expect(scope).toBeTruthy();
+    expect((scope!.effects[0] as any).from).toBe(2);
+    expect((scope!.effects[0] as any).to).toBe(3);
+
+    // 批准扩大范围：按新计划继续。
+    const decided = await swarm.decideCard(f.account, String(scope!.id), { decision: "approve" });
+    expect(decided?.state).toBe("approved");
+
+    // 加人：出 swarm_add_member 卡（含 membersAfter / max）。
+    const addMember = await swarm.createIntervention(f.account, runId, {
+      kind: "add_member",
+      role: "researcher",
+      target: { routeId: "r1" },
+    });
+    expect(addMember.intervention.state).toBe("pending_approval");
+    const addCard = await f.admin.query(
+      "select id, effects from approval where run_id=$1 and kind='swarm_add_member'",
+      [runId],
+    );
+    expect(addCard.rows).toHaveLength(1);
+    expect((addCard.rows[0].effects[0] as any).max).toBe(16);
+    const approved = await swarm.decideCard(f.account, String(addCard.rows[0].id), {
+      decision: "approve",
+    });
+    expect(approved?.state).toBe("approved");
+
+    // 追加额度：出 swarm_extend 卡（findings / gaps / suggest / used），批准后额度变长。
+    const extend = await swarm.createIntervention(f.account, runId, { kind: "extend" });
+    expect(extend.intervention.state).toBe("pending_approval");
+    const extendCard = await f.admin.query(
+      "select id, effects from approval where run_id=$1 and kind='swarm_extend'",
+      [runId],
+    );
+    const payload = extendCard.rows[0].effects[0] as any;
+    expect(payload.suggest).toMatchObject({ rounds: 2 });
+    expect(payload.used.rounds).toBeGreaterThanOrEqual(0);
+    const before = await swarm.run(f.account, runId);
+    await swarm.decideCard(f.account, String(extendCard.rows[0].id), {
+      decision: "approve",
+      answers: { rounds: 3, minutes: 45 },
+    });
+    const after = await swarm.run(f.account, runId);
+    expect(after.limits.rounds).toBe(before.limits.rounds + 3);
+    expect(after.limits.minutes).toBe(before.limits.minutes + 45);
+
+    // 连点两次追加额度只留一张待处理卡（卡上的数字会变，按种类去重）。
+    await swarm.createIntervention(f.account, runId, { kind: "extend" });
+    const countBefore = (
+      await f.admin.query(
+        "select count(*)::int n from approval where run_id=$1 and kind='swarm_extend'",
+        [runId],
+      )
+    ).rows[0].n;
+    await swarm.createIntervention(f.account, runId, { kind: "extend" });
+    const countAfter = (
+      await f.admin.query(
+        "select count(*)::int n from approval where run_id=$1 and kind='swarm_extend'",
+        [runId],
+      )
+    ).rows[0].n;
+    expect(countAfter).toBe(countBefore);
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("小项：answer 优先具体发现，剩余缺口不混路线合并说明", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    // 一条核实员的汇总 + 一条研究员的具体发现，两条都核实通过。
+    const summary = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "sum-1",
+      member: "verifier",
+      claim: { text: "独立核实汇总：本批核了 6 条，其中 3 条属实。", basis: "observation" },
+      evidence: [evidenceOf("arXiv:2401.00081", "§1", "summary quote")],
+    });
+    const finding = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "find-1",
+      member: "r1-scout",
+      claim: {
+        text: "在固定总预算下，agent 数从 4 加到 8 时准确率不再上升（+0.3pp，落在噪声内）。",
+        basis: "checked_fact",
+      },
+      evidence: [evidenceOf("arXiv:2401.00082", "Table 4", "flat from 4 to 8")],
+    });
+    // 反驳与核实分人：汇总（verifier 写的）由 r1 反驳、critic 核实；
+    // 具体发现（r1 写的）由 critic 反驳、verifier 核实。
+    for (const [refuter, claimId] of [
+      ["r1-scout", summary.claimIds[0]],
+      ["critic", finding.claimIds[0]],
+    ] as const) {
+      await swarm.reviewResearch(f.account, runId, {
+        member: refuter,
+        claimId,
+        kind: "refute",
+        verdict: "rejected",
+        reason: "试着反驳没找到反例。",
+      });
+    }
+    for (const [verifier, claimId] of [
+      ["critic", summary.claimIds[0]],
+      ["verifier", finding.claimIds[0]],
+    ] as const) {
+      await swarm.reviewResearch(f.account, runId, {
+        member: verifier,
+        claimId,
+        kind: "verify",
+        verdict: "verified",
+        reason: "回原文核过，数字对得上。",
+        evidence: [evidenceOf("arXiv:2401.00082", "Table 4", "flat from 4 to 8")],
+      });
+    }
+    const snapshot = await swarm.snapshot(f.account, runId);
+    // 具体发现优先：answer 用的是研究员那条，不是核实员的汇总。
+    expect(snapshot.report!.answer).toContain("在固定总预算下");
+    expect(snapshot.report!.verified).toHaveLength(2);
+
+    // 合并掉的路线不进剩余缺口。
+    await swarm.registerApproach(f.account, runId, {
+      title: "规模曲线与成本归一化",
+      idea: "把 agent 数量换算到同预算",
+      gap: "与 r1 同一条路线，重复登记；已并入 r1，不再单独计一条路线",
+    });
+    await f.admin.query(
+      "update swarm_approach set state='merged' where run_id=$1 and gap like '%重复登记%'",
+      [runId],
+    );
+    const after = await swarm.snapshot(f.account, runId);
+    expect(after.report!.gaps.some((gap) => /重复登记|已并入/.test(gap))).toBe(false);
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("B12：负责人忙时插话排队、送到才写已投递、负责人挂了转暂停", async () => {
+  const { f, kernel, swarm, runId } = await setup();
+  try {
+    // 负责人正忙：@队员 与 改方向 都不能另起回合，只能排进收件箱（SDK prompt 队列）。
+    (kernel as any).isLive = () => true;
+    const queued: { sessionId: string; text: string }[] = [];
+    (kernel as any).queuePrompt = async (
+      _account: string,
+      _runId: string,
+      sessionId: string,
+      text: string,
+    ) => {
+      queued.push({ sessionId, text });
+      return { ok: true, id: "msg-" + queued.length };
+    };
+    const mention = await swarm.createIntervention(f.account, runId, {
+      kind: "mention",
+      text: "先看同预算这一格。",
+      target: { memberId: "r1-scout" },
+    });
+    expect(mention.intervention.state).toBe("received");
+    expect(mention.intervention.result ?? "").toContain("已排队");
+
+    const redirect = await swarm.createIntervention(f.account, runId, {
+      kind: "redirect",
+      text: "只看相同总 token 预算下的比较。",
+    });
+    expect(redirect.intervention.state).toBe("received");
+
+    // 队员与负责人各取自己的：@队员 那条只排在队员名下。
+    const forMember = await swarm.pendingFor(f.account, runId, "r1-scout");
+    expect(forMember).toHaveLength(1);
+    expect(forMember[0].text).toContain("先看同预算这一格");
+    const forLead = await swarm.pendingFor(f.account, runId, "lead");
+    expect(forLead).toHaveLength(1);
+    expect(forLead[0].text).toContain("只看相同总 token 预算");
+
+    // B16：这一轮在跑时控制面只排队，由插件在步骤边界 steer（不再自己排一份到下一回合）。
+    expect(queued).toHaveLength(0);
+
+    // 真送到之后才写「已投递」。
+    await swarm.markDelivered(f.account, runId, forMember.map((entry) => entry.id));
+    const afterDelivery = await swarm.snapshot(f.account, runId);
+    const delivered = afterDelivery.interventions.find((entry) => entry.id === mention.intervention.id)!;
+    expect(delivered.state).toBe("delivered");
+    expect(delivered.result ?? "").toContain("已送到");
+
+    // 批卡后的指令也一样：负责人忙就排队，回执说清「下一步送到」。
+    const addMember = await swarm.createIntervention(f.account, runId, { kind: "add_member" });
+    const card = (
+      await f.admin.query(
+        "select id from approval where run_id=$1 and kind='swarm_add_member' and state='pending'",
+        [runId],
+      )
+    ).rows[0];
+    const decided = await swarm.decideCard(f.account, String(card.id), { decision: "approve" });
+    expect(decided?.note ?? "").toContain("下一步送到");
+    expect((await swarm.pendingFor(f.account, runId, "lead")).length).toBeGreaterThan(0);
+
+    // 真的按这张卡（角色 researcher）建出新人才算「已执行」。
+    await swarm.registerMeta(f.account, runId, {
+      kind: "member",
+      refId: "extra-01",
+      data: { role: "researcher", label: "补招 01", routeId: "r9", cardId: String(card.id) },
+    });
+    const afterJoin = await swarm.snapshot(f.account, runId);
+    const addEntry = afterJoin.interventions.find((entry) => entry.id === addMember.intervention.id)!;
+    expect(addEntry.state).toBe("applied");
+    expect(addEntry.result ?? "").toContain("已按这张卡");
+
+    // 负责人的那一轮挂了：群研转暂停并写清原因（不能还显示「运行中」）。
+    await f.admin.query("update swarm_run set state='running' where run_id=$1", [runId]);
+    await swarm.onLeadTurnFailed(f.account, runId, "failed", "KERNEL_FAILED");
+    const paused = await swarm.run(f.account, runId);
+    expect(paused.state).toBe("paused");
+    // 说明写人话，不贴原始报错。
+    expect(paused.stateReason ?? "").toContain("负责人的运行时意外退出了");
+    expect(paused.stateReason ?? "").not.toContain("exit code");
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("B14：加人指令真的送到负责人，且只有这张卡建出来的那个角色才算已执行", async () => {
+  const { f, kernel, swarm, runId } = await setup();
+  try {
+    // 负责人忙：加人指令只能排队，不能另起回合。
+    (kernel as any).isLive = () => true;
+    const queued: { sessionId: string; text: string }[] = [];
+    (kernel as any).queuePrompt = async (
+      _a: string,
+      _r: string,
+      sessionId: string,
+      text: string,
+    ) => {
+      queued.push({ sessionId, text });
+      return { ok: true, id: "msg-" + queued.length };
+    };
+    await swarm.createIntervention(f.account, runId, { kind: "add_member", role: "critic" });
+    const card = (
+      await f.admin.query(
+        "select id from approval where run_id=$1 and kind='swarm_add_member' and state='pending'",
+        [runId],
+      )
+    ).rows[0];
+    const decided = await swarm.decideCard(f.account, String(card.id), { decision: "approve" });
+    expect(decided?.note ?? "").toContain("已排进负责人的收件箱");
+    // B16：这一轮在跑时控制面只排队（由插件在步骤边界 steer），不再另排一份到下一回合。
+    expect(queued).toHaveLength(0);
+    const pendingInstruction = await f.admin.query(
+      "select text, state from swarm_inbox where run_id=$1 and kind='instruction'",
+      [runId],
+    );
+    expect(pendingInstruction.rows[0]?.state).toBe("queued");
+    expect(String(pendingInstruction.rows[0]?.text ?? "")).toContain("research_spawn");
+
+    // 计划编制里本来就有 1 名 critic（setup 已登记），人数没超过编制：还不算。
+    let snapshot = await swarm.snapshot(f.account, runId);
+    let entry = snapshot.interventions.find((item) => item.kind === "add_member")!;
+    expect(entry.state).toBe("received");
+
+    // 真正按这张卡建的第二名 critic（research_spawn 带卡号）才算「已执行」。
+    await swarm.registerMeta(f.account, runId, {
+      kind: "member",
+      refId: "extra-critic",
+      data: { role: "critic", label: "补招 02", routeId: null, cardId: String(card.id) },
+    });
+    snapshot = await swarm.snapshot(f.account, runId);
+    entry = snapshot.interventions.find((item) => item.kind === "add_member")!;
+    expect(entry.state).toBe("applied");
+    expect(entry.result ?? "").toContain("extra-critic");
+    expect(entry.result ?? "").toContain(String(card.id).slice(0, 8));
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("B15：待送消息取即领走，同一张加人卡建出一人就关掉", async () => {
+  const { f, kernel, swarm, runId } = await setup();
+  try {
+    (kernel as any).isLive = () => true;
+    (kernel as any).queuePrompt = async () => ({ ok: true, id: "msg-1", mode: "steer" });
+    await swarm.createIntervention(f.account, runId, {
+      kind: "mention",
+      text: "B15：只看同预算。",
+      target: { memberId: "r1-scout" },
+    });
+    // 第一次取走，第二次就取不到了（不再重复投递）。
+    const first = await swarm.pendingFor(f.account, runId, "r1-scout", true);
+    expect(first).toHaveLength(1);
+    const second = await swarm.pendingFor(f.account, runId, "r1-scout", true);
+    expect(second).toHaveLength(0);
+    const dbState = await f.admin.query(
+      "select state from swarm_inbox where run_id=$1 and target='r1-scout'",
+      [runId],
+    );
+    expect(dbState.rows[0]?.state).toBe("handed");
+
+    // 会话里真的出现这条消息之后，才从 handed 变 delivered（payload 就是消息本身）。
+    await f.admin.query(
+      `insert into event(account_id,dossier_id,run_id,kind,action,payload,dedupe_key)
+       values($1,$2,$3,'dsh','user/message',$4,$5)`,
+      [
+        f.account,
+        f.dossier,
+        runId,
+        JSON.stringify({
+          id: crypto.randomUUID(),
+          role: "user",
+          source: { kind: "user-rpc" },
+          content: [{ type: "text", text: "B15：只看同预算。" }],
+        }),
+        `b15-${runId}-${crypto.randomUUID()}`,
+      ],
+    );
+    await swarm.snapshot(f.account, runId);
+    const delivered = await f.admin.query(
+      "select state from swarm_inbox where run_id=$1 and target='r1-scout'",
+      [runId],
+    );
+    expect(delivered.rows[0]?.state).toBe("delivered");
+
+    // 一张加人卡只对应一次建人：建出一名之后卡被关掉。
+    await swarm.createIntervention(f.account, runId, { kind: "add_member", role: "critic" });
+    const card = (
+      await f.admin.query(
+        "select id from approval where run_id=$1 and kind='swarm_add_member' and state='pending'",
+        [runId],
+      )
+    ).rows[0];
+    await swarm.decideCard(f.account, String(card.id), { decision: "approve" });
+    await swarm.registerMeta(f.account, runId, {
+      kind: "member",
+      refId: "critic-2",
+      data: { role: "critic", label: "第二反驳", routeId: null, cardId: String(card.id) },
+    });
+    await swarm.snapshot(f.account, runId);
+    const applied = await f.admin.query(
+      "select state, consumed_at from approval where id=$1",
+      [card.id],
+    );
+    expect(applied.rows[0]?.state).toBe("approved");
+    expect(applied.rows[0]?.consumed_at).not.toBeNull();
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("第三批：精读关联同一结论同一证据只建一次，再点接着精读", async () => {
+  const { randomUUID } = await import("node:crypto");
+  const { f, swarm, runId } = await setup();
+  try {
+    const submitted = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "read-claim",
+      member: "r1-scout",
+      claim: { text: "同预算下 agent 数超过 4 之后质量趋于平坦。", basis: "checked_fact" },
+      evidence: [evidenceOf("arXiv:2401.00091", "Table 9", "flat after 4")],
+    });
+    const started: string[] = [];
+    const dossiers: string[] = [];
+    const startRead = async (dossierId: string) => {
+      started.push(dossierId);
+      return { runId: randomUUID() };
+    };
+    const createRead = async () => {
+      const id = randomUUID();
+      dossiers.push(id);
+      return { id };
+    };
+    const first = await swarm.linkRead(
+      f.account,
+      runId,
+      submitted.claimIds[0],
+      submitted.evidenceIds[0],
+      startRead,
+      createRead,
+    );
+    expect(first.resumed).toBe(false);
+    expect(dossiers).toHaveLength(1);
+    expect(first.href).toContain(first.readDossierId);
+
+    const again = await swarm.linkRead(
+      f.account,
+      runId,
+      submitted.claimIds[0],
+      submitted.evidenceIds[0],
+      startRead,
+      createRead,
+    );
+    expect(again.resumed).toBe(true);
+    expect(again.readDossierId).toBe(first.readDossierId);
+    expect(dossiers).toHaveLength(1); // 不会建第二份精读档案
   } finally {
     await f.close();
   }

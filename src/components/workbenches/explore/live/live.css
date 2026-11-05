@@ -179,3 +179,4 @@
 .exw-info small { font: 500 10.5px/1.4 var(--rh-f-mono); color: #6b6865; }
 .exw-cov { display: inline; } .exw-cov summary { display: inline; cursor: pointer; color: #b84d00; font-weight: 700; } .exw-cov[open] { display: block; color: #b84d00; }
 .exw-tilt { display: inline-flex; gap: 4px; align-items: center; } .exw-tilt input { width: 110px; accent-color: #ff7a1a; }
+.exl-modal textarea { width:100%; padding:6px 8px; border:1px solid #141213; font:400 13px/1.5 var(--rh-f-ui); resize:vertical; } .exl-modal a.rh-btn { text-decoration:none; }

@@ -14,6 +14,9 @@ export type DockLine = { id: string; kind: 'user' | 'agent' | 'note'; text: stri
 export type SwarmAsk = { id: string; title: string; multi: boolean; candidates: { id: string; title: string }[] };
 export type SwarmAnswer = { candidateId?: string; candidateIds?: string[]; text?: string };
 
+/** 群研的收件箱卡（加人 / 追加额度 / 扩大范围 / 报告前分歧），页面上就地显示同一张。 */
+export type SwarmCardView = { id: string; kind: 'swarm_add_member' | 'swarm_extend' | 'swarm_scope' | 'swarm_divergence'; title: string; data: Record<string, any> };
+
 export type SwarmConn = 'idle' | 'live' | 'reconnecting' | 'offline';
 
 export type SwarmView = {
@@ -23,6 +26,7 @@ export type SwarmView = {
   bus: BusEntry[];
   dock: DockLine[];
   asks: SwarmAsk[];
+  cards: SwarmCardView[];
   conn: SwarmConn;
   /** 负责人正在回话（澄清阶段）。 */
   thinking: boolean;
@@ -38,7 +42,11 @@ export type ClaimDetail = {
   claim: Claim; evidence: Evidence[]; reviews: Review[];
   task: { id: string; title: string; state: SwarmTaskState; routeId: string | null } | null;
   member: { id: string; label: string; role: MemberRole } | null;
+  /** 已经开过的精读（同一版本 + 同一证据只开一次）。 */
+  reads?: { evidenceId: string; readDossierId: string; readRunId?: string; href?: string; mode?: string }[];
 };
+/** 用精读细看某条证据：同一材料版本和定位；再点就接着原来那份精读。 */
+export type ReadLink = { readDossierId: string; href?: string; resumed: boolean; readRunId?: string };
 /** 证据详情（GET /runs/:id/evidence/:id）：哪几条结论引用了它。 */
 export type EvidenceDetail = { evidence: Evidence; referencedBy: { claimId: string; claimVersion: number; text: string }[] };
 
@@ -56,16 +64,19 @@ export interface SwarmAdapter {
   answer(askId: string, body: SwarmAnswer): Promise<void>;
   /** 留言板发言；`@队员名` 由服务端生成 mention 干预。 */
   post(text: string): Promise<BoardPost>;
-  intervene(kind: InterventionKind, extra?: { text?: string; routeId?: string; memberId?: string }): Promise<Intervention>;
+  intervene(kind: InterventionKind, extra?: { text?: string; routeId?: string; memberId?: string; role?: 'researcher' | 'critic' | 'verifier'; limits?: { rounds?: number; minutes?: number } }): Promise<Intervention>;
+  /** 处理群研卡（和收件箱是同一张）；追加额度可以带改过的数值。 */
+  decideCard(id: string, decision: 'approve' | 'reject', answers?: Record<string, unknown>): Promise<void>;
   /** 版本不符时 reject（code=PLAN_STALE），并已用服务端给的最新计划刷新。 */
   confirmPlan(planVersion: number, limits?: { rounds: number; minutes: number }): Promise<void>;
   report(): Promise<SwarmReport | null>;
   claim(claimId: string, version?: number): Promise<ClaimDetail>;
   evidence(evidenceId: string): Promise<EvidenceDetail>;
+  readEvidence(claimId: string, evidenceId: string): Promise<ReadLink>;
 }
 
 /** 本批（MVP-1）服务端接受的干预；其余入口置灰。 */
-export const LIVE_INTERVENTIONS: InterventionKind[] = ['stop_route', 'pause', 'resume', 'finish'];
+export const LIVE_INTERVENTIONS: InterventionKind[] = ['stop_route', 'pause', 'resume', 'finish', 'mention', 'redirect', 'add_member', 'extend'];
 
 export const TERMINAL: SwarmRun['state'][] = ['done', 'partial', 'unresolved', 'cancelled', 'failed'];
 export const isTerminal = (run: SwarmRun | null | undefined) => !!run && TERMINAL.includes(run.state);

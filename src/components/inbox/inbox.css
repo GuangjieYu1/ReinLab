@@ -1,11 +1,12 @@
 /* 上线时待批准 · 莱茵生命：一份待签的档案夹。方角、1px 线、等宽微标注；橙色只给「待你 / 快过期」，红色只给危险。 */
-.ibx-scrim { position:fixed; inset:0; z-index:80; display:grid; place-items:center; padding:28px;
+.ibx-scrim { position:fixed; inset:0; z-index:80; display:grid; place-items:center; align-content:center; padding:28px; overflow:hidden;
   background:var(--rh-paper-2); animation:ibx-fade .28s var(--rh-ease-enter, ease-out) both;
   background-image:repeating-linear-gradient(0deg, transparent 0 27px, var(--rh-line-2) 27px 28px); }
 /* 收件箱打开时卸下背后的 3D 档案场：模态下本来就不能操作它；只隐藏不会释放 GPU 图块，档案场会把新图层的光栅化挤掉（实测面板画不出来） */
 body.ibx-lock .cine-scene-viewport, body.ibx-lock .cine-fixed-stage { display:none; }
 @keyframes ibx-fade { from { opacity:0; } }
-.ibx { width:min(1180px, 100%); height:min(780px, 100%); display:grid; grid-template-rows:auto minmax(0,1fr) auto; outline:none;
+/* 高度按视口算：网格里的 100% 不生效，面板会被挤出屏幕底部（2026-11-02 实测） */
+.ibx { width:min(1180px, 100%); height:min(780px, calc(100vh - 56px)); height:min(780px, calc(100dvh - 56px)); display:grid; grid-template-rows:auto minmax(0,1fr) auto; outline:none;
   background:var(--rh-white); border:1.5px solid var(--rh-ink); box-shadow:10px 10px 0 var(--rh-ink); color:var(--rh-ink); font-family:var(--rh-f-ui);
   animation:ibx-rise .42s var(--rh-ease-enter, cubic-bezier(.2,.8,.2,1)) both; }
 @keyframes ibx-rise { from { transform:translateY(18px); opacity:0; } }
@@ -54,7 +55,9 @@ body.ibx-lock .cine-scene-viewport, body.ibx-lock .cine-fixed-stage { display:no
 .ibx-layer[data-risk='danger'] { border-color:var(--rh-danger); } .ibx-layer[data-risk='danger'] b { background:var(--rh-danger); }
 .ibx-src { margin:0; display:flex; align-items:center; gap:6px; font:400 11.5px/1.3 var(--rh-f-mono); color:var(--rh-ink-3); }
 .ibx-src code { padding:2px 5px; border:1px solid var(--rh-ink-3); font:600 10px/1.2 var(--rh-f-mono); }
-.ibx-doc h2 { margin:18px 0 14px; font:800 26px/1.15 var(--rh-f-display); font-stretch:108%; }
+.ibx-doc h2 { margin:18px 0 14px; font:800 26px/1.15 var(--rh-f-display); font-stretch:108%; overflow-wrap:anywhere; }
+.ibx-ask { margin:-4px 0 18px; padding:12px 16px; border-left:3px solid var(--rh-accent); background:var(--rh-paper); font:400 15px/1.85 var(--rh-f-read); white-space:pre-wrap; overflow-wrap:anywhere; }
+.ibx-ask b { font-weight:700; }
 .ibx-items { list-style:none; margin:0; padding:0; display:grid; gap:14px; }
 .ibx-items > li { padding:14px 18px 14px; border:1px solid var(--rh-ink); background:var(--rh-paper); box-shadow:4px 4px 0 var(--rh-paper-3); }
 .ibx-items h4 { display:flex; align-items:baseline; gap:10px; margin:0 0 8px; font:700 14.5px/1.35 var(--rh-f-ui); }
@@ -141,3 +144,9 @@ body.ibx-lock .cine-scene-viewport, body.ibx-lock .cine-fixed-stage { display:no
 .ibx-report b { font-size:12.5px; } .ibx-report small { color:var(--rh-ink-4); font-size:11px; }
 .ibx-report p { grid-column:2; margin:2px 0 0; color:var(--rh-ink-2); line-height:1.5; }
 .ibx-report a { grid-column:2; justify-self:start; color:var(--rh-accent); font-size:11.5px; }
+
+/* 助手提问卡的作答区：候选可选，输入框永远在 */
+.ibx-askform { margin:0 0 18px; }
+.ibx-answer { display:grid; gap:6px; margin-top:12px; } .ibx-answer span { font:500 10.5px/1 var(--rh-f-mono); letter-spacing:.08em; color:var(--rh-ink-4); }
+.ibx-answer textarea { width:100%; padding:10px 12px; border:1px solid var(--rh-ink); background:var(--rh-white); font:400 14px/1.7 var(--rh-f-ui); color:var(--rh-ink); resize:vertical; }
+.ibx-answer textarea:focus { outline:none; box-shadow:inset 3px 0 0 var(--rh-accent); }

@@ -161,7 +161,8 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   // 群研：负责人交计划；队员把可见工作记录报上来（记录里不含推理原文）；
   // meta 是插件在建任务、建成员时登记的研究语义（路线、父任务、角色、显示名）。
   // MVP-2：submit 交结论/证据/留言，query 增量读黑板，approach 登记路线。
-  swarm: ["plan", "log", "status", "meta", "submit", "query", "approach"],
+  // MVP-3：review 是反驳/核实的审查入口。
+  swarm: ["plan", "log", "status", "meta", "submit", "query", "approach", "review"],
   // 探索台的计划与画布：和页面调同一组服务函数，只是 via='agent'。
   explore: [
     "get",
@@ -220,6 +221,7 @@ const MAX_TOOL_CALLS = 80;
 /** 收尾类工具：任何情况下都别再拿次数上限挡它（挡了就等于让人白干一轮）。 */
 const ALWAYS_ALLOWED_TOOLS = new Set([
   "swarm.submit",
+  "swarm.review",
   "swarm.approach",
   "swarm.query",
   "swarm.plan",
@@ -250,6 +252,18 @@ export type KernelToolDependencies = {
   auth: KernelAuth;
   db: Database;
   now: () => number;
+  /**
+   * 把用户排队的插话送进这一轮：返回要并进工具结果的字段（没有就是 null）。
+   * 放在这里是因为工具的返回就是模型的「下一步输入」，不另起回合。
+   */
+  swarmInbox?: (
+    call: KernelToolCall,
+    result: Record<string, unknown>,
+  ) => Promise<Record<string, unknown> | null>;
+  /** 研究插件来取排给某个成员的待送用户消息（步骤边界投递用）。 */
+  inboxFor?: (input: { account: string; run: string; member: string }) => Promise<
+    { id: string; text: string }[]
+  >;
   /** 生成计划书（由控制面注入：需要文件存放与字体）。 */
   bookEngine?: (account: string, dossier: string, plan: import("../explore/book-job").BookPlan) => void;
   /** 网图入档要存副本；没有就只记来源。 */
@@ -296,6 +310,24 @@ export function registerKernelTools(
       throw new ApiFailure("KERNEL_TOKEN_INVALID", 401, "运行令牌缺失或无效。");
     }
   };
+
+  /**
+   * 研究插件在步骤边界来取「排给自己的待送用户消息」（B14 next-step）。
+   * 只读、不改状态：真正送达以会话里出现这条 user/message 为准。
+   */
+  app.post("/kernel/inbox", async (c) => {
+    const claims = authenticate(c.req.raw);
+    const body = (await c.req.json().catch(() => ({}))) as { member?: unknown };
+    const member = typeof body.member === "string" ? body.member.trim() : "";
+    if (!member) return c.json({ messages: [] });
+    if (!dependencies.inboxFor) return c.json({ messages: [] });
+    const messages = await dependencies.inboxFor({
+      account: claims.account,
+      run: claims.run,
+      member,
+    });
+    return c.json({ messages });
+  });
 
   app.post("/kernel/tool", async (c) => {
     const claims = authenticate(c.req.raw);
@@ -685,7 +717,12 @@ export function registerKernelTools(
             throw new ApiFailure("APPROVAL_NOT_CONSUMABLE", 409, "这次动作没有可用的批准，请重新请求。");
           }
         }
-        const result = (await dependencies.dispatch(call)) as Record<string, unknown>;
+        let result = (await dependencies.dispatch(call)) as Record<string, unknown>;
+        // 用户在负责人忙时说的话排在收件箱里：随这次工具结果一起送进去（下一步边界）。
+        if (dependencies.swarmInbox) {
+          const delivered = await dependencies.swarmInbox(call, result).catch(() => null);
+          if (delivered) result = { ...result, ...delivered };
+        }
         // 选定并下载成功后按第 6 节补名：占位名换成论文名（用户改过的绝不动）。
         if (capability === "papers.fetch")
           await nameFromPaper(client, call.account, call.dossier).catch(() => null);

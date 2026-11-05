@@ -9,7 +9,7 @@ export default {
     await page.goto(ctx.url('/?preview=inbox'), { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.locator('.ibx-row').first().waitFor(); await page.waitForTimeout(600); await ctx.shot('I1.png');
     const rows = await page.locator('.ibx-row').count();
-    if (rows !== 9) throw new Error(`应有 9 条（5 条提议 + 4 个动作），实际 ${rows}`);
+    if (rows !== 10) throw new Error(`应有 10 条（5 条提议 + 5 个动作），实际 ${rows}`);
     // 依据展开
     await page.locator('.ibx-ev button').first().click(); await page.locator('.ibx-quote q').first().waitFor(); await ctx.shot('I2.png');
     await press('a');                                                     // 批准
@@ -32,12 +32,18 @@ export default {
     await page.locator('.ibx-opts').nth(1).locator('button').nth(1).click();
     await ctx.shot('I4b.png');
     await page.locator('.ibx-actions .ibx-btn.is-solid').click(); await page.waitForTimeout(1000);
+    // 助手的提问卡没有候选：必须有输入框可以作答，空着不能提交
+    await page.locator('.ibx-answer textarea').waitFor();
+    if (!(await page.locator('.ibx-actions .ibx-btn.is-solid').isDisabled())) throw new Error('没写回答时「提交回答」应不可点');
+    await page.locator('.ibx-answer textarea').fill('④ 从头到尾完整过一遍，先下载全文');
+    await ctx.shot('I4c.png');
+    await page.locator('.ibx-actions .ibx-btn.is-solid').click(); await page.waitForTimeout(1000);
     // 结果未知的动作：没有批准 / 驳回按钮
     await page.locator('.ibx-row', { hasText: '03-method' }).click(); await page.waitForTimeout(400);
     if (await page.locator('.ibx-actions .ibx-btn').count()) throw new Error('结果未知的动作不应能再次批准');
     await ctx.shot('I5.png');
     const done = await page.locator('.ibx-row[data-done]').count();
-    if (done !== 8) throw new Error(`应处理 8 条，实际 ${done}`);
+    if (done !== 9) throw new Error(`应处理 9 条，实际 ${done}`);
     await page.keyboard.press('Escape'); await page.waitForTimeout(400);
     if (await page.locator('.ibx').count()) throw new Error('Esc 应关闭收件箱');
     if ((await page.locator('.ibx-open').getAttribute('data-n')) !== null) throw new Error('处理完后入口不应再有待办数字');

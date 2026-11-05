@@ -22,6 +22,7 @@ import { ApiFailure, denied } from "./errors";
 import { registerKernelRuns } from "./kernel-runs";
 import { registerSwarmApi } from "./swarm-api";
 import { registerApprovalInbox, registerReports, decideInboxCard } from "./inbox-approvals";
+import { registerDelegationApi } from "./delegation-api";
 import { registerDossierApi } from "./dossier-api";
 import { publishOps, registerExploreApi } from "./explore-api";
 import { createUploads, type Uploads } from "../explore/uploads";
@@ -201,6 +202,19 @@ export async function createApp(options: {
     offlineFetch: options.offlineFetch,
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
+    // 群研的四张卡由群研服务自己处理：它要改运行状态，并在事务外把负责人续起来。
+    if (options.swarm) {
+      const body = (await c.req.json().catch(() => ({}))) as {
+        decision?: unknown;
+        answers?: unknown;
+      };
+      const handled = await options.swarm.decideCard(
+        c.get("accountId"),
+        c.req.param("id"),
+        body,
+      );
+      if (handled) return c.json({ state: handled.state, runId: handled.runId, note: handled.note });
+    }
     let applied: OpsOutcome | null = null;
     const card = await decideInboxCard(
       c,
@@ -224,13 +238,30 @@ export async function createApp(options: {
       kernel: options.kernel,
       ...(options.swarm ? { swarm: options.swarm } : {}),
     });
-  if (options.swarm) registerSwarmApi(app, { db: database, swarm: options.swarm });
+  if (options.swarm) {
+    registerSwarmApi(app, {
+      db: database,
+      swarm: options.swarm,
+      ...(options.kernel ? { kernel: options.kernel } : {}),
+    });
+    // 跨台委托（契约 §6）：首个源台是精读。
+    registerDelegationApi(app, database, options.swarm);
+  }
   if (options.kernelTools)
     registerKernelTools(app, {
       auth: options.kernelTools.auth,
       db: database,
       now: () => Math.floor(Date.now() / 1000),
       dispatch: options.kernelTools.dispatch,
+      // 研究插件在步骤边界来取待送消息：控制面只读，送达由会话里出现消息确认。
+      ...(options.swarm
+        ? {
+            inboxFor: async (input: { account: string; run: string; member: string }) =>
+              // 取即领走：同一条消息只会交给一个步骤一次（B15）。
+              options.swarm!.pendingFor(input.account, input.run, input.member, true),
+          }
+        : {}),
+      // 用户插话不走工具返回（模型会当注入拒掉）：改走 DSH 原生收件箱，见 swarm/service.deliverToInbox。
       ...(options.kernelTools.bookEngine ? { bookEngine: options.kernelTools.bookEngine } : {}),
       // 网图入档和页面上传用同一个存放目录。
       ...(options.exploreStorage ? { exploreStorage: options.exploreStorage } : {}),

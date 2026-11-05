@@ -146,6 +146,26 @@ it("没有候选的提问卡：用户直接打字回答，回答送回原任务�
     expect(resumed).toHaveLength(2);
     expect(resumed[1].prompt).toContain("W1、W2");
     expect(resumed[1].prompt).toContain("第三篇再说");
+    // 一回合问了两个问题：答完第一个先不续接，两个都答完才一起交回去
+    await f.admin.query("update run set state='waiting' where id=$1", [f.run]);
+    const ask = (hash: string, title: string) =>
+      f.db.withAccount(f.account, (client) =>
+        requestApproval(client, {
+          account: f.account, dossier: f.dossier, run: f.run, capability: "cards.clarify.question",
+          argsHash: hash.repeat(64), title, effects: [{ kind: "text", candidates: [] }], risk: "read", kind: "question",
+        }),
+      );
+    const q1 = await ask("1", "范围按哪片算？");
+    const q2 = await ask("2", "答案拿来干什么？");
+    const first = await request(`/v1/kernel/approvals/${q1.id}/answer`, { text: "东山一带" });
+    expect(((await first.json()) as { waitingFor?: number }).waitingFor).toBe(1);
+    expect(resumed).toHaveLength(2);
+    await request(`/v1/kernel/approvals/${q2.id}/answer`, { text: "排拍摄日程" });
+    expect(resumed).toHaveLength(3);
+    expect(resumed[2].prompt).toContain("这 2 个提问");
+    expect(resumed[2].prompt).toContain("东山一带");
+    expect(resumed[2].prompt).toContain("排拍摄日程");
+    expect(resumed[2].prompt).not.toContain("第三篇再说");
   } finally {
     await f.close();
   }

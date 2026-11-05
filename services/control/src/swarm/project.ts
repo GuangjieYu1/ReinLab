@@ -339,8 +339,8 @@ export async function projectEvents(
     if (/^Team message from /.test(text)) return "team";
     if (/^用户已回答这次提问/.test(text)) return "system";
     if (/^档案变动：/.test(text)) return "system";
-    // 子 agent 结束通知带发送者会话，但它不是谁发给人说的话。
-    if (/^Background subagent .* finished\b/.test(text)) return "system";
+    // 子 agent 结束通知不是谁发给人说的话，也不必进通信时间线（用户 2026-11-03 定）。
+    if (/^Background subagent .* finished\b/.test(text)) return "drop";
     return null;
   };
 
