@@ -347,6 +347,10 @@ export function registerKernelTools(
       body.args && typeof body.args === "object" && !Array.isArray(body.args)
         ? (body.args as Record<string, unknown>)
         : {};
+    if (body.server === "papers" && body.tool === "register") {
+      args.path = args.path ?? args.filePath;
+      delete args.filePath;
+    }
     const call: KernelToolCall = {
       account: claims.account,
       dossier: claims.dossier,
@@ -628,13 +632,9 @@ export function registerKernelTools(
               call.account,
             ])
           ).rows[0]?.chosen;
-          if (!chosen)
-            throw new ApiFailure(
-              "PAPER_NOT_CHOSEN",
-              409,
-              "用户还没选定论文：先把真实候选交给用户，由用户选一篇后再下载。",
-            );
-          if (paperHandle(String(args.paperId)) !== paperHandle(chosen))
+          // 提问回答可能只有文字，没有 chosenPaperId；此时以下具体论文的
+          // 单次下载审批就是选择入口，未批准仍不执行下载。
+          if (chosen && !/^choice-\d+$/.test(chosen) && paperHandle(String(args.paperId)) !== paperHandle(chosen))
             throw new ApiFailure(
               "PAPER_NOT_CHOSEN",
               409,
@@ -651,10 +651,10 @@ export function registerKernelTools(
               run: call.run,
               capability,
               argsHash: argsHash(call),
-              title: "把这篇论文正式入档",
+              title: `下载并入档论文 ${String(args.paperId)}`,
               // 一次批准覆盖「这篇论文进入正式档案」这一次提交；
               // 下载到工作区、草稿与讲解卡都不再单独打扰。
-              effects: [{ capability, argsHash: argsHash(call) }],
+              effects: [{ capability, paperId: String(args.paperId), argsHash: argsHash(call) }],
               risk: "write",
             });
             if (card.state === "approved" && !card.consumed) {

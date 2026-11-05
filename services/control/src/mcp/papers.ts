@@ -722,6 +722,9 @@ export function paperHandlers(
     };
   };
   handlers["papers.pages"] = async (context, args) => {
+    if (!z.string().uuid().safeParse(args.assetId).success)
+      throw new ApiFailure("PAPER_ASSET_ID_INVALID", 400,
+        "读页需要已入档论文的资产 ID，不能使用文件路径、DOI 或 arXiv 编号。请使用下载或登记返回的 assetId；本地 PDF 可先通过 papers_register 登记。");
     const asset = await db.withAccount(
       context.claims.account,
       async (c) =>

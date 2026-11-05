@@ -108,17 +108,17 @@ describe("kernel tool gateway", () => {
     expect(samePaper.body).toMatchObject({ state: "pending" });
   });
 
-  it("用户没选定论文时拒绝下载，先把候选交出去", async () => {
+  it.each(["", "choice-1"])("澄清选项 %s 不代替论文 ID，先出具体下载审批，批准前不下载", async (selection) => {
     const dispatch = vi.fn(async () => ({ assetId: "asset-x", status: "full_text" }));
     const { app } = build(dispatch);
-    const clarify = await runFor("");
+    const clarify = await runFor(selection);
     const refused = await call(
       app,
       { server: "papers", tool: "fetch", args: { paperId: "arxiv:2404.00001" } },
       clarify.token,
     );
     expect(refused.status).toBe(409);
-    expect(refused.body).toMatchObject({ code: "PAPER_NOT_CHOSEN" });
+    expect(refused.body).toMatchObject({ state: "pending" });
     expect(dispatch).not.toHaveBeenCalled();
   });
 

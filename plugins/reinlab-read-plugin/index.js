@@ -104,8 +104,8 @@ export function apply(ctx, config) {
     }),
   );
 
-  // 澄清阶段还没有选定的论文，本来就不该下载：这个工具在那一阶段不存在。
-  if (config.mode === "read")
+  // 澄清续接也能提出具体下载审批；工具可见不代表已获准下载。
+  if (config.mode === "read" || config.mode === "clarify")
     register(
       defineTool({
         name: "papers_fetch",
@@ -129,14 +129,15 @@ export function apply(ctx, config) {
     );
 
 
-  if (config.mode === "read")
+  if (config.mode === "read" || config.mode === "clarify")
     register(
       defineTool({
         name: "papers_register",
         description:
           "把当前档案工作区里已经有的 PDF 登记为本档案论文，入档需要用户批准一次。怎么拿到文件的不管；账户和档案由会话决定，不用填。",
         parameters: {
-          path: { type: "string", required: true, description: "工作区里的 PDF 路径，绝对路径或相对工作区根。" },
+          path: { type: "string", description: "工作区里的 PDF 路径，绝对路径或相对工作区根；与 filePath 至少填一个。" },
+          filePath: { type: "string", description: "path 的兼容别名。" },
           title: { type: "string", required: true, description: "论文标题；不确定就照实问用户，不要编。" },
           authors: { type: "string", description: "已知作者，可留空。" },
           doi: { type: "string", description: "已知 DOI 或 arXiv 号，没有就留空。" },

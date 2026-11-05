@@ -77,7 +77,8 @@ export async function readWorkspacePdf(absolute: string): Promise<{ bytes: Buffe
 }
 
 export type RegisterInput = {
-  path: unknown;
+  path?: unknown;
+  filePath?: unknown;
   title: unknown;
   authors?: unknown;
   doi?: unknown;
@@ -86,7 +87,7 @@ export type RegisterInput = {
 
 /** 只做「准备」：读文件、算摘要、整理元数据。这一步不动资产表。 */
 export async function prepareRegistration(input: RegisterInput, roots: WorkspaceRoots) {
-  const absolute = resolveInWorkspace(input.path, roots);
+  const absolute = resolveInWorkspace(input.path ?? input.filePath, roots);
   const { bytes, digest } = await readWorkspacePdf(absolute);
   const title = text(input.title);
   if (!title) throw new ApiFailure("PAPER_TITLE_REQUIRED", 400, "登记论文需要一个标题。");
