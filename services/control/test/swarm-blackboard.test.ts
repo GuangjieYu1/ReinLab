@@ -255,9 +255,12 @@ it("黑板：独立阶段研究员只看自己路线，反驳和负责人看全�
     const lead = await swarm.queryResearch(f.account, runId, { member: "lead" });
     expect(lead.claims).toHaveLength(2);
 
-    // 进入第 3 轮（交叉阶段）之后，研究员也能读到别的路线。
+    // 进入第 3 轮（交叉阶段）之后，研究员也能读到别的路线（要全量就说 include: "full"）。
     await f.admin.query("update swarm_run set round=3 where run_id=$1", [runId]);
-    const crossed = await swarm.queryResearch(f.account, runId, { member: "r1-scout" });
+    const crossed = await swarm.queryResearch(f.account, runId, {
+      member: "r1-scout",
+      include: "full",
+    });
     expect(crossed.phase).toBe("cross");
     expect(crossed.claims).toHaveLength(2);
   } finally {
@@ -1275,6 +1278,143 @@ it("第三批：精读关联同一结论同一证据只建一次，再点接着�
     expect(again.resumed).toBe(true);
     expect(again.readDossierId).toBe(first.readDossierId);
     expect(dossiers).toHaveLength(1); // 不会建第二份精读档案
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("17 返工：否定式结论读不全不能判已核实；事实结论照旧", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    const negative = await swarm.submitResearch(f.account, runId, {
+      kind: "negative",
+      submissionId: "neg-17",
+      member: "r1-scout",
+      claim: {
+        text: "在 arXiv 的这篇论文里没有给成本数字。",
+        negative: { searched: "arXiv:2401.00001 全文", scope: "v3", notFound: "没有成本数字" },
+      },
+    });
+    // 读不全（只读了摘要）却想判已核实：拦下。
+    await expect(
+      swarm.reviewResearch(f.account, runId, {
+        member: "verifier",
+        claimId: negative.claimIds[0],
+        kind: "verify",
+        verdict: "verified",
+        reason: "回原文核过，确实没写成本。",
+        readCompleteness: "partial",
+        evidence: [evidenceOf("arXiv:2401.00001", "摘要", "no cost mentioned")],
+      }),
+    ).rejects.toThrow(/否定式结论/);
+
+    // 理由里自己写了「截断」：也不能判已核实。
+    await expect(
+      swarm.reviewResearch(f.account, runId, {
+        member: "verifier",
+        claimId: negative.claimIds[0],
+        kind: "verify",
+        verdict: "verified",
+        reason: "ar5iv 中间章节被截断，无法穷举，但应该没有。",
+        readCompleteness: "full",
+        evidence: [evidenceOf("arXiv:2401.00001", "§5", "cost")],
+      }),
+    ).rejects.toThrow(/截断/);
+
+    // 正确做法：读不全就判 not_verifiable（进「证据不足」）。
+    const shrunk = await swarm.reviewResearch(f.account, runId, {
+      member: "verifier",
+      claimId: negative.claimIds[0],
+      kind: "verify",
+      verdict: "not_verifiable",
+      reason: "全文没读完，只能确认摘要里没有。",
+      readCompleteness: "partial",
+      evidence: [evidenceOf("arXiv:2401.00001", "摘要", "no cost in abstract")],
+    });
+    expect(shrunk.claim.status).toBe("insufficient");
+
+    // 读全了（full）且理由里没有「截断」：否定式结论可以判已核实。
+    const second = await swarm.submitResearch(f.account, runId, {
+      kind: "negative",
+      submissionId: "neg-17b",
+      member: "r2-mech",
+      claim: {
+        text: "这篇论文的附录里没有给出逐项成本。",
+        negative: { searched: "PDF 附录 A–C", scope: "v3", notFound: "没有逐项成本" },
+      },
+    });
+    const ok = await swarm.reviewResearch(f.account, runId, {
+      member: "verifier",
+      claimId: second.claimIds[0],
+      kind: "verify",
+      verdict: "verified",
+      reason: "用 bash 把 PDF 全文转文本后搜 cost/budget/token，附录逐页看过，确实没有。",
+      readCompleteness: "full",
+      evidence: [evidenceOf("arXiv:2401.00001", "附录 A", "no per-item cost")],
+    });
+    expect(ok.claim.status).toBe("verified");
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("17 返工：黑板默认只回摘要与增量，按 id 取全文，成稿进 report.narrative", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    const first = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "q-17-1",
+      member: "r1-scout",
+      claim: { text: "第一条：同预算下 4 个 agent 之后收益趋平。", basis: "checked_fact" },
+      evidence: [evidenceOf("arXiv:2401.00101", "Table 3", "flat after 4")],
+    });
+    const initial = await swarm.queryResearch(f.account, runId, { member: "r1-scout" });
+    expect(initial.mode).toBe("summary");
+    expect(initial.claims).toHaveLength(1);
+    // 摘要里没有全文，只有一句话 + 个数。
+    const summary = initial.claims[0] as { summary: string; evidenceCount: number; text?: string };
+    expect(summary.summary).toContain("同预算下");
+    expect(summary.text).toBeUndefined();
+    expect(summary.evidenceCount).toBe(1);
+
+    // 第二条之后：同一个成员再读，只回增量。
+    await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "q-17-2",
+      member: "r1-scout",
+      routeId: "r1",
+      claim: { text: "第二条：异质组在 N=4–12 有 +8~14pp。", basis: "checked_fact" },
+      evidence: [evidenceOf("arXiv:2401.00102", "Table 8", "+8pp at N=8")],
+    });
+    const delta = await swarm.queryResearch(f.account, runId, { member: "r1-scout" });
+    expect(delta.claims).toHaveLength(1);
+    expect((delta.claims[0] as { summary: string }).summary).toContain("第二条");
+    expect(delta.since).toBeGreaterThanOrEqual(1);
+
+    // 按 id 取全文 + 证据。
+    const single = await swarm.queryResearch(f.account, runId, {
+      member: "r1-scout",
+      claimId: first.claimIds[0],
+    });
+    expect(single.mode).toBe("full");
+    expect((single.claims[0] as { text: string }).text).toContain("第一条");
+    expect(single.evidence).toHaveLength(1);
+
+    // 成稿：负责人写，进 report.narrative；引用不存在的 id 会被指出来。
+    const narrative = await swarm.writeNarrative(f.account, runId, {
+      member: "lead",
+      markdown:
+        `# 结论\n\n第一条（${first.claimIds[0]}）可信。\n\n## 缺口\n\n- 还没有对照实验。\n- 另外 ${"0".repeat(8)}-0000-4000-8000-000000000000 这个引用不存在。`,
+    });
+    expect(narrative.citedClaims).toBeGreaterThanOrEqual(1);
+    expect(narrative.unknownCitations).toHaveLength(1);
+    const snapshot = await swarm.snapshot(f.account, runId);
+    expect(snapshot.report?.narrative ?? "").toContain("# 结论");
+
+    // 只有负责人能写成稿。
+    await expect(
+      swarm.writeNarrative(f.account, runId, { member: "r1-scout", markdown: "x".repeat(60) }),
+    ).rejects.toThrow(/负责人/);
   } finally {
     await f.close();
   }

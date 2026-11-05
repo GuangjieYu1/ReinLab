@@ -1,11 +1,13 @@
 // ReinLab「群研」的研究工具与隔离（design/prd/12-swarm.md §5、13-swarm-contract.md §2）。
 //
 // 这个插件跑在 DSH 内核里，和官方团队插件（@deepseek-ai/dsh-experimental-tool-agent-team）
-// 同一层。它只做两件事：
+// 同一层。它做两件事：
 //   1) 负责人交计划、查状态：转给控制面，计划要等用户确认才开跑；
-//   2) 队员的工具边界：研究员/反驳/核实的会话里，把能碰全盘的 bash、通用文件读写、
-//      grep、skill 这些从这一层的可见工具里去掉，只留读网页和研究目录里的读写。
-//      DSH 的 writeScopes 只是冲突提示，不是权限隔离，所以边界必须在这里做。
+//   2) 给所有成员装上研究工具（research_*），并保证「写黑板只有一个入口」。
+//
+// 2026-11-05 用户定：**队员的工具完全开放**，和 DSH 单人默认的一样（bash、read、grep、write、
+// 下载与登记论文都给）。上一版把 bash/read 收掉的后果是：读资料的人打不开 web_fetch 的全文
+// spill 文件，只能和反驳读同一份截断文本，核实因此放过了一条错结论。
 //
 // 工具定义是手写的 JSON Schema 规格（不依赖 @deepseek-ai/dsh-tools），
 // 这样宿主模式和容器里都能直接从插件文件跑起来。
@@ -16,23 +18,11 @@ export const name = "reinlab-swarm";
 // 这一档只在群研运行里挂：四个服务在 sdk profile 里都有。
 export const inject = ["tools", "agents", "agentTeams", "systemPrompt"];
 
-/** 队员会话里不该再拿到的通用工具（能绕过子目录边界的那批）。 */
-const DENIED_TOOLS = [
-  "bash",
-  "edit",
-  "write",
-  "read",
-  "read_image",
-  "glob",
-  "grep",
-  "job_kill",
-  "job_list",
-  "job_output",
-  "skill",
-  "present",
-  "todo_write",
-  "ask_user_question",
-];
+/**
+ * 仍然只让负责人用的工具：这些是「结论的出口」和「进程管理」，
+ * 队员用了会绕过黑板或打断别人的工作。其余一律开放。
+ */
+const LEAD_ONLY_TOOLS = ["present"];
 
 const MAX_FILE_BYTES = 256 * 1024;
 
@@ -397,16 +387,17 @@ export function apply(ctx, config) {
   const installTeammate = (agent, scoped, memberName) => {
     // 队员目录在装工具时一起建好：第一次 research_files 读自己目录才不会 ENOENT。
     void mkdir(join(teamRoot, memberName), { recursive: true }).catch(() => {});
-    // 先收窄工具：这一步失败就照实记下来，但不要把整个插件装崩。
+    // 工具完全开放（用户 2026-11-05 定）：除了「唯一出口」那条由控制面保证，
+    // 这里不再收窄任何通用工具——bash 用来装依赖、读全文 spill、跑开源项目试用。
     try {
-      const visible = DENIED_TOOLS.filter((toolName) => {
+      const restricted = LEAD_ONLY_TOOLS.filter((toolName) => {
         try {
           return scoped.tools.get(toolName) !== undefined;
         } catch {
           return false;
         }
       });
-      if (visible.length) scoped.tools.restrict({ deny: visible });
+      if (restricted.length) scoped.tools.restrict({ deny: restricted });
     } catch (error) {
       void report(memberName, {
         kind: "summary",
@@ -735,17 +726,21 @@ function researchTools(ctx, call, memberName, agent) {
     defineTool({
       name: "research_query",
       description:
-        "读黑板：按路线 / 任务过滤、按版本增量读，分页返回。独立阶段（前 2 轮）你只能看到自己那条路线的结论——这是服务端裁的，不是页面隐藏。",
+        "读黑板。默认只回摘要（id / 状态 / 一句话）和「自你上次读取以来」的增量；要看某条全文和它的证据，用 claim_id 取那一条。独立阶段（前 2 轮）你只能看到自己那条路线的结论——服务端裁的，不是页面隐藏。",
       parameters: {
+        claim_id: { type: "string", description: "只取这一条：返回全文 + 它引用的证据。" },
         route_id: { type: "string", description: "只看某条路线。" },
         task_id: { type: "string", description: "只看某个任务的产出。" },
-        since_version: { type: "integer", description: "只读版本号大于它的结论（增量）。" },
+        since_version: { type: "integer", description: "从哪个版本之后开始读；不填就用你上次读到的位置。" },
+        include: { type: "string", enum: ["summary", "full"], description: "summary（默认）或 full。" },
         limit: { type: "integer", description: "最多返回几条，默认 30。" },
       },
       timeoutMs: 30_000,
       async execute(args) {
         const outcome = await call("swarm", "query", {
           member: memberName,
+          ...(args.claim_id ? { claimId: args.claim_id } : {}),
+          ...(args.include ? { include: args.include } : {}),
           ...(args.route_id ? { routeId: args.route_id } : {}),
           ...(args.task_id ? { taskId: args.task_id } : {}),
           ...(args.since_version ? { sinceVersion: args.since_version } : {}),
@@ -812,6 +807,12 @@ function researchTools(ctx, call, memberName, agent) {
             },
           },
         },
+        read_completeness: {
+          type: "string",
+          enum: ["full", "partial"],
+          description:
+            "核实者读原文的完整性：full = 读全了（原文/PDF/全文搜索都走通）；partial = 有截断、只读到摘要或没穷举。否定式结论（「X 里没有 Y」）只有 full 才能判已核实。",
+        },
         task_id: { type: "string", description: "这次审查对应的任务 id。" },
       },
       timeoutMs: 90_000,
@@ -824,6 +825,7 @@ function researchTools(ctx, call, memberName, agent) {
           verdict: args.verdict,
           reason: args.reason,
           ...(args.task_id ? { taskId: args.task_id } : {}),
+          ...(args.read_completeness ? { readCompleteness: args.read_completeness } : {}),
           ...(Array.isArray(args.evidence)
             ? {
                 evidence: args.evidence.map((entry) => ({

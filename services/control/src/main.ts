@@ -183,6 +183,7 @@ const kernel = new KernelService({
   auth: kernelAuth,
   factory: createHarnessFactory(),
   model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
+  ...(config.REINLAB_SWARM_MODEL ? { swarmModel: config.REINLAB_SWARM_MODEL } : {}),
   controlUrl: config.REINLAB_CONTROL_URL ?? "",
   maxTokens: Number(config.REINLAB_KERNEL_MAX_TOKENS ?? 32768),
   layout: {
@@ -226,7 +227,11 @@ const kernel = new KernelService({
 const swarmService = new SwarmService({
   db: database,
   kernel,
-  model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
+  // 群研可以用单独的型号（17 返工：用户要 deepseek-v4.1-flash）；没配就跟着内核模型走。
+  model:
+    config.REINLAB_SWARM_MODEL ??
+    config.REINLAB_KERNEL_MODEL ??
+    "deepseek-v4-flash",
   // 进程启动时刻：比它更早结束的那一轮就是上一个进程留下的（§7.4 恢复）。
   processStartedAt: Date.now(),
 });

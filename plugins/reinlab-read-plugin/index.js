@@ -105,7 +105,7 @@ export function apply(ctx, config) {
   );
 
   // 澄清续接也能提出具体下载审批；工具可见不代表已获准下载。
-  if (config.mode === "read" || config.mode === "clarify")
+  if (config.mode === "read" || config.mode === "clarify" || config.mode === "swarm")
     register(
       defineTool({
         name: "papers_fetch",
@@ -129,7 +129,7 @@ export function apply(ctx, config) {
     );
 
 
-  if (config.mode === "read" || config.mode === "clarify")
+  if (config.mode === "read" || config.mode === "clarify" || config.mode === "swarm")
     register(
       defineTool({
         name: "papers_register",

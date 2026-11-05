@@ -165,6 +165,8 @@ type RunRow = {
   ended_at: Date | null;
   /** 用户改过方向、等负责人交新版本计划：交了就直接接着做，不再等确认。 */
   redirect_pending?: boolean;
+  /** 负责人写的成稿（report.narrative）。 */
+  narrative?: string | null;
 };
 
 /** 一条运行的研究投影：所有接口都从这里算，页面不自己推断。 */
@@ -278,7 +280,7 @@ export class SwarmService {
       await client.query(
         `select run_id,dossier_id,question,state,phase,round,plan_version,limit_rounds,limit_minutes,
                 active_ms,active_since,members_used,kickoff_at,lead_session,projected_seq,
-                state_reason,end_reason,delegation,started_at,ended_at,redirect_pending
+                state_reason,end_reason,delegation,started_at,ended_at,redirect_pending,narrative
            from swarm_run where account_id=$1 and run_id=$2`,
         [account, runId],
       )
@@ -955,6 +957,7 @@ export class SwarmService {
         runState: run.state,
         limits: run.limits,
         used: { rounds: run.used.rounds, activeMs: run.used.activeMs },
+        narrative: row.narrative ?? null,
       });
       const reviews: Review[] = await loadReviews(client, account, runId);
       // 路线状态按最后一条 route 事件走（运行结束时会发 stopped），没有事件才用默认。
@@ -2992,6 +2995,7 @@ export class SwarmService {
       evidenceIds?: unknown;
       taskId?: unknown;
       submissionId?: unknown;
+      readCompleteness?: unknown;
     },
   ): Promise<{ review: Review; claim: Claim }> {
     const memberName =
@@ -3036,6 +3040,7 @@ export class SwarmService {
         reason: input.reason,
         evidenceIds,
         taskId: input.taskId,
+        readCompleteness: input.readCompleteness,
       });
       const outcome = await reviewClaim(client, {
         account,
@@ -3096,17 +3101,21 @@ export class SwarmService {
       sinceSeq?: unknown;
       limit?: unknown;
       include?: unknown;
+      claimId?: unknown;
     },
   ): Promise<{
     phase: "independent" | "cross";
     scope: string;
-    claims: Claim[];
+    mode: "summary" | "full";
+    since: number;
+    claims: unknown[];
     evidence: Evidence[];
     posts: BoardPost[];
     routes: SwarmRoute[];
     truncated: boolean;
   }> {
-    return this.dependencies.db.withAccountSnapshot(account, async (client) => {
+    // 读黑板要推进「读到哪儿」的游标，所以用可写事务（不是只读快照）。
+    return this.dependencies.db.withAccount(account, async (client) => {
       const row = await this.row(client, account, runId);
       const memberName =
         typeof input.member === "string" && input.member.trim() !== ""
@@ -3114,6 +3123,40 @@ export class SwarmService {
           : "lead";
       const member = await this.memberOf(client, account, runId, memberName);
       const phase: "independent" | "cross" = row.round <= 2 ? "independent" : "cross";
+      const mode = input.include === "full" ? "full" : "summary";
+
+      // 按 id 取全文：AI 要细看某条时走这条，不用把整块黑板读回来。
+      if (typeof input.claimId === "string" && input.claimId.trim() !== "") {
+        const single = await loadClaim(client, account, runId, input.claimId.trim());
+        const ids = await claimEvidenceIds(client, account, runId, single.id, single.version);
+        return {
+          phase,
+          scope: "single-claim",
+          mode: "full",
+          since: single.version,
+          claims: [{ ...single, evidenceIds: ids }],
+          evidence: await loadEvidence(client, account, runId, ids),
+          posts: [],
+          routes: [],
+          truncated: false,
+        };
+      }
+
+      // 增量：默认从「这个成员上次读到的版本」之后开始（黑板减负，17 返工）。
+      const cursorRow = (
+        await client.query(
+          "select claim_version, seen_at from swarm_cursor where account_id=$1 and run_id=$2 and member=$3",
+          [account, runId, member.id],
+        )
+      ).rows[0];
+      const explicitSince = Number.isFinite(Number(input.sinceVersion))
+        ? Number(input.sinceVersion)
+        : null;
+      // include: "full" 是全量导出：忽略游标；默认才走「自上次读取以来」的增量。
+      // 增量按时间点算：结论的 version 是每条各自的，不能当全局游标。
+      const sinceAt =
+        mode === "full" ? null : ((cursorRow?.seen_at as Date | undefined) ?? null);
+      const since = explicitSince ?? Number(cursorRow?.claim_version ?? 0);
       const limit = Math.min(Math.max(Number(input.limit ?? 30) || 30, 1), 100);
       // 独立阶段：研究员只看自己路线；反驳 / 核实 / 负责人看全部（他们本来就要审）。
       const scopedRoutes =
@@ -3124,15 +3167,25 @@ export class SwarmService {
         routeId: typeof input.routeId === "string" ? input.routeId : null,
         taskId: typeof input.taskId === "string" ? input.taskId : null,
         routes: scopedRoutes,
-        sinceVersion: Number.isFinite(Number(input.sinceVersion))
-          ? Number(input.sinceVersion)
-          : undefined,
+        sinceVersion: explicitSince && explicitSince > 0 ? explicitSince : undefined,
+        sinceAt,
         limit: limit + 1,
       });
       const truncated = claims.length > limit;
       const page = claims.slice(0, limit);
+      // 读完就把游标推进到已发出去的最新版本：下次只回增量。
+      const newest = page.reduce((max, claim) => Math.max(max, claim.version), since);
+      await client.query(
+        `insert into swarm_cursor(account_id,run_id,member,claim_version,seen_at,updated_at)
+         values($1,$2,$3,$4,now(),now())
+         on conflict (account_id,run_id,member) do update
+           set claim_version=greatest(swarm_cursor.claim_version, excluded.claim_version),
+               seen_at=now(), updated_at=now()`,
+        [account, runId, member.id, newest],
+      );
       const evidenceIds = [...new Set(page.flatMap((claim) => claim.evidenceIds))];
-      const evidence = await loadEvidence(client, account, runId, evidenceIds);
+      // 摘要模式不带全文证据：要看证据用 claimId 取那一条。
+      const evidence = mode === "full" ? await loadEvidence(client, account, runId, evidenceIds) : [];
       const posts = (await this.posts(client, account, runId)).filter((post) =>
         scopedRoutes
           ? !post.refs.routeId || scopedRoutes.includes(post.refs.routeId)
@@ -3145,7 +3198,22 @@ export class SwarmService {
           scopedRoutes === null
             ? "all-routes"
             : `route:${member.routeId ?? "none"}（独立阶段只给自己这条路线）`,
-        claims: page,
+        mode,
+        since,
+        claims:
+          mode === "full"
+            ? page
+            : page.map((claim) => ({
+                id: claim.id,
+                version: claim.version,
+                status: claim.status,
+                routeId: claim.routeId,
+                author: claim.author,
+                taskId: claim.taskId,
+                evidenceCount: claim.evidenceIds.length,
+                // 一句话：够用来判断「要不要点开看」，不够用来引用。
+                summary: claim.text.slice(0, 140),
+              })),
         evidence,
         posts,
         routes,
@@ -3202,6 +3270,55 @@ export class SwarmService {
    * - 精读结果由精读台自己的档案承载，并通过 `swarm_read_link` 挂回这条结论；
    *   群研已经结束的运行不改已发布的报告，只记成后续关联（mode='followup'）。
    */
+  /**
+   * 成稿（17 返工）：负责人在运行结束前写一份贯穿全局的报告（markdown），
+   * 放进 report.narrative。引用只能指黑板上的结论/证据 id；没核实的要在文中标出来。
+   */
+  async writeNarrative(
+    account: string,
+    runId: string,
+    input: { markdown?: unknown; member?: unknown },
+  ): Promise<{ narrative: string; citedClaims: number; unknownCitations: string[] }> {
+    const markdown = typeof input.markdown === "string" ? input.markdown.trim() : "";
+    if (markdown.length < 40)
+      throw new ApiFailure("NARRATIVE_TOO_SHORT", 400, "成稿太短：至少写清框架、判断、建议与风险。");
+    if (markdown.length > 60000)
+      throw new ApiFailure("NARRATIVE_TOO_LONG", 400, "成稿超出 6 万字。");
+    return this.dependencies.db.withAccount(account, async (client) => {
+      const row = await this.row(client, account, runId);
+      const memberName =
+        typeof input.member === "string" && input.member.trim() !== ""
+          ? input.member.trim()
+          : "lead";
+      if (memberName !== "lead")
+        throw new ApiFailure("NARRATIVE_LEAD_ONLY", 403, "成稿由负责人写。");
+      const ids = [
+        ...markdown.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi),
+      ].map((match) => match[0]);
+      const claims = await latestClaims(client, account, runId, { limit: 500 });
+      const known = new Set(claims.map((claim) => claim.id));
+      for (const entry of await loadEvidence(client, account, runId)) known.add(entry.id);
+      const unknownCitations = [...new Set(ids.filter((id) => !known.has(id)))];
+      const citedClaims = new Set(ids.filter((id) => known.has(id))).size;
+      await client.query(
+        "update swarm_run set narrative=$3, narrative_at=now(), updated_at=now() where account_id=$1 and run_id=$2",
+        [account, runId, markdown],
+      );
+      await this.emitSimple(client, account, runId, "bus", {
+        seq: 0,
+        at: new Date().toISOString(),
+        type: "system",
+        from: "system",
+        to: "user",
+        text: `（负责人交了成稿：${markdown.length} 字，引用 ${citedClaims} 处）`,
+        refs: {},
+      } satisfies BusEntry);
+      await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
+      await this.emitRun(client, account, runId);
+      return { narrative: markdown, citedClaims, unknownCitations };
+    });
+  }
+
   async linkRead(
     account: string,
     runId: string,
@@ -3454,6 +3571,7 @@ export class SwarmService {
         runState: run.state,
         limits: run.limits,
         used: { rounds: run.used.rounds, activeMs: run.used.activeMs },
+        narrative: row.narrative ?? null,
       });
     });
   }

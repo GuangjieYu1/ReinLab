@@ -323,6 +323,11 @@ export type SwarmReport = {
   sources: string[];
   /** 到限时的追加建议。 */
   nextSuggestion?: { rounds: number; minutes: number; why: string } | null;
+  /**
+   * 成稿（17 返工）：负责人写的一份贯穿全局的报告（markdown）。
+   * 引用只能指黑板上的结论/证据 id；没核实的要在文中标出来。还没写就是 null。
+   */
+  narrative?: string | null;
   updatedAt: Iso;
 };
 

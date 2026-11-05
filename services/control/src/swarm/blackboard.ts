@@ -402,6 +402,8 @@ export async function latestClaims(
     /** 独立阶段裁剪：只给这些路线的结论（null = 不裁）。 */
     routes?: string[] | null;
     sinceVersion?: number;
+    /** 只看这个时间点之后创建的结论（增量读黑板的游标）。 */
+    sinceAt?: Date | null;
     limit?: number;
   } = {},
 ): Promise<Claim[]> {
@@ -412,6 +414,7 @@ export async function latestClaims(
           and ($3::text is null or c.route_id=$3)
           and ($4::text is null or c.task_id=$4)
           and ($5::text[] is null or c.route_id = any($5::text[]) or c.route_id is null)
+          and ($6::timestamptz is null or c.created_at > $6::timestamptz)
         order by c.id, c.version desc`,
       [
         account,
@@ -419,6 +422,7 @@ export async function latestClaims(
         filter.routeId ?? null,
         filter.taskId ?? null,
         filter.routes ?? null,
+        filter.sinceAt ?? null,
       ],
     )
   ).rows.map(claimRow);
@@ -499,6 +503,8 @@ export async function buildReport(
     stateReason?: string | null;
     /** 运行状态：决定 stage / awaiting_review / final 等。 */
     runState?: string | null;
+    /** 成稿（负责人写的那份贯穿全局的报告）；没有就是 null。 */
+    narrative?: string | null;
     limits?: { rounds: number; minutes: number } | null;
     used?: { rounds: number; activeMs: number } | null;
   },
@@ -615,6 +621,7 @@ export async function buildReport(
     gaps: [...new Set(gaps)].slice(0, 20),
     sources: [...usedEvidence].filter((id) => evidence.some((entry) => entry.id === id)),
     nextSuggestion,
+    narrative: input.narrative ?? null,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -700,6 +707,8 @@ export type ReviewInput = {
   reason: string;
   evidenceIds: string[];
   taskId: string | null;
+  /** 核实者读原文的完整性（否定式结论的门禁用它）。 */
+  readCompleteness?: "full" | "partial" | null;
 };
 
 export function readReview(value: unknown): ReviewInput {
@@ -715,6 +724,9 @@ export function readReview(value: unknown): ReviewInput {
   const reason = str(input.reason);
   if (!reason || reason.length < 4)
     throw new ApiFailure("REVIEW_REASON_REQUIRED", 400, "审查要写清理由：看到了什么、为什么这样判。");
+  const completeness = str(input.readCompleteness);
+  if (completeness && completeness !== "full" && completeness !== "partial")
+    throw new ApiFailure("REVIEW_INVALID", 400, "read_completeness 只能是 full 或 partial。");
   const version = Number(input.claimVersion);
   return {
     claimId,
@@ -724,6 +736,7 @@ export function readReview(value: unknown): ReviewInput {
     reason: reason.slice(0, 4000),
     evidenceIds: list(input.evidenceIds).map(String).slice(0, 20),
     taskId: str(input.taskId),
+    readCompleteness: (completeness as "full" | "partial" | undefined) ?? null,
   };
 }
 
@@ -739,7 +752,8 @@ export function reviewRow(row: Record<string, unknown>): Review {
     verdict: row.verdict as Review["verdict"],
     round: Number(row.round ?? 0),
     taskId: row.task_id ? String(row.task_id) : "",
-  };
+    ...(row.read_completeness ? { readCompleteness: String(row.read_completeness) } : {}),
+  } as Review;
 }
 
 /** 某一版结论上的审查记录（按时间）。 */
@@ -840,6 +854,26 @@ export async function reviewClaim(
         409,
         `这一版还有没解决的反驳（${String(openRefute.by_member)}：${String(openRefute.reason).slice(0, 80)}）。先改主张或补证据出新版本，或者让反驳者撤回，再核实。`,
       );
+    // 否定式结论（「X 里没有 Y」）只有核实者确认读全了原文才能判已核实；
+    // 读不全（截断、只看摘要、无法穷举）只能判证据不足（17 返工，PRD §5「回到原始出处去核」）。
+    const negativeClaim = !!claim.negative;
+    const saysTruncated = /截断|读不全|没法穷举|未能穷举|无法穷举|只读了摘要|打不开|乱码/.test(
+      review.reason,
+    );
+    if (negativeClaim && review.verdict === "verified") {
+      if (review.readCompleteness !== "full")
+        throw new ApiFailure(
+          "VERIFY_NEEDS_FULL_TEXT",
+          409,
+          "这是否定式结论（某处没有某样东西）：核实要确认自己读全了原文才能判已核实（read_completeness: \"full\"）；读不全就判 not_verifiable，让它进「证据不足」。",
+        );
+      if (saysTruncated)
+        throw new ApiFailure(
+          "VERIFY_NEEDS_FULL_TEXT",
+          409,
+          "你写的理由里提到截断 / 读不全 / 穷举不了：这种情况不能判已核实，请改判 not_verifiable（证据不足）。",
+        );
+    }
     if (review.evidenceIds.length === 0)
       throw new ApiFailure(
         "VERIFY_EVIDENCE_REQUIRED",
@@ -850,8 +884,8 @@ export async function reviewClaim(
   const id = randomUUID();
   await client.query(
     `insert into swarm_review(
-       account_id,run_id,id,claim_id,claim_version,kind,by_member,reason,evidence_ids,verdict,round,task_id,submission_id
-     ) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+       account_id,run_id,id,claim_id,claim_version,kind,by_member,reason,evidence_ids,verdict,round,task_id,submission_id,read_completeness
+     ) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
     [
       account,
       runId,
@@ -866,6 +900,7 @@ export async function reviewClaim(
       input.round,
       review.taskId,
       input.submissionId,
+      review.readCompleteness ?? null,
     ],
   );
   const statusBefore = claim.status;

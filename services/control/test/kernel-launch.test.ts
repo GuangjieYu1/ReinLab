@@ -213,5 +213,9 @@ describe("群研运行补丁", () => {
     expect(patch).not.toContain("inputModalities");
     // 提示词底线：结论正文不写状态，状态由系统标。
     expect(patch).toContain("结论正文");
+    // 17 返工的三条底线：工具开放、否定式结论门禁、结束前交成稿。
+    expect(patch).toContain("工具是开放的");
+    expect(patch).toContain("read_completeness=full");
+    expect(patch).toContain("research_narrative");
   });
 });
