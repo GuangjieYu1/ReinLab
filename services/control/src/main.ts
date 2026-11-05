@@ -420,7 +420,9 @@ if (realModels && providerKey) {
     auth: kernelAuth,
     now: () => Math.floor(Date.now() / 1000),
     providerBaseUrl: "https://api.deepseek.com",
-    providerKey,
+    // 搜索/抓取走的是 DeepSeek 自己的 API，和模型网关是两把不同的 key（D1）：
+    // 模型网关换了 opencodego，这里仍然用官方 DEEPSEEK_API_KEY。
+    providerKey: localSecrets.DEEPSEEK_API_KEY ?? providerKey,
     feeCny: config.DEEPSEEK_WEB_FEE_CNY ?? "0.005000",
     forward: (request: Request) => fetch(request, { redirect: "error" }),
     // 来路线索：搜索命中的 URL、已抓页面里的外链，记进 swarm_source_hit。

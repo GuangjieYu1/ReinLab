@@ -53,6 +53,7 @@ const BASIS_ZH: Record<Claim['basis'], string> = { checked_fact: '核对过的�
 const REVIEW_KIND_ZH = { refute: '反驳', need_evidence: '要求补证据', verify: '独立核实', downgrade: '降级' } as const;
 const VERDICT_ZH = { upheld: '反驳成立', rejected: '反驳不成立', verified: '核实通过', not_verifiable: '核不了', pending: '待定' } as const;
 const ACCESS_ZH: Record<Evidence['access'], string> = { full_text: '读了全文', abstract_only: '只有摘要', unavailable: '打不开' };
+const DISC_ZH: Record<NonNullable<Evidence['discovery']>, string> = { search: '搜出来的', citation: '顺着引用找到', 'known-url': '已知网址直接抓' };
 const SOURCE_ZH: Record<Evidence['source']['kind'], string> = { paper: '论文', web: '网页', code: '代码', data: '数据', proof: '证明', other: '其他' };
 /** 来源能直接打开的就给链接：arXiv 号、DOI、网址。 */
 const sourceHref = (ref: string) => { const r = ref.trim(); const ax = r.match(/^arxiv:\s*(\S+)/i); if (ax) return `https://arxiv.org/abs/${ax[1]}`; if (/^10\.\d{4,}\//.test(r)) return `https://doi.org/${r}`; const doi = r.match(/^doi:\s*(\S+)/i); if (doi) return `https://doi.org/${doi[1]}`; return /^https?:\/\//.test(r) ? r : null; };
@@ -549,6 +550,7 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
   const groups = [...new Set(candidates.map(c => c.routeId))];
   const STATE = { stage: '阶段结果', awaiting_review: '报告前有分歧，等你看', final: '正式报告', partial: '正式报告（部分完成）', unresolved: '没有可靠答案' } as const;
   const narrative = r?.narrative?.trim() || null;
+  const dc = r?.discoveryCounts ?? null, dcTotal = dc ? dc.search + dc.knownUrl + dc.citation + dc.unknown : 0;
   // 成稿里引用的 id → 可点的小标签：结论标序号和状态，证据标来源，点开走同一个抽屉
   const claimNo = new Map(snap.claims.map((c, i) => [c.id, i + 1]));
   const full = (id: string) => byId.has(id) || ev.has(id) ? id
@@ -614,7 +616,10 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
         {gaps.length > 0 && <ul className="syn-bullets">{gaps.map(g => { const h = headline(g); return <li key={g}>{h.more ? <details className="syn-gap"><summary>{h.head}</summary><p>{g}</p></details> : g}</li>; })}</ul>}
         {limits.length > 0 && <details className="syn-group"><summary>局限<small>{limits.length} 条</small></summary><ul className="syn-bullets">{limits.map(g => <li key={g}>{g}</li>)}</ul></details>}</section>}
       {sources.length > 0 && <section id="syn-sources" className="syn-sec"><h3>来源 <small>{sources.length}</small></h3>
-        <details className="syn-group"><summary>展开全部来源</summary><ol className="sw-rep-sources">{sources.map(e => <li key={e.id}><button onClick={() => onEvidence(e.id)}><b>{e.source.title}</b><small>{e.source.ref}{e.locator?.section ? ` · ${e.locator.section}` : ''}</small></button></li>)}</ol></details></section>}
+        {dc && <p className="syn-disc">全部 {dcTotal} 条证据是怎么找到的：{(['search', 'citation', 'knownUrl', 'unknown'] as const).filter(k => dc[k] > 0).map(k => <span key={k} data-k={k}><b>{dc[k]}</b>{({ search: '搜出来的', citation: '顺着引用找到', knownUrl: '已知网址直接抓', unknown: '没记来路' })[k]}</span>)}
+          <small>{dcTotal ? `发现类（搜索 + 引用）占 ${dc.search + dc.citation} / ${dcTotal}；下面只列报告引用的 ${sources.length} 条` : ''}</small></p>}
+        {DISC_GROUPS.map(g => { const list = sources.filter(e => (e.discovery ?? null) === g.k); return list.length > 0 && <details key={String(g.k)} className="syn-group"><summary>{g.zh}<small>{list.length} 条</small></summary>
+          <ol className="sw-rep-sources">{list.map(e => <li key={e.id}><button onClick={() => onEvidence(e.id)}><b>{e.source.title}</b><small>{e.source.ref}{e.locator?.section ? ` · ${e.locator.section}` : ''}</small></button></li>)}</ol></details>; })}</section>}
 
       <section className="syn-sec syn-next"><h3>下一步</h3>
         {r?.nextSuggestion ? <p>负责人建议再追加 <b>{r.nextSuggestion.rounds} 轮 / {r.nextSuggestion.minutes} 分钟</b>：{r.nextSuggestion.why}</p> : <p>{run.stateReason ?? '—'}</p>}
@@ -622,6 +627,10 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
     </article>
   </div>;
 }
+
+const DISC_GROUPS: { k: Evidence['discovery'] | null; zh: string }[] = [
+  { k: 'search', zh: '搜出来的' }, { k: 'citation', zh: '顺着引用找到的' }, { k: 'known-url', zh: '已知网址直接抓的' }, { k: null, zh: '没记来路的' },
+];
 
 /* ———— 结论 / 证据抽屉：从结论追到证据、任务、队员；从证据看谁引用了它 ———— */
 function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, onMember }: {
@@ -677,7 +686,7 @@ function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, 
   const e = data.evidence, href = sourceHref(e.source.ref);
   return <div className="sw-member sw-detail" role="dialog" aria-label="证据详情">{head}
     <div className="sw-detail-body">
-      <div className="sw-detail-tags"><span>{SOURCE_ZH[e.source.kind]}</span><span>{ACCESS_ZH[e.access]}</span>{e.source.version && <span>{e.source.version}</span>}</div>
+      <div className="sw-detail-tags"><span>{SOURCE_ZH[e.source.kind]}</span><span>{ACCESS_ZH[e.access]}</span>{e.discovery && <span data-disc={e.discovery}>{DISC_ZH[e.discovery]}</span>}{e.source.version && <span>{e.source.version}</span>}</div>
       <p className="sw-detail-text"><b>{e.source.title}</b></p>
       <p className="sw-detail-ref">{href ? <a href={href} target="_blank" rel="noreferrer">{e.source.ref} ↗</a> : e.source.ref}</p>
       {e.locator && <><h4>位置</h4><p>{[e.locator.section, e.locator.page ? `第 ${e.locator.page} 页` : '', e.locator.lines].filter(Boolean).join(' · ') || '—'}</p>{e.locator.quote && <blockquote className="sw-quote">{e.locator.quote}</blockquote>}</>}

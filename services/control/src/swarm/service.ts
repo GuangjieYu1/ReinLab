@@ -1916,7 +1916,30 @@ export class SwarmService {
           .catch(() => undefined);
         return { state: "approved", runId: card.runId, note: "已再查一轮。" };
       }
-      return { state: "rejected", runId: card.runId, note: "按「有争议」写入报告，不再查。" };
+      // D4：驳回 = 按「有争议」写入 → 直接把运行收尾并出正式报告，
+      // 不能把它挂在 awaiting_review 等用户再点「结束」。
+      await this.dependencies.db.withAccount(account, async (client) => {
+        const row = await this.row(client, account, card.runId);
+        await client.query(
+          `update swarm_run set state='partial', phase='cross',
+             state_reason=$3, end_reason='user_wrote_disputes', ended_at=now(), updated_at=now()
+           where account_id=$1 and run_id=$2`,
+          [account, card.runId, "按「有争议」写入：有分歧的结论照实列在报告的争议一节。"],
+        );
+        await this.emitSimple(client, account, card.runId, "bus", {
+          seq: 0,
+          at: new Date().toISOString(),
+          type: "system",
+          from: "system",
+          to: "user",
+          text: "（按「有争议」写入报告，这次研究到此结束。）",
+          refs: {},
+        } satisfies BusEntry);
+        await this.emitReport(client, account, card.runId, row.plan_version, "按「有争议」写入");
+        await this.emitRun(client, account, card.runId);
+      });
+      await this.settleDeliveries(account, card.runId).catch(() => undefined);
+      return { state: "rejected", runId: card.runId, note: "按「有争议」写入报告，已收尾。" };
     }
 
     await this.dependencies.db.withAccount(account, async (client) => {
@@ -2717,7 +2740,18 @@ export class SwarmService {
     if (input.kind !== "task" && input.kind !== "member")
       throw new ApiFailure("INVALID_INPUT", 400, "只能登记任务或成员。");
     return this.dependencies.db.withAccount(account, async (client) => {
-      await this.row(client, account, runId);
+      const metaRow = await this.row(client, account, runId);
+      // D3：到限（或已经在收尾/结束）之后不再新增任务。PRD §3 要求到限就停止开新活。
+      if (input.kind === "task") {
+        const blocked = ["near_limit", "awaiting_review", "done", "partial", "unresolved", "cancelled", "failed"];
+        const exhausted = Number(metaRow.round) >= Number(metaRow.limit_rounds ?? Number.POSITIVE_INFINITY);
+        if (blocked.includes(String(metaRow.state)) || exhausted)
+          throw new ApiFailure(
+            "LIMIT_REACHED",
+            409,
+            `到限了（${String(metaRow.state)}${exhausted ? "，轮数已用满" : ""}）：不再新增任务。要接着做，先让用户批准追加额度，或直接收尾出报告。`,
+          );
+      }
       await client.query(
         `insert into swarm_meta(account_id,run_id,kind,ref_id,data) values($1,$2,$3,$4,$5)
          on conflict (account_id,run_id,kind,ref_id) do update set data=swarm_meta.data || excluded.data`,

@@ -356,3 +356,8 @@ em[data-type='user'] { background:var(--rh-accent); border-color:var(--rh-accent
 .sw-readfull { font-style:normal; font:500 10.5px/1 var(--rh-f-mono); padding:2px 4px; border:1px dashed var(--rh-ink-4); color:var(--rh-ink-3); }
 .sw-readfull[data-full] { border-style:solid; color:var(--rh-ink); }
 .syn-prose .rt-table th, .syn-prose .rt-table td { overflow-wrap:normal; word-break:normal; min-width:7em; }
+/* 来源按来路分组（18 广度返工） */
+.syn-disc { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; margin:0 0 8px; font:400 12.5px/1.5 var(--rh-f-ui); color:var(--rh-ink-3); }
+.syn-disc span b { font:700 15px/1 var(--rh-f-mono); color:var(--rh-ink); margin-right:3px; }
+.syn-disc span[data-k='search'] b, .syn-disc span[data-k='citation'] b { color:var(--rh-accent, var(--rh-ink)); }
+.syn-disc small { flex-basis:100%; font:500 11px/1.4 var(--rh-f-mono); color:var(--rh-ink-4); }

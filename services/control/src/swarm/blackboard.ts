@@ -865,7 +865,8 @@ async function refuteRounds(client: Client, account: string, runId: string, clai
   const row = (
     await client.query(
       `select count(*)::int n from swarm_review
-        where account_id=$1 and run_id=$2 and claim_id=$3 and kind='refute'`,
+        where account_id=$1 and run_id=$2 and claim_id=$3 and kind='refute'
+          and verdict='upheld'`,
       [account, runId, claimId],
     )
   ).rows[0];
@@ -901,7 +902,9 @@ export async function reviewClaim(
       "不能审自己交的结论：反驳和核实都要由别人做。",
     );
   const rounds = await refuteRounds(client, account, runId, claim.id);
-  if (review.kind === "refute" && rounds >= MAX_REFUTE_ROUNDS)
+  // 撤回/更正自己那条反驳不算新的一轮：两轮用完也要能收回（D5）。
+  const isCorrection = review.kind === "refute" && review.verdict !== "upheld";
+  if (review.kind === "refute" && !isCorrection && rounds >= MAX_REFUTE_ROUNDS)
     throw new ApiFailure(
       "REFUTE_ROUNDS_EXHAUSTED",
       400,
@@ -923,15 +926,18 @@ export async function reviewClaim(
       );
     // 这一版还有没解决的反驳时不能签核实：先改版本（或让反驳者撤回），
     // 否则「已核实」和「有争议」会同时出现在同一条结论上（真机里真出现过）。
+    // D5：只看这一版最新的一条反驳。反驳者后来更正（verdict=rejected / withdrawn）就算关闭，
+    // 不能因为「旧的那条 upheld 还在表里」把新版本的核实永远挡住。
     const openRefute = (
       await client.query(
-        `select by_member, reason from swarm_review
+        `select by_member, reason, verdict from swarm_review
           where account_id=$1 and run_id=$2 and claim_id=$3 and claim_version=$4
-            and kind='refute' and verdict='upheld'
+            and kind='refute'
+          order by created_at desc
           limit 1`,
         [account, runId, claim.id, claim.version],
       )
-    ).rows[0];
+    ).rows.find((row) => String(row.verdict) === "upheld");
     if (openRefute)
       throw new ApiFailure(
         "VERIFY_OPEN_REFUTE",
@@ -1026,7 +1032,8 @@ export async function reviewClaim(
     status = "falsified";
     statusReason = `已降级/证伪：${review.reason.slice(0, 200)}`;
   }
-  const refuteRound = review.kind === "refute" ? rounds + 1 : rounds;
+  // 只有「成立的反驳」才加一轮；更正/撤回不加（也才不会撞上限）。
+  const refuteRound = review.kind === "refute" && review.verdict === "upheld" ? rounds + 1 : rounds;
   await client.query(
     `update swarm_claim
         set status=$4,

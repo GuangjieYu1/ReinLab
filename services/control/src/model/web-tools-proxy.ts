@@ -27,6 +27,14 @@ export type WebToolsProxyDependencies = {
 
 type Operation = "search" | "fetch";
 
+/** 上游的报错里会带 key 的碎片（*** 后四位）：一律抹掉，打码的也不留。 */
+function redactSecrets(text: string): string {
+  return text
+    .replace(/\b(sk|oc_sk|op)-[A-Za-z0-9_-]{8,}/g, "<key>")
+    .replace(/\*{2,}[A-Za-z0-9_-]{2,}/g, "<key>")
+    .replace(/(api key[^:]*:\s*)\S+/gi, "$1<key>");
+}
+
 const succeeded = (operation: Operation, body: any) =>
   operation === "search"
     ? Array.isArray(body?.results) && body.results.length > 0
@@ -166,7 +174,9 @@ export function registerWebToolsProxy(
         {
           error: {
             code: "WEB_PROVIDER_STATUS",
-            message: `DeepSeek ${operation} 返回 ${response.status}${detail ? "：" + detail : ""}`,
+            message: redactSecrets(
+              `DeepSeek ${operation} 返回 ${response.status}${detail ? "：" + detail : ""}`,
+            ),
           },
         },
         response.status === 401 || response.status === 403 ? 502 : response.status,

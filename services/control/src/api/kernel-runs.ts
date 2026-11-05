@@ -402,16 +402,27 @@ export function registerKernelRuns(
       const after = Number(c.req.query("after") ?? 0);
       if (!Number.isSafeInteger(after) || after < 0)
         throw new ApiFailure("INVALID_CURSOR", 400, "游标无效。");
+      // D6：这一条一次能回 0.8MB，前端 2.5 秒拉一次会把连接耗光。
+      // 现在支持按 action 过滤 + 限制条数（默认 200，最多 1000），并且只回最必要的字段。
+      const limit = Math.min(Math.max(Number(c.req.query("limit") ?? 200) || 200, 1), 1000);
+      const actions = String(c.req.query("actions") ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 20);
       const rows = (
         await client.query(
           `select seq,kind,action,payload,at from event
-           where run_id=$1 and account_id=$2 and seq>$3 order by seq limit 1001`,
-          [id, c.get("accountId"), after],
+           where run_id=$1 and account_id=$2 and seq>$3
+             and ($4::text[] is null or action = any($4::text[]))
+           order by seq limit $5`,
+          [id, c.get("accountId"), after, actions.length ? actions : null, limit + 1],
         )
       ).rows;
       return c.json({
-        cursor: rows.length ? Number(rows[rows.length - 1].seq) : after,
-        events: rows.slice(0, 1000).map((row) => ({
+        cursor: rows.length ? Number(rows[Math.min(rows.length, limit) - 1].seq) : after,
+        hasMore: rows.length > limit,
+        events: rows.slice(0, limit).map((row) => ({
           seq: Number(row.seq),
           kind: row.kind,
           action: row.action,

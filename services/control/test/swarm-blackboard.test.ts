@@ -1529,3 +1529,101 @@ it("18 广度：覆盖视图把「提到但没查」的名字列出来，并进�
   const { coverageGaps } = await import("../src/swarm/coverage");
   expect(coverageGaps(coverage).join("\n")).toContain("OnlyWorlds");
 });
+
+it("D5：反驳者更正/撤回后，新版本的核实不再被旧反驳挡住", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    const first = await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "d5-1",
+      member: "r1-scout",
+      claim: { text: "发布页正文里没有写出任何商用或署名条款。", basis: "checked_fact" },
+      evidence: [evidenceOf("https://itch.io/game", "正文", "no license terms")],
+    });
+    const claimId = first.claimIds[0];
+    // 两轮反驳都成立（上限用满）
+    for (const round of [1, 2]) {
+      await swarm.reviewResearch(f.account, runId, {
+        member: "critic",
+        claimId,
+        kind: "refute",
+        verdict: "upheld",
+        reason: `第 ${round} 轮：查的是错页面。`,
+        evidence: [evidenceOf("https://itch.io/game", "正文", "page moved")],
+      });
+    }
+    // 核实被拦：这一版还有未解决的反驳
+    await expect(
+      swarm.reviewResearch(f.account, runId, {
+        member: "verifier",
+        claimId,
+        kind: "verify",
+        verdict: "verified",
+        reason: "回原文核对过。",
+        readCompleteness: "full",
+        evidence: [evidenceOf("https://itch.io/game", "正文", "terms")],
+      }),
+    ).rejects.toThrow(/没解决的反驳/);
+
+    // 反驳者更正自己那条（撤回）：两轮上限之外也能收回
+    const corrected = await swarm.reviewResearch(f.account, runId, {
+      member: "critic",
+      claimId,
+      kind: "refute",
+      verdict: "rejected",
+      reason: "更正：我上一条反驳是针对旧版本的，撤回。",
+      evidence: [],
+    });
+    expect(corrected.claim.status).not.toBe("disputed");
+
+    // 现在核实能过
+    const verified = await swarm.reviewResearch(f.account, runId, {
+      member: "verifier",
+      claimId,
+      kind: "verify",
+      verdict: "verified",
+      reason: "回原文（raw LICENSE）核对过，正文确实没有商用条款。",
+      readCompleteness: "full",
+      evidence: [evidenceOf("https://itch.io/game", "正文", "no terms")],
+    });
+    expect(verified.claim.status).toBe("verified");
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("D3：到限（或已收尾）之后不再允许新增任务", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    await f.admin.query("update swarm_run set state='awaiting_review' where run_id=$1", [runId]);
+    await expect(
+      swarm.registerMeta(f.account, runId, {
+        kind: "task",
+        refId: "task-new",
+        data: { title: "到限后又开的新任务", routeId: "r1" },
+      }),
+    ).rejects.toThrow(/到限/);
+    // 轮数用满但状态还在跑：同样拦。
+    await f.admin.query(
+      "update swarm_run set state='running', round=4, limit_rounds=4 where run_id=$1",
+      [runId],
+    );
+    await expect(
+      swarm.registerMeta(f.account, runId, {
+        kind: "task",
+        refId: "task-new-2",
+        data: { title: "轮数用满后新开", routeId: "r1" },
+      }),
+    ).rejects.toThrow(/到限/);
+    // 成员登记不受影响
+    await expect(
+      swarm.registerMeta(f.account, runId, {
+        kind: "member",
+        refId: "critic",
+        data: { label: "反驳员" },
+      }),
+    ).resolves.toBeTruthy();
+  } finally {
+    await f.close();
+  }
+}, 120_000);

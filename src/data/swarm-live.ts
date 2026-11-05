@@ -87,9 +87,12 @@ export function createLiveSwarmAdapter(dossierId: string | undefined, ports: { r
   };
 
   /** 负责人的回话与提问卡（只在还没结束时轮询）。 */
+  // 上一次没回来就不发下一次；失败了逐次拉长间隔（大运行的内核事件很多，单次可能比 2.5 秒还慢，堆起来会耗光浏览器连接）
+  let sideBusy = false, sideFails = 0, sideNext = 0;
   async function pollSide() {
-    if (!runId) return;
+    if (!runId || sideBusy || Date.now() < sideNext) return;
     const id = runId;
+    sideBusy = true;
     try {
       const page = await ports.request('GET', `/v1/kernel/runs/${id}/events?after=${kernelAfter}`) as { events: { seq: number; action?: string; payload?: any; at?: string }[] };
       let thinking = hub.get().thinking;
@@ -112,9 +115,11 @@ export function createLiveSwarmAdapter(dossierId: string | undefined, ports: { r
       const cards: SwarmCardView[] = (approvals.items ?? []).filter(a => a.runId === id && isSwarmCard(String(a.kind))).map(a => ({
         id: a.id, kind: a.kind, title: String(a.title ?? ''), data: Array.isArray(a.effects) && a.effects[0] && typeof a.effects[0] === 'object' ? a.effects[0] : {},
       }));
+      sideFails = 0; sideNext = 0;
       if (runId !== id) return;
       hub.set(v => ({ ...v, dock: dockOf(), asks, cards, thinking }));
-    } catch { /* 侧边信息拿不到不影响主视图，下次再取 */ }
+    } catch { /* 侧边信息拿不到不影响主视图，退避后再取 */ sideFails++; sideNext = Date.now() + Math.min(60_000, 2500 * 2 ** sideFails); }
+    finally { sideBusy = false; }
   }
 
   function watchSide() {
