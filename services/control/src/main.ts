@@ -246,7 +246,13 @@ const localSecrets: Readonly<Record<string, string>> = (() => {
   }
 })();
 // 天气判断用的模型通道：和内核同一条 Anthropic 兼容入口，宿主自己带 key 调。
-const providerKey = localSecrets.DEEPSEEK_API_KEY;
+// 17 返工：可以换成别的 Anthropic 兼容网关（用户的 DSH 走 opencodego），
+// key 仍然只在 ~/.config/reinlab/local.env 里、只在进程内存里读。
+const providerKey = localSecrets.REINLAB_MODEL_API_KEY ?? localSecrets.DEEPSEEK_API_KEY;
+const providerBaseUrl =
+  localSecrets.REINLAB_MODEL_BASE_URL ?? "https://api.deepseek.com/anthropic";
+// opencodego 这类网关要求带一个会话 id 才能路由；没配就不带（官方 DeepSeek 不需要）。
+const providerSession = localSecrets.REINLAB_MODEL_SESSION ?? "";
 if (realModels && (!providerKey || /[\r\n]/.test(providerKey)))
   throw Error("LOCAL_MODEL_KEY_UNAVAILABLE");
 // 峰值费率（每百万 token）：配了就能在花之前估一次，没配就照实说估不了。
@@ -384,8 +390,9 @@ if (realModels && providerKey) {
     },
     // 按用户 2026-11-01 的要求：不设上限拦截（只记账，不拒绝调用）。
     now: () => Math.floor(Date.now() / 1000),
-    providerBaseUrl: "https://api.deepseek.com/anthropic",
+    providerBaseUrl,
     providerKey,
+    ...(providerSession ? { providerSession } : {}),
   });
   // DeepSeek Search / Fetch API：内核的 web_search / web_fetch 走这里，宿主密钥不外发。
   registerWebToolsProxy(app, {

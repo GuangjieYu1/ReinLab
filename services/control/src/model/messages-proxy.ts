@@ -45,6 +45,8 @@ export type MessagesProxyDependencies = {
   providerBaseUrl: string;
   providerKey: string;
   provider?: string;
+  /** 有的网关（opencodego）要求带会话 id 才路由。 */
+  providerSession?: string;
 };
 
 export const tokenOf = (request: Request) => {
@@ -131,7 +133,10 @@ export function registerMessagesProxy(
     // 只把「真正在首次读这几张图」的那一笔算读图：请求里**最后一条消息**带图片内容块才算。
     // 后续步骤会把历史里的图一起回传，那些只是在延续思考，按编排记。
     const purpose = lastMessageHasImage(parsed) ? ("vision" as const) : ("planning" as const);
-    const target = new URL(dependencies.providerBaseUrl.replace(/\/+$/, "") + "/v1/messages");
+    // 网关的 base 有两种写法：官方 DeepSeek 是 .../anthropic（要补 /v1/messages），
+    // opencodego 是 .../v1（只要补 /messages）。按结尾判断，别拼出 /v1/v1。
+    const base = dependencies.providerBaseUrl.replace(/\/+$/, "");
+    const target = new URL(base.endsWith("/v1") ? base + "/messages" : base + "/v1/messages");
     const upstream = new Request(target, {
       method: "POST",
       body,
@@ -140,6 +145,9 @@ export function registerMessagesProxy(
         "accept": c.req.header("accept") ?? "text/event-stream",
         "anthropic-version": c.req.header("anthropic-version") ?? "2023-06-01",
         "x-api-key": dependencies.providerKey,
+        ...(dependencies.providerSession
+          ? { "x-opencode-session": dependencies.providerSession }
+          : {}),
       },
       signal: c.req.raw.signal,
     });
@@ -221,16 +229,35 @@ export function registerMessagesProxy(
         },
       }),
     );
+    // 上游中途断开时给运行时一个「干净的结束」（SSE error 帧 + close），
+    // 而不是把连接硬断。控制器可能已经被对端关掉，所以每一步都要容错。
     const guarded = new ReadableStream<Uint8Array>({
       async start(controller) {
         const reader = relayed.getReader();
+        let open = true;
+        const finish = () => {
+          if (!open) return;
+          open = false;
+          try {
+            controller.close();
+          } catch {
+            /* 已经关了 */
+          }
+        };
         try {
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
-            controller.enqueue(value);
+            if (!open) break;
+            try {
+              controller.enqueue(value);
+            } catch {
+              open = false;
+              await reader.cancel().catch(() => undefined);
+              return;
+            }
           }
-          controller.close();
+          finish();
         } catch (error) {
           console.error(
             JSON.stringify({
@@ -238,20 +265,25 @@ export function registerMessagesProxy(
               message: String((error as Error)?.message ?? error).slice(0, 200),
             }),
           );
-          try {
-            controller.enqueue(
-              encoder.encode(
-                `\n\nevent: error\ndata: ${JSON.stringify({
-                  type: "error",
-                  error: { type: "upstream_unavailable", message: "模型服务中途断开" },
-                })}\n\n`,
-              ),
-            );
-          } catch {
-            /* 对端已经关了：只收尾 */
+          if (open) {
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `\n\nevent: error\ndata: ${JSON.stringify({
+                    type: "error",
+                    error: { type: "upstream_unavailable", message: "模型服务中途断开" },
+                  })}\n\n`,
+                ),
+              );
+            } catch {
+              /* 对端已经关了：只收尾 */
+            }
           }
-          controller.close();
+          finish();
         }
+      },
+      cancel() {
+        /* 对端主动取消：不用再补任何东西 */
       },
     });
     return new Response(guarded, {

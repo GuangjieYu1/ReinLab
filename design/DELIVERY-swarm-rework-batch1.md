@@ -43,7 +43,21 @@
 - 引用 <evidence-id> 的那句话只核到摘要。
 ```
 
-## 5) 模型：需要你定一个（阻塞项）
+## 5) 模型：已切到 deepseek-flash（= 你说的 deepseek-v4.1-flash）✓
+
+- 用户 2026-11-05 说明「deepseek-v4.1-flash 就是 deepseek-flash」：官方 API 的 `deepseek-flash` 就是同一代模型，
+  所以不用绕 opencodego。群研与内核都改成 `deepseek-flash`（`tooling/local/up.ts` 的默认值，
+  也可用 `REINLAB_KERNEL_MODEL` / `REINLAB_SWARM_MODEL` 覆盖）。
+- 顺手把模型网关做成可配：`REINLAB_MODEL_BASE_URL` / `REINLAB_MODEL_API_KEY` / `REINLAB_MODEL_SESSION`
+  （key 只在 `~/.config/reinlab/local.env`，只在进程内存里读；opencodego 这类网关要的 `x-opencode-session`
+  也会带上），并把上游 URL 的拼法改成「base 以 /v1 结尾就补 /messages，否则补 /v1/messages」。
+- 真机验证（运行 `0e…` 探针）：`state=clarifying`、`usage_record` 记 `deepseek-official | deepseek-flash`、
+  444/240 与 11454/900 tokens、¥0.033。**没有再用 deepseek-v4-flash。**
+- 说明：试过走 opencodego 网关（`https://opencode.ai/inference/go/v1`，Anthropic 兼容 `/messages`，
+  我实测第一次 200），但随后同一把 key 被网关回 `Invalid credential`，不稳定；既然 `deepseek-flash`
+  就是同一个模型，就没必要绕。要换网关时改那三个 `REINLAB_MODEL_*` 即可。
+
+## 5b) 早先的型号阻塞（已由上面的切换解决）
 
 - 官方 API 只有 **`deepseek-flash`、`deepseek-v4-pro`** 两个型号；直接传 `deepseek-v4.1-flash` 会被拒：
   `The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed deepseek-v4.1-flash`。
