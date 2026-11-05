@@ -1627,3 +1627,33 @@ it("D3：到限（或已收尾）之后不再允许新增任务", async () => {
     await f.close();
   }
 }, 120_000);
+
+it("D2：覆盖情况直接出现在快照和报告里，不用调工具；涨得多才提醒一次", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    await swarm.submitResearch(f.account, runId, {
+      kind: "claim",
+      submissionId: "d2-1",
+      member: "r1-scout",
+      claim: {
+        text:
+          "World Anvil 有时间轴；Aeon Timeline 更严格；OnlyWorlds 没查到；《51码字》是国内写作工具；Wikidot 也有。",
+        basis: "checked_fact",
+      },
+      evidence: [evidenceOf("https://worldanvil.com/features", "Timeline", "event timeline")],
+    });
+    const snapshot = await swarm.snapshot(f.account, runId);
+    // 快照里就有，不需要负责人调 research_coverage。
+    expect(snapshot.coverage).toBeTruthy();
+    expect(snapshot.coverage?.mentionedTotal ?? 0).toBeGreaterThan(0);
+    const anyAxis = snapshot.coverage?.axes.find((entry) => entry.checked.length + entry.mentioned.length > 0);
+    expect(anyAxis?.checked.some((name) => name.includes("World Anvil"))).toBe(true);
+    expect(anyAxis?.mentioned.length ?? 0).toBeGreaterThan(0);
+    // 报告里也带一份。
+    expect(snapshot.report?.coverage?.mentionedTotal).toBe(
+      snapshot.coverage?.mentionedTotal,
+    );
+  } finally {
+    await f.close();
+  }
+}, 120_000);

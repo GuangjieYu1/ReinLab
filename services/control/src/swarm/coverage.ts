@@ -62,7 +62,11 @@ export function extractNames(text: string): string[] {
   // 1) 引号 / 书名号里的中文名
   for (const match of text.matchAll(/[「《“"]([^「」《》“”"]{2,40})[」》”"]/g)) {
     const inner = match[1].trim();
-    if (/[\u4e00-\u9fa5]/.test(inner)) push(inner);
+    // 引号里常常是一整句界面文字：太长或带句读的不当名字（D2 复测里出现过）。
+    if (!/[\u4e00-\u9fa5]/.test(inner)) continue;
+    if (inner.length > 12) continue;
+    if (/[。，、；：！？,;]/.test(inner)) continue;
+    push(inner);
   }
   // 2) 拉丁专名：2–4 个首字母大写的词
   for (const match of text.matchAll(/\b([A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+){1,3})\b/g)) push(match[1]);
@@ -92,64 +96,77 @@ export type CoverageInput = {
 
 /** 算出覆盖视图：每个轴的已查证 / 提到但没查。 */
 export function buildCoverage(input: CoverageInput): Coverage {
-  const checked = new Map<string, { name: string; axis: string }>();
-  const evidenceById = new Map(input.evidence.map((entry) => [entry.id, entry]));
-  const claimById = new Map(input.claims.map((claim) => [claim.id, claim]));
-
-  for (const entry of input.evidence) {
-    const haystack = [
+  // 每条证据的「可匹配文本」：标题 + 来源 + 定位 + 摘句，归一化后用来判断「这个名字查过没有」。
+  const evidenceTexts = input.evidence.map((entry) => ({
+    id: entry.id,
+    axis:
+      entry.claimIds
+        .map((id) => input.claims.find((claim) => claim.id === id)?.routeId)
+        .find((routeId) => routeId) ?? "",
+    text: normalize(
+      [
+        entry.source?.title ?? "",
+        entry.source?.ref ?? "",
+        entry.locator?.quote ?? "",
+        entry.locator?.section ?? "",
+      ].join(" "),
+    ),
+    raw: [
       entry.source?.title ?? "",
       entry.source?.ref ?? "",
       entry.locator?.quote ?? "",
       entry.locator?.section ?? "",
-    ].join(" \n ");
-    const axisId =
-      entry.claimIds.map((id) => claimById.get(id)?.routeId).find(Boolean) ??
-      entry.claimIds.map((id) => claimById.get(id)?.routeId ?? null).find(() => true) ??
-      null;
-    for (const name of extractNames(haystack)) {
-      const key = normalize(name);
-      if (!checked.has(key)) checked.set(key, { name, axis: axisId ?? "" });
-    }
-  }
+    ].join(" \n "),
+  }));
+
+  // 已查证：证据文本里抽出来的名字，加上「结论提到、同时证据文本里也出现过」的名字。
+  const checked = new Map<string, { name: string; axis: string }>();
+  const markChecked = (name: string, axis: string) => {
+    const key = normalize(name);
+    if (!checked.has(key)) checked.set(key, { name, axis });
+  };
+  for (const entry of evidenceTexts) for (const name of extractNames(entry.raw)) markChecked(name, entry.axis);
 
   const mentioned = new Map<string, { name: string; axis: string }>();
   for (const claim of input.claims) {
+    const axisId = claim.routeId ?? "";
     for (const name of extractNames(claim.text)) {
       const key = normalize(name);
       if (checked.has(key)) continue;
-      const axisId = claim.routeId ?? "";
-      const previous = mentioned.get(key);
-      // 同一个名字在两条路线都被提到时，记在第一条（够用了，日志里有全量）。
-      if (!previous) mentioned.set(key, { name, axis: axisId });
+      // 名字在证据里出现过（比如 World Anvil 对上 worldanvil.com）：算查证过。
+      if (evidenceTexts.some((entry) => entry.text.includes(key))) {
+        markChecked(name, axisId || evidenceTexts.find((entry) => entry.text.includes(key))?.axis || "");
+        continue;
+      }
+      if (!mentioned.has(key)) mentioned.set(key, { name, axis: axisId });
     }
   }
 
-  const axes = input.routes.map((route) => ({
+  const routes = input.routes.map((route) => ({ id: String(route.id ?? ""), title: route.title }));
+  const axes = routes.map((route) => ({
     routeId: route.id,
     title: route.title,
     checked: [...checked.values()]
       .filter((entry) => entry.axis === route.id)
       .map((entry) => entry.name)
-      .sort(),
+      .sort()
+      .slice(0, 30),
     mentioned: [...mentioned.values()]
       .filter((entry) => entry.axis === route.id)
       .map((entry) => entry.name)
-      .sort(),
+      .sort()
+      .slice(0, 30),
   }));
-  // 没归到任何路线的（比如老数据没有 route）：单列一个轴，别丢。
-  const orphanChecked = [...checked.values()].filter(
-    (entry) => !input.routes.some((route) => route.id === entry.axis),
-  );
-  const orphanMentioned = [...mentioned.values()].filter(
-    (entry) => !input.routes.some((route) => route.id === entry.axis),
-  );
+  // 没归到任何路线的：单列一个轴，别丢。
+  const isKnownRoute = (axis: string) => routes.some((route) => route.id === axis);
+  const orphanChecked = [...checked.values()].filter((entry) => !isKnownRoute(entry.axis));
+  const orphanMentioned = [...mentioned.values()].filter((entry) => !isKnownRoute(entry.axis));
   if (orphanChecked.length || orphanMentioned.length)
     axes.push({
       routeId: "",
       title: "未归到路线",
-      checked: orphanChecked.map((entry) => entry.name).sort(),
-      mentioned: orphanMentioned.map((entry) => entry.name).sort(),
+      checked: orphanChecked.map((entry) => entry.name).sort().slice(0, 30),
+      mentioned: orphanMentioned.map((entry) => entry.name).sort().slice(0, 30),
     });
 
   const checkedTotal = checked.size;

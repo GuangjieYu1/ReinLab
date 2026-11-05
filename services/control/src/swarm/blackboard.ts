@@ -622,7 +622,10 @@ export async function buildReport(
     // 覆盖缺口（18 广度返工）：结论里提到、但没有任何证据指向的名字。
     ...coverageGaps(
       buildCoverage({
-        routes: routes.map((route) => ({ id: String(route.id), title: String(route.title ?? "") })),
+        routes: routes.map((route) => ({
+          id: String(route.route_id ?? route.id ?? ""),
+          title: String(route.title ?? ""),
+        })),
         claims: claims.map((claim) => ({
           id: claim.id,
           text: claim.text,
@@ -693,6 +696,28 @@ export async function buildReport(
     negative: negative.map((claim) => claim.id),
     gaps: [...new Set(gaps)].slice(0, 20),
     sources: [...usedEvidence].filter((id) => evidence.some((entry) => entry.id === id)),
+    // 覆盖情况（D2）：报告里也带一份。
+    coverage: buildCoverage({
+      routes: routes.map((route) => ({
+        id: String(route.route_id ?? route.id ?? ""),
+        title: String(route.title ?? ""),
+      })),
+      claims: claims.map((claim) => ({
+        id: claim.id,
+        text: claim.text,
+        routeId: claim.routeId,
+        evidenceIds: claim.evidenceIds,
+      })),
+      evidence: [...evidence.values()].map((entry) => ({
+        id: entry.id,
+        // 这条证据被哪些结论引用：覆盖视图靠它把名字归到对应路线上。
+        claimIds: claims
+          .filter((claim) => claim.evidenceIds.includes(entry.id))
+          .map((claim) => claim.id),
+        source: { title: entry.source.title, ref: entry.source.ref },
+        locator: entry.locator,
+      })),
+    }),
     // 按来路统计（18 广度返工）：页面显示「发现类 search / 共 M」。
     discoveryCounts: (() => {
       const counts = { search: 0, knownUrl: 0, citation: 0, unknown: 0 };

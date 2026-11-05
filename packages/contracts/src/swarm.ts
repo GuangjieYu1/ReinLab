@@ -338,6 +338,8 @@ export type SwarmReport = {
     citation: number;
     unknown: number;
   } | null;
+  /** 覆盖情况（D2）：报告里也带一份，正式报告本身能看出广度。 */
+  coverage?: SwarmCoverage | null;
   /** 到限时的追加建议。 */
   nextSuggestion?: { rounds: number; minutes: number; why: string } | null;
   /**
@@ -379,6 +381,20 @@ export type Intervention = {
   at: Iso;
 };
 
+/** 覆盖情况（18 广度返工 D2）：不看工具也能看到的「谁已查证、谁提到没查」。 */
+export type SwarmCoverage = {
+  checkedTotal: number;
+  mentionedTotal: number;
+  axes: Array<{
+    routeId: string;
+    title: string;
+    checked: string[];
+    mentioned: string[];
+  }>;
+  /** 一句话说明（可以整句显示在页面上）。 */
+  note: string;
+};
+
 // ── 快照（重连先取它）──────────────────────────────
 export type SwarmSnapshot = {
   run: SwarmRun;
@@ -392,6 +408,8 @@ export type SwarmSnapshot = {
   reviews: Review[];
   interventions: Intervention[];
   report: SwarmReport | null;
+  /** 覆盖情况：每次快照现算，不用负责人调工具（D2）。 */
+  coverage?: SwarmCoverage | null;
   /** 本 run 待处理的收件箱卡 id。 */
   pendingApprovals: string[];
   /** 快照对应的最后事件 seq。 */

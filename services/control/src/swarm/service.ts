@@ -168,6 +168,8 @@ type RunRow = {
   redirect_pending?: boolean;
   /** 负责人写的成稿（report.narrative）。 */
   narrative?: string | null;
+  /** 上次「覆盖提醒」时的「提到但没查」数量（D2 去重水位）。 */
+  coverage_mentioned?: number | null;
 };
 
 /** 一条运行的研究投影：所有接口都从这里算，页面不自己推断。 */
@@ -281,7 +283,7 @@ export class SwarmService {
       await client.query(
         `select run_id,dossier_id,question,state,phase,round,plan_version,limit_rounds,limit_minutes,
                 active_ms,active_since,members_used,kickoff_at,lead_session,projected_seq,
-                state_reason,end_reason,delegation,started_at,ended_at,redirect_pending,narrative
+                state_reason,end_reason,delegation,started_at,ended_at,redirect_pending,narrative,coverage_mentioned
            from swarm_run where account_id=$1 and run_id=$2`,
         [account, runId],
       )
@@ -1021,6 +1023,8 @@ export class SwarmService {
         reviews,
         interventions,
         report,
+        // 覆盖情况：快照里现算，页面不看工具也看得到（D2）。
+        coverage: report?.coverage ?? null,
         pendingApprovals: approvals,
         cursor,
       } satisfies SwarmSnapshot;
@@ -2732,6 +2736,60 @@ export class SwarmService {
    * 插件登记研究语义（B3）：任务挂哪条路线、父任务是谁、成员是什么角色和显示名。
    * 登记完立刻把当前那条成员/任务重发一遍，页面不用等下一次任务变化。
    */
+  /**
+   * 覆盖提醒（D2）：新加进来的「提到但没查」名字累计涨了 ≥5 个，就给负责人发一条 bus。
+   * 只在写事务里调用（快照是只读的）。同一批名字不重复提醒：水位记在 swarm_run.coverage_mentioned。
+   */
+  private async nudgeCoverage(client: pg.PoolClient, account: string, runId: string): Promise<void> {
+    const row = await this.row(client, account, runId);
+    const plan = await this.planOf(client, account, runId);
+    const claims = await latestClaims(client, account, runId, { limit: 300 });
+    const evidence = await loadEvidence(client, account, runId);
+    const evidenceById = new Map(evidence.map((entry) => [entry.id, entry]));
+    const coverage = buildCoverage({
+      routes: (plan?.routes ?? []).map((route) => ({ id: route.id, title: route.title })),
+      claims: claims.map((claim) => ({
+        id: claim.id,
+        text: claim.text,
+        routeId: claim.routeId,
+        evidenceIds: claim.evidenceIds,
+      })),
+      evidence: claims
+        .flatMap((claim) =>
+          claim.evidenceIds.map((id) => {
+            const found = evidenceById.get(id);
+            return found
+              ? {
+                  id: found.id,
+                  claimIds: [claim.id],
+                  source: { title: found.source.title, ref: found.source.ref },
+                  locator: found.locator,
+                }
+              : null;
+          }),
+        )
+        .filter(Boolean) as never,
+    });
+    const previous = Number(row.coverage_mentioned ?? 0);
+    if (coverage.mentionedTotal < previous + 5) return;
+    const names = coverage.axes
+      .flatMap((axis) => axis.mentioned.map((name) => `${name}（${axis.title || axis.routeId}）`))
+      .slice(0, 10);
+    await this.emitSimple(client, account, runId, "bus", {
+      seq: 0,
+      at: new Date().toISOString(),
+      type: "system",
+      from: "system",
+      to: "lead",
+      text: `覆盖：有 ${coverage.mentionedTotal} 个名字在结论里被提到、但还没有证据指向 —— ${names.join("、")}。查不查你定。`,
+      refs: {},
+    } satisfies BusEntry);
+    await client.query(
+      "update swarm_run set coverage_mentioned=$3, updated_at=now() where account_id=$1 and run_id=$2",
+      [account, runId, coverage.mentionedTotal],
+    );
+  }
+
   async registerMeta(
     account: string,
     runId: string,
@@ -3008,6 +3066,8 @@ export class SwarmService {
       });
       await this.emitReport(client, account, runId, row.plan_version, row.state_reason);
       await this.emitRun(client, account, runId);
+      // 覆盖涨了就提醒负责人（D2）；提醒本身失败不影响这次提交。
+      await this.nudgeCoverage(client, account, runId).catch(() => undefined);
       return result;
     });
   }

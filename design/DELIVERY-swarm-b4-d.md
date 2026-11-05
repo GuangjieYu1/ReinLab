@@ -44,7 +44,21 @@
 实测（fe243151）：`limit=5` → 5 条、**10.6KB**；`actions=turn/start,assistant/message&limit=50` → 50 条且全部命中这两个 action。
 前端只要设 `actions=turn/start,turn/end,assistant/message&limit=200`，单次体积会降到原来的百分之一量级。
 
-## D2 覆盖视图没人用 —— 方案（这轮没写代码，等你点头）
+## D2 覆盖视图 → 已改成「不看工具也看得到」（用户 2026-11-06 定：做）
+
+- **契约新增两个字段**：`SwarmSnapshot.coverage?`、`SwarmReport.coverage?`，类型都是
+  `SwarmCoverage = { checkedTotal, mentionedTotal, note, axes: [{ routeId, title, checked[], mentioned[] }] }`。
+- **快照里现算**：`GET /v1/swarm/runs/:id` 直接带 `coverage`（与 `report` 同级），页面不用等负责人调工具。
+  每轴最多列 30 个名字，`note` 是一句可以直接显示的话。
+- **报告里也带**：`report.coverage`，正式报告本身能看出广度；`report.gaps` 里仍会写「提到但没查证的名字」。
+- **涨了才提醒**：`submitResearch` 里比较「提到但没查」总数，累计涨 ≥5 才给负责人发一条 `bus`
+  （水位存 `swarm_run.coverage_mentioned`，同一批名字不会重复提醒）。
+- 抽名与归轴的两个实测修正：`swarm_approach` 的列名是 `route_id`（之前按 `id` 取，名字全落进「未归到路线」）；
+  证据现在按「哪些结论引用它」归轴；引号里的整句界面文案（>12 字或带句读）不再当名字。
+- 实测 f7bd65fe 之外的最新一条复测 `fe243151`：`checkedTotal 556 / mentionedTotal 43`，
+  三条路线各 30 个已查名字、13/12/18 个提到没查。
+
+## D2 原方案（已被上面的实现取代）
 
 我的判断：`research_coverage` 是**又一个要主动调的工具**，负责人正在赶进度时不会想到它。所以我建议**不靠调用，直接把它算进快照和报告**：
 
