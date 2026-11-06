@@ -102,6 +102,18 @@ describe("故事时间换算", () => {
     expect(wrongLeap.failure.message).toContain("没有闰三月");
   });
 
+  it("只写年份（康熙十七年）给整年的范围，不硬填到某一天", () => {
+    const year = parseStoryTime("康熙十七年", context);
+    expect(year.ok).toBe(true);
+    if (!year.ok) return;
+    expect(year.value.certainty).toBe("range");
+    expect(year.value.range![1]).toBeGreaterThan(year.value.range![0]);
+    const startYear = civilFromT(year.value.range![0]);
+    expect(startYear.year).toBe(1678);
+    expect(year.value.label).toContain("康熙十七年");
+    expect(year.value.label).toContain("–");
+  });
+
   it("年号表里没有、干支对不上，都明确拒绝（顺带给能用的候选）", () => {
     const unknown = parseStoryTime("天宝十三年三月初七", context);
     expect(unknown.ok).toBe(false);

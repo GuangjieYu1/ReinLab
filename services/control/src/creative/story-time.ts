@@ -216,8 +216,33 @@ export function parseChineseEraDate(text: string, calendars: Calendar[]): Chines
   const leap = LEAP_RE.test(rest);
   if (leap) rest = rest.slice(1);
   const monthMatch = MONTH_RE.exec(rest);
-  if (!monthMatch)
+  if (!monthMatch) {
+    // 只写年份（「康熙十七年」）：给这一农历年的范围，不硬填到某一天。
+    if (eraYear !== null && !rest.trim()) {
+      const calendarId = calendars.find((item) => item.kind === 'chinese_era')?.id ?? 'chinese_era';
+      const months = lunarMonthsOfYear(eraYear);
+      const first = months[0];
+      const last = months[months.length - 1];
+      if (!first || !last)
+        return { ok: false, message: `算不出 ${eraYear} 年的农历月表。`, candidates: [] };
+      const start = gregorianToT(first.start.year, first.start.month, first.start.day);
+      const end = gregorianToT(last.start.year, last.start.month, last.start.day + last.days - 1);
+      const nth = eraYear - (eraByName(eraName!)?.start ?? eraYear) + 1;
+      return {
+        ok: true,
+        value: {
+          t: start,
+          range: [start, end],
+          label: `${text.trim()}（${gregorianLabel(start)} – ${gregorianLabel(end)}）`,
+          original: text.trim(),
+          calendar: calendarId,
+          relative: null,
+          certainty: 'range',
+        },
+      };
+    }
     return { ok: false, message: '缺农历月份（正月、二月……十二月）。', candidates: [] };
+  }
   const month = monthNumberOf(monthMatch[1]);
   rest = rest.slice(monthMatch[0].length);
   const dayMatch = DAY_RE.exec(rest);
@@ -337,7 +362,7 @@ export function parseChineseEraDate(text: string, calendars: Calendar[]): Chines
 }
 
 const looksChineseEra = (text: string): boolean =>
-  /[年月]/.test(text) && (ERA_RE.test(text) || GANZHI_CHARS.test(text) || /闰/.test(text));
+  /年/.test(text) && (ERA_RE.test(text) || GANZHI_CHARS.test(text) || /闰/.test(text) || /[月]/.test(text));
 
 /** 原文写法 → StoryTime。解析不了就明确失败（调用方回 422 TIME_UNPARSED）。 */
 export function parseStoryTime(input: string, context: StoryTimeContext): ParseResult {

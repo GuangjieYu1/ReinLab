@@ -358,6 +358,7 @@ const importExtractor =
         baseUrl: creativeRouteBase,
         apiKey: creativeRouteKey,
         model: config.REINLAB_CREATIVE_EXTRACT_MODEL ?? creativeRoute.model,
+        maxTokens: 8192,
         provider: creativeRoute.provider,
         ...(reviewPricing ? { pricing: reviewPricing } : {}),
       })

@@ -81,6 +81,8 @@ const SYSTEM = `你在给一部小说建世界观账本。用户给你一章原�
 - 人物说了死了、传说他死了，都只是「传闻」：narrative 写 hearsay，不要当成事实。
 - 「他」「那老者」这类共指放进 merges，candidates 给可能的已有名字；拿不准就在 doubt 里写清。
 - 古地名、旧称给 candidates（现代地名或范围），说明依据；查不到就留空并写 doubt。
+- 同一个人在这一章里的不同称呼（姓、字、号，「生」「君」「叟」这类）写进 aliases；拿不准是不是同一人放进 merges。
+- 原文里有年号（康熙十七年）、干支、农历日期就原样抄进 start/end，不要空着。
 - 已经入账的人名不要再建一遍：用同名即可，事件里照样引用。`;
 
 const extractJson = (text: string): unknown => {
@@ -232,8 +234,42 @@ export function createChapterExtractor(deps: ChapterExtractorDeps): ChapterExtra
     }
     const content = (payload as { content?: { type?: string; text?: string }[] }).content ?? [];
     const body = content.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n');
-    const parsed = extractJson(body);
-    if (!parsed) throw new Error('抽取结果读不出来（没有 JSON）。');
+    let parsed = extractJson(body);
+    if (!parsed) {
+      // 没读到 JSON：多半是被写成了散文或截断。再要一次，只要 JSON。
+      const retry = await transport(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': deps.apiKey,
+          'anthropic-version': '2023-06-01',
+          ...(deps.session ? { 'x-opencode-session': deps.session } : {}),
+        },
+        body: JSON.stringify({
+          model: deps.model,
+          max_tokens: deps.maxTokens ?? 4096,
+          system: SYSTEM,
+          messages: [
+            { role: 'user', content: prompt },
+            { role: 'assistant', content: clip(body, 2000) },
+            { role: 'user', content: '只输出那个 JSON 对象，不要任何解释或前后缀。' },
+          ],
+        }),
+        signal: AbortSignal.timeout(240_000),
+      });
+      const retryText = await retry.text();
+      try {
+        const retryPayload = JSON.parse(retryText) as { content?: { type?: string; text?: string }[] };
+        const retryBody = (Array.isArray(retryPayload.content) ? retryPayload.content : [])
+          .filter((block) => block.type === 'text')
+          .map((block) => block.text ?? '')
+          .join('\n');
+        parsed = extractJson(retryBody);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed) throw new Error('抽取结果读不出来（没有 JSON）。');
+    }
     const usage = (payload as { usage?: { input_tokens?: number; output_tokens?: number } }).usage ?? {};
     return {
       extraction: normalizeExtraction(parsed),
@@ -243,6 +279,33 @@ export function createChapterExtractor(deps: ChapterExtractorDeps): ChapterExtra
       },
     };
   };
+}
+
+/**
+ * 长文分块：按段落拼到 maxChars 一块，段号带上偏移——抽取的时间、出处都不丢。
+ * 文言一章常常两三千字，一次塞给模型容易写出半句话，宁可分块。
+ */
+export function splitIntoChunks(
+  text: string,
+  maxChars = 3000,
+): { text: string; paraOffset: number }[] {
+  const paragraphs = text.split(/\n\s*\n/);
+  const chunks: { text: string; paraOffset: number }[] = [];
+  let current: string[] = [];
+  let paraOffset = 0;
+  let size = 0;
+  paragraphs.forEach((paragraph, index) => {
+    if (size > 0 && size + paragraph.length > maxChars) {
+      chunks.push({ text: current.join('\n\n'), paraOffset });
+      paraOffset = index;
+      current = [];
+      size = 0;
+    }
+    current.push(paragraph);
+    size += paragraph.length;
+  });
+  if (current.length) chunks.push({ text: current.join('\n\n'), paraOffset });
+  return chunks.length ? chunks : [{ text, paraOffset: 0 }];
 }
 
 /** 出处：章、段、句 + 原句，附原文版本。 */

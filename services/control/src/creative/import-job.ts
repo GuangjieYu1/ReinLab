@@ -24,7 +24,7 @@ import { loadWorld, requireCreativeDossier } from './service';
 import { clip } from './text';
 import { CHINESE_ERA, type CreativeDocument } from './world';
 import { parseStoryTime } from './story-time';
-import { provenanceOf, type ChapterExtractor, type Extraction } from './extract';
+import { provenanceOf, splitIntoChunks, type ChapterExtractor, type Extraction } from './extract';
 import { applyWorkOps, wordsOf, type WorkDocument } from './work';
 
 export type ImportChapter = { chapterId: string; title: string; text: string; textVersion: number };
@@ -225,7 +225,11 @@ export function proposalsFromChapter(input: {
             title: event.title,
             what: prose(event.what, event.title),
             kind: event.kind,
-            participants: event.participants.map((participant) => ({ entityName: participant.name, as: participant.as })),
+            participants: event.participants.map((participant) => ({
+              entityId: '',
+              entityName: participant.name,
+              as: participant.as,
+            })),
             placeId: null,
             ...(event.place ? { placeName: event.place } : {}),
             travel: null,
@@ -539,12 +543,33 @@ export async function runImport(
         )
       ).rows[0]?.document);
       if (!workRow) throw new ApiFailure('WORK_NOT_FOUND', 404, '找不到这部作品。');
-      const result = await extractor({
-        chapterTitle: step.chapter.title,
-        text: step.chapter.text,
-        known: world.entities.map((item) => ({ name: item.name, kind: item.kind })),
-        calendarHint: `可用历法：${world.calendars.map((item) => `${item.name}（${item.kind}）`).join('、')}`,
-      });
+      // 一章可能有两三千字：分块抽，段号按块偏移接上，出处的段落不会错位。
+      const chunks = splitIntoChunks(step.chapter.text, 3000);
+      const merged: Extraction = { entities: [], events: [], merges: [] };
+      const usageTotal = { inputTokens: 0 as number | null, outputTokens: 0 as number | null };
+      for (const chunk of chunks) {
+        const result = await extractor({
+          chapterTitle: step.chapter.title,
+          text: chunk.text,
+          known: world.entities.map((item) => ({ name: item.name, kind: item.kind })),
+          calendarHint: `可用历法：${world.calendars.map((item) => `${item.name}（${item.kind}）`).join('、')}`,
+        });
+        for (const entity of result.extraction.entities)
+          merged.entities.push({ ...entity, para: entity.para + chunk.paraOffset });
+        for (const event of result.extraction.events)
+          merged.events.push({ ...event, para: event.para + chunk.paraOffset });
+        for (const merge of result.extraction.merges)
+          merged.merges.push({ ...merge, para: merge.para + chunk.paraOffset });
+        usageTotal.inputTokens =
+          usageTotal.inputTokens === null || result.usage.inputTokens === null
+            ? null
+            : usageTotal.inputTokens + result.usage.inputTokens;
+        usageTotal.outputTokens =
+          usageTotal.outputTokens === null || result.usage.outputTokens === null
+            ? null
+            : usageTotal.outputTokens + result.usage.outputTokens;
+      }
+      const result = { extraction: merged, usage: usageTotal };
       const batchId = `import_${step.chapter.chapterId}`;
       const proposals = proposalsFromChapter({
         extraction: result.extraction,

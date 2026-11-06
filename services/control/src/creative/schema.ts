@@ -92,7 +92,8 @@ export const AssetBody = z
     name: z.string().min(1).max(200),
     // Azgaar 导出的 Routes GeoJSON 文本；超过这个长度先拆，不要塞进一个请求。
     content: z.string().min(2).max(8_000_000),
-    format: z.enum(['geojson', 'map']).default('geojson'),
+    // geojson / map = Azgaar 的道路；text = 导入用的原文（txt / md）
+    format: z.enum(['geojson', 'map', 'text']).default('geojson'),
   })
   .strict();
 
