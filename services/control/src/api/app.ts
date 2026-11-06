@@ -252,11 +252,20 @@ export async function createApp(options: {
     if (card) return card;
     throw denied();
   });
-  if (options.kernel)
+  // 创作台会话（顾问/写作助手）也走这条路由，所以没有内核服务时照样要挂上。
+  if (options.kernel || options.creativeWriter || options.creativeAdvisor)
     registerKernelRuns(app, {
       db: database,
-      kernel: options.kernel,
+      ...(options.kernel ? { kernel: options.kernel } : {}),
       ...(options.swarm ? { swarm: options.swarm } : {}),
+      ...(options.creativeWriter || options.creativeAdvisor
+        ? {
+            creative: {
+              ...(options.creativeAdvisor ? { advisor: options.creativeAdvisor } : {}),
+              ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
+            },
+          }
+        : {}),
     });
   if (options.swarm) {
     registerSwarmApi(app, {

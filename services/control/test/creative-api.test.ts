@@ -906,6 +906,72 @@ describe("任务中断后能收拾（1B）", () => {
   });
 });
 
+describe("创作台会话走 kernel runs（1B 契约 §5.2「助手」）", () => {
+  it("设定顾问：建 run、写事件、只产出提议", async () => {
+    advisorModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                kind: "entity",
+                title: "加一个船夫",
+                summary: "冬天在渡口撑船的人。",
+                entities: [{ name: "船夫", kind: "person", aliases: ["舟子"], summary: "渡口撑船" }],
+                events: [],
+                rules: [],
+                doubts: [],
+              }),
+            },
+          ],
+          usage: { input_tokens: 500, output_tokens: 200 },
+        }),
+        { status: 200 },
+      );
+    const started = await api("/v1/kernel/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ dossierId: dossierA, query: "加一个渡口的船夫", mode: "creative_advisor" }),
+    });
+    expect(started.status).toBe(201);
+    const { id } = await started.json();
+    expect(id).toBeTruthy();
+
+    let actions: string[] = [];
+    let state = "";
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const run = await admin.query("select state from run where id=$1", [id]);
+      state = run.rows[0]?.state ?? "";
+      const events = await admin.query(
+        "select action from event where run_id=$1 order by seq",
+        [id],
+      );
+      actions = events.rows.map((row) => row.action);
+      if (state === "completed" || state === "failed") break;
+    }
+    expect(state).toBe("completed");
+    expect(actions).toContain("user/message");
+    expect(actions).toContain("assistant/message");
+    // 助手只产出提议：待确认里多了一条，账本里没有新实体
+    const proposals = await (await api(`/v1/creative/worlds/${dossierA}/proposals?limit=200`)).json();
+    expect(proposals.proposals.some((item: any) => item.title === "加一个船夫")).toBe(true);
+    const world = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    expect(world.entities.some((item: any) => item.name === "船夫")).toBe(false);
+  });
+
+  it("别的台的档案开不了创作台助手", async () => {
+    const denied = await api("/v1/kernel/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ dossierId: dossierResearch, query: "加个人", mode: "creative_advisor" }),
+    });
+    expect(denied.status).toBe(400);
+    expect((await denied.json()).code).toBe("BENCH_UNSUPPORTED");
+  });
+});
+
 describe("事件与作品的双向引用（1B 契约 §5.1）", () => {
   it("场景引用了事件，事件详情的 workRefs 就带上作品、章、场", async () => {
     const snapshotWorld = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
