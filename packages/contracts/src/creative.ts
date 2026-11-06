@@ -121,10 +121,10 @@ export type WorldEvent = {
   what: string;
   kind: 'stay' | 'travel' | 'interaction' | 'birth' | 'death' | 'other';
   /**
-   * 导入来的事件还不知道实体 id（那些实体也在待确认里），这里允许按名字引用：
-   * `entityId` 给 id 就用 id，只给 `entityName` 就按名字/别名解析。
+   * 导入来的事件还不知道实体 id（那些实体也在待确认里）：这时 `entityId` 留空，
+   * 用 `entityName` 按名字/别名解析（服务端在应用操作时解析，解析不到就整批拒绝）。
    */
-  participants: { entityId?: string; entityName?: string; as: Participation }[];
+  participants: { entityId: string; entityName?: string; as: Participation }[];
   placeId: string | null;
   start: StoryTime;
   end: StoryTime;

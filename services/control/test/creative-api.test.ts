@@ -59,6 +59,14 @@ const overpass: OverpassTransport = async (_url, body) => {
   return { ok: true, status: 200, text: async () => JSON.stringify(payload) };
 };
 
+/** 写作助手/顾问的模型通道：测试注入，不连真模型。 */
+const writerModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
+  current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+};
+const advisorModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
+  current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+};
+
 /** 导入测试用的抽取通道：默认抽取一段固定结果，测试可以换。 */
 const importExtractorHolder: { current: (input: { chapterTitle: string; text: string }) => Promise<any> } = {
   current: async () => ({
@@ -99,6 +107,26 @@ beforeAll(async () => {
       pricing: { inputPerMillion: 2, outputPerMillion: 8 },
       provider: "test",
       model: "test-extract",
+    },
+    creativeWriter: {
+      model: {
+        baseUrl: "https://model.test/anthropic",
+        apiKey: "test-key",
+        model: "test-writer",
+        transport: (input, init) => writerModelHolder.current(input as string, init as RequestInit),
+      },
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+    },
+    creativeAdvisor: {
+      model: {
+        baseUrl: "https://model.test/anthropic",
+        apiKey: "test-key",
+        model: "test-advisor",
+        transport: (input, init) => advisorModelHolder.current(input as string, init as RequestInit),
+      },
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
     },
   });
 }, 60_000);
@@ -840,5 +868,181 @@ describe("创作台导入原文（1B 契约 §5.2）", () => {
     expect([200, 409]).toContain(resumed.status);
     const final = await waitJob(freshJob.id);
     expect(["done", "paused", "running"]).toContain(final.state);
+  });
+});
+
+describe("创作台写作与顾问（1B 契约 §5.2）", () => {
+  let workId = "";
+
+  const modelReply = (payload: unknown) =>
+    new Response(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(payload) }], usage: { input_tokens: 800, output_tokens: 400 } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("按场景生成：产出 text_edit 提议，正文不落笔，接受后才写进去", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "生成测试" }),
+    });
+    workId = (await created.json()).id;
+    const outlined = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "夜里送信", pov: "第三人称", ending: "信到了",
+              chapters: [{ id: "c1", title: "出城", scenes: [{ id: "s1", title: "阊门", goal: "动身", eventIds: [], targetWords: 800 }] }],
+            },
+          },
+          { op: "outline.confirm" },
+        ],
+      }),
+    });
+    expect(outlined.status).toBe(200);
+    const afterOutline = await outlined.json();
+    const sceneId = afterOutline.work.chapters[0].scenes[0].id;
+
+    writerModelHolder.current = async () => modelReply({ text: "夜里出了阊门，城门在身后合上。", why: "按目标写动身" });
+
+    const started = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/generate`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ sceneIds: [sceneId], mode: "draft" }),
+    });
+    expect(started.status).toBe(202);
+    const job = await started.json();
+    expect(job.state).toBe("running");
+
+    let jobState = "";
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const current = await (await api(`/v1/creative/worlds/${dossierA}/generate/${job.id}`)).json();
+      jobState = current.state;
+      if (jobState === "done" || jobState === "failed" || jobState === "stopped") break;
+    }
+    expect(jobState).toBe("done");
+
+    // 正文还没落笔：提议在待确认里，场景仍是空的
+    const detail = await (await api(`/v1/creative/worlds/${dossierA}/works/${workId}`)).json();
+    expect(detail.chapters[0].scenes[0].text).toBe("");
+    const proposals = await (await api(`/v1/creative/worlds/${dossierA}/proposals?kind=text_edit&limit=20`)).json();
+    const proposal = proposals.proposals.find((item: any) => item.ops?.[0]?.sceneId === sceneId);
+    expect(proposal).toBeTruthy();
+    expect(proposal.ops[0].after).toContain("阊门");
+    expect(proposal.origin.by).toBe("writer");
+
+    // 接受后才写进正文
+    const accepted = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: detail.revision, ops: [{ op: "text.accept", proposalId: proposal.id }] }),
+    });
+    expect(accepted.status).toBe(200);
+    const acceptedBody = await accepted.json();
+    expect(acceptedBody.work.chapters[0].scenes[0].text).toContain("夜里出了阊门");
+    expect(acceptedBody.work.chapters[0].scenes[0].textVersion).toBe(1);
+    const acceptedProposal = await (await api(`/v1/creative/worlds/${dossierA}/proposals?kind=text_edit&status=accepted&limit=20`)).json();
+    expect(acceptedProposal.proposals.some((item: any) => item.id === proposal.id && item.resolution?.decision === "accepted")).toBe(true);
+  });
+
+  it("生成能停；大纲没确认就不让写", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "未确认大纲" }),
+    });
+    const work = await created.json();
+    const scene = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 1, ops: [{ op: "chapter.add", title: "第一章" }] }),
+    });
+    const chapterId = (await scene.json()).work.chapters[0].id;
+    const withScene = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 2, ops: [{ op: "scene.add", chapterId, title: "一场" }] }),
+    });
+    const sceneId = (await withScene.json()).work.chapters[0].scenes[0].id;
+    const refused = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/generate`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ sceneIds: [sceneId], mode: "draft" }),
+    });
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).code).toBe("OUTLINE_NOT_CONFIRMED");
+
+    // 正常开始的能停
+    writerModelHolder.current = async () => new Promise((resolve) => setTimeout(() => resolve(modelReply({ text: "一段。", why: "" })), 400));
+    const started = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/generate`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ sceneIds: [(await (await api(`/v1/creative/worlds/${dossierA}/works/${workId}`)).json()).chapters[0].scenes[0].id], mode: "continue" }),
+    });
+    const job = await started.json();
+    const stopped = await api(`/v1/creative/worlds/${dossierA}/generate/${job.id}/stop`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect(stopped.status).toBe(200);
+    expect(["stopped", "done", "running"]).toContain((await stopped.json()).state);
+  });
+
+  it("设定顾问：「加人物」提出经历，先跑硬检查再交，全部是提议", async () => {
+    advisorModelHolder.current = async () =>
+      modelReply({
+        kind: "itinerary",
+        title: "加一个赶车的把式",
+        summary: "王二从山村赶来送信，四月初七到阊门，当天在客栈落脚。",
+        entities: [{ name: "王二", kind: "person", aliases: ["王二郎"], summary: "赶车的把式" }],
+        events: [
+          {
+            title: "王二到阊门", what: "从山村赶来", kind: "stay",
+            participants: [{ name: "王二", as: "actor" }, { name: "张三", as: "present" }],
+            place: "青州城", start: "1684-04-21 10:00", end: "1684-04-21 11:00", narrative: "fact",
+          },
+        ],
+        rules: [],
+        doubts: ["原文没说王二的车是不是自己的"],
+      });
+
+    const response = await api(`/v1/creative/worlds/${dossierA}/advisor`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ query: "加一个从山村来的赶车人，跟沈砚打个照面" }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.proposals).toHaveLength(1);
+    const proposal = body.proposals[0];
+    expect(proposal.kind).toBe("itinerary");
+    expect(proposal.status).toBe("pending");
+    expect(proposal.doubts.length).toBeGreaterThan(0);
+    const ops = proposal.ops;
+    expect(ops.some((op: any) => op.op === "entity.add" && op.entity.name === "王二")).toBe(true);
+    const event = ops.find((op: any) => op.op === "event.add");
+    expect(event.event.participants[0].entityName).toBe("王二");
+    expect(Array.isArray(proposal.conflicts)).toBe(true);
+
+    // 接受以后王二才入账
+    const world = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const accepted = await api(`/v1/creative/worlds/${dossierA}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: world.world.revision, ops: [{ op: "proposal.decide", id: proposal.id, decision: "accepted" }] }),
+    });
+    expect(accepted.status).toBe(200);
+    const acceptedBody = await accepted.json();
+    expect(acceptedBody.applied.flatMap((item: any) => item.result && item.result.entity ? [item.result.entity.name] : [])).toContain("王二");
+    const after = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    expect(after.entities.some((item: any) => item.name === "王二")).toBe(true);
+    expect(after.events.some((item: any) => item.title === "王二到阊门")).toBe(true);
   });
 });

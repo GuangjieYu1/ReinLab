@@ -155,6 +155,8 @@ export const GenerateBody = z
   })
   .strict();
 
+export const AdvisorBody = z.object({ query: z.string().trim().min(1).max(2000) }).strict();
+
 export const ProposalsQuery = z.object({
   kind: z.string().max(32).optional(),
   batchId: z.string().max(64).optional(),

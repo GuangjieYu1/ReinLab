@@ -12,7 +12,9 @@ import type { JsonValue, CreativeOp, WorkOp } from '@reinlab/contracts';
 import { ApiFailure } from './errors';
 import { mutate, type ApiEnv } from './context';
 import type { Database } from '../db/database';
-import { AssetBody, ImportBody, ImportWorkBody, OpsBody, ProposalsQuery, VersionBody, WorkCreate, WorkOpsBody } from '../creative/schema';
+import { AdvisorBody, AssetBody, GenerateBody, ImportBody, ImportWorkBody, OpsBody, ProposalsQuery, VersionBody, WorkCreate, WorkOpsBody } from '../creative/schema';
+import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
+import { advise } from '../creative/advisor';
 import { importJobOf, readImportJob, runImport, setImportState, startImport } from '../creative/import-job';
 import {
   applyWorkBatch,
@@ -46,6 +48,10 @@ const EmptyBody = z.object({}).strict();
 export type CreativeApiOptions = {
   /** 按章抽取的模型通道；没配就导入直接失败（不伪造抽取结果）。 */
   importExtraction?: import('../creative/import-job').ImportDeps;
+  /** 写作助手（按场景生成）；没配就生成直接失败。 */
+  writer?: import('../creative/writer').WriterDeps;
+  /** 设定顾问；没配就直接说开不了。 */
+  advisor?: import('../creative/advisor').AdvisorDeps;
   /** AI 推断路线的模型通道；没配就只记「没开」，不伪造路线。 */
   routeInference?: RouteInferenceDeps;
   /** Overpass 取数通道（测试注入）。 */
@@ -355,6 +361,57 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
         void runImport(database, account, dossier, jobId, options.importExtraction).catch(() => undefined);
       return response;
     });
+
+  // ── 生成与顾问（1B，契约 §5.2）──────────────
+  app.post('/v1/creative/worlds/:dossierId/works/:workId/generate', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const workId = c.req.param('workId');
+    let jobId: string | null = null;
+    const response = await mutate(c, database, GenerateBody, async (client, input) => {
+      const job = await startGenerate(client, account, dossier, workId, {
+        sceneIds: input.sceneIds,
+        mode: input.mode ?? 'draft',
+        ...(input.hint ? { hint: input.hint } : {}),
+        ...(input.range ? { range: input.range } : {}),
+      });
+      jobId = job.id;
+      return { status: 202, body: generateJobOf(job) as unknown as JsonValue };
+    });
+    if (jobId)
+      void runGenerate(database, options.writer ?? {}, account, dossier, jobId).catch((error) => {
+        console.error(
+          JSON.stringify({ code: 'CREATIVE_GENERATE_FAILED', message: String((error as Error)?.message ?? error).slice(0, 200) }),
+        );
+      });
+    return response;
+  });
+
+  app.get('/v1/creative/worlds/:dossierId/generate/:jobId', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const job = await readGenerateJob(client, c.get('accountId'), c.req.param('dossierId'), c.req.param('jobId'));
+      const body: unknown = generateJobOf(job);
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
+
+  app.post('/v1/creative/worlds/:dossierId/generate/:jobId/stop', (c) =>
+    mutate(c, database, EmptyBody, async (client) => {
+      const job = await stopGenerate(client, c.get('accountId'), c.req.param('dossierId'), c.req.param('jobId'));
+      return { status: 200, body: generateJobOf(job) as unknown as JsonValue };
+    }),
+  );
+
+  /** 设定顾问：一句话提一条设定（加人物、加规则……），先自己跑硬检查再交。 */
+  app.post('/v1/creative/worlds/:dossierId/advisor', (c) =>
+    mutate(c, database, AdvisorBody, async (client, input) => {
+      const result = await advise(client, c.get('accountId'), c.req.param('dossierId'), options.advisor ?? {}, input.query);
+      return {
+        status: 200,
+        body: { proposals: result.proposals, cost: result.cost } as unknown as JsonValue,
+      };
+    }),
+  );
 
   /** 待确认提议分页（1B 提议多，单独取）。 */
   app.get('/v1/creative/worlds/:dossierId/proposals', (c) => {

@@ -371,9 +371,27 @@ const importExtraction = importExtractor
     }
   : undefined;
 
+// 写作助手与设定顾问：同一个官方入口、同一把手（后台任务，不跟用户会话抢承载单元）。
+const writerModel = creativeRouteKey && creativeRoute
+  ? {
+      baseUrl: creativeRouteBase,
+      apiKey: creativeRouteKey,
+      model: config.REINLAB_CREATIVE_WRITER_MODEL ?? creativeRoute.model,
+      ...(reviewPricing ? { pricing: reviewPricing } : {}),
+    }
+  : undefined;
+const creativeWriter = writerModel
+  ? { model: writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
+  : undefined;
+const creativeAdvisor = writerModel
+  ? { model: writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
+  : undefined;
+
 const app = await createApp({
   pool,
   ...(importExtraction ? { creativeImport: importExtraction } : {}),
+  ...(creativeWriter ? { creativeWriter } : {}),
+  ...(creativeAdvisor ? { creativeAdvisor } : {}),
   ...(creativeRoute ? { creativeRouteInference: creativeRoute } : {}),
   session: config.SUPABASE_ANON_KEY
     ? { url: config.SUPABASE_URL, anonKey: config.SUPABASE_ANON_KEY,

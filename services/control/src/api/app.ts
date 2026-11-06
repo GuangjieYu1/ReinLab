@@ -81,6 +81,9 @@ export async function createApp(options: {
   creativeRouteInference?: import("../creative/route-agent").RouteInferenceDeps;
   /** 创作台导入原文的按章抽取通道；没配就导入直接失败。 */
   creativeImport?: import("../creative/import-job").ImportDeps;
+  /** 创作台的写作助手与设定顾问；没配就照实说开不了。 */
+  creativeWriter?: import("../creative/writer").WriterDeps;
+  creativeAdvisor?: import("../creative/advisor").AdvisorDeps;
   /** 创作台路网导入的取数通道；缺省真实 Overpass。 */
   creativeOverpass?: import("../creative/network").OverpassTransport;
   realModelsEnabled?: boolean;
@@ -214,6 +217,8 @@ export async function createApp(options: {
   registerCreativeApi(app, database, {
     ...(options.creativeRouteInference ? { routeInference: options.creativeRouteInference } : {}),
     ...(options.creativeImport ? { importExtraction: options.creativeImport } : {}),
+    ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
+    ...(options.creativeAdvisor ? { advisor: options.creativeAdvisor } : {}),
     ...(options.creativeOverpass ? { overpass: options.creativeOverpass } : {}),
   });
   app.post("/v1/approvals/:id/decide", async (c) => {

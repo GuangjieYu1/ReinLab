@@ -614,7 +614,8 @@ export function applyOps(
           throw fail('INVALID_INPUT', 400, '正文提议要在作品里接受（text.accept），不在世界观批次里。');
         const chosen = op.candidate !== undefined ? proposal.candidates?.[op.candidate] : undefined;
         if (op.candidate !== undefined && !chosen) throw fail('INVALID_INPUT', 400, '没有这个候选。');
-        const decideOps = op.ops ?? chosen?.ops ?? [];
+        // 页面只发「接受」时，用提议自己带的 ops（路线、经历、合并候选都靠它）。
+        const decideOps = op.ops ?? chosen?.ops ?? proposal.ops ?? [];
         next.proposals[index] = {
           ...proposal,
           status: op.decision,
