@@ -7,13 +7,7 @@
  */
 
 import type pg from 'pg';
-import type {
-  CheckRun,
-  Proposal,
-  CreativeRouteLeg,
-  WorldSnapshot,
-  WorldVersion,
-} from '@reinlab/contracts';
+import type { CheckRun, CreativeAppliedOp, Proposal, CreativeRouteLeg, WorldSnapshot, WorldVersion } from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { runCheck } from './check';
 import { appendEvents, cursorOf } from './events';
@@ -218,7 +212,7 @@ export async function readSnapshot(
 
 export type OpsOutcome = {
   revision: number;
-  applied: import('@reinlab/contracts').CreativeAppliedOp[];
+  applied: CreativeAppliedOp[];
   check: CheckRun;
   legs: CreativeRouteLeg[];
   document: CreativeDocument;

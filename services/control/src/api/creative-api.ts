@@ -8,11 +8,19 @@
 import { randomUUID } from 'node:crypto';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import type { JsonValue, CreativeOp } from '@reinlab/contracts';
+import type { JsonValue, CreativeOp, WorkOp } from '@reinlab/contracts';
 import { ApiFailure } from './errors';
 import { mutate, type ApiEnv } from './context';
 import type { Database } from '../db/database';
-import { AssetBody, ImportBody, OpsBody, VersionBody } from '../creative/schema';
+import { AssetBody, ImportBody, OpsBody, ProposalsQuery, VersionBody, WorkCreate, WorkOpsBody } from '../creative/schema';
+import {
+  applyWorkBatch,
+  createWork,
+  exportWork,
+  listProposals,
+  listWorks,
+  readWork,
+} from '../creative/work-service';
 import {
   applyBatch,
   beginNetworkImport,
@@ -79,9 +87,11 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     const parsed = version === undefined ? null : Number(version);
     if (parsed !== null && (!Number.isSafeInteger(parsed) || parsed < 1))
       throw new ApiFailure('INVALID_INPUT', 400, '版本号要从 1 起。');
-    return database.withAccount(c.get('accountId'), async (client) =>
-      c.json((await readSnapshot(client, c.get('accountId'), c.req.param('dossierId'), parsed)) as unknown as JsonValue),
-    );
+    return database.withAccount(c.get('accountId'), async (client) => {
+      // 快照类型（含 20 种 op 与提议）太大，直接交给 c.json 会把泛型推断撑爆。
+      const snapshot: unknown = await readSnapshot(client, c.get('accountId'), c.req.param('dossierId'), parsed);
+      return c.json(snapshot as Record<string, unknown>);
+    });
   });
 
   /** 改：一个原子批次，revision +1，然后自动做一次（增量）检查。 */
@@ -89,10 +99,12 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     const account = c.get('accountId');
     const dossier = c.req.param('dossierId');
     let outcome: OpsOutcome | null = null;
-    const response = await mutate(c, database, OpsBody, async (client, input) => {
+    // 20 种 op 的判别联合让 zod 推断太深（TS2589）：这里明确收窄成实际用的形状。
+    type OpsInput = { baseRevision?: number; ops: CreativeOp[] };
+    const response = await mutate<OpsInput>(c, database, OpsBody as unknown as z.ZodType<OpsInput>, async (client, input) => {
       const result = await applyBatch(client, account, dossier, {
         ...(input.baseRevision !== undefined ? { baseRevision: input.baseRevision } : {}),
-        ops: input.ops as CreativeOp[],
+        ops: input.ops,
         actor: 'user',
       });
       outcome = result;
@@ -117,8 +129,14 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       .map((item) => item.trim())
       .filter(Boolean);
     return database.withAccount(c.get('accountId'), async (client) => {
-      const result = await readTracks(client, c.get('accountId'), c.req.param('dossierId'), range, entityIds.length ? entityIds : undefined);
-      return c.json(result as unknown as JsonValue);
+      const result: unknown = await readTracks(
+        client,
+        c.get('accountId'),
+        c.req.param('dossierId'),
+        range,
+        entityIds.length ? entityIds : undefined,
+      );
+      return c.json(result as Record<string, unknown>);
     });
   });
 
@@ -127,9 +145,10 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     const raw = c.req.query('t');
     const at = raw === undefined || raw === '' ? null : Number(raw);
     if (at !== null && !Number.isFinite(at)) throw new ApiFailure('INVALID_INPUT', 400, 't 要是故事时间的分钟数。');
-    return database.withAccount(c.get('accountId'), async (client) =>
-      c.json((await editsGeoJson(client, c.get('accountId'), c.req.param('dossierId'), at)) as unknown as JsonValue),
-    );
+    return database.withAccount(c.get('accountId'), async (client) => {
+      const body: unknown = await editsGeoJson(client, c.get('accountId'), c.req.param('dossierId'), at);
+      return c.json(body as Record<string, unknown>);
+    });
   });
 
   /**
@@ -147,9 +166,10 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
         throw new ApiFailure('INVALID_INPUT', 400, 'bbox 两个角写反了：西 < 东，南 < 北。');
       bbox = parts as [number, number, number, number];
     }
-    return database.withAccount(c.get('accountId'), async (client) =>
-      c.json((await readNetworkGeoJson(client, c.get('accountId'), c.req.param('dossierId'), bbox)) as unknown as JsonValue),
-    );
+    return database.withAccount(c.get('accountId'), async (client) => {
+      const body: unknown = await readNetworkGeoJson(client, c.get('accountId'), c.req.param('dossierId'), bbox);
+      return c.json(body as Record<string, unknown>);
+    });
   });
 
   /** 全部重查：手动按钮。 */
@@ -204,10 +224,112 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     }),
   );
 
+  // ── 作品（1B，契约 §5.2）──────────────────────
+  app.get('/v1/creative/worlds/:dossierId/works', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const works: unknown = await listWorks(client, c.get('accountId'), c.req.param('dossierId'));
+      return c.json(works as Record<string, unknown>[]);
+    }),
+  );
+
+  app.post('/v1/creative/worlds/:dossierId/works', (c) =>
+    mutate(c, database, WorkCreate, async (client, input) => {
+      const work = await createWork(client, c.get('accountId'), c.req.param('dossierId'), {
+        kind: input.kind ?? 'novel',
+        title: input.title,
+        targetWords: input.targetWords ?? null,
+      });
+      return { status: 201, body: work as unknown as JsonValue };
+    }),
+  );
+
+  app.get('/v1/creative/worlds/:dossierId/works/:workId', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const work: unknown = await readWork(
+        client,
+        c.get('accountId'),
+        c.req.param('dossierId'),
+        c.req.param('workId'),
+      );
+      return c.json(work as Record<string, unknown>);
+    }),
+  );
+
+  app.post('/v1/creative/worlds/:dossierId/works/:workId/ops', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const workId = c.req.param('workId');
+    type WorkOpsInput = { baseRevision?: number; ops: WorkOp[] };
+    return mutate<WorkOpsInput>(
+      c,
+      database,
+      WorkOpsBody as unknown as z.ZodType<WorkOpsInput>,
+      async (client, input) => {
+        const result = await applyWorkBatch(client, account, dossier, workId, {
+          ...(input.baseRevision !== undefined ? { baseRevision: input.baseRevision } : {}),
+          ops: input.ops,
+        });
+        return {
+          status: 200,
+          body: { revision: result.revision, work: result.work } as unknown as JsonValue,
+        };
+      },
+    );
+  });
+
+  app.get('/v1/creative/worlds/:dossierId/works/:workId/export', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const format = c.req.query('format') === 'docx' ? 'docx' : 'md';
+      const result = await exportWork(
+        client,
+        c.get('accountId'),
+        c.req.param('dossierId'),
+        c.req.param('workId'),
+        format,
+      );
+      return new Response(result.body as unknown as ReadableStream | string, {
+        headers: {
+          'content-type': result.contentType,
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
+          'cache-control': 'no-store',
+        },
+      });
+    }),
+  );
+
+  /** 待确认提议分页（1B 提议多，单独取）。 */
+  app.get('/v1/creative/worlds/:dossierId/proposals', (c) => {
+    const parsed = ProposalsQuery.safeParse({
+      ...(c.req.query('kind') ? { kind: c.req.query('kind') } : {}),
+      ...(c.req.query('batchId') ? { batchId: c.req.query('batchId') } : {}),
+      ...(c.req.query('doubt') ? { doubt: c.req.query('doubt') } : {}),
+      ...(c.req.query('status') ? { status: c.req.query('status') } : {}),
+      ...(c.req.query('cursor') ? { cursor: c.req.query('cursor') } : {}),
+      ...(c.req.query('limit') ? { limit: c.req.query('limit') } : {}),
+    });
+    if (!parsed.success) throw new ApiFailure('INVALID_INPUT', 400, '筛选条件不符合要求。');
+    const query = parsed.data;
+    const cursor = query.cursor === undefined ? 0 : Number(query.cursor);
+    const limit = query.limit === undefined ? 50 : Number(query.limit);
+    if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(limit) || limit < 1)
+      throw new ApiFailure('INVALID_INPUT', 400, 'cursor 和 limit 要是正整数。');
+    return database.withAccount(c.get('accountId'), async (client) => {
+      const page: unknown = await listProposals(client, c.get('accountId'), c.req.param('dossierId'), {
+        ...(query.kind ? { kind: query.kind } : {}),
+        ...(query.batchId ? { batchId: query.batchId } : {}),
+        ...(query.doubt ? { doubt: query.doubt === 'true' } : {}),
+        ...(query.status ? { status: query.status } : {}),
+        cursor,
+        limit,
+      });
+      return c.json(page as Record<string, unknown>);
+    });
+  });
+
   /** 存一个版本（1A 只保留，界面在 1C）。 */
   app.post('/v1/creative/worlds/:dossierId/versions', (c) =>
     mutate(c, database, VersionBody, async (client, input) => {
-      const version = await saveVersion(client, c.get('accountId'), c.req.param('dossierId'), input.summary);
+      const version = await saveVersion(client, c.get('accountId'), c.req.param('dossierId'), input.summary ?? '');
       return { status: 201, body: version as unknown as JsonValue };
     }),
   );

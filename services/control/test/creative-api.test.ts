@@ -537,3 +537,174 @@ describe("创作台页面接口", () => {
     expect(overpassCalls).toBe(before);
   });
 });
+
+describe("创作台作品（1B 契约 §5.2）", () => {
+  let workId = "";
+
+  const work = (path = "", init: RequestInit = {}) =>
+    app.request(`/v1/creative/worlds/${dossierA}/works${path}`, {
+      ...init,
+      headers: { ...headers(cookieA), ...(init.headers ?? {}) },
+    });
+
+  it("建作品：锁定当前最新版本，列表不带正文", async () => {
+    const created = await work("", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "阊门夜行", targetWords: 8000 }),
+    });
+    expect(created.status).toBe(201);
+    const body = await created.json();
+    workId = body.id;
+    expect(body.title).toBe("阊门夜行");
+    expect(body.baseVersion).toBe(1);
+    expect(body.revision).toBe(1);
+    expect(body.chapters).toEqual([]);
+    expect(body.words).toBe(0);
+
+    const list = await (await work("")).json();
+    expect(Array.isArray(list)).toBe(true);
+    expect(list[0].id).toBe(workId);
+    expect(list[0].targetWords).toBe(8000);
+  });
+
+  it("写大纲、确认、写正文：作品 revision +1，推 creative.work 与 creative.text", async () => {
+    const outlined = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "书生夜里出城送信",
+              pov: "第三人称限制",
+              ending: "信到了，人没回来",
+              chapters: [
+                {
+                  id: "ch1",
+                  title: "出城",
+                  scenes: [{ id: "sc1", title: "阊门", goal: "动身", eventIds: [], targetWords: 3000 }],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+    expect(outlined.status).toBe(200);
+    const outlineBody = await outlined.json();
+    expect(outlineBody.revision).toBe(2);
+    expect(outlineBody.work.outline.state).toBe("draft");
+
+    const confirmed = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 2, ops: [{ op: "outline.confirm" }] }),
+    });
+    expect(confirmed.status).toBe(200);
+    const confirmedBody = await confirmed.json();
+    expect(confirmedBody.revision).toBe(3);
+    expect(confirmedBody.work.outline.state).toBe("confirmed");
+    expect(confirmedBody.work.chapters).toHaveLength(1);
+    const sceneId = confirmedBody.work.chapters[0].scenes[0].id;
+
+    const written = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 3,
+        ops: [{ op: "text.set", sceneId, baseTextVersion: 0, text: "夜里出了阊门。\n\n城门在身后合上。" }],
+      }),
+    });
+    expect(written.status).toBe(200);
+    const writtenBody = await written.json();
+    expect(writtenBody.revision).toBe(4);
+    expect(writtenBody.work.chapters[0].scenes[0].textVersion).toBe(1);
+    expect(writtenBody.work.words).toBeGreaterThan(0);
+
+    const events = await admin.query(
+      "select type from creative_event where dossier_id=$1 and type in ('creative.work','creative.text') order by seq desc limit 6",
+      [dossierA],
+    );
+    const types = events.rows.map((row) => row.type);
+    expect(types).toContain("creative.text");
+    expect(types).toContain("creative.work");
+  });
+
+  it("正文版本对不上回 409，作品修订落后也回 409 带最新作品", async () => {
+    const current = await (await work(`/${workId}`)).json();
+    const sceneId = current.chapters[0].scenes[0].id;
+    const staleText = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: current.revision, ops: [{ op: "text.set", sceneId, baseTextVersion: 0, text: "第二段被盖掉" }] }),
+    });
+    expect(staleText.status).toBe(409);
+    expect((await staleText.json()).code).toBe("TEXT_VERSION_STALE");
+    const staleRevision = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 1, ops: [{ op: "work.set", patch: { title: "改不动" } }] }),
+    });
+    expect(staleRevision.status).toBe(409);
+    const body = await staleRevision.json();
+    expect(body.code).toBe("REVISION_STALE");
+    expect(body.work.id).toBe(workId);
+  });
+
+  it("正文标注：提到的事件和人物都标上，段落下标对得上", async () => {
+    const current = await (await work(`/${workId}`)).json();
+    const sceneId = current.chapters[0].scenes[0].id;
+    // 让正文里出现世界里的事件标题「出阊门」之类，标注应当出现
+    await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: current.revision,
+        ops: [
+          {
+            op: "text.set",
+            sceneId,
+            baseTextVersion: current.chapters[0].scenes[0].textVersion,
+            text: "他想起出发那天。\n\n又想起张三。",
+          },
+        ],
+      }),
+    });
+    const detail = await (await work(`/${workId}`)).json();
+    const scene = detail.chapters[0].scenes[0];
+    expect(scene.marks.length).toBeGreaterThan(0);
+    expect(scene.marks.every((mark: any) => mark.para >= 0 && mark.from >= 0 && mark.to > mark.from)).toBe(true);
+    expect(scene.marks.some((mark: any) => mark.kind === "entity")).toBe(true);
+    expect(scene.marks.some((mark: any) => mark.kind === "event")).toBe(true);
+  });
+
+  it("导出：md 有标题正文，docx 是 zip", async () => {
+    const md = await work(`/${workId}/export?format=md`);
+    expect(md.status).toBe(200);
+    expect(md.headers.get("content-type")).toContain("text/markdown");
+    const mdText = await md.text();
+    expect(mdText).toContain("# 阊门夜行");
+    expect(mdText).toContain("## 第 1 章");
+
+    const docx = await work(`/${workId}/export?format=docx`);
+    expect(docx.status).toBe(200);
+    const bytes = new Uint8Array(await docx.arrayBuffer());
+    expect(bytes.slice(0, 2)).toEqual(new Uint8Array([0x50, 0x4b]));
+    expect(Buffer.from(bytes).includes(Buffer.from("word/document.xml"))).toBe(true);
+  });
+
+  it("待确认提议能按种类和批次筛", async () => {
+    const all = await (await app.request(`/v1/creative/worlds/${dossierA}/proposals`, { headers: headers(cookieA) })).json();
+    expect(Array.isArray(all.proposals)).toBe(true);
+    expect(all.nextCursor === null || typeof all.nextCursor === "number").toBe(true);
+    const route = await (
+      await app.request(`/v1/creative/worlds/${dossierA}/proposals?kind=route&limit=5`, { headers: headers(cookieA) })
+    ).json();
+    expect(route.proposals.every((item: any) => item.kind === "route")).toBe(true);
+    const bad = await app.request(`/v1/creative/worlds/${dossierA}/proposals?doubt=maybe`, { headers: headers(cookieA) });
+    expect(bad.status).toBe(400);
+  });
+});

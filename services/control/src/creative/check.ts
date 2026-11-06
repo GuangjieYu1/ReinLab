@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 import type {
   CheckRun,
+  CreativeOp,
   CreativeConflict,
   ConflictKind,
   Entity,
@@ -32,6 +33,8 @@ export type CheckInput = {
 };
 
 const hash = (value: string) => createHash('sha1').update(value).digest('hex').slice(0, 12);
+/** 修法里的 op 用宽松对象写，出口统一按 CreativeOp 收窄（事件时间补丁是原文写法）。 */
+const asOp = (value: unknown): CreativeOp => value as CreativeOp;
 const conflictId = (kind: ConflictKind, ids: string[]) =>
   `cf_${kind.slice(0, 2)}_${hash(kind + '|' + [...ids].sort().join(','))}`;
 
@@ -158,11 +161,11 @@ export function runCheck(input: CheckInput): CheckRun {
         label: `把「${fromEvent.title}」的结束时间提前到 ${labelsOf(document.calendars, fromEvent.end.calendar).say(arrival - needMin - 30)}`,
         kind: 'move_other',
         ops: [
-          {
+          asOp({
             op: 'event.update',
             id: fromEvent.id,
             patch: { end: { input: labelsOf(document.calendars, fromEvent.end.calendar).input(arrival - needMin - 30) } },
-          },
+          }),
         ],
         preview: [
           {
@@ -258,7 +261,9 @@ export function runCheck(input: CheckInput): CheckRun {
   for (const event of document.events) {
     if (event.kind !== 'interaction' && event.kind !== 'stay') continue;
     const here = boundsOfEvent(event);
-    if (here.start !== null && here.end !== null)
+    const hereStart = here.start;
+    const hereEnd = here.end;
+    if (hereStart !== null && hereEnd !== null)
       for (const participant of event.participants) {
         if (participant.as !== 'present') continue;
         const person = document.entities.find((item) => item.id === participant.entityId);
@@ -267,7 +272,7 @@ export function runCheck(input: CheckInput): CheckRun {
           if (other.event.id === event.id) continue;
           if (!other.event.placeId || other.start === null || other.end === null) continue;
           if (other.event.placeId === event.placeId) continue;
-          const overlap = overlapPositive(here, { start: other.start, end: other.end });
+          const overlap = overlapPositive({ start: hereStart, end: hereEnd }, { start: other.start, end: other.end });
           if (!overlap) continue;
           const chainHere = placeChain(document, event.placeId);
           const chainOther = placeChain(document, other.event.placeId);
@@ -524,7 +529,7 @@ function moveFix(
     id: `fx_${hash(event.id + ':' + kind + ':' + to)}`,
     label: `把「${eventTitle(event.id)}」挪到 ${labels.say(to)}`,
     kind,
-    ops: [{ op: 'event.update', id: event.id, patch } as CreativeOp],
+    ops: [asOp({ op: 'event.update', id: event.id, patch })],
     preview,
   };
 }

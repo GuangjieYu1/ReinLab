@@ -405,7 +405,7 @@ export async function inferRoute(
       if (rejection) return { ok: false, failure: `模型没有交出合格路线：${rejection}`, usage };
       const parsed = extractJson(text);
       const validated = validateSubmittedRoute(parsed, request);
-      if (validated.ok) return { ok: true, ...validated, usage };
+      if (validated.ok) return { ...validated, usage };
       // 只是回了话：再问一次——要么交路线，要么明确放弃。放弃也是一种结果。
       if (nudges < 2) {
         nudges += 1;
@@ -424,7 +424,7 @@ export async function inferRoute(
     for (const call of toolUses) {
       if (call.name === 'submit_route') {
         const validated = validateSubmittedRoute(call.input, request);
-        if (validated.ok) return { ok: true, ...validated, usage };
+        if (validated.ok) return { ...validated, usage };
         rejection = validated.reason;
         results.push({
           type: 'tool_result',
@@ -522,7 +522,7 @@ export async function storeInference(
   // 只记一条作废原因（否则页面点确认会把作者的手绘盖掉——1A 遗留 1 的竞态）。
   const alreadyDrawn = document.manualRoutes.some((item) => item.legId === leg.id);
   if (result.ok && alreadyDrawn) {
-    proposal = {
+    const voided: Proposal = {
       id: routeProposalId(leg.id),
       kind: 'route',
       title: '推断路线',
@@ -540,7 +540,8 @@ export async function storeInference(
         by: 'agent',
       },
     };
-    next.proposals = [...document.proposals.filter((item) => item.id !== proposal.id), proposal];
+    proposal = voided;
+    next.proposals = [...document.proposals.filter((item) => item.id !== voided.id), voided];
   } else if (result.ok) {
     const proposalId = routeProposalId(leg.id);
     proposal = {
@@ -635,7 +636,7 @@ export async function runInference(
       from: item.from,
       to: item.to,
       mode: item.mode,
-      failure: item.leg.failure,
+      failure: item.leg.failure ?? null,
       networkState: item.networkState,
       ...(item.hint ? { hint: item.hint } : {}),
     });
