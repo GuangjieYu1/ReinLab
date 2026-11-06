@@ -871,6 +871,80 @@ describe("创作台导入原文（1B 契约 §5.2）", () => {
   });
 });
 
+describe("任务中断后能收拾（1B）", () => {
+  it("停在「在跑」的导入任务，重启后第一次查变成暂停，可以继续", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "中断测试" }),
+    });
+    const work = await created.json();
+    const started = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/import`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ text: "## 第一章\n内容一。\n\n## 第二章\n内容二。", title: "中断测试" }),
+    });
+    const job = await started.json();
+    // 模拟「上一个进程跑到一半被重启」：状态 running + updated_at 在过去
+    await admin.query(
+      `update creative_job
+          set state='running',
+              document = jsonb_set(jsonb_set(document, '{state}', '"running"'), '{error}', 'null'),
+              updated_at = now() - interval '2 hours'
+        where id=$1`,
+      [job.id],
+    );
+    const after = await (await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}`)).json();
+    expect(after.state).toBe("paused");
+    expect(after.error).toContain("服务重启");
+    const resumed = await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/resume`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect(resumed.status).toBe(200);
+  });
+});
+
+describe("事件与作品的双向引用（1B 契约 §5.1）", () => {
+  it("场景引用了事件，事件详情的 workRefs 就带上作品、章、场", async () => {
+    const snapshotWorld = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const event = snapshotWorld.events[0];
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "双向引用测试" }),
+    });
+    const work = await created.json();
+    const outlined = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "试", pov: "三", ending: "试",
+              chapters: [{ id: "cc1", title: "第一章", scenes: [{ id: "ss1", title: "出场", goal: "试", eventIds: [event.id], targetWords: 500 }] }],
+            },
+          },
+          { op: "outline.confirm" },
+        ],
+      }),
+    });
+    expect(outlined.status).toBe(200);
+    const after = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const linked = after.events.find((item: any) => item.id === event.id);
+    const chapterId = after.events.length ? null : null;
+    void chapterId;
+    expect(linked.workRefs).toHaveLength(1);
+    expect(linked.workRefs[0].workId).toBe(work.id);
+    expect(linked.workRefs[0].sceneId).toBe("ss1");
+    expect(linked.workRefs[0].chapterId).toBeTruthy();
+  });
+});
+
 describe("创作台写作与顾问（1B 契约 §5.2）", () => {
   let workId = "";
 

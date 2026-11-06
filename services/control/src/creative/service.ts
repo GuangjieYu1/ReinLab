@@ -23,7 +23,7 @@ export type WorldState = {
 };
 
 /** 控制面进程的启动时刻：比它早的「导入中」就是上一个进程留下的，启动时改成失败（1A 遗留 3）。 */
-const PROCESS_STARTED_AT = new Date().toISOString();
+export const PROCESS_STARTED_AT = new Date().toISOString();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const assertUuid = (value: string) => {

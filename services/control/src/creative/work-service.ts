@@ -118,6 +118,56 @@ function project(
   return work;
 }
 
+/**
+ * 事件 → 作品的双向引用（契约 §5.1：`WorldEvent.workRefs` 要跟着场景的 eventIds 走）。
+ * 只改事件上的 workRefs，不动 revision：这是投影，不是作者的改动；但要在世界观行锁里做，
+ * 免得和世界观的批次互相覆盖。
+ */
+export async function syncWorkRefs(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+): Promise<void> {
+  const works = (
+    await client.query<{ work_id: string; document: WorkDocument }>(
+      'select work_id, document from creative_work where account_id=$1 and dossier_id=$2',
+      [account, dossier],
+    )
+  ).rows;
+  const links = new Map<string, { workId: string; chapterId: string; sceneId: string }[]>();
+  for (const work of works)
+    for (const chapter of work.document.chapters)
+      for (const scene of chapter.scenes)
+        for (const eventId of scene.eventIds ?? []) {
+          const list = links.get(eventId) ?? [];
+          if (!list.some((item) => item.workId === work.work_id && item.chapterId === chapter.id && item.sceneId === scene.id))
+            list.push({ workId: work.work_id, chapterId: chapter.id, sceneId: scene.id });
+          links.set(eventId, list);
+        }
+  const world = await loadWorld(client, account, dossier, { lock: true });
+  let changed = false;
+  const events = world.document.events.map((event) => {
+    const next = links.get(event.id) ?? [];
+    const current = event.workRefs ?? [];
+    const same =
+      next.length === current.length &&
+      next.every(
+        (ref, index) =>
+          ref.workId === current[index]?.workId &&
+          ref.chapterId === current[index]?.chapterId &&
+          ref.sceneId === current[index]?.sceneId,
+      );
+    if (same) return event;
+    changed = true;
+    return { ...event, workRefs: next };
+  });
+  if (!changed) return;
+  await client.query(
+    'update creative_world set document=$3::jsonb, updated_at=now() where account_id=$1 and dossier_id=$2',
+    [account, dossier, JSON.stringify({ ...world.document, events })],
+  );
+}
+
 /** 作品列表：不带正文（左栏用）。 */
 export async function listWorks(
   client: pg.PoolClient,
@@ -289,6 +339,8 @@ export async function applyWorkBatch(
     })),
   ]);
 
+  // 场景引用的事件要能在事件详情里看到「在哪部作品的哪一章」
+  await syncWorkRefs(client, account, dossier);
   const world = await loadWorld(client, account, dossier);
   const conflicts = await currentConflicts(client, account, dossier);
   return {

@@ -20,12 +20,13 @@ import type {
 } from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { appendEvents } from './events';
-import { loadWorld, requireCreativeDossier } from './service';
+import { PROCESS_STARTED_AT, loadWorld, requireCreativeDossier } from './service';
 import { clip } from './text';
 import { CHINESE_ERA, type CreativeDocument } from './world';
 import { parseStoryTime } from './story-time';
 import { provenanceOf, splitIntoChunks, type ChapterExtractor, type Extraction } from './extract';
 import { applyWorkOps, wordsOf, type WorkDocument } from './work';
+import { syncWorkRefs } from './work-service';
 
 export type ImportChapter = { chapterId: string; title: string; text: string; textVersion: number };
 
@@ -383,13 +384,21 @@ export async function readImportJob(
   jobId: string,
 ): Promise<ImportJobDocument> {
   const row = (
-    await client.query<{ document: ImportJobDocument }>(
-      "select document from creative_job where account_id=$1 and dossier_id=$2 and id=$3 and kind='import'",
+    await client.query<{ document: ImportJobDocument; updated_at: Date }>(
+      "select document, updated_at from creative_job where account_id=$1 and dossier_id=$2 and id=$3 and kind='import'",
       [account, dossier, jobId],
     )
   ).rows[0];
   if (!row) throw new ApiFailure('JOB_NOT_FOUND', 404, '找不到这个导入任务。');
-  return row.document;
+  const job = row.document;
+  // 上一个进程留下的「在跑 / 排队」不会再动了：改成暂停，作者点继续就能接着抽（1B）。
+  if ((job.state === 'running' || job.state === 'queued') && row.updated_at.toISOString() < PROCESS_STARTED_AT) {
+    job.state = 'paused';
+    job.error = '任务中断（服务重启），可以继续。';
+    job.current = null;
+    await saveJob(client, { account, dossier, workId: job.workId }, job);
+  }
+  return job;
 }
 
 /**
@@ -462,6 +471,8 @@ export async function startImport(
     cost: { value: 0, known: true },
     queue,
   };
+  // 导入建了章和场，事件引用关系跟着更新
+  await syncWorkRefs(client, account, dossier);
   await saveJob(client, { account, dossier, workId }, job);
   await appendEvents(client, { account, dossier }, [
     { type: 'creative.work', data: { workId, revision } },

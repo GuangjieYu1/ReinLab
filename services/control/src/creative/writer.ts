@@ -11,7 +11,7 @@ import type pg from 'pg';
 import type { CreativeCny as Cny, GenerateJob, Proposal } from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { appendEvents } from './events';
-import { loadWorld } from './service';
+import { PROCESS_STARTED_AT, loadWorld } from './service';
 import { callStructured, extractJson, type ModelDeps } from './model-call';
 import { clip } from './text';
 import { applyWorkOps, sceneOf, wordsOf, type WorkDocument } from './work';
@@ -46,6 +46,18 @@ export type WriterDeps = {
   provider?: string;
   now?: () => string;
 };
+
+/** 改写范围在正文里的原话：按「第几段 + 段内起止」取，取不到就空（那就按续写处理）。 */
+export function rangeTextOf(
+  text: string,
+  range: { para: number; from: number; to: number } | undefined,
+): string {
+  if (!range) return '';
+  const paragraphs = paragraphsOf(text);
+  const paragraph = paragraphs[range.para];
+  if (paragraph === undefined) return '';
+  return paragraph.slice(range.from, range.to);
+}
 
 const costOf = (
   deps: WriterDeps,
@@ -93,13 +105,20 @@ export async function readGenerateJob(
   jobId: string,
 ): Promise<GenerateJobDocument> {
   const row = (
-    await client.query<{ document: GenerateJobDocument }>(
-      "select document from creative_job where account_id=$1 and dossier_id=$2 and id=$3 and kind='generate'",
+    await client.query<{ document: GenerateJobDocument; updated_at: Date }>(
+      "select document, updated_at from creative_job where account_id=$1 and dossier_id=$2 and id=$3 and kind='generate'",
       [account, dossier, jobId],
     )
   ).rows[0];
   if (!row) throw new ApiFailure('JOB_NOT_FOUND', 404, '找不到这个生成任务。');
-  return row.document;
+  const job = row.document;
+  // 上一个进程留下的「在跑」不会再动了：标成失败，页面重新发起就行（已落库的场不受影响）。
+  if (job.state === 'running' && row.updated_at.toISOString() < PROCESS_STARTED_AT) {
+    job.state = 'failed';
+    job.error = '生成中断（服务重启），可以重新发起。';
+    await saveJob(client, { account, dossier, workId: job.workId }, job);
+  }
+  return job;
 }
 
 export async function startGenerate(
@@ -245,12 +264,19 @@ export async function runGenerate(
       ]
         .filter(Boolean)
         .join('\n');
+      // 先告诉页面「这一场在写」，逐场可见（正文还不落笔）
+      await database.withAccount(account, async (client) => {
+        await appendEvents(client, { account, dossier }, [
+          { type: 'creative.text', data: { workId: job.workId, sceneId, state: 'generating', textVersion: scene.textVersion } },
+        ]);
+      });
       const result = await callStructured(deps.model, { system: SYSTEM, prompt });
       const parsed = extractJson(result.text) as { text?: unknown; why?: unknown } | null;
       const body = clip(parsed?.text ?? '', 200_000).trim();
       if (!body) throw new ApiFailure('GENERATE_EMPTY', 503, '模型没有给出正文。');
       const why = clip(parsed?.why ?? '', 500);
-      const before = job.mode === 'rewrite' && job.range ? scene.text.slice(0, 400) : '';
+      // 改写要给出被替换的那一段原话，接受时才能准确替换（不是拿整场的前 400 字顶替）。
+      const before = job.mode === 'rewrite' ? rangeTextOf(scene.text, job.range) : '';
       const cost = costOf(deps, result.usage);
       await database.withAccount(account, async (client) => {
         const work = (

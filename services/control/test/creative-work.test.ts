@@ -131,6 +131,21 @@ describe("作品账本", () => {
     expect(() => applyTextEdit({ ...scene, textVersion: 9 }, rewrite)).toThrow(/又改过/);
   });
 
+  it("改写只替换给出的那一段原话", () => {
+    const scene = {
+      id: "sc1", title: "阊门", goal: "", eventIds: [], text: "第一段。\n\n第二段有改动。", textVersion: 1,
+      words: 0, targetWords: null, state: "written" as const, marks: [],
+    };
+    const range = { para: 1, from: 0, to: 3 };
+    const paragraphs = paragraphsOf(scene.text);
+    const before = paragraphs[range.para].slice(range.from, range.to);
+    expect(before).toBe("第二段");
+    const edit: TextEdit = {
+      workId: "w1", sceneId: "sc1", baseTextVersion: 1, mode: "rewrite", range, before, after: "改了",
+    };
+    expect(applyTextEdit(scene, edit).text).toBe("第一段。\n\n改了有改动。");
+  });
+
   it("正文标注：实体、别名、事件、冲突、过期出处", () => {
     const document = workWithOutline();
     const sceneId = document.chapters[0].scenes[0].id;
