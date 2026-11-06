@@ -141,6 +141,20 @@ export const WorkOpsBody = z
   })
   .strict();
 
+export const ImportWorkBody = z.union([
+  z.object({ assetId: z.string().uuid() }).strict(),
+  z.object({ text: z.string().min(1).max(2_000_000), title: z.string().max(200).optional() }).strict(),
+]);
+
+export const GenerateBody = z
+  .object({
+    sceneIds: z.array(z.string().min(1).max(64)).min(1).max(40),
+    mode: z.enum(['draft', 'continue', 'complete', 'rewrite']).default('draft'),
+    hint: z.string().max(2000).optional(),
+    range: z.object({ para: z.number().int().min(0), from: z.number().int().min(0), to: z.number().int().min(0) }).strict().optional(),
+  })
+  .strict();
+
 export const ProposalsQuery = z.object({
   kind: z.string().max(32).optional(),
   batchId: z.string().max(64).optional(),

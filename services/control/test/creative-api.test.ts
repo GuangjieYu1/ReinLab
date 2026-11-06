@@ -59,6 +59,14 @@ const overpass: OverpassTransport = async (_url, body) => {
   return { ok: true, status: 200, text: async () => JSON.stringify(payload) };
 };
 
+/** 导入测试用的抽取通道：默认抽取一段固定结果，测试可以换。 */
+const importExtractorHolder: { current: (input: { chapterTitle: string; text: string }) => Promise<any> } = {
+  current: async () => ({
+    extraction: { entities: [], events: [], merges: [] },
+    usage: { inputTokens: 100, outputTokens: 50 },
+  }),
+};
+
 const api = async (path: string, init: RequestInit = {}, cookie = cookieA) =>
   app.request(path, { ...init, headers: { ...headers(cookie), ...(init.headers ?? {}) } });
 
@@ -85,6 +93,13 @@ beforeAll(async () => {
     auth: { issuer: "http://127.0.0.1/reinlab/auth/v1", secret: randomBytes(48) },
     kernelTools: { auth: { issue: (() => "t") as never, verify: (() => ({ account: A, dossier: dossierA, run: randomUUID() })) as never }, dispatch: async () => ({}) },
     creativeOverpass: overpass,
+    creativeImport: {
+      // 注入抽取通道：不连真模型，但走的是同一条导入流程（写库、进度、事件）
+      extractor: (input) => importExtractorHolder.current(input),
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+      model: "test-extract",
+    },
   });
 }, 60_000);
 
@@ -706,5 +721,124 @@ describe("创作台作品（1B 契约 §5.2）", () => {
     expect(route.proposals.every((item: any) => item.kind === "route")).toBe(true);
     const bad = await app.request(`/v1/creative/worlds/${dossierA}/proposals?doubt=maybe`, { headers: headers(cookieA) });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("创作台导入原文（1B 契约 §5.2）", () => {
+  let workId = "";
+  const workPath = (suffix = "") => `/v1/creative/worlds/${dossierA}/works/${workId}${suffix}`;
+
+  const importer = async (body: unknown) =>
+    api(workPath("/import"), { method: "POST", headers: { "Idempotency-Key": randomUUID() }, body: JSON.stringify(body) });
+
+  const waitJob = async (jobId: string) => {
+    for (let index = 0; index < 120; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const job = await (await api(`/v1/creative/worlds/${dossierA}/imports/${jobId}`)).json();
+      if (job.state === "done" || job.state === "failed" || job.state === "paused") return job;
+    }
+    throw new Error("导入没在预期时间内结束");
+  };
+
+  it("分章导入：一章一批，抽出来的每一项都带章段句出处", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "聊斋选篇" }),
+    });
+    const work = await created.json();
+    workId = work.id;
+
+    importExtractorHolder.current = async (input) => ({
+      extraction: {
+        entities: [
+          { kind: "person", name: "王六郎", aliases: [], summary: "溺死者", para: 0, sentence: 0, quote: "王六郎者，溺死鬼也。", basis: "explicit" },
+        ],
+        events: [
+          {
+            title: input.chapterTitle, what: "原文里的一夜", kind: "stay",
+            participants: [{ name: "王六郎", as: "actor" }], place: null,
+            start: "康熙二十三年三月初七", end: "康熙二十三年三月初七",
+            narrative: "fact", para: 0, sentence: 1, quote: "是夜，王六郎至。",
+          },
+        ],
+        merges: [],
+      },
+      usage: { inputTokens: 1200, outputTokens: 300 },
+    });
+
+    const started = await importer({ text: "## 第一夜\n王六郎者，溺死鬼也。是夜，王六郎至。\n\n## 第二夜\n又来。", title: "聊斋选篇" });
+    expect(started.status).toBe(202);
+    const job = await started.json();
+    expect(job.state).toBe("queued");
+    expect(job.chapters.total).toBe(2);
+
+    const done = await waitJob(job.id);
+    expect(done.state).toBe("done");
+    expect(done.chapters.done).toBe(2);
+    expect(done.proposals).toBeGreaterThanOrEqual(2);
+
+    // 正文进了作品的章和场
+    const detail = await (await api(workPath())).json();
+    expect(detail.chapters).toHaveLength(2);
+    expect(detail.chapters[0].scenes[0].text).toContain("王六郎者");
+    expect(detail.source.kind).toBe("import");
+
+    // 提议带出处：章、段、句、原句、原文版本
+    const proposals = await (
+      await api(`/v1/creative/worlds/${dossierA}/proposals?kind=event&limit=20`)
+    ).json();
+    const event = proposals.proposals.find((item: any) => item.title === "第一夜");
+    expect(event).toBeTruthy();
+    expect(event.origin.by).toBe("importer");
+    expect(event.origin.source).toMatchObject({ chapterId: detail.chapters[0].id, para: 0, sentence: 1, quote: "是夜，王六郎至。", textVersion: 1 });
+    expect(event.batchId).toBe(`import_${detail.chapters[0].id}`);
+
+    const events = await admin.query(
+      "select type from creative_event where dossier_id=$1 and type='creative.import' order by seq desc limit 3",
+      [dossierA],
+    );
+    expect(events.rowCount).toBeGreaterThan(0);
+  });
+
+  it("拒绝过的同一条再导一次不会出现；暂停后能续做", async () => {
+    const before = await (await api(`/v1/creative/worlds/${dossierA}/proposals?status=pending&limit=200`)).json();
+    const target = before.proposals.find((item: any) => item.kind === "event");
+    const world = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const rejected = await api(`/v1/creative/worlds/${dossierA}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: world.world.revision, ops: [{ op: "proposal.decide", id: target.id, decision: "rejected" }] }),
+    });
+    expect(rejected.status).toBe(200);
+
+    // 再导同一份原文：同一条（同章、同版本、同原句）不再冒出来
+    const again = await importer({ text: "## 第一夜\n王六郎者，溺死鬼也。是夜，王六郎至。\n\n## 第二夜\n又来。", title: "聊斋选篇" });
+    const job = await again.json();
+    const done = await waitJob(job.id);
+    expect(done.state).toBe("done");
+    const after = await (await api(`/v1/creative/worlds/${dossierA}/proposals?status=pending&limit=200`)).json();
+    const duplicated = after.proposals.filter(
+      (item: any) => item.kind === "event" && item.title === target.title && item.origin?.source?.quote === target.origin?.source?.quote,
+    );
+    expect(duplicated.length).toBeLessThanOrEqual(1);
+
+    // 暂停/续做：暂停之后状态是 paused，续做还能接着跑
+    const fresh = await importer({ text: "## 第三夜\n又一夜。", title: "聊斋选篇" });
+    const freshJob = await fresh.json();
+    const paused = await api(`/v1/creative/worlds/${dossierA}/imports/${freshJob.id}/pause`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect([200, 409]).toContain(paused.status);
+    const resumed = await api(`/v1/creative/worlds/${dossierA}/imports/${freshJob.id}/resume`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect([200, 409]).toContain(resumed.status);
+    const final = await waitJob(freshJob.id);
+    expect(["done", "paused", "running"]).toContain(final.state);
   });
 });

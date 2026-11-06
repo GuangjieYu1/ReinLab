@@ -79,6 +79,8 @@ export async function createApp(options: {
   refTransport?: import("../explore/refs").WeatherLikeTransport;
   /** 创作台 AI 推断路线的模型通道；没配就只记「没开」。 */
   creativeRouteInference?: import("../creative/route-agent").RouteInferenceDeps;
+  /** 创作台导入原文的按章抽取通道；没配就导入直接失败。 */
+  creativeImport?: import("../creative/import-job").ImportDeps;
   /** 创作台路网导入的取数通道；缺省真实 Overpass。 */
   creativeOverpass?: import("../creative/network").OverpassTransport;
   realModelsEnabled?: boolean;
@@ -211,6 +213,7 @@ export async function createApp(options: {
   });
   registerCreativeApi(app, database, {
     ...(options.creativeRouteInference ? { routeInference: options.creativeRouteInference } : {}),
+    ...(options.creativeImport ? { importExtraction: options.creativeImport } : {}),
     ...(options.creativeOverpass ? { overpass: options.creativeOverpass } : {}),
   });
   app.post("/v1/approvals/:id/decide", async (c) => {

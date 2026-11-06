@@ -12,7 +12,8 @@ import type { JsonValue, CreativeOp, WorkOp } from '@reinlab/contracts';
 import { ApiFailure } from './errors';
 import { mutate, type ApiEnv } from './context';
 import type { Database } from '../db/database';
-import { AssetBody, ImportBody, OpsBody, ProposalsQuery, VersionBody, WorkCreate, WorkOpsBody } from '../creative/schema';
+import { AssetBody, ImportBody, ImportWorkBody, OpsBody, ProposalsQuery, VersionBody, WorkCreate, WorkOpsBody } from '../creative/schema';
+import { importJobOf, readImportJob, runImport, setImportState, startImport } from '../creative/import-job';
 import {
   applyWorkBatch,
   createWork,
@@ -43,6 +44,8 @@ import { validateBbox, type OverpassTransport } from '../creative/network';
 const EmptyBody = z.object({}).strict();
 
 export type CreativeApiOptions = {
+  /** 按章抽取的模型通道；没配就导入直接失败（不伪造抽取结果）。 */
+  importExtraction?: import('../creative/import-job').ImportDeps;
   /** AI 推断路线的模型通道；没配就只记「没开」，不伪造路线。 */
   routeInference?: RouteInferenceDeps;
   /** Overpass 取数通道（测试注入）。 */
@@ -296,6 +299,62 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       });
     }),
   );
+
+  // ── 导入原文（1B，契约 §5.2）──────────────────
+  app.post('/v1/creative/worlds/:dossierId/works/:workId/import', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const workId = c.req.param('workId');
+    let jobId: string | null = null;
+    const response = await mutate(c, database, ImportWorkBody, async (client, input) => {
+      const source =
+        'assetId' in input
+          ? await (async () => {
+              const asset = (
+                await client.query<{ content: string; name: string; format: string }>(
+                  'select content, name, format from creative_asset where id=$1 and account_id=$2 and dossier_id=$3',
+                  [input.assetId, account, dossier],
+                )
+              ).rows[0];
+              if (!asset) throw new ApiFailure('ASSET_NOT_FOUND', 404, '找不到这份上传的原文。');
+              return { text: asset.content, title: asset.name, assetId: input.assetId };
+            })()
+          : { text: input.text, ...(input.title ? { title: input.title } : {}) };
+      const started = await startImport(client, account, dossier, workId, source);
+      jobId = started.job.id;
+      return { status: 202, body: importJobOf(started.job) as unknown as JsonValue };
+    });
+    if (jobId && options.importExtraction)
+      void runImport(database, account, dossier, jobId, options.importExtraction).catch((error) => {
+        console.error(
+          JSON.stringify({ code: 'CREATIVE_IMPORT_FAILED', message: String((error as Error)?.message ?? error).slice(0, 200) }),
+        );
+      });
+    return response;
+  });
+
+  app.get('/v1/creative/worlds/:dossierId/imports/:jobId', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const job = await readImportJob(client, c.get('accountId'), c.req.param('dossierId'), c.req.param('jobId'));
+      const body: unknown = importJobOf(job);
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
+
+  for (const action of ['pause', 'resume'] as const)
+    app.post(`/v1/creative/worlds/:dossierId/imports/:jobId/${action}`, async (c) => {
+      const account = c.get('accountId');
+      const dossier = c.req.param('dossierId');
+      let jobId: string | null = null;
+      const response = await mutate(c, database, EmptyBody, async (client) => {
+        const job = await setImportState(client, account, dossier, c.req.param('jobId'), action);
+        jobId = job.id;
+        return { status: 200, body: importJobOf(job) as unknown as JsonValue };
+      });
+      if (action === 'resume' && jobId && options.importExtraction)
+        void runImport(database, account, dossier, jobId, options.importExtraction).catch(() => undefined);
+      return response;
+    });
 
   /** 待确认提议分页（1B 提议多，单独取）。 */
   app.get('/v1/creative/worlds/:dossierId/proposals', (c) => {

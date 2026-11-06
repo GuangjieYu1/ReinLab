@@ -14,6 +14,7 @@ import type {
   CreativeBasemap,
   Calendar,
   CreativeCny,
+  Participation,
   Entity,
   MapEdit,
   NetworkStatus,
@@ -148,6 +149,30 @@ function findEntity(document: CreativeDocument, id: string): Entity {
   const found = document.entities.find((item) => item.id === id);
   if (!found) throw fail('ENTITY_NOT_FOUND', 404, '这个人物或地点已经不在了。');
   return found;
+}
+
+/** 按名字或别名找实体（导入来的事件用名字引用；重名就报错，不猜是哪一个）。 */
+function entityByName(document: CreativeDocument, name: string): Entity {
+  const matched = document.entities.filter(
+    (item) => item.name === name || (item.aliases ?? []).includes(name),
+  );
+  if (matched.length === 1) return matched[0];
+  if (matched.length > 1)
+    throw fail('ENTITY_AMBIGUOUS', 422, `「${name}」对上了 ${matched.length} 个实体，请先合并或改名。`);
+  throw fail('ENTITY_NOT_FOUND', 404, `原文里的「${name}」还没有入账：先把这个人或地点建出来（或接受对应的提议）。`);
+}
+
+/** 参与者/地点：给 id 用 id，只给名字就解析。 */
+function resolveParticipant(
+  document: CreativeDocument,
+  participant: { entityId?: string; entityName?: string; as: Participation },
+): { entityId: string; as: Participation } {
+  if (participant.entityId) return { entityId: participant.entityId, as: participant.as };
+  if (participant.entityName) {
+    const entity = entityByName(document, participant.entityName);
+    return { entityId: entity.id, as: participant.as };
+  }
+  throw fail('INVALID_INPUT', 400, '参与者要写人物 id 或名字。');
 }
 
 function findEvent(document: CreativeDocument, id: string): WorldEvent {
@@ -330,6 +355,10 @@ export function applyOps(
           const place = entity.place ?? {
             level: 'site' as PlaceLevel, parentId: null, geo: null, geoCertainty: 'unlocated' as const, connects: [],
           };
+          if (!place.parentId) {
+            const parentName = (entity as { parentName?: string }).parentName;
+            if (parentName) place.parentId = entityByName(next, parentName).id;
+          }
           if (!PLACE_LEVELS.includes(place.level))
             throw fail('INVALID_INPUT', 400, '地点层级只能是世界、区域、城市、建筑、楼层、房间或场所。');
           entity.place = {
@@ -404,12 +433,19 @@ export function applyOps(
         if (!input.title?.trim()) throw fail('INVALID_INPUT', 400, '事件要有标题。');
         if (!input.participants?.length)
           throw fail('INVALID_INPUT', 400, '事件至少要有一个参与者。');
-        for (const participant of input.participants) findEntity(next, participant.entityId);
-        if (input.placeId) findEntity(next, input.placeId);
+        const participants = input.participants.map((participant) => resolveParticipant(next, participant));
+        const placeId =
+          input.placeId ??
+          ((input as { placeName?: string }).placeName
+            ? entityByName(next, (input as unknown as { placeName: string }).placeName).id
+            : null);
+        if (placeId) findEntity(next, placeId);
         const start = parseInput(next, input.start, '开始时间');
         const end = parseInput(next, input.end, '结束时间');
         const event: WorldEvent = {
           ...(input as unknown as WorldEvent),
+          participants,
+          placeId,
           id: ids(),
           start,
           end,
@@ -436,8 +472,11 @@ export function applyOps(
         delete patch.end;
         delete patch.gaps;
         if (Array.isArray(patch.participants))
-          for (const participant of patch.participants as { entityId: string }[])
-            findEntity(next, participant.entityId);
+          patch.participants = (patch.participants as { entityId?: string; entityName?: string; as: Participation }[]).map(
+            (participant) => resolveParticipant(next, participant),
+          );
+        if (typeof patch.placeName === 'string' && !patch.placeId)
+          patch.placeId = entityByName(next, patch.placeName).id;
         if (typeof patch.placeId === 'string') findEntity(next, patch.placeId);
         const merged: WorldEvent = {
           ...next.events[index],

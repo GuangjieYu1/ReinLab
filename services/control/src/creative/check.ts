@@ -315,7 +315,10 @@ export function runCheck(input: CheckInput): CheckRun {
           id: conflictId('presence', [event.id, 'remote']),
           kind: 'presence',
           severity: 'hard',
-          entityIds: event.participants.filter((item) => item.as === 'remote').map((item) => item.entityId),
+          entityIds: event.participants
+            .filter((item) => item.as === 'remote')
+            .map((item) => item.entityId)
+            .filter((value): value is string => Boolean(value)),
           eventIds: [event.id],
           why: `「${event.title}」里有远程参与，但世界观还没有一条说明远程方式的规则，程序判不了。`,
           fixes: [

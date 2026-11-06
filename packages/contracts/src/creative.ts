@@ -120,7 +120,11 @@ export type WorldEvent = {
   title: string;
   what: string;
   kind: 'stay' | 'travel' | 'interaction' | 'birth' | 'death' | 'other';
-  participants: { entityId: string; as: Participation }[];
+  /**
+   * 导入来的事件还不知道实体 id（那些实体也在待确认里），这里允许按名字引用：
+   * `entityId` 给 id 就用 id，只给 `entityName` 就按名字/别名解析。
+   */
+  participants: { entityId?: string; entityName?: string; as: Participation }[];
   placeId: string | null;
   start: StoryTime;
   end: StoryTime;

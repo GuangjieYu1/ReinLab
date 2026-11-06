@@ -30,6 +30,7 @@ import { createFeelReader } from "./explore/feel";
 import { applyOps, readPlan } from "./explore/service";
 import { configureOverpassEndpoint, localSceneStore } from "./explore/scene";
 import { configureCreativeOverpass } from "./creative/network";
+import { createChapterExtractor } from "./creative/extract";
 import { configureLightJobs } from "./explore/light-job";
 import { publishOps } from "./api/explore-api";
 import { createWeatherScheduler } from "./explore/schedule";
@@ -350,8 +351,29 @@ const creativeRoute = creativeRouteKey
     }
   : undefined;
 
+// 导入原文的按章抽取：和推断路线同一把 key、同一个官方入口（后台任务，不跟用户会话抢）。
+const importExtractor =
+  creativeRouteKey && creativeRoute
+    ? createChapterExtractor({
+        baseUrl: creativeRouteBase,
+        apiKey: creativeRouteKey,
+        model: config.REINLAB_CREATIVE_EXTRACT_MODEL ?? creativeRoute.model,
+        provider: creativeRoute.provider,
+        ...(reviewPricing ? { pricing: reviewPricing } : {}),
+      })
+    : undefined;
+const importExtraction = importExtractor
+  ? {
+      extractor: importExtractor,
+      ...(reviewPricing ? { pricing: reviewPricing } : {}),
+      provider: creativeRoute?.provider ?? 'deepseek-official',
+      model: config.REINLAB_CREATIVE_EXTRACT_MODEL ?? creativeRoute?.model ?? 'deepseek-chat',
+    }
+  : undefined;
+
 const app = await createApp({
   pool,
+  ...(importExtraction ? { creativeImport: importExtraction } : {}),
   ...(creativeRoute ? { creativeRouteInference: creativeRoute } : {}),
   session: config.SUPABASE_ANON_KEY
     ? { url: config.SUPABASE_URL, anonKey: config.SUPABASE_ANON_KEY,
