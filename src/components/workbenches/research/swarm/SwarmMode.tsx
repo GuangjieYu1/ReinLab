@@ -576,9 +576,11 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
     { id: 'sources', zh: '来源', n: sources.length },
   ].filter(x => x.n === null || x.n > 0);
   const go = (id: string) => scroller.current?.querySelector(`#syn-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  const Item = ({ c, open }: { c: Claim; open?: boolean }) => { const h = headline(c.text);
-    return <li className="syn-claim" data-status={c.status}>
-      <details open={open}><summary><b>{h.head}</b><em className="sw-cs" data-s={c.status}>{CLAIM_ZH[c.status]}</em></summary>
+  // 报告「有争议」区里的结论按分区显示「有争议」，原来的黑板状态（如已证伪）放在后面小字里，免得标题和标签各说各的
+  const Item = ({ c, open, asDisputed }: { c: Claim; open?: boolean; asDisputed?: boolean }) => { const h = headline(c.text);
+    const shown = asDisputed && c.status !== 'disputed' ? 'disputed' : c.status;
+    return <li className="syn-claim" data-status={shown}>
+      <details open={open}><summary><b>{h.head}</b><em className="sw-cs" data-s={shown}>{CLAIM_ZH[shown]}</em>{shown !== c.status && <small className="syn-was">黑板上：{CLAIM_ZH[c.status]}</small>}</summary>
         {h.more && <p className="syn-full">{c.text}</p>}
         <div className="syn-meta"><span>{routeTitle(c.routeId)}</span><span>{BASIS_ZH[c.basis]}</span><span>{label(c.author)}</span><span>证据 {c.evidenceIds.length}</span>{c.reviews.length > 0 && <span>审查 {c.reviews.length}</span>}
           <button className="sw-link" onClick={() => onClaim(c.id)}>看证据与审查 →</button></div>
@@ -610,7 +612,7 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
       {verified.length > 0 && <section id="syn-verified" className="syn-sec"><h3>已核实 <small>{verified.length}</small></h3>
         <ol className="syn-list">{verified.map((c, i) => <Item key={c.id} c={c} open={i < 3} />)}</ol></section>}
       {disputed.length > 0 && <section id="syn-disputed" className="syn-sec"><h3>有争议 <small>{disputed.length} · 被反驳后仍有分歧，不能当定论</small></h3>
-        <ol className="syn-list">{disputed.map(c => <Item key={c.id} c={c} />)}</ol></section>}
+        <ol className="syn-list">{disputed.map(c => <Item key={c.id} c={c} asDisputed />)}</ol></section>}
       {candidates.length > 0 && <section id="syn-candidates" className="syn-sec"><h3>候选 <small>{candidates.length} · 还没核实，按路线分</small></h3>
         {groups.map(g => { const list = candidates.filter(c => c.routeId === g);
           return <details key={String(g)} className="syn-group"><summary>{routeTitle(g)}<small>{list.length} 条</small></summary><ol className="syn-list">{list.map(c => <Item key={c.id} c={c} />)}</ol></details>; })}</section>}

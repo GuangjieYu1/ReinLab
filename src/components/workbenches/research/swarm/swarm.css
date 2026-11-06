@@ -367,3 +367,4 @@ em[data-type='user'] { background:var(--rh-accent); border-color:var(--rh-accent
 .syn-cov-cols ul { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:4px; }
 .syn-cov-cols li { font:500 12px/1.5 var(--rh-f-ui); padding:1px 6px; border:1px solid var(--rh-line); background:var(--rh-white); }
 .syn-cov-cols li[data-miss] { border-color:var(--rh-accent); color:var(--rh-ink); background:var(--rh-accent-wash, var(--rh-paper)); }
+.syn-was { margin-left:6px; font:400 11px/1 var(--rh-f-mono); color:var(--rh-ink-4); }
