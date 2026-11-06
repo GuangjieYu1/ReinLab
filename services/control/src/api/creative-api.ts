@@ -28,7 +28,7 @@ import {
 import { editsGeoJson } from '../creative/edits';
 import { readEvents } from '../creative/events';
 import { runInference, type RouteInferenceDeps } from '../creative/route-agent';
-import type { OverpassTransport } from '../creative/network';
+import { validateBbox, type OverpassTransport } from '../creative/network';
 
 /** 只读按钮（全部重查）不带正文，也走 mutate 拿幂等记账。 */
 const EmptyBody = z.object({}).strict();
@@ -147,10 +147,8 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     const jobId = randomUUID();
     const response = await mutate(c, database, ImportBody, async (client, input) => {
       request = input;
-      if (input.source === 'osm' && input.bbox[0] >= input.bbox[2])
-        throw new ApiFailure('INVALID_INPUT', 400, '区域两个角写反了：西 < 东，南 < 北。');
-      if (input.source === 'osm' && input.bbox[1] >= input.bbox[3])
-        throw new ApiFailure('INVALID_INPUT', 400, '区域两个角写反了：西 < 东，南 < 北。');
+      // 范围（含 0.25 平方度上限）当场校验：超了直接 422，不把大范围查询发给公共 Overpass
+      if (input.source === 'osm') validateBbox(input.bbox);
       if (input.source === 'azgaar') {
         const asset = (
           await client.query('select id from creative_asset where id=$1 and account_id=$2 and dossier_id=$3', [

@@ -231,13 +231,9 @@ export async function applyBatch(
     );
 
   const legs = await buildLegs(client, { account, dossier, document: outcome.next });
-  const check = runCheck({
-    document: outcome.next,
-    legs,
-    revision,
-    now,
-    ...(outcome.touchedEvents.length ? { only: outcome.touchedEvents } : {}),
-  });
+  // 存下的是这份世界观「当前的」检查结果，必须是全量：只留本批碰过的事件，会把别处还在的冲突冲掉
+  // （runCheck 本来就全算一遍再筛，筛掉不省算力）。
+  const check = runCheck({ document: outcome.next, legs, revision, now });
   await saveCheck(client, { account, dossier, revision }, check);
   // 手绘、重画、确认推断路线，都会让某条 leg 换样：按契约 §3 推一条完整的 RouteLeg。
   const touchedLegIds = legsTouchedBy(state.document, outcome.applied);

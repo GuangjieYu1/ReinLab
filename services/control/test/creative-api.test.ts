@@ -197,7 +197,7 @@ describe("创作台页面接口", () => {
   it("导入一块 OSM 区域：真 pgRouting 边表，导完状态 ready，推 creative.network", { timeout: 40_000 }, async () => {
     const response = await api(`/v1/creative/worlds/${dossierA}/network/import`, {
       method: "POST",
-      body: JSON.stringify({ source: "osm", bbox: [118.0, 36.0, 120.0, 38.0] }),
+      body: JSON.stringify({ source: "osm", bbox: [118.5, 36.7, 119.0, 37.2] }),
       headers: { "Idempotency-Key": randomUUID() },
     });
     expect(response.status).toBe(202);
@@ -448,5 +448,45 @@ describe("创作台页面接口", () => {
     const failure = await response.json();
     expect(failure.code).toBe("IN_USE");
     expect(failure.message).toContain("青州城");
+  });
+
+  it("改一处只动这一处：别处还在的冲突不能被批次检查冲掉", async () => {
+    let body = await snapshot();
+    const qingzhou = body.entities.find((item: { name: string }) => item.name === "青州城");
+    const qinghe = body.entities.find((item: { name: string }) => item.name === "清河镇");
+    const add = await ops({ baseRevision: body.world.revision, ops: [{ op: "entity.add", entity: { kind: "person", name: "李四", aliases: [], person: {} } }] });
+    expect(add.status).toBe(200);
+    body = await snapshot();
+    const li = body.entities.find((item: { name: string }) => item.name === "李四");
+    const at = (title: string, placeId: string, start: string, end: string) => ({
+      op: "event.add",
+      event: { title, what: "", kind: "stay", participants: [{ entityId: li.id, as: "actor" }], placeId, travel: null, narrative: "fact", start: { input: start }, end: { input: end } },
+    });
+    const made = await ops({ baseRevision: body.world.revision, ops: [
+      at("李四在城里", qingzhou.id, "1684-06-01 08:00", "1684-06-01 12:00"),
+      at("李四在镇上", qinghe.id, "1684-06-01 09:00", "1684-06-01 11:00"),
+      at("李四另一天", qingzhou.id, "1684-07-01 08:00", "1684-07-01 09:00"),
+    ] });
+    expect(made.status).toBe(200);
+    expect((await made.json()).check.conflicts.some((item: { kind: string }) => item.kind === "double_location")).toBe(true);
+    body = await snapshot();
+    const other = body.events.find((item: { title: string }) => item.title === "李四另一天");
+    // 只改一条和冲突无关的事件：返回的、存下的检查都还得有那条同时异地
+    const touched = await ops({ baseRevision: body.world.revision, ops: [{ op: "event.update", id: other.id, patch: { what: "改个说明" } }] });
+    expect(touched.status).toBe(200);
+    expect((await touched.json()).check.conflicts.some((item: { kind: string }) => item.kind === "double_location")).toBe(true);
+    expect((await snapshot()).check.conflicts.some((item: { kind: string }) => item.kind === "double_location")).toBe(true);
+  });
+
+  it("OSM 范围超过单块上限当场 422，不去查 Overpass", async () => {
+    const before = overpassCalls;
+    const response = await api(`/v1/creative/worlds/${dossierA}/network/import`, {
+      method: "POST",
+      body: JSON.stringify({ source: "osm", bbox: [73, 18, 135, 54] }),
+      headers: { "Idempotency-Key": randomUUID() },
+    });
+    expect(response.status).toBe(422);
+    expect((await response.json()).code).toBe("NETWORK_BBOX_TOO_LARGE");
+    expect(overpassCalls).toBe(before);
   });
 });
