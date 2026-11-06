@@ -879,30 +879,50 @@ describe("任务中断后能收拾（1B）", () => {
       body: JSON.stringify({ kind: "novel", title: "中断测试" }),
     });
     const work = await created.json();
-    const started = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/import`, {
-      method: "POST",
-      headers: { "Idempotency-Key": randomUUID() },
-      body: JSON.stringify({ text: "## 第一章\n内容一。\n\n## 第二章\n内容二。", title: "中断测试" }),
+    // 抽取先卡住（gate），保证这条测的是「重启后的收拾」，不是抽取速度
+    const fast = importExtractorHolder.current;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((done) => {
+      release = done;
     });
-    const job = await started.json();
-    // 模拟「上一个进程跑到一半被重启」：状态 running + updated_at 在过去
-    await admin.query(
-      `update creative_job
-          set state='running',
-              document = jsonb_set(jsonb_set(document, '{state}', '"running"'), '{error}', 'null'),
-              updated_at = now() - interval '2 hours'
-        where id=$1`,
-      [job.id],
-    );
-    const after = await (await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}`)).json();
-    expect(after.state).toBe("paused");
-    expect(after.error).toContain("服务重启");
-    const resumed = await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/resume`, {
-      method: "POST",
-      headers: { "Idempotency-Key": randomUUID() },
-      body: "{}",
-    });
-    expect(resumed.status).toBe(200);
+    importExtractorHolder.current = async () => {
+      await gate;
+      return { extraction: { entities: [], events: [], merges: [] }, usage: { inputTokens: 1, outputTokens: 1 } };
+    };
+    try {
+      const started = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/import`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: JSON.stringify({ text: "## 第一章\n内容一。\n\n## 第二章\n内容二。", title: "中断测试" }),
+      });
+      const job = await started.json();
+      await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/pause`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: "{}",
+      });
+      // 模拟「上一个进程跑到一半被重启」：状态 running + updated_at 在过去
+      await admin.query(
+        `update creative_job
+            set state='running',
+                document = jsonb_set(jsonb_set(document, '{state}', '"running"'), '{error}', 'null'),
+                updated_at = now() - interval '2 hours'
+          where id=$1`,
+        [job.id],
+      );
+      const after = await (await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}`)).json();
+      expect(after.state).toBe("paused");
+      expect(after.error).toContain("服务重启");
+      const resumed = await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/resume`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: "{}",
+      });
+      expect(resumed.status).toBe(200);
+    } finally {
+      release();
+      importExtractorHolder.current = fast;
+    }
   });
 });
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { JsonValue } from "@reinlab/contracts";
 import type { Hono } from "hono";
 import { ApiFailure } from "./errors";
 import { mutate, type ApiEnv } from "./context";
@@ -76,7 +77,9 @@ export function registerKernelRuns(
         });
         created = runId;
         creativeMode = input.mode;
-        return { status: 201, body: { id: runId } };
+        // 形状和精读/探索那一档一致（sessionId/resume 这里没有：会话跑在控制面，不是内核子进程）
+        const body = { id: runId, sessionId: null, resume: null } as unknown as JsonValue;
+        return { status: 201 as const, body };
       }
       // 群研：同一个档案上只留一个没结束的运行，重连/重复点开的还是它。
       if (input.mode === "swarm") {
