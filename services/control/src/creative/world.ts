@@ -67,12 +67,16 @@ export type CreativeDocument = {
 
 export const GREGORIAN: Calendar = { id: 'gregorian', name: '公历', kind: 'gregorian' };
 export const CUSTOM_ERA: Calendar = { id: 'custom', name: '自定义纪元', kind: 'custom', note: '第 1 日 = 纪元第一天' };
+/** 年号历（1B）：明洪武到清宣统，农历按天文算法算，不确定时给候选。 */
+export const CHINESE_ERA: Calendar = {
+  id: 'chinese_era', name: '年号历', kind: 'chinese_era', note: '年号 + 干支 + 农历，例如「康熙二十三年三月初七」',
+};
 
 export function emptyDocument(title: string): CreativeDocument {
   return {
     title,
     basemap: { kind: 'blank', scaleKmPerUnit: null },
-    calendars: [{ ...GREGORIAN }, { ...CUSTOM_ERA }],
+    calendars: [{ ...GREGORIAN }, { ...CHINESE_ERA }, { ...CUSTOM_ERA }],
     entities: [],
     relations: [],
     events: [],

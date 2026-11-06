@@ -11,6 +11,16 @@
  */
 
 import type { Calendar, StoryTime } from '@reinlab/contracts';
+import {
+  ERA_TABLE,
+  LUNAR_MONTH_NAMES,
+  eraByName,
+  ganzhiOfYear,
+  lunarDayName,
+  lunarMonthsOfYear,
+  lunarToCivil,
+  monthStartCandidates,
+} from './chinese-calendar';
 
 export const MINUTES_PER_DAY = 1440;
 const MINUTES_PER_HOUR = 60;
@@ -20,7 +30,12 @@ const DAYS_TO_EPOCH = -719162;
 
 export type StoryTimeInput = { input: string; calendar?: string };
 
-export type ParseFailure = { code: 'TIME_UNPARSED'; message: string; candidates: [] };
+export type ParseFailure = {
+  code: 'TIME_UNPARSED';
+  message: string;
+  /** 有把握的候选（年号不确定、闰月不对时给出），页面让作者挑。 */
+  candidates: { t: number; label: string; why: string }[];
+};
 export type ParseResult = { ok: true; value: StoryTime } | { ok: false; failure: ParseFailure };
 
 // ── 公历换算（Howard Hinnant 的 days_from_civil / civil_from_days）────
@@ -126,6 +141,204 @@ export type StoryTimeContext = {
   defaultCalendar?: string;
 };
 
+/**
+ * 年号历的写法（1B）：`康熙二十三年三月初七`、`康熙二十三年三月`、`闰二月初一`、
+ * `甲子年三月初七`（干支年要配合年号）。日期前面可以带「约」「时为」之类的字，剥掉。
+ */
+const GANZHI_CHARS = /^([甲乙丙丁戊己庚辛壬癸])([子丑寅卯辰巳午未申酉戌亥])年/;
+const ERA_RE = /^([\u4e00-\u9fa5]{2})(元|[0-9]+|[零一二三四五六七八九十百]+)年/;
+const LEAP_RE = /^闰/;
+const MONTH_RE = /^(十一|十二|十|一|二|三|四|五|六|七|八|九|正|冬|腊)月/;
+const DAY_RE = /^(初[一二三四五六七八九十]|十[一二三四五六七八九]|二十|廿[一二三四五六七八九]|三十)(?:日)?/;
+
+const monthNumberOf = (name: string): number => {
+  const map: Record<string, number> = {
+    正: 1, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10, 十一: 11, 十二: 12, 冬: 11, 腊: 12,
+  };
+  return map[name] ?? 0;
+};
+
+const dayNumberOf = (name: string | undefined): number | null => {
+  if (!name) return null;
+  if (name === '二十') return 20;
+  if (name === '三十') return 30;
+  if (name.startsWith('初')) return chineseNumber(name.slice(1));
+  if (name.startsWith('廿')) return 20 + (chineseNumber(name.slice(1)) ?? 0);
+  return chineseNumber(name);
+};
+
+export type ChineseEraParse =
+  | { ok: true; value: StoryTime }
+  | { ok: false; message: string; candidates: { t: number; label: string; why: string }[] };
+
+/** 年号 + 农历日期 → StoryTime。不确定就带候选，不硬填。 */
+export function parseChineseEraDate(text: string, calendars: Calendar[]): ChineseEraParse {
+  const trimmed = text.replace(/^[约时于於是\s]+/, '').trim();
+  let rest = trimmed;
+  let ganzhi: string | null = null;
+  const ganzhiMatch = GANZHI_CHARS.exec(rest);
+  if (ganzhiMatch) {
+    ganzhi = ganzhiMatch[1] + ganzhiMatch[2];
+    rest = rest.slice(ganzhiMatch[0].length);
+  }
+  const eraMatch = ERA_RE.exec(rest);
+  let eraYear: number | null = null;
+  let eraName: string | null = null;
+  if (eraMatch) {
+    const era = eraByName(eraMatch[1]);
+    if (!era)
+      return {
+        ok: false,
+        message: `年号「${eraMatch[1]}」不在本地年号表里（明洪武到清宣统）。请改成公历，或换一个表里的年号。`,
+        candidates: [],
+      };
+    const nth = eraMatch[2] === '元' ? 1 : chineseNumber(eraMatch[2]);
+    if (nth === null || nth < 1) return { ok: false, message: '年号后面的年数认不出来。', candidates: [] };
+    const year = era.start + nth - 1;
+    if (year > era.end)
+      return {
+        ok: false,
+        message: `${era.name}只有 ${era.end - era.start + 1} 年，${nth} 年超出了。`,
+        candidates: [],
+      };
+    eraName = era.name;
+    eraYear = year;
+    rest = rest.slice(eraMatch[0].length);
+  }
+  // 干支也可能写在年号后面（「康熙二十三年丙子年三月初七」），两处都收。
+  const trailingGanzhi = GANZHI_CHARS.exec(rest);
+  if (trailingGanzhi) {
+    if (ganzhi && ganzhi !== trailingGanzhi[1] + trailingGanzhi[2])
+      return { ok: false, message: '干支写了两个不一样的，请核对原文。', candidates: [] };
+    ganzhi = trailingGanzhi[1] + trailingGanzhi[2];
+    rest = rest.slice(trailingGanzhi[0].length);
+  }
+  const leap = LEAP_RE.test(rest);
+  if (leap) rest = rest.slice(1);
+  const monthMatch = MONTH_RE.exec(rest);
+  if (!monthMatch)
+    return { ok: false, message: '缺农历月份（正月、二月……十二月）。', candidates: [] };
+  const month = monthNumberOf(monthMatch[1]);
+  rest = rest.slice(monthMatch[0].length);
+  const dayMatch = DAY_RE.exec(rest);
+  const day = dayMatch ? dayNumberOf(dayMatch[1]) : null;
+  if (dayMatch) rest = rest.slice(dayMatch[0].length);
+  if (rest.trim())
+    return { ok: false, message: `「${rest.trim()}」这段认不出来，只认年号 + 农历月日。`, candidates: [] };
+
+  if (eraYear === null && ganzhi) {
+    // 干支 60 年一轮，没有参照不能定年份：给最近两个候选让作者挑，不硬填。
+    const near = 1700;
+    const matches: number[] = [];
+    for (let year = near - 70; year <= near + 70; year += 1)
+      if (ganzhiOfYear(year) === ganzhi) matches.push(year);
+    const candidates: { t: number; label: string; why: string }[] = [];
+    for (const year of matches) {
+      const civil = month ? lunarToCivil(year, month, day ?? 1, leap) : null;
+      if (!civil) continue;
+      candidates.push({
+        t: gregorianToT(civil.year, civil.month, civil.day),
+        label: `${ganzhi}年${monthMatch[1]}月${day ? lunarDayName(day) : ''} · ${gregorianLabel(gregorianToT(civil.year, civil.month, civil.day))}`,
+        why: '干支纪年六十年一轮，这里按常见年代附近取一个；要准确请补年号或公历。',
+      });
+    }
+    return {
+      ok: false,
+      message: '只有干支年定不了年份（六十年一轮）：请补年号，或直接写公历。',
+      candidates,
+    };
+  }
+  if (eraYear === null)
+    return { ok: false, message: '农历日期要有年号，例如「康熙二十三年三月初七」。', candidates: [] };
+  if (ganzhi && ganzhiOfYear(eraYear) !== ganzhi)
+    return {
+      ok: false,
+      message: `${eraName}${eraYear - (eraByName(eraName!)?.start ?? eraYear) + 1}年是 ${ganzhiOfYear(eraYear)} 年，不是${ganzhi}年：年号和干支对不上，请核对原文。`,
+      candidates: [],
+    };
+
+  const months = lunarMonthsOfYear(eraYear);
+  const target = months.find((item) => item.month === month && item.leap === leap);
+  if (!target)
+    return {
+      ok: false,
+      message: `${eraYear} 年没有${leap ? '闰' : ''}${monthMatch[1]}月。`,
+      candidates: months
+        .filter((item) => item.leap)
+        .map((item) => ({
+          t: gregorianToT(item.start.year, item.start.month, item.start.day),
+          label: `${eraName}${eraYear - (eraByName(eraName!)?.start ?? eraYear) + 1}年闰${LUNAR_MONTH_NAMES[item.month - 1] ?? item.month}月（${gregorianLabel(gregorianToT(item.start.year, item.start.month, item.start.day))}）`,
+          why: '这年有闰月，但不是你写的那个月。',
+        })),
+    };
+
+  const starts = monthStartCandidates(target);
+  const base = starts[0];
+  const calendarId = calendars.find((item) => item.kind === 'chinese_era')?.id ?? 'chinese_era';
+  const eraNth = eraYear - (eraByName(eraName!)?.start ?? eraYear) + 1;
+  const original = text.trim();
+  // 标签直接用原文写法（保住「二十三」这种写法），后面补公历。
+  const head = original;
+
+  if (starts.length > 1) {
+    // 朔落在两种历法标准的日界之间：同一个日子差一天，给候选。
+    const candidates = starts.map((item) => {
+      const civil = lunarToCivil(eraYear!, month, day ?? 1, leap) ?? item;
+      const offset = day ? day - 1 : 0;
+      const t = gregorianToT(item.year, item.month, item.day + offset);
+      void civil;
+      return { t, label: `${head} · ${gregorianLabel(t)}`, why: '这一天正好在两种历法标准（北京地方时 / 东八区）的日界上。' };
+    });
+    const [first, second] = candidates.map((item) => item.t);
+    return {
+      ok: true,
+      value: {
+        t: Math.min(first, second),
+        range: [Math.min(first, second), Math.max(first, second)],
+        label: `${head} · 约 ${candidates.map((item) => gregorianLabel(item.t)).join(' 或 ')}`,
+        original,
+        calendar: calendarId,
+        relative: null,
+        certainty: 'range',
+        candidates,
+      },
+    };
+  }
+
+  if (!day) {
+    const endOffset = target.days - 1;
+    const start = gregorianToT(base.year, base.month, base.day);
+    const end = gregorianToT(base.year, base.month, base.day + endOffset);
+    return {
+      ok: true,
+      value: {
+        t: start,
+        range: [start, end],
+        label: `${head}（${gregorianLabel(start)} – ${gregorianLabel(end)}）`,
+        original,
+        calendar: calendarId,
+        relative: null,
+        certainty: 'range',
+      },
+    };
+  }
+  const t = gregorianToT(base.year, base.month, base.day + day - 1);
+  return {
+    ok: true,
+    value: {
+      t,
+      label: `${head} · ${gregorianLabel(t)}`,
+      original,
+      calendar: calendarId,
+      relative: null,
+      certainty: 'exact',
+    },
+  };
+}
+
+const looksChineseEra = (text: string): boolean =>
+  /[年月]/.test(text) && (ERA_RE.test(text) || GANZHI_CHARS.test(text) || /闰/.test(text));
+
 /** 原文写法 → StoryTime。解析不了就明确失败（调用方回 422 TIME_UNPARSED）。 */
 export function parseStoryTime(input: string, context: StoryTimeContext): ParseResult {
   const text = (input ?? '').trim();
@@ -215,6 +428,16 @@ export function parseStoryTime(input: string, context: StoryTimeContext): ParseR
       certainty: 'relative',
     };
     return { ok: true, value };
+  }
+
+  // 1B：年号 + 农历（康熙二十三年三月初七 / 闰二月初一 / 甲子年三月初七）
+  if (calendar?.kind === 'chinese_era' || looksChineseEra(text)) {
+    const era = parseChineseEraDate(text, context.calendars);
+    if (era.ok) return { ok: true, value: era.value };
+    return {
+      ok: false,
+      failure: { code: 'TIME_UNPARSED', message: era.message, candidates: era.candidates },
+    };
   }
 
   if (/[年月正冬腊]|廿|初[一二三四五六七八九十]/.test(text) && /[年月日]/.test(text))
