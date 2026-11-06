@@ -28,6 +28,9 @@ export type WorldState = {
   latestVersion: number;
 };
 
+/** 控制面进程的启动时刻：比它早的「导入中」就是上一个进程留下的，启动时改成失败（1A 遗留 3）。 */
+const PROCESS_STARTED_AT = new Date().toISOString();
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const assertUuid = (value: string) => {
   if (!UUID.test(value)) throw new ApiFailure('DOSSIER_NOT_FOUND', 404, '找不到这份档案。');
@@ -45,6 +48,38 @@ export async function requireCreativeDossier(
   ).rows[0];
   if (!row) throw new ApiFailure('DOSSIER_NOT_FOUND', 404, '找不到这份档案。');
   if (row.bench !== 'creative') throw new ApiFailure('BENCH_UNSUPPORTED', 400, '只有创作台档案有世界观账本。');
+}
+
+/**
+ * 上一个进程留下的「导入中」在启动后第一次打开时改成失败（1A 遗留 3）。
+ * 导入跑在控制面进程里，进程重启就不可能还在跑；不写成失败，页面会一直转圈。
+ * 只改状态、不动 revision：这不是作者的改动，页面不该因此收到 409。
+ */
+async function reconcileImportState(
+  client: pg.PoolClient,
+  input: { account: string; dossier: string },
+  document: CreativeDocument,
+): Promise<CreativeDocument> {
+  if (document.network?.state !== "importing") return document;
+  const startedAt = document.networkUpdatedAt ?? "";
+  if (startedAt && startedAt >= PROCESS_STARTED_AT) return document;
+  const next: CreativeDocument = {
+    ...document,
+    network: {
+      state: "failed",
+      sources: document.network.sources,
+      error: "导入中断（服务重启）",
+    },
+    networkUpdatedAt: new Date().toISOString(),
+  };
+  await client
+    .query(
+      "update creative_world set document=$3::jsonb, updated_at=now() where account_id=$1 and dossier_id=$2",
+      [input.account, input.dossier, JSON.stringify(next)],
+    )
+    .then(() => appendEvents(client, input, [{ type: "creative.network", data: next.network }]))
+    .catch(() => undefined);
+  return next;
 }
 
 export async function loadWorld(
@@ -79,7 +114,8 @@ export async function loadWorld(
       )
     ).rows[0]?.n ?? 0,
   );
-  return { revision: found.revision, document: found.document, latestVersion };
+  const document = await reconcileImportState(client, { account, dossier }, found.document);
+  return { revision: found.revision, document, latestVersion };
 }
 
 async function versionsOf(
@@ -342,6 +378,91 @@ export async function saveVersion(
   return { n, at: inserted.at.toISOString(), summary: label, changes };
 }
 
+/** 单次取回路网几何的要素上限：超了就 422，让页面按 bbox 取一块（1A 遗留 4）。 */
+export const NETWORK_GEOJSON_MAX = 50_000;
+
+export type NetworkFeature = {
+  type: 'Feature';
+  geometry: { type: 'LineString'; coordinates: [number, number][] } | null;
+  properties: {
+    kind: string;
+    roadClass: string | null;
+    name: string | null;
+    network: string;
+    oneway: boolean;
+    editId: string | null;
+    validFrom: number | null;
+    validTo: number | null;
+  };
+};
+
+/**
+ * 路网的几何（只读）：架空世界（Azgaar）没有底图可看，页面要自己把路画出来。
+ * 支持 bbox 只取一块；不传就取整个世界观。
+ */
+export async function readNetworkGeoJson(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+  bbox: [number, number, number, number] | null,
+): Promise<{ type: 'FeatureCollection'; features: NetworkFeature[] }> {
+  await loadWorld(client, account, dossier);
+  const filter = bbox
+    ? 'and geom && st_makeenvelope($3,$4,$5,$6,4326)'
+    : '';
+  const params: unknown[] = bbox ? [account, dossier, bbox[0], bbox[1], bbox[2], bbox[3]] : [account, dossier];
+  const counted = (
+    await client.query<{ n: string }>(
+      `select count(*)::text n from creative_edge where account_id=$1 and dossier_id=$2 ${filter}`,
+      params,
+    )
+  ).rows[0];
+  const total = Number(counted?.n ?? 0);
+  if (total > NETWORK_GEOJSON_MAX)
+    throw new ApiFailure(
+      'NETWORK_TOO_MANY_FEATURES',
+      422,
+      `这一块有 ${total} 段路，超过单次上限 ${NETWORK_GEOJSON_MAX}，缩小 bbox 再取。`,
+    );
+  if (total === 0) return { type: 'FeatureCollection', features: [] };
+  const rows = (
+    await client.query<{
+      kind: string;
+      road_class: string | null;
+      name: string | null;
+      network: string;
+      oneway: boolean;
+      edit_id: string | null;
+      valid_from: number | null;
+      valid_to: number | null;
+      coordinates: [number, number][];
+    }>(
+      `select kind, road_class, name, network, oneway, edit_id, valid_from, valid_to,
+              st_asgeojson(geom)::json -> 'coordinates' coordinates
+         from creative_edge where account_id=$1 and dossier_id=$2 ${filter}
+        order by id`,
+      params,
+    )
+  ).rows;
+  return {
+    type: 'FeatureCollection',
+    features: rows.map((row) => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: row.coordinates },
+      properties: {
+        kind: row.kind,
+        roadClass: row.road_class,
+        name: row.name,
+        network: row.network,
+        oneway: row.oneway,
+        editId: row.edit_id,
+        validFrom: row.valid_from,
+        validTo: row.valid_to,
+      },
+    })),
+  };
+}
+
 export type NetworkImportRequest =
   | { source: 'osm'; bbox: [number, number, number, number] }
   | { source: 'azgaar'; assetId: string };
@@ -368,6 +489,7 @@ export async function beginNetworkImport(
       state: 'importing',
       error: undefined,
     },
+    networkUpdatedAt: new Date().toISOString(),
   };
   const revision = state.revision + 1;
   await client.query(
@@ -407,6 +529,7 @@ export async function finishNetworkImport(
     network: result.ok
       ? { state: edges > 0 ? 'ready' : 'none', sources }
       : { state: 'failed', sources: state.document.network.sources, error: result.error },
+    networkUpdatedAt: now,
   };
   const revision = state.revision + 1;
   await client.query(

@@ -60,6 +60,8 @@ export type CreativeDocument = {
   /** 算不出路的原因（人话），按 leg 记。 */
   routeFailures: { legId: string; failure: string }[];
   network: NetworkStatus;
+  /** 路网状态是什么时候变的：控制面重启后据此判断哪些导入卡死了（1A 遗留 3）。 */
+  networkUpdatedAt?: string | null;
   usage: CreativeCny;
 };
 
@@ -196,6 +198,8 @@ export type ApplyOutcome = {
 export type ApplyOptions = {
   actor: 'user' | 'agent';
   ids?: () => string;
+  /** 处理结果的时间：作废、接受、拒绝都要记下是什么时候。 */
+  at?: string;
 };
 
 function summaryOf(op: CreativeOp, document: CreativeDocument): string {
@@ -252,6 +256,35 @@ function summaryOf(op: CreativeOp, document: CreativeDocument): string {
 const labelKind = (kind: Entity['kind']) =>
   ({ person: '人物', place: '地点', item: '物件', org: '组织' })[kind];
 
+/**
+ * 同一段路只能有一条结论：手绘或重画以后，这段路原来那条推断提议作废（1A 遗留 1）。
+ * 返回作废的提议，调用方写进 applied 让页面知道发生了什么，并且不能再确认它。
+ */
+export function voidRouteProposals(
+  document: CreativeDocument,
+  legId: string,
+  reason: string,
+  at: string,
+): Proposal[] {
+  const voided: Proposal[] = [];
+  document.proposals = document.proposals.map((proposal) => {
+    if (proposal.kind !== 'route') return proposal;
+    if (proposal.status !== 'pending' && proposal.status !== 'deferred') return proposal;
+    const belongs =
+      document.inferredRoutes.some((route) => route.proposalId === proposal.id && route.legId === legId) ||
+      proposal.ops.some((op) => op.op === 'route.draw' && op.legId === legId);
+    if (!belongs) return proposal;
+    const next: Proposal = {
+      ...proposal,
+      status: 'rejected',
+      resolution: { decision: 'rejected', reason, at, by: 'user' },
+    };
+    voided.push(next);
+    return next;
+  });
+  return voided;
+}
+
 /** 一个批次的纯计算：要么全成，要么抛错（调用方回滚事务）。 */
 export function applyOps(
   document: CreativeDocument,
@@ -263,12 +296,19 @@ export function applyOps(
   const touchedEvents = new Set<string>();
   const redraws: { legId: string; hint?: string }[] = [];
   const ids = options.ids ?? randomUUID;
+  const at = options.at ?? new Date().toISOString();
 
   for (const op of ops) {
     const summary = summaryOf(op, next);
     const opId = ids();
-    const push = (result: CreativeAppliedOp['result']) =>
-      applied.push({ ...(op as CreativeOp), opId, actor: options.actor, summary, result });
+    const push = (result: CreativeAppliedOp['result'], summaryOverride?: string) =>
+      applied.push({
+        ...(op as CreativeOp),
+        opId,
+        actor: options.actor,
+        summary: summaryOverride ?? summary,
+        result,
+      });
 
     switch (op.op) {
       case 'entity.add': {
@@ -500,17 +540,25 @@ export function applyOps(
       case 'route.draw': {
         if (op.path?.type !== 'LineString' || op.path.coordinates.length < 2)
           throw fail('INVALID_INPUT', 400, '手绘路线至少要有两个点。');
+        const voided = voidRouteProposals(next, op.legId, '这段路你手绘了，这条推断提议作废。', at);
         next.manualRoutes = [...next.manualRoutes.filter((item) => item.legId !== op.legId), { legId: op.legId, path: clone(op.path) }];
         next.inferredRoutes = next.inferredRoutes.filter((item) => item.legId !== op.legId);
         next.routeFailures = next.routeFailures.filter((item) => item.legId !== op.legId);
-        push({});
+        push(
+          voided[0] ? { proposal: voided[0] } : {},
+          voided.length ? `画了一段路线，作废了同一段的 ${voided.length} 条推断提议` : undefined,
+        );
         break;
       }
       case 'route.redraw': {
         redraws.push({ legId: op.legId, ...(op.hint ? { hint: op.hint } : {}) });
+        const voided = voidRouteProposals(next, op.legId, '这段路重新让 AI 画，旧推断提议作废。', at);
         next.inferredRoutes = next.inferredRoutes.filter((item) => item.legId !== op.legId);
         next.routeFailures = next.routeFailures.filter((item) => item.legId !== op.legId);
-        push({});
+        push(
+          voided[0] ? { proposal: voided[0] } : {},
+          voided.length ? `让 AI 重画路线，作废了旧的 ${voided.length} 条推断提议` : undefined,
+        );
         break;
       }
       case 'proposal.decide': {
@@ -522,7 +570,17 @@ export function applyOps(
         const chosen = op.candidate !== undefined ? proposal.candidates?.[op.candidate] : undefined;
         if (op.candidate !== undefined && !chosen) throw fail('INVALID_INPUT', 400, '没有这个候选。');
         const decideOps = op.ops ?? chosen?.ops ?? [];
-        next.proposals[index] = { ...proposal, status: op.decision };
+        next.proposals[index] = {
+          ...proposal,
+          status: op.decision,
+          resolution: {
+            decision: op.decision,
+            reason:
+              op.decision === 'accepted' ? '作者接受了这条提议。' : op.decision === 'rejected' ? '作者拒绝了这条提议。' : '作者暂缓了这条提议。',
+            at,
+            by: options.actor,
+          },
+        };
         // 「修改后接受」：页面改过的 ops 先执行，再把提议标成接受。
         if (op.decision === 'accepted' && decideOps.length) {
           const nested = applyOps(next, decideOps, options);

@@ -19,7 +19,7 @@ import type {
   WorldEvent,
 } from '@reinlab/contracts';
 import { minutesToHuman, overlapOf } from './allen';
-import { boundsOf, labelsOf } from './labels';
+import { boundsOf, labelsOf, narrativeLabel, placeLevelLabel } from './labels';
 import { gapsOf, placeChain, type CreativeDocument } from './world';
 
 export type CheckInput = {
@@ -55,8 +55,9 @@ const physicallyThere = (event: WorldEvent, entityId: string): boolean => {
 const PLACE_ORDER: Record<string, number> = {
   world: 0, region: 1, city: 2, site: 3, building: 4, floor: 5, room: 6,
 };
+/** 某个层级的下一层；最深的房间没有下一层（那就不提「降一层」这个修法）。 */
 const NEXT_LEVEL: Record<string, 'region' | 'city' | 'building' | 'floor' | 'room'> = {
-  world: 'region', region: 'city', city: 'building', building: 'floor', floor: 'room', room: 'room', site: 'site',
+  world: 'region', region: 'city', city: 'building', building: 'floor', floor: 'room',
 };
 
 const placeOf = (document: CreativeDocument, id: string | null): Entity | undefined =>
@@ -225,7 +226,14 @@ export function runCheck(input: CheckInput): CheckRun {
             label: '把这次出场标成回忆',
             kind: 'other',
             ops: [{ op: 'event.update', id: event.id, patch: { narrative: 'flashback' } }],
-            preview: [{ eventId: event.id, field: '叙述性质', before: event.narrative, after: 'flashback' }],
+            preview: [
+              {
+                eventId: event.id,
+                field: '叙述性质',
+                before: narrativeLabel(event.narrative),
+                after: narrativeLabel('flashback'),
+              },
+            ],
           },
           {
             id: `fx_${hash(ids.join(',') + ':no-death')}`,
@@ -364,22 +372,33 @@ export function runCheck(input: CheckInput): CheckRun {
           severity: 'hard',
           entityIds: [place.id, parent.id],
           eventIds: [],
-          why: `「${place.name}」（${level}）挂在「${parent.name}」（${parent.place.level}）下面，层级反了。`,
-          fixes: [
-            {
-              id: `fx_${hash(ids.join(',') + ':level')}`,
-              label: `把「${place.name}」改成「${parent.name}」的下一层`,
-              kind: 'other',
-              ops: [
-                {
-                  op: 'entity.update',
-                  id: place.id,
-                  patch: { place: { ...place.place, level: NEXT_LEVEL[parent.place.level] ?? 'site' } },
-                },
-              ],
-              preview: [{ field: '层级', before: level, after: NEXT_LEVEL[parent.place.level] ?? 'site' }],
-            },
-          ],
+          why: `「${place.name}」（${placeLevelLabel(level)}）挂在「${parent.name}」（${placeLevelLabel(parent.place.level)}）下面，层级反了。`,
+          fixes: (() => {
+            const next = NEXT_LEVEL[parent.place.level];
+            // 最深的层级（房间）没有「下一层」：这种反挂就给不出自动修法，交给作者。
+            if (!next) return [];
+            return [
+              {
+                id: `fx_${hash(ids.join(',') + ':level')}`,
+                label: `把「${place.name}」改成「${parent.name}」的下一层（${placeLevelLabel(next)}）`,
+                kind: 'other' as const,
+                ops: [
+                  {
+                    op: 'entity.update' as const,
+                    id: place.id,
+                    patch: { place: { ...place.place, level: next } },
+                  },
+                ],
+                preview: [
+                  {
+                    field: '层级',
+                    before: placeLevelLabel(level),
+                    after: placeLevelLabel(next),
+                  },
+                ],
+              },
+            ];
+          })(),
         });
       }
     }

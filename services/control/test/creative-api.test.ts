@@ -397,6 +397,53 @@ describe("创作台页面接口", () => {
     expect(after.world.network.sources.some((item: { kind: string }) => item.kind === "azgaar")).toBe(true);
   });
 
+  it("路网几何接口：只读、按 bbox 过滤（1A 遗留 4）", async () => {
+    const all = await api(`/v1/creative/worlds/${dossierA}/network/geojson`);
+    expect(all.status).toBe(200);
+    const collection = await all.json();
+    expect(collection.type).toBe("FeatureCollection");
+    expect(collection.features.length).toBeGreaterThanOrEqual(3);
+    const feature = collection.features[0];
+    expect(feature.type).toBe("Feature");
+    expect(feature.geometry.type).toBe("LineString");
+    expect(feature.geometry.coordinates.length).toBe(2);
+    expect(feature.properties.kind).toBe("osm");
+    expect(feature.properties.roadClass).toBe("primary");
+
+    const part = await api(`/v1/creative/worlds/${dossierA}/network/geojson?bbox=118.4,36.6,118.85,36.9`);
+    expect(part.status).toBe(200);
+    const partBody = await part.json();
+    expect(partBody.features.length).toBeLessThan(collection.features.length);
+    expect(partBody.features.some((item: any) => item.properties.kind === "osm")).toBe(true);
+
+    const wrong = await api(`/v1/creative/worlds/${dossierA}/network/geojson?bbox=119,36,118,35`);
+    expect(wrong.status).toBe(400);
+    expect((await wrong.json()).code).toBe("INVALID_INPUT");
+  });
+
+  it("卡在「导入中」的路网，控制面重启后第一次打开就改成失败（1A 遗留 3）", async () => {
+    await admin.query(
+      `update creative_world
+          set document = jsonb_set(jsonb_set(document, '{network,state}', '"importing"'),
+                                   '{networkUpdatedAt}', to_jsonb(($2::timestamptz)::text))
+        where dossier_id = $1`,
+      [dossierA, new Date(Date.now() - 3600_000).toISOString()],
+    );
+    const after = await snapshot();
+    expect(after.world.network.state).toBe("failed");
+    expect(after.world.network.error).toContain("导入中断");
+    // 事件流里要能看到这条变化
+    const events = await admin.query(
+      "select data from creative_event where dossier_id=$1 and type='creative.network' order by seq desc limit 1",
+      [dossierA],
+    );
+    expect(events.rows[0]?.data?.error).toContain("导入中断");
+
+    // 再打开一次不会反复改
+    const again = await snapshot();
+    expect(again.world.network.state).toBe("failed");
+  });
+
   it("存版本、取历史版本；刷新以后记录还在", async () => {
     const body = await snapshot();
     const saved = await api(`/v1/creative/worlds/${dossierA}/versions`, {

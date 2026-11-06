@@ -268,6 +268,11 @@ export type Proposal = {
   conflicts: CreativeConflict[];
   candidates?: { label: string; ops: CreativeOp[]; why: string }[];
   status: Decision;
+  /**
+   * 处理结果和原因：手绘路线会让同一段旧的推断提议作废（1A 遗留 1），
+   * 作者拒绝、暂缓也记在这里，页面显示「已作废：你手绘了这段」而不是悄悄消失。
+   */
+  resolution?: { decision: Decision; reason: string; at: CreativeIso; by: 'user' | 'agent' } | null;
 };
 
 // ── 版本（1A 只保留，1C 才有界面）───────────────

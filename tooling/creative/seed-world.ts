@@ -253,7 +253,9 @@ async function seedOsmWorld(session: Session, user: string): Promise<string> {
   revision = roomFix.revision;
 
   // 交通方式：把「步行」调成实走的脚力，另加一条乘船。
+  // 有 OSM 路网就用真实底图（1A 验收里前端为此绕了一道）
   const modes = await ops(session, world.id, revision, [
+    { op: 'world.set', patch: { basemap: { kind: 'real', bbox: [120.55, 31.26, 120.66, 31.35] } } },
     { op: 'mode.set', mode: { id: 'walk', name: '步行', kmPerHour: 4.5, network: 'road', note: '走官道与山道' } },
     { op: 'mode.set', mode: { id: 'boat', name: '乘船', kmPerHour: 6, network: 'water' } },
     { op: 'rule.set', rule: { id: 'rule-night', text: '夜里城门落锁，任何人不得出城。', machine: null } },

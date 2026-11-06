@@ -17,6 +17,7 @@ import {
   applyBatch,
   beginNetworkImport,
   loadWorld,
+  readNetworkGeoJson,
   readSnapshot,
   readTracks,
   rangeOf,
@@ -128,6 +129,26 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     if (at !== null && !Number.isFinite(at)) throw new ApiFailure('INVALID_INPUT', 400, 't 要是故事时间的分钟数。');
     return database.withAccount(c.get('accountId'), async (client) =>
       c.json((await editsGeoJson(client, c.get('accountId'), c.req.param('dossierId'), at)) as unknown as JsonValue),
+    );
+  });
+
+  /**
+   * 路网几何（只读，1A 遗留 4）：架空世界没有底图路，页面得自己画。
+   * `?bbox=西,南,东,北` 只取一块；不传就是整个世界观。单次要素有上限。
+   */
+  app.get('/v1/creative/worlds/:dossierId/network/geojson', (c) => {
+    const raw = c.req.query('bbox');
+    let bbox: [number, number, number, number] | null = null;
+    if (raw !== undefined && raw !== '') {
+      const parts = raw.split(',').map((item) => Number(item.trim()));
+      if (parts.length !== 4 || parts.some((value) => !Number.isFinite(value)))
+        throw new ApiFailure('INVALID_INPUT', 400, 'bbox 要用「西,南,东,北」四个数字。');
+      if (parts[0] >= parts[2] || parts[1] >= parts[3])
+        throw new ApiFailure('INVALID_INPUT', 400, 'bbox 两个角写反了：西 < 东，南 < 北。');
+      bbox = parts as [number, number, number, number];
+    }
+    return database.withAccount(c.get('accountId'), async (client) =>
+      c.json((await readNetworkGeoJson(client, c.get('accountId'), c.req.param('dossierId'), bbox)) as unknown as JsonValue),
     );
   });
 

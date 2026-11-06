@@ -312,6 +312,111 @@ describe("五类检查与修法", () => {
     expect(after.conflicts.find((item) => item.kind === "travel_time")!.severity).toBe("hard");
   });
 
+  it("手绘一段路以后，同一段的旧推断提议作废并写明原因（1A 遗留 1）", () => {
+    const { document } = build();
+    const legs = legsFor(document, 600);
+    const path = { type: "LineString" as const, coordinates: [[118.5, 36.7], [118.7, 36.8], [119.2, 37.1]] as [number, number][] };
+    const withInferred: CreativeDocument = {
+      ...document,
+      inferredRoutes: [{ legId: legs[0].id, proposalId: "pr-old", path, why: "按县志走古道", sources: [{ title: "县志" }] }],
+      proposals: [
+        {
+          id: "pr-old",
+          kind: "route",
+          title: "推断路线",
+          summary: "按县志走古道",
+          ops: [{ op: "route.draw", legId: legs[0].id, path }],
+          origin: { basis: "inferred", by: "route_ai", why: "按县志走古道" },
+          doubts: [],
+          dependsOn: [],
+          conflicts: [],
+          status: "pending",
+        },
+      ],
+    };
+    const drawn = applyOps(
+      withInferred,
+      [{ op: "route.draw", legId: legs[0].id, path: { type: "LineString", coordinates: [[118.5, 36.7], [119.2, 37.1]] } }],
+      { actor: "user", ids, at: "2026-11-07T00:00:00.000Z" },
+    );
+    const old = drawn.next.proposals.find((item) => item.id === "pr-old")!;
+    expect(old.status).toBe("rejected");
+    expect(old.resolution?.reason).toContain("手绘");
+    expect(drawn.next.manualRoutes.some((item) => item.legId === legs[0].id)).toBe(true);
+    expect(drawn.applied[0].summary).toContain("作废");
+
+    // 作废以后再点确认：明确回 409，不会把手绘覆盖掉。
+    expect(() =>
+      applyOps(drawn.next, [{ op: "proposal.decide", id: "pr-old", decision: "accepted" }], { actor: "user", ids }),
+    ).toThrow(/处理过了/);
+    expect(drawn.next.manualRoutes[0].path.coordinates).toHaveLength(2);
+  });
+
+  it("让 AI 重画也会作废旧推断提议（1A 遗留 1）", () => {
+    const { document } = build();
+    const legs = legsFor(document, 600);
+    const withInferred: CreativeDocument = {
+      ...document,
+      inferredRoutes: [{ legId: legs[0].id, proposalId: "pr-old", path: { type: "LineString", coordinates: [[118.5, 36.7], [119.2, 37.1]] }, why: "旧依据", sources: [{ title: "县志" }] }],
+      proposals: [
+        {
+          id: "pr-old",
+          kind: "route",
+          title: "推断路线",
+          summary: "旧依据",
+          ops: [{ op: "route.draw", legId: legs[0].id, path: { type: "LineString", coordinates: [[118.5, 36.7], [119.2, 37.1]] } }],
+          origin: { basis: "inferred", by: "route_ai", why: "旧依据" },
+          doubts: [],
+          dependsOn: [],
+          conflicts: [],
+          status: "pending",
+        },
+      ],
+    };
+    const redrawn = applyOps(withInferred, [{ op: "route.redraw", legId: legs[0].id }], { actor: "user", ids });
+    expect(redrawn.next.proposals.find((item) => item.id === "pr-old")?.status).toBe("rejected");
+    expect(redrawn.redraws).toHaveLength(1);
+  });
+
+  it("层级和叙述性质都给中文，不吐枚举值（1A 遗留 5）", () => {
+    const { document, id } = build();
+    // 把苏州（城市）挂到客栈（建筑）下面：层级反了（建筑比城市低）。
+    const inverted = applyOps(
+      document,
+      [{ op: "entity.update", id: id["青州城"], patch: { place: { level: "city", parentId: id["悦来客栈"], geo: { type: "Point", coordinates: [118.5, 36.7] }, geoCertainty: "exact", connects: [] } } } as CreativeOp],
+      { actor: "user", ids },
+    ).next;
+    const check = runCheck({ document: inverted, legs: [], revision: 3, now: now() });
+    const level = check.conflicts.find((item) => item.kind === "place_hierarchy" && item.why.includes("层级反了"))!;
+    expect(level.why).toContain("建筑");
+    expect(level.why).toContain("城市");
+    expect(level.why).not.toMatch(/region|building|room/);
+    expect(level.fixes[0].preview[0].before).toBe("城市");
+    expect(level.fixes[0].preview[0].after).toBe("楼层");
+    expect(level.fixes[0].label).not.toMatch(/building|floor/);
+
+    // 死后出场的修法预览：事实 → 回忆，不是 fact → flashback。
+    const death = applyOps(
+      document,
+      [
+        event("病故", id["张三"], id["悦来客栈"], "1684-04-22 08:00", "1684-04-22 09:00", { kind: "death" }),
+        event("又见他", id["张三"], id["清河镇"], "1684-04-23 08:00", "1684-04-23 09:00"),
+      ],
+      { actor: "user", ids },
+    ).next;
+    const deathId = death.events.find((item) => item.title === "病故")!.id;
+    const withDeath = applyOps(death, [{ op: "entity.update", id: id["张三"], patch: { person: { died: deathId } } } as CreativeOp], {
+      actor: "user",
+      ids,
+    }).next;
+    const appearance = runCheck({ document: withDeath, legs: [], revision: 4, now: now() }).conflicts.find(
+      (item) => item.kind === "dead_appearance",
+    )!;
+    const preview = appearance.fixes.find((fix) => fix.label.includes("回忆"))!.preview[0];
+    expect(preview.before).toBe("事实");
+    expect(preview.after).toBe("回忆");
+  });
+
   it("信息不足与未覆盖照实显示，不当作通过", () => {
     const { document, id } = build();
     const withUnknown = applyOps(
