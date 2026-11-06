@@ -550,7 +550,9 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
   const groups = [...new Set(candidates.map(c => c.routeId))];
   const STATE = { stage: '阶段结果', awaiting_review: '报告前有分歧，等你看', final: '正式报告', partial: '正式报告（部分完成）', unresolved: '没有可靠答案' } as const;
   const narrative = r?.narrative?.trim() || null;
-  const cov = snap.coverage ?? r?.coverage ?? null;
+  // 覆盖名单：空白名字不显示，两列都空的轴整条不显示（后端偶尔会带空串）
+  const cov0 = snap.coverage ?? r?.coverage ?? null;
+  const cov = cov0 && { ...cov0, axes: cov0.axes.map(a => ({ ...a, checked: a.checked.filter(n => n.trim()), mentioned: a.mentioned.filter(n => n.trim()) })).filter(a => a.checked.length + a.mentioned.length > 0) };
   const dc = r?.discoveryCounts ?? null, dcTotal = dc ? dc.search + dc.knownUrl + dc.citation + dc.unknown : 0;
   // 成稿里引用的 id → 可点的小标签：结论标序号和状态，证据标来源，点开走同一个抽屉
   const claimNo = new Map(snap.claims.map((c, i) => [c.id, i + 1]));

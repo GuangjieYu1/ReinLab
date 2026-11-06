@@ -92,3 +92,36 @@
 
 - 汇总面加了「覆盖」一节：按路线两列，「提到但没查」高亮。目录里加了覆盖。
 - 侧边轮询改成只拉 turn/start、turn/end、assistant/message 三种事件，一页 200 条。
+
+## E 批复验（2026-11-06，后端 `b52cb5c`）
+
+在 `0a5d1090` 上验；DSH 把它置回 `awaiting_review`，换了一张新的分歧卡 `399464c3`。
+
+| 项 | 结果 |
+|---|---|
+| E1 分歧决定即收尾 | **通。** 点「按有争议写入」后 5 秒内：运行变 `partial`，`end_reason=user_wrote_disputes`，`ended_at` 写入；卡片关闭；汇总面显示「正式报告（部分完成）」，两条分歧进了「有争议」一节 |
+| E2 覆盖名单 | **好了一半。** 「已查证」里有了真名字：LegendKeeper、AI Town、Azgaar、BookNLP、ConStory、Generative Agents、Fable Studio、Foundry VTT。但还混着：缩写（GPL、HTTP、README、SDK、JSON、CSV、OSI、FAQ、BERT、CRF）、半句话（Each Campfire、Uses Foundry、Does Intangible）、栏目名（Additional Pages、Development Status）。「没查」里仍有带引号的短语（「同一时间在两地」「找出情节漏洞」「演得像」）。「未归到路线」那一栏 30 个名字也大多是栏目名 |
+| E3 429 重试 / E4 来路 | 没法在旧运行上验，要新跑一条 |
+
+小问题：「有争议」一节里的两条结论，状态标签显示的是「已证伪」。用户选了「按有争议写入」，报告分区和结论状态各说各的，看的人会糊涂。建议要么分区按结论状态分，要么写入时把状态一起改成 disputed。
+
+前端：覆盖块过滤空白名字，两列都空的轴不显示（兜底）。
+
+## E 批新跑复测（2026-11-06，后端 `b52cb5c`）
+
+运行 `7cfe5d63`，档案 `b5471fc2`「群研 E 批复测 2」。题目和设置照旧。4 轮后出了分歧卡，用户选「按有争议写入」。实际干活 72 分钟，**¥8.84**（输入 125 万 / 输出 53 万 / 缓存读 9256 万）。
+
+| 项 | 结果 |
+|---|---|
+| E1 真实运行里分歧决定即收尾 | 通。5 秒内变 `partial` / `user_wrote_disputes`，出了正式报告，费用不再涨 |
+| E3 429 | 通。开跑后 control.log 里 `MODEL_UPSTREAM_429` 为 0；7 次「prematurely closed」都被重试接住 |
+| E4 来路 | 通。165 / 395 条是搜出来的（42%，上次 35%）。剩下 22 条 raw.githubusercontent 是题目里点了名的仓库（Azgaar、BookNLP、Kanka），记成 known-url 是对的 |
+| 广度 | **不稳定。** 漏掉的 4 个对象这次 0 / 4（上次 2 / 4），ConStory、Obsidian 也没出现。同一题目，每次找到什么取决于路线怎么切、哪个研究员勤快 |
+| 结果 | 36 条已核实，1 条有争议，1 条证伪，8 条负结果；成稿 11,506 字 |
+
+### 给 DSH（不阻塞合并）
+
+- **F1 超时：** 额度 60 分钟，实际干活 72 分钟（active_ms），多跑了 12 分钟才进入 awaiting_review。到点要停止新增模型调用、进入收尾。
+- **F2 内核冷启动：** 这次开跑前失败了两次。第一次是 `initialize timed out after 10000ms waiting for dsh profile "sdk"`，10 秒上限偏紧；第二次在同一档案里重开，报 `KERNEL_SESSION_RESTORE_FAILED`，被第一次留下的半截会话连累。用户只看到「失败」，不知道要换档案。建议放宽初始化超时；初始化失败的会话不要留给下一次去恢复。
+- **F3** 「有争议」一节里的结论，状态标签显示「已证伪」，和分区标题对不上（E 批复验时记过）。
+- **F4** 覆盖名单还有缩写、半句话、栏目名（E2 没收干净）。
