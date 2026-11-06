@@ -550,6 +550,7 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
   const groups = [...new Set(candidates.map(c => c.routeId))];
   const STATE = { stage: '阶段结果', awaiting_review: '报告前有分歧，等你看', final: '正式报告', partial: '正式报告（部分完成）', unresolved: '没有可靠答案' } as const;
   const narrative = r?.narrative?.trim() || null;
+  const cov = snap.coverage ?? r?.coverage ?? null;
   const dc = r?.discoveryCounts ?? null, dcTotal = dc ? dc.search + dc.knownUrl + dc.citation + dc.unknown : 0;
   // 成稿里引用的 id → 可点的小标签：结论标序号和状态，证据标来源，点开走同一个抽屉
   const claimNo = new Map(snap.claims.map((c, i) => [c.id, i + 1]));
@@ -568,6 +569,7 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
     { id: 'disputed', zh: '有争议', n: disputed.length },
     { id: 'candidates', zh: '候选', n: candidates.length },
     { id: 'negative', zh: '负结果', n: negative.length },
+    ...(cov ? [{ id: 'coverage', zh: '覆盖', n: cov.mentionedTotal }] : []),
     { id: 'gaps', zh: '缺口', n: gaps.length },
     { id: 'sources', zh: '来源', n: sources.length },
   ].filter(x => x.n === null || x.n > 0);
@@ -612,6 +614,14 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
           return <details key={String(g)} className="syn-group"><summary>{routeTitle(g)}<small>{list.length} 条</small></summary><ol className="syn-list">{list.map(c => <Item key={c.id} c={c} />)}</ol></details>; })}</section>}
       {negative.length > 0 && <section id="syn-negative" className="syn-sec"><h3>负结果 <small>{negative.length} · 找过但没找到</small></h3>
         <ol className="syn-list">{negative.map(c => <Item key={c.id} c={c} />)}</ol></section>}
+      {cov && <section id="syn-coverage" className="syn-sec"><h3>覆盖 <small>已查证 {cov.checkedTotal} · 提到但没查 {cov.mentionedTotal}</small></h3>
+        {cov.note && <p className="syn-note">{cov.note}</p>}
+        <div className="syn-cov">{cov.axes.map(a => <details key={a.routeId} className="syn-group" open={a.mentioned.length > 0}>
+          <summary>{a.title || routeTitle(a.routeId)}<small>已查 {a.checked.length} · 没查 {a.mentioned.length}</small></summary>
+          <div className="syn-cov-cols">
+            <div><span className="rh-micro">提到但没查</span>{a.mentioned.length ? <ul>{a.mentioned.map(n => <li key={n} data-miss>{n}</li>)}</ul> : <p className="syn-note">没有</p>}</div>
+            <div><span className="rh-micro">已查证</span>{a.checked.length ? <ul>{a.checked.map(n => <li key={n}>{n}</li>)}</ul> : <p className="syn-note">还没有</p>}</div>
+          </div></details>)}</div></section>}
       {(gaps.length > 0 || limits.length > 0) && <section id="syn-gaps" className="syn-sec"><h3>缺口与局限</h3>
         {gaps.length > 0 && <ul className="syn-bullets">{gaps.map(g => { const h = headline(g); return <li key={g}>{h.more ? <details className="syn-gap"><summary>{h.head}</summary><p>{g}</p></details> : g}</li>; })}</ul>}
         {limits.length > 0 && <details className="syn-group"><summary>局限<small>{limits.length} 条</small></summary><ul className="syn-bullets">{limits.map(g => <li key={g}>{g}</li>)}</ul></details>}</section>}

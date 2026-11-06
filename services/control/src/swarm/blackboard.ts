@@ -156,6 +156,22 @@ export async function recordSubmission(
  * 记一条证据；同来源 + 同版本 + 同定位已经有就复用那一条（引用关系另外记）。
  * 返回证据 id 和它是不是新记的。
  */
+/** 站点/仓库的稳定标识：github 取 owner/repo，其他取域名。 */
+function siteKeyOf(raw: string): string {
+  const text = String(raw ?? "").trim();
+  if (!text) return "";
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(text) ? text : "https://" + text);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    if (/github\.com$|githubusercontent\.com$/.test(host) && segments.length >= 2)
+      return `${segments[0]}/${segments[1]}`;
+    return host;
+  } catch {
+    return "";
+  }
+}
+
 /** 把 ref / 网址归一成可以互相比较的形状（去协议、去尾斜杠、小写）。 */
 function normalizeRef(raw: string): string {
   return raw
@@ -179,8 +195,24 @@ export async function inferDiscovery(
   runId: string,
   source: Evidence["source"],
 ): Promise<Evidence["discovery"]> {
-  const ref = normalizeRef([source.ref, source.assetId].filter(Boolean).join(" "));
+  const raw = [source.ref, source.assetId].filter(Boolean).join(" ");
+  const ref = normalizeRef(raw);
   if (!ref) return "known-url";
+  // E4：先按「站点 / 仓库」比。先搜到 github.com/OnlyWorlds/OnlyWorlds、
+  // 再读 raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/... 也算搜出来的。
+  const site = siteKeyOf(raw);
+  if (site) {
+    const siteHit = (
+      await client.query(
+        `select kind from swarm_source_hit
+          where account_id=$1 and run_id=$2 and (url ilike $3 or url ilike $4)
+          order by case when kind='search' then 0 else 1 end
+          limit 1`,
+        [account, runId, `%${site}%`, `%${site.toLowerCase()}%`],
+      )
+    ).rows[0];
+    if (siteHit) return String(siteHit.kind) === "search" ? "search" : "citation";
+  }
   const hits = (
     await client.query(
       "select url, kind from swarm_source_hit where account_id=$1 and run_id=$2",

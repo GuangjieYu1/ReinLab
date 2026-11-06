@@ -40,48 +40,157 @@ const STOPWORDS = new Set([
   "Abstract",
   "Introduction",
   "Appendix",
-  "AI",
-  "LLM",
-  "LLMs",
+  "Chapter",
+  "Part",
+  "Page",
+  "Using",
+  "Based",
+  "Adding",
+  "Additional",
+  "Creating",
+  "Overview",
+  "Examples",
+  "Example",
+  "Article",
+  "Articles",
+  "Actors",
+  "Actor",
+  "Agents",
+  "Agent",
+  "Players",
+  "Player",
+  "Users",
+  "User",
+  "Changelog",
+  "Features",
+  "Getting",
+  "Started",
+  "Guide",
+  "Docs",
+  "Documentation",
+  "Plugin",
+  "Plugins",
+  "Update",
+  "Updates",
+  "Notes",
+  "Release",
+  "Releases",
   "API",
   "URL",
   "DOI",
   "PDF",
+  "LLM",
+  "LLMs",
   "OK",
+  "Yes",
+  "No",
+  // 标题里常见、但显然不是名字的缩写/虚词
+  "AI",
+  "BY",
+  "AND",
+  "OR",
+  "NO",
+  "OF",
+  "IN",
+  "ON",
+  "AT",
+  "TO",
+  "CC",
+  "ARXIV",
+  "FIG",
+  "EQ",
+  "ET",
+  "AL",
+  "VS",
+  "ID",
+  "URL",
+  "API",
 ]);
 
-/** 从一段文字里抽候选名字（保守，宁可漏也不乱认）。 */
-export function extractNames(text: string): string[] {
+/** 一个「专名」长什么样：多词大驼峰、驼峰连写、全大写缩写、带数字、或域名/仓库 token。 */
+function looksProperLatin(raw: string): boolean {
+  const name = raw.trim();
+  if (!name || STOPWORDS.has(name)) return false;
+  if (/\d/.test(name)) return true; // 51码字 / GPT-4 / Seedance 2.5
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return words.every((word) => /^[A-Z]/.test(word));
+  const single = words[0] ?? "";
+  if (/^[A-Z][a-z]+(?:[A-Z][A-Za-z]+)+$/.test(single)) return true; // OpenStreetMap
+  if (/^[A-Z]{2,6}$/.test(single)) return true; // OSRM / MIT / OGC
+  // 单个首字母大写的词：只有来自域名/仓库名时才算（Wikidata、WorldAnvil），
+  // 标题里的普通首字母大写词（Actors / Adding / Article）不算。
+  return false;
+}
+
+/** 从 URL 里取出站点名与「owner/repo」。 */
+export function siteNamesOf(url: string): string[] {
+  const raw = String(url ?? "").trim();
+  if (!raw) return [];
+  let host = "";
+  let path = "";
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : "https://" + raw);
+    host = parsed.hostname.replace(/^www\./, "");
+    path = parsed.pathname;
+  } catch {
+    const [maybeHost, ...rest] = raw.split("/");
+    host = maybeHost ?? "";
+    path = rest.join("/");
+  }
+  const names = new Set<string>();
+  // 不少证据的 ref 其实是一整句引用（不是网址）：只有长得像域名的才解析。
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)+$/i.test(host)) return [];
+  if (host.length > 60) return [];
+  const parts = host.split(".").filter(Boolean);
+  const brand = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+  if (brand && brand.length >= 3 && brand.length <= 24 && /^[a-z0-9-]+$/i.test(brand) && brand !== "github" && brand !== "raw")
+    names.add(brand.charAt(0).toUpperCase() + brand.slice(1));
+  if (/github\.com$|githubusercontent\.com$/.test(host)) {
+    const segments = path.split("/").filter(Boolean);
+    const owner = segments[0];
+    if (owner && !["main", "raw", "blob", "tree"].includes(owner)) names.add(owner);
+  }
+  return [...names];
+}
+
+/** 从一段文字里抽候选名字（保守：宁可漏，也不要短语）。 */
+export function extractNames(text: string, options: { allowSingleWord?: boolean } = {}): string[] {
   const found = new Set<string>();
   const push = (value: string) => {
     const name = value.trim().replace(/^[「《“"]|[」》”"]$/g, "").trim();
-    if (name.length < 2 || name.length > 60) return;
-    if (STOPWORDS.has(name)) return;
+    if (name.length < 2 || name.length > 40) return;
+    // 名字里不该有标点、URL、引文残片（复测里「… — Wikipedia https:」就是这么进来的）。
+    if (/[—–:;()\[\]{},.§\n\r"'|]/.test(name)) return;
+    if (/https?:/i.test(name)) return;
+    if (name.split(/\s+/).filter(Boolean).length > 4) return;
+    if (!looksProperLatin(name)) return;
     found.add(name);
   };
-  // 1) 引号 / 书名号里的中文名
+  // 1) 书名号 / 引号里的中文名字：短、不带句读
   for (const match of text.matchAll(/[「《“"]([^「」《》“”"]{2,40})[」》”"]/g)) {
     const inner = match[1].trim();
-    // 引号里常常是一整句界面文字：太长或带句读的不当名字（D2 复测里出现过）。
     if (!/[\u4e00-\u9fa5]/.test(inner)) continue;
     if (inner.length > 12) continue;
-    if (/[。，、；：！？,;]/.test(inner)) continue;
-    push(inner);
+    if (/[。，、；：！？,;+→/]/.test(inner)) continue;
+    if (/(的|是|与|和|或|能否|是否|有没有|怎么|如何|哪些)/.test(inner)) continue;
+    found.add(inner);
   }
   // 2) 拉丁专名：2–4 个首字母大写的词
   for (const match of text.matchAll(/\b([A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+){1,3})\b/g)) push(match[1]);
-  // 3) 单个专名：驼峰（OpenStreetMap）、全大写缩写（OSRM）、长首字母大写词（Wikidata）
-  for (const match of text.matchAll(/\b([A-Z][a-z]+(?:[A-Z][a-z]+)+|[A-Z]{3,6}|[A-Z][a-z]{5,})\b/g))
-    push(match[1]);
+  // 3) 驼峰 / 全大写缩写
+  for (const match of text.matchAll(/\b([A-Z][a-z]+(?:[A-Z][A-Za-z]+)+|[A-Z]{2,6})\b/g)) push(match[1]);
   // 4) 数字 + 中文字的产品名（51码字）
-  for (const match of text.matchAll(/\b(\d{1,3}[\u4e00-\u9fa5]{2,6})\b/g)) push(match[1]);
+  for (const match of text.matchAll(/\b(\d{1,3}[\u4e00-\u9fa5]{2,6})\b/g))
+    if (!/(的|是|与|和|或)/.test(match[1])) found.add(match[1]);
+  // 5) 域名 / 仓库名（只在要求时开）
+  if (options.allowSingleWord) for (const name of siteNamesOf(text)) found.add(name);
   return [...found];
 }
 
 const normalize = (name: string) =>
   name
     .toLowerCase()
-    .replace(/[\s\-_:：·、,，.。()（）]/g, "");
+    .replace(/[\s\-_:：·、,，.。()（）/]/g, "");
 
 export type CoverageInput = {
   routes: Array<{ id: string; title: string }>;
@@ -125,7 +234,11 @@ export function buildCoverage(input: CoverageInput): Coverage {
     const key = normalize(name);
     if (!checked.has(key)) checked.set(key, { name, axis });
   };
-  for (const entry of evidenceTexts) for (const name of extractNames(entry.raw)) markChecked(name, entry.axis);
+  for (const entry of evidenceTexts) {
+    for (const name of extractNames(entry.raw)) markChecked(name, entry.axis);
+    // 站点名（worldanvil.com → Worldanvil）与 GitHub 仓库（OnlyWorlds）算查证过的名字。
+    for (const name of siteNamesOf(String(entry.raw ?? ""))) markChecked(name, entry.axis);
+  }
 
   const mentioned = new Map<string, { name: string; axis: string }>();
   for (const claim of input.claims) {
@@ -169,10 +282,12 @@ export function buildCoverage(input: CoverageInput): Coverage {
       mentioned: orphanMentioned.map((entry) => entry.name).sort().slice(0, 30),
     });
 
+  // 空轴不显示（路线改名后会留下没有名字的旧轴，E2）。
+  const visibleAxes = axes.filter((axis) => axis.checked.length + axis.mentioned.length > 0);
   const checkedTotal = checked.size;
   const mentionedTotal = mentioned.size;
   return {
-    axes,
+    axes: visibleAxes,
     checkedTotal,
     mentionedTotal,
     note:

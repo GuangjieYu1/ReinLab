@@ -1501,7 +1501,8 @@ it("18 广度：覆盖视图把「提到但没查」的名字列出来，并进�
   expect(names).toContain("World Anvil");
   expect(names).toContain("Aeon Timeline");
   expect(names.some((name) => name.includes("51码字") || name.includes("51码字".slice(0, 3)))).toBe(true);
-  expect(names).toContain("Wikidata");
+  // 单个首字母大写的普通词不再当名字（E2 的噪声来源）；带数字/多词/驼峰才留。
+  expect(names.some((name) => name === "Wikidata")).toBe(false);
 
   const coverage = buildCoverage({
     routes: [{ id: "r1", title: "产品盘点" }],
@@ -1653,6 +1654,39 @@ it("D2：覆盖情况直接出现在快照和报告里，不用调工具；涨�
     expect(snapshot.report?.coverage?.mentionedTotal).toBe(
       snapshot.coverage?.mentionedTotal,
     );
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+it("E1：分歧卡驳回（按有争议写入）在同一事务里收尾，运行不再停在 awaiting_review", async () => {
+  const { f, swarm, runId } = await setup();
+  try {
+    await f.admin.query(
+      "update swarm_run set state='awaiting_review', state_reason='先看你决定按有争议写入，还是再查一轮' where run_id=$1",
+      [runId],
+    );
+    {
+      const inserted = await f.admin.query(
+        `insert into approval(id,account_id,run_id,dossier_id,kind,title,effects,risk,state,effect_key)
+         values(gen_random_uuid(),$1,$2,(select dossier_id from swarm_run where run_id=$2),'swarm_divergence','报告前还有分歧',$3,'read','pending',$4)
+         returning id`,
+        [f.account, runId, JSON.stringify([{ kind: "swarm_divergence", claims: [] }]), `swarm_divergence:${runId}`],
+      );
+      const decided = await swarm.decideCard(f.account, String(inserted.rows[0].id), { decision: "reject" });
+      expect(decided?.state).toBe("rejected");
+    }
+    const row = await f.admin.query(
+      "select state, end_reason, ended_at from swarm_run where run_id=$1",
+      [runId],
+    );
+    expect(row.rows[0]).toMatchObject({ state: "partial", end_reason: "user_wrote_disputes" });
+    expect(row.rows[0].ended_at).not.toBeNull();
+    const approval = await f.admin.query(
+      "select state from approval where account_id=$1 and kind='swarm_divergence'",
+      [f.account],
+    );
+    expect(["approved", "rejected"]).toContain(String(approval.rows[0]?.state));
   } finally {
     await f.close();
   }

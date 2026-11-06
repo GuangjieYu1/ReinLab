@@ -199,19 +199,37 @@ export function registerMessagesProxy(
     });
     // 网络抖动先重试：转发层偶发 fetch failed / 上游 5xx 时，这一次请求还没拿到
     // 任何内容（也没记用量），重发同一条请求是安全的；三次都失败才把失败交上去。
+    // E3：网关（opencodego）在 6 人并发时会限流。退避重试从 3 次加到 5 次、
+    // 间隔 0.5s → 1s → 2s → 4s 并带抖动，避免整队同时重试把限流打得更狠。
     const forwardWithRetry = async (): Promise<Response> => {
       let lastError: unknown;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
+      const delays = [500, 1000, 2200, 4000];
+      for (let attempt = 0; attempt <= delays.length; attempt += 1) {
         try {
           const response = await dependencies.forward(upstream.clone());
           if (response.status < 500 && response.status !== 429) return response;
+          if (response.status === 429) {
+            const retryAfter = Number(response.headers.get("retry-after") ?? "");
+            lastError = new Error("MODEL_UPSTREAM_429");
+            await response.body?.cancel().catch(() => undefined);
+            if (attempt < delays.length) {
+              const wait = Number.isFinite(retryAfter) && retryAfter > 0
+                ? Math.min(retryAfter * 1000, 8000)
+                : delays[attempt] + Math.floor(Math.random() * 300);
+              await new Promise((resolve) => setTimeout(resolve, wait));
+              continue;
+            }
+            throw lastError;
+          }
           lastError = new Error(`MODEL_UPSTREAM_${response.status}`);
           await response.body?.cancel().catch(() => undefined);
         } catch (error) {
           lastError = error;
         }
-        if (attempt < 2)
-          await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 400 : 1200));
+        if (attempt < delays.length)
+          await new Promise((resolve) =>
+            setTimeout(resolve, delays[attempt] + Math.floor(Math.random() * 300)),
+          );
       }
       throw lastError;
     };

@@ -94,7 +94,8 @@ export function createLiveSwarmAdapter(dossierId: string | undefined, ports: { r
     const id = runId;
     sideBusy = true;
     try {
-      const page = await ports.request('GET', `/v1/kernel/runs/${id}/events?after=${kernelAfter}`) as { events: { seq: number; action?: string; payload?: any; at?: string }[] };
+      // 只要这三种事件，一页 200 条；没拉完（hasMore）下一轮接着拉
+      const page = await ports.request('GET', `/v1/kernel/runs/${id}/events?after=${kernelAfter}&actions=turn/start,turn/end,assistant/message&limit=200`) as { events: { seq: number; action?: string; payload?: any; at?: string }[]; hasMore?: boolean };
       let thinking = hub.get().thinking;
       for (const e of page.events ?? []) {
         kernelAfter = Math.max(kernelAfter, e.seq);

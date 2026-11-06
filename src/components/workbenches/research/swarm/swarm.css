@@ -361,3 +361,9 @@ em[data-type='user'] { background:var(--rh-accent); border-color:var(--rh-accent
 .syn-disc span b { font:700 15px/1 var(--rh-f-mono); color:var(--rh-ink); margin-right:3px; }
 .syn-disc span[data-k='search'] b, .syn-disc span[data-k='citation'] b { color:var(--rh-accent, var(--rh-ink)); }
 .syn-disc small { flex-basis:100%; font:500 11px/1.4 var(--rh-f-mono); color:var(--rh-ink-4); }
+/* 覆盖（D2）：每条路线两列——提到但没查 / 已查证 */
+.syn-cov { display:grid; gap:6px; }
+.syn-cov-cols { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:6px 12px 12px; }
+.syn-cov-cols ul { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:4px; }
+.syn-cov-cols li { font:500 12px/1.5 var(--rh-f-ui); padding:1px 6px; border:1px solid var(--rh-line); background:var(--rh-white); }
+.syn-cov-cols li[data-miss] { border-color:var(--rh-accent); color:var(--rh-ink); background:var(--rh-accent-wash, var(--rh-paper)); }

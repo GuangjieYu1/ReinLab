@@ -1893,16 +1893,16 @@ export class SwarmService {
 
     if (card.kind === "swarm_divergence") {
       // 批准 = 再查一轮；驳回 = 按「有争议」写入报告。
-      await this.dependencies.db.withAccount(account, async (client) => {
+      // E1：卡片的处理和运行收尾必须在同一个事务里——之前分两次写，
+      // 收尾那次因为 end_reason 不在约束里失败，卡片却已经变成 rejected，运行卡在 awaiting_review。
+      const finish = async (client: pg.PoolClient) => {
         await client.query(
           "update approval set state=$3, decided_at=now(), decided_scope='once' where account_id=$1 and id=$2",
           [account, approvalId, decision === "approve" ? "approved" : "rejected"],
         );
         await this.closeInterventionForCard(client, account, approvalId);
-      });
-      if (decision === "approve") {
-        await this.dependencies.db.withAccount(account, async (client) => {
-          const row = await this.row(client, account, card.runId);
+        const row = await this.row(client, account, card.runId);
+        if (decision === "approve") {
           await client.query(
             `update swarm_run set state='running', state_reason=null, end_reason=null, ended_at=null,
                round=round+1, phase=case when round+1 >= 3 then 'cross' else phase end,
@@ -1911,24 +1911,17 @@ export class SwarmService {
             [account, row.run_id],
           );
           await this.emitRun(client, account, row.run_id);
-        });
-        await this.dependencies.kernel
-          .submit(account, card.runId, {
-            mode: "swarm",
-            prompt: `用户希望把分歧再查一轮。先看还有哪些结论停留在「有争议」，针对它们继续找证据或改主张，再重新核实一遍。`,
-          })
-          .catch(() => undefined);
-        return { state: "approved", runId: card.runId, note: "已再查一轮。" };
-      }
-      // D4：驳回 = 按「有争议」写入 → 直接把运行收尾并出正式报告，
-      // 不能把它挂在 awaiting_review 等用户再点「结束」。
-      await this.dependencies.db.withAccount(account, async (client) => {
-        const row = await this.row(client, account, card.runId);
+          return row;
+        }
         await client.query(
           `update swarm_run set state='partial', phase='cross',
              state_reason=$3, end_reason='user_wrote_disputes', ended_at=now(), updated_at=now()
            where account_id=$1 and run_id=$2`,
-          [account, card.runId, "按「有争议」写入：有分歧的结论照实列在报告的争议一节。"],
+          [
+            account,
+            card.runId,
+            "按「有争议」写入：有分歧的结论照实列在报告的争议一节。",
+          ],
         );
         await this.emitSimple(client, account, card.runId, "bus", {
           seq: 0,
@@ -1941,7 +1934,18 @@ export class SwarmService {
         } satisfies BusEntry);
         await this.emitReport(client, account, card.runId, row.plan_version, "按「有争议」写入");
         await this.emitRun(client, account, card.runId);
-      });
+        return row;
+      };
+      await this.dependencies.db.withAccount(account, finish);
+      if (decision === "approve") {
+        await this.dependencies.kernel
+          .submit(account, card.runId, {
+            mode: "swarm",
+            prompt: `用户希望把分歧再查一轮。先看还有哪些结论停留在「有争议」，针对它们继续找证据或改主张，再重新核实一遍。`,
+          })
+          .catch(() => undefined);
+        return { state: "approved", runId: card.runId, note: "已再查一轮。" };
+      }
       await this.settleDeliveries(account, card.runId).catch(() => undefined);
       return { state: "rejected", runId: card.runId, note: "按「有争议」写入报告，已收尾。" };
     }

@@ -58,3 +58,37 @@
 
 - 证据详情显示来路；汇总的来源区先统计全部证据的来路，再按来路分组列出报告引用的来源。
 - `swarm-live` 的侧边轮询加了「上一次没回来就不发」和失败指数退避，最长 60 秒。
+
+## D 批（D1–D6 + 覆盖）复测（2026-11-06，后端 `f0890e3`）
+
+运行 `0a5d1090`，档案 `fc5cff18`「群研搜索修复后复测：世界观底座」。题目和设置都和前两次一样。
+- 4 轮用满 60 分钟后出了分歧卡，用户选「按有争议写入」；因为下面的 E1，Claude 点了「结束」。
+- 实际干活 52 分钟，**¥9.37**（输入 140 万 / 输出 57 万 / 缓存读 7371 万 token）。
+
+| 项 | 结果 |
+|---|---|
+| D1 搜索 | 通。web_search 25 次（共 68 条关键词）、web_fetch 45 次成功，0 次 401；`swarm_source_hit` 有 407 条搜索命中。另有 7 次抓取 404、3 次 30 秒超时 |
+| 发现类证据 | 116 / 336 条是搜出来的（35%），前两次都是 0 |
+| 找回漏掉的 4 个对象 | **2 / 4**：OnlyWorlds、articy，都是搜出来的。Aeon Timeline、51码字没找到。还新找到 ConStory-Bench、Obsidian Leaflet、Foundry VTT |
+| D3 到限不开新活 | 通（没看到违规）。进入等待后没有新任务，费用停在 ¥9.37 不再涨；全程没出现 LIMIT_REACHED，说明也没人去试 |
+| D4 分歧决定后收尾 | **不通（E1）** |
+| D5 旧反驳挡核实 | 这次没触发，全程没有 VERIFY_OPEN_REFUTE |
+| D6 + 前端轮询 | 通。页面全程没卡，「结束」一点就生效 |
+| D2 覆盖块 | 能显示，不需要点任何工具；**但名字噪声大（E2）** |
+| 成稿 | 通。负责人交了 6 次，最终 12,147 字 |
+
+### 给 DSH
+
+- **E1（阻塞）D4 写库失败。** `POST /v1/approvals/fd69dfae…/decide` 报 `new row for relation "swarm_run" violates check constraint "swarm_run_end_reason_check"`：新的结束原因 `user_wrote_disputes` 不在数据库约束里，要补迁移。现在卡片被标成 `rejected`、`decided_at` 也写了，但 `decision_sent=false`，运行一直停在 `awaiting_review`。决定和收尾要么一起成功，要么一起失败，不能出现「卡片已处理、运行没收尾」。
+- **E2 覆盖名单噪声。**
+  - 「提到但没查」里大多是短语，不是名字：「人物是地图上的点」「某地/某时刻有谁」「能否反查」。
+  - 「已查证」里是英文标题拆出来的普通词：Actors、Adding、Additional、Article、Changelog。
+  - 还有一条空轴「r2 空间与时间：…」显示「已查 0 · 没查 0」，像是路线改过名以后，旧名字没合并进来。
+  - 建议收紧规则：「已查证」只取证据来源的站点或仓库名，以及标题里的专名；「提到」只取能对上证据里专名的，或者中文书名号里的。
+- **E3 网关 429。** 日志里有好几次 `MODEL_UPSTREAM_429` 和 `Client connection prematurely closed`，对话框里显示成「服务暂时无法处理请求」。opencodego 有限流；群研 6 人并发时容易撞上，要么退避重试，要么回到官方 deepseek-flash。
+- **E4 来路少算了。** 先搜到 OnlyWorlds 的仓库，再去读 `raw.githubusercontent.com/.../schema/event.yaml`，后一步被记成 known-url。同一仓库或同一站点下、由搜索结果延伸出来的抓取，应该算 search 或 citation。
+
+### 前端本批（Claude）
+
+- 汇总面加了「覆盖」一节：按路线两列，「提到但没查」高亮。目录里加了覆盖。
+- 侧边轮询改成只拉 turn/start、turn/end、assistant/message 三种事件，一页 200 条。
