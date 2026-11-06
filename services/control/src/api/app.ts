@@ -25,6 +25,7 @@ import { registerApprovalInbox, registerReports, decideInboxCard } from "./inbox
 import { registerDelegationApi } from "./delegation-api";
 import { registerDossierApi } from "./dossier-api";
 import { publishOps, registerExploreApi } from "./explore-api";
+import { registerCreativeApi } from "./creative-api";
 import { createUploads, type Uploads } from "../explore/uploads";
 import { localPhotoStore, type PhotoStore } from "../explore/photo-store";
 import { publishAccountEvent } from "../dossier/service";
@@ -76,6 +77,10 @@ export async function createApp(options: {
   elevation?: import("../explore/terrain").ElevationTransport;
   /** 网图抓取通道；缺省用真实 fetch，测试可注入。 */
   refTransport?: import("../explore/refs").WeatherLikeTransport;
+  /** 创作台 AI 推断路线的模型通道；没配就只记「没开」。 */
+  creativeRouteInference?: import("../creative/route-agent").RouteInferenceDeps;
+  /** 创作台路网导入的取数通道；缺省真实 Overpass。 */
+  creativeOverpass?: import("../creative/network").OverpassTransport;
   realModelsEnabled?: boolean;
   testOnlyRuntimeModelTransport?: (body: Buffer) => Promise<Response>;
   testOnlyClarifyModelTransport?: (body: Buffer) => Promise<Response>;
@@ -105,6 +110,8 @@ export async function createApp(options: {
   const smallBody = bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge });
   // 照片续传是分块流式接收：tus 自己按 8 MB 分片处理，这里不能再按整包截断。
   const isUploadsPath = (pathname: string) => /^\/v1\/explore\/uploads(\/|$)/.test(pathname);
+  // 创作台上传 Azgaar 导出的 GeoJSON：整份文件一次收，上限 8 MB（其余接口仍 1 MB）。
+  const isCreativeAssetPath = (pathname: string) => /^\/v1\/creative\/worlds\/[^/]+\/assets$/.test(pathname);
   // 参考图、计划书地图快照（自身上限 4 MB）要能收几 MB 的图；其余接口仍然只收 1MB。
   const imageBody = bodyLimit({ maxSize: 8 * 1024 * 1024, onError: tooLarge });
   app.use("/v1/*", (c, next) => {
@@ -112,6 +119,7 @@ export async function createApp(options: {
     if (isUploadsPath(pathname)) return next();
     if (c.req.method === "POST" && /^\/v1\/explore\/plans\/[^/]+\/(refs|snapshots)$/.test(pathname))
       return imageBody(c, next);
+    if (c.req.method === "POST" && isCreativeAssetPath(pathname)) return imageBody(c, next);
     return smallBody(c, next);
   });
   app.use("/v1/*", async (c, next) => {
@@ -200,6 +208,10 @@ export async function createApp(options: {
     exploreStorage: options.exploreStorage,
     pdfFontFile: options.pdfFontFile,
     offlineFetch: options.offlineFetch,
+  });
+  registerCreativeApi(app, database, {
+    ...(options.creativeRouteInference ? { routeInference: options.creativeRouteInference } : {}),
+    ...(options.creativeOverpass ? { overpass: options.creativeOverpass } : {}),
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
     // 群研的四张卡由群研服务自己处理：它要改运行状态，并在事务外把负责人续起来。
