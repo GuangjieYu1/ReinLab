@@ -11,6 +11,7 @@ import {
   type SwarmMember, type SwarmCardView, type Claim, type ClaimDetail, type EvidenceDetail, type Evidence, type SwarmPlan, type SwarmRoute, type SwarmRunState, type SwarmTask, type SwarmTaskState, type SwarmView,
 } from './swarmTypes';
 import { SWARM_CARD, SwarmCardBody, cardAnswers, type SwarmCardAnswers } from '../../../inbox/SwarmCard';
+import { IdRef, RichBlocks, type IdLookup } from '../../richText';
 import '../../engineering/dev.css';
 import './swarm.css';
 // 研究台 · 群研模式：一个负责人带一队 agent 攻一个问题。四个面只读服务端投影（design/prd/13-swarm-contract.md）：
@@ -52,6 +53,7 @@ const BASIS_ZH: Record<Claim['basis'], string> = { checked_fact: '核对过的�
 const REVIEW_KIND_ZH = { refute: '反驳', need_evidence: '要求补证据', verify: '独立核实', downgrade: '降级' } as const;
 const VERDICT_ZH = { upheld: '反驳成立', rejected: '反驳不成立', verified: '核实通过', not_verifiable: '核不了', pending: '待定' } as const;
 const ACCESS_ZH: Record<Evidence['access'], string> = { full_text: '读了全文', abstract_only: '只有摘要', unavailable: '打不开' };
+const DISC_ZH: Record<NonNullable<Evidence['discovery']>, string> = { search: '搜出来的', citation: '顺着引用找到', 'known-url': '已知网址直接抓' };
 const SOURCE_ZH: Record<Evidence['source']['kind'], string> = { paper: '论文', web: '网页', code: '代码', data: '数据', proof: '证明', other: '其他' };
 /** 来源能直接打开的就给链接：arXiv 号、DOI、网址。 */
 const sourceHref = (ref: string) => { const r = ref.trim(); const ax = r.match(/^arxiv:\s*(\S+)/i); if (ax) return `https://arxiv.org/abs/${ax[1]}`; if (/^10\.\d{4,}\//.test(r)) return `https://doi.org/${r}`; const doi = r.match(/^doi:\s*(\S+)/i); if (doi) return `https://doi.org/${doi[1]}`; return /^https?:\/\//.test(r) ? r : null; };
@@ -264,9 +266,11 @@ function DockSwarmCard({ card, busy, onDecide }: { card: SwarmCardView; busy: bo
 function PlanCard({ plan, canConfirm, busy, onConfirm, onReplan }: { plan: SwarmPlan; canConfirm: boolean; busy: boolean; onConfirm: (limits: { rounds: number; minutes: number }) => void; onReplan: (text: string) => void }) {
   const [rounds, setRounds] = useState(plan.limits.rounds), [minutes, setMinutes] = useState(plan.limits.minutes);
   // 编制：负责人固定 1 人，其余角色可以加减；改了人数要让负责人按新编制重交计划（路线和分工跟着变）
-  const base = Object.fromEntries(plan.roster.map(r => [r.role, r.count])) as Partial<Record<MemberRole, number>>;
+  // 同一角色可能按路线分成多行（研究员 r1、r2…各 1 人），要加起来
+  const sumRoles = (rs: typeof plan.roster) => rs.reduce<Partial<Record<MemberRole, number>>>((m, r) => ({ ...m, [r.role]: (m[r.role] ?? 0) + r.count }), {});
+  const base = sumRoles(plan.roster);
   const [roster, setRoster] = useState<Partial<Record<MemberRole, number>>>(base);
-  useEffect(() => { setRounds(plan.limits.rounds); setMinutes(plan.limits.minutes); setRoster(Object.fromEntries(plan.roster.map(r => [r.role, r.count]))); }, [plan.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setRounds(plan.limits.rounds); setMinutes(plan.limits.minutes); setRoster(sumRoles(plan.roster)); }, [plan.version]); // eslint-disable-line react-hooks/exhaustive-deps
   const roles: MemberRole[] = ['researcher', 'critic', 'verifier'];
   const people = 1 + roles.reduce((n, r) => n + (roster[r] ?? 0), 0);
   const changed = roles.some(r => (roster[r] ?? 0) !== (base[r] ?? 0));
@@ -545,12 +549,29 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
   const gaps = r?.gaps ?? [], limits = r?.limits ?? [], sources = (r?.sources ?? []).map(id => ev.get(id)).filter(Boolean) as Evidence[];
   const groups = [...new Set(candidates.map(c => c.routeId))];
   const STATE = { stage: '阶段结果', awaiting_review: '报告前有分歧，等你看', final: '正式报告', partial: '正式报告（部分完成）', unresolved: '没有可靠答案' } as const;
+  const narrative = r?.narrative?.trim() || null;
+  // 覆盖名单：空白名字不显示，两列都空的轴整条不显示（后端偶尔会带空串）
+  const cov0 = snap.coverage ?? r?.coverage ?? null;
+  const cov = cov0 && { ...cov0, axes: cov0.axes.map(a => ({ ...a, checked: a.checked.filter(n => n.trim()), mentioned: a.mentioned.filter(n => n.trim()) })).filter(a => a.checked.length + a.mentioned.length > 0) };
+  const dc = r?.discoveryCounts ?? null, dcTotal = dc ? dc.search + dc.knownUrl + dc.citation + dc.unknown : 0;
+  // 成稿里引用的 id → 可点的小标签：结论标序号和状态，证据标来源，点开走同一个抽屉
+  const claimNo = new Map(snap.claims.map((c, i) => [c.id, i + 1]));
+  const full = (id: string) => byId.has(id) || ev.has(id) ? id
+    : (snap.claims.find(c => c.id.startsWith(id))?.id ?? snap.evidence.find(e => e.id.startsWith(id))?.id ?? id);
+  const idRef: IdLookup = raw => {
+    const id = full(raw);
+    const c = byId.get(id); if (c) return { label: `结论 ${claimNo.get(id)} · ${CLAIM_ZH[c.status]}`, title: c.text.slice(0, 160), open: () => onClaim(id) };
+    const e = ev.get(id); if (e) return { label: `证据 · ${e.source.title.slice(0, 18)}${e.source.title.length > 18 ? '…' : ''}`, title: `${e.source.title} ${e.source.ref}`, open: () => onEvidence(id) };
+    return null;
+  };
   const sections = [
+    ...(narrative ? [{ id: 'narrative', zh: '成稿', n: null }] : []),
     { id: 'answer', zh: '结论', n: null },
     { id: 'verified', zh: '已核实', n: verified.length },
     { id: 'disputed', zh: '有争议', n: disputed.length },
     { id: 'candidates', zh: '候选', n: candidates.length },
     { id: 'negative', zh: '负结果', n: negative.length },
+    ...(cov ? [{ id: 'coverage', zh: '覆盖', n: cov.mentionedTotal }] : []),
     { id: 'gaps', zh: '缺口', n: gaps.length },
     { id: 'sources', zh: '来源', n: sources.length },
   ].filter(x => x.n === null || x.n > 0);
@@ -574,6 +595,11 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
         </div>
       </header>
 
+      {narrative && <section id="syn-narrative" className="syn-sec syn-narrative">
+        <h3>成稿 <small>负责人写的全局报告 · 里面的标签点开看原结论和证据</small></h3>
+        <IdRef.Provider value={idRef}><div className="sw-md syn-prose"><RichBlocks text={narrative} /></div></IdRef.Provider>
+      </section>}
+
       <section id="syn-answer" className="syn-sec">
         <h3>结论</h3>
         {r?.answer ? <div className="syn-answer"><span className="rh-micro">最强的已核实结论</span><p>{r.answer}</p></div>
@@ -590,11 +616,22 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
           return <details key={String(g)} className="syn-group"><summary>{routeTitle(g)}<small>{list.length} 条</small></summary><ol className="syn-list">{list.map(c => <Item key={c.id} c={c} />)}</ol></details>; })}</section>}
       {negative.length > 0 && <section id="syn-negative" className="syn-sec"><h3>负结果 <small>{negative.length} · 找过但没找到</small></h3>
         <ol className="syn-list">{negative.map(c => <Item key={c.id} c={c} />)}</ol></section>}
+      {cov && <section id="syn-coverage" className="syn-sec"><h3>覆盖 <small>已查证 {cov.checkedTotal} · 提到但没查 {cov.mentionedTotal}</small></h3>
+        {cov.note && <p className="syn-note">{cov.note}</p>}
+        <div className="syn-cov">{cov.axes.map(a => <details key={a.routeId} className="syn-group" open={a.mentioned.length > 0}>
+          <summary>{a.title || routeTitle(a.routeId)}<small>已查 {a.checked.length} · 没查 {a.mentioned.length}</small></summary>
+          <div className="syn-cov-cols">
+            <div><span className="rh-micro">提到但没查</span>{a.mentioned.length ? <ul>{a.mentioned.map(n => <li key={n} data-miss>{n}</li>)}</ul> : <p className="syn-note">没有</p>}</div>
+            <div><span className="rh-micro">已查证</span>{a.checked.length ? <ul>{a.checked.map(n => <li key={n}>{n}</li>)}</ul> : <p className="syn-note">还没有</p>}</div>
+          </div></details>)}</div></section>}
       {(gaps.length > 0 || limits.length > 0) && <section id="syn-gaps" className="syn-sec"><h3>缺口与局限</h3>
         {gaps.length > 0 && <ul className="syn-bullets">{gaps.map(g => { const h = headline(g); return <li key={g}>{h.more ? <details className="syn-gap"><summary>{h.head}</summary><p>{g}</p></details> : g}</li>; })}</ul>}
         {limits.length > 0 && <details className="syn-group"><summary>局限<small>{limits.length} 条</small></summary><ul className="syn-bullets">{limits.map(g => <li key={g}>{g}</li>)}</ul></details>}</section>}
       {sources.length > 0 && <section id="syn-sources" className="syn-sec"><h3>来源 <small>{sources.length}</small></h3>
-        <details className="syn-group"><summary>展开全部来源</summary><ol className="sw-rep-sources">{sources.map(e => <li key={e.id}><button onClick={() => onEvidence(e.id)}><b>{e.source.title}</b><small>{e.source.ref}{e.locator?.section ? ` · ${e.locator.section}` : ''}</small></button></li>)}</ol></details></section>}
+        {dc && <p className="syn-disc">全部 {dcTotal} 条证据是怎么找到的：{(['search', 'citation', 'knownUrl', 'unknown'] as const).filter(k => dc[k] > 0).map(k => <span key={k} data-k={k}><b>{dc[k]}</b>{({ search: '搜出来的', citation: '顺着引用找到', knownUrl: '已知网址直接抓', unknown: '没记来路' })[k]}</span>)}
+          <small>{dcTotal ? `发现类（搜索 + 引用）占 ${dc.search + dc.citation} / ${dcTotal}；下面只列报告引用的 ${sources.length} 条` : ''}</small></p>}
+        {DISC_GROUPS.map(g => { const list = sources.filter(e => (e.discovery ?? null) === g.k); return list.length > 0 && <details key={String(g.k)} className="syn-group"><summary>{g.zh}<small>{list.length} 条</small></summary>
+          <ol className="sw-rep-sources">{list.map(e => <li key={e.id}><button onClick={() => onEvidence(e.id)}><b>{e.source.title}</b><small>{e.source.ref}{e.locator?.section ? ` · ${e.locator.section}` : ''}</small></button></li>)}</ol></details>; })}</section>}
 
       <section className="syn-sec syn-next"><h3>下一步</h3>
         {r?.nextSuggestion ? <p>负责人建议再追加 <b>{r.nextSuggestion.rounds} 轮 / {r.nextSuggestion.minutes} 分钟</b>：{r.nextSuggestion.why}</p> : <p>{run.stateReason ?? '—'}</p>}
@@ -602,6 +639,10 @@ function Synth({ view, members, onClaim, onEvidence }: { view: SwarmView; member
     </article>
   </div>;
 }
+
+const DISC_GROUPS: { k: Evidence['discovery'] | null; zh: string }[] = [
+  { k: 'search', zh: '搜出来的' }, { k: 'citation', zh: '顺着引用找到的' }, { k: 'known-url', zh: '已知网址直接抓的' }, { k: null, zh: '没记来路的' },
+];
 
 /* ———— 结论 / 证据抽屉：从结论追到证据、任务、队员；从证据看谁引用了它 ———— */
 function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, onMember }: {
@@ -648,7 +689,7 @@ function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, 
         </dl>
         <h4>审查 · {data.reviews.length}</h4>
         {data.reviews.length ? <ol className="sw-reviews">{data.reviews.map(v => <li key={v.id} data-kind={v.kind} data-verdict={v.verdict} data-stale={v.claimVersion !== c.version || undefined}>
-          <span><b>{REVIEW_KIND_ZH[v.kind]}</b><em>{VERDICT_ZH[v.verdict]}</em><small>{label(v.by)} · 针对 v{v.claimVersion}{v.claimVersion !== c.version ? '（旧版本）' : ''} · 第 {v.round} 轮</small></span>
+          <span><b>{REVIEW_KIND_ZH[v.kind]}</b><em>{VERDICT_ZH[v.verdict]}</em><small>{label(v.by)} · 针对 v{v.claimVersion}{v.claimVersion !== c.version ? '（旧版本）' : ''} · 第 {v.round} 轮</small>{v.readCompleteness && <i className="sw-readfull" data-full={v.readCompleteness === 'full' || undefined}>{v.readCompleteness === 'full' ? '读全了原文' : '只读了部分'}</i>}</span>
           <p>{v.reason}</p>
           {v.evidenceIds.length > 0 && <span className="sw-review-ev">{v.evidenceIds.map((id, i) => <button key={id} className="sw-link" onClick={() => onOpen('evidence', id)}>核到的证据 {i + 1}</button>)}</span>}
         </li>)}</ol> : <p className="sw-none">还没有人审查这条结论。</p>}
@@ -657,7 +698,7 @@ function DetailDrawer({ adapter, item, depth, members, onBack, onClose, onOpen, 
   const e = data.evidence, href = sourceHref(e.source.ref);
   return <div className="sw-member sw-detail" role="dialog" aria-label="证据详情">{head}
     <div className="sw-detail-body">
-      <div className="sw-detail-tags"><span>{SOURCE_ZH[e.source.kind]}</span><span>{ACCESS_ZH[e.access]}</span>{e.source.version && <span>{e.source.version}</span>}</div>
+      <div className="sw-detail-tags"><span>{SOURCE_ZH[e.source.kind]}</span><span>{ACCESS_ZH[e.access]}</span>{e.discovery && <span data-disc={e.discovery}>{DISC_ZH[e.discovery]}</span>}{e.source.version && <span>{e.source.version}</span>}</div>
       <p className="sw-detail-text"><b>{e.source.title}</b></p>
       <p className="sw-detail-ref">{href ? <a href={href} target="_blank" rel="noreferrer">{e.source.ref} ↗</a> : e.source.ref}</p>
       {e.locator && <><h4>位置</h4><p>{[e.locator.section, e.locator.page ? `第 ${e.locator.page} 页` : '', e.locator.lines].filter(Boolean).join(' · ') || '—'}</p>{e.locator.quote && <blockquote className="sw-quote">{e.locator.quote}</blockquote>}</>}

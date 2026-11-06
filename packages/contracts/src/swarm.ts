@@ -212,6 +212,9 @@ export type Claim = {
   negative?: { searched: string; scope: string; notFound: string } | null;
 };
 
+/** 证据是怎么找到的：搜出来的 / 早就知道的网址 / 顺着别的资料里的引用找过去的。 */
+export type EvidenceDiscovery = "search" | "known-url" | "citation";
+
 export type Evidence = {
   id: string;
   source: {
@@ -224,6 +227,8 @@ export type Evidence = {
   };
   locator: { page?: number; section?: string; lines?: string; quote?: string } | null;
   access: "full_text" | "abstract_only" | "unavailable";
+  /** 来路（18 广度返工）；老数据没有这个字段就缺省。 */
+  discovery?: EvidenceDiscovery;
   /** 怎么拿到的（检索 / 下载 / 实测）。 */
   how: string;
   /** 能跳精读的页码锚点（/v1/... 由前端补前缀）。 */
@@ -241,6 +246,8 @@ export type Review = {
   verdict: "upheld" | "rejected" | "verified" | "not_verifiable" | "pending";
   round: number;
   taskId: string;
+  /** 核实者自报读没读全原文（17 返工）。否定式结论判 verified 必须是 full。旧记录没有。 */
+  readCompleteness?: "full" | "partial" | null;
 };
 
 // ── 留言板四栏 ────────────────────────────────────
@@ -321,8 +328,25 @@ export type SwarmReport = {
   /** 精确剩余缺口。 */
   gaps: string[];
   sources: string[];
+  /**
+   * 按来路统计的证据数（18 广度返工）：search 搜出来的、knownUrl 直接抓已知网址、
+   * citation 顺着引用找的、unknown 没判出来源。页面显示「发现类 search / 共 M」。
+   */
+  discoveryCounts?: {
+    search: number;
+    knownUrl: number;
+    citation: number;
+    unknown: number;
+  } | null;
+  /** 覆盖情况（D2）：报告里也带一份，正式报告本身能看出广度。 */
+  coverage?: SwarmCoverage | null;
   /** 到限时的追加建议。 */
   nextSuggestion?: { rounds: number; minutes: number; why: string } | null;
+  /**
+   * 成稿（17 返工）：负责人写的一份贯穿全局的报告（markdown）。
+   * 引用只能指黑板上的结论/证据 id；没核实的要在文中标出来。还没写就是 null。
+   */
+  narrative?: string | null;
   updatedAt: Iso;
 };
 
@@ -357,6 +381,20 @@ export type Intervention = {
   at: Iso;
 };
 
+/** 覆盖情况（18 广度返工 D2）：不看工具也能看到的「谁已查证、谁提到没查」。 */
+export type SwarmCoverage = {
+  checkedTotal: number;
+  mentionedTotal: number;
+  axes: Array<{
+    routeId: string;
+    title: string;
+    checked: string[];
+    mentioned: string[];
+  }>;
+  /** 一句话说明（可以整句显示在页面上）。 */
+  note: string;
+};
+
 // ── 快照（重连先取它）──────────────────────────────
 export type SwarmSnapshot = {
   run: SwarmRun;
@@ -370,6 +408,8 @@ export type SwarmSnapshot = {
   reviews: Review[];
   interventions: Intervention[];
   report: SwarmReport | null;
+  /** 覆盖情况：每次快照现算，不用负责人调工具（D2）。 */
+  coverage?: SwarmCoverage | null;
   /** 本 run 待处理的收件箱卡 id。 */
   pendingApprovals: string[];
   /** 快照对应的最后事件 seq。 */

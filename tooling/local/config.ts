@@ -10,8 +10,9 @@ export function defaultModelEnvironment() {
     MODEL_ROUTE_MID: 'deepseek/deepseek-v4-flash',
     MODEL_ROUTE_STRONG: 'deepseek/deepseek-v4-flash',
     MODEL_USD_CNY_RATE: '7.2',
-    // DeepSeek 公开价（人民币/百万 token）：用于把已拿到的 token 换算成金额。
-    // 没有这两个值时，用量照实记为「未知」，不会被当成 0。
+    // 17 返工 B3：账本要能算钱。网关换了但费率还没拿到，先用 DeepSeek 峰值费率做**估算**，
+    // 拿到 opencodego 的真实费率就用 REINLAB_MODEL_INPUT_CNY_PER_MILLION /
+    // REINLAB_MODEL_OUTPUT_CNY_PER_MILLION 覆盖（只影响记账，不拦调用）。
     MODEL_INPUT_CNY_PER_MILLION: '2',
     MODEL_OUTPUT_CNY_PER_MILLION: '8',
   };

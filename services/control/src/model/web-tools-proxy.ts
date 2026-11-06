@@ -13,9 +13,27 @@ export type WebToolsProxyDependencies = {
   /** Host-only transport with the real credential. */
   forward: (request: Request) => Promise<Response>;
   record: (usage: RecordedUsage) => Promise<void>;
+  /**
+   * 记一条来路线索（18 广度返工）：search = 搜索结果里出现过；citation = 已抓页面里的外链。
+   * 证据交上来时按这张表判 discovery，不问模型「你是怎么找到的」。
+   */
+  noteSources?: (input: {
+    account: string;
+    run: string;
+    urls: string[];
+    kind: "search" | "citation";
+  }) => Promise<void>;
 };
 
 type Operation = "search" | "fetch";
+
+/** 上游的报错里会带 key 的碎片（*** 后四位）：一律抹掉，打码的也不留。 */
+function redactSecrets(text: string): string {
+  return text
+    .replace(/\b(sk|oc_sk|op)-[A-Za-z0-9_-]{8,}/g, "<key>")
+    .replace(/\*{2,}[A-Za-z0-9_-]{2,}/g, "<key>")
+    .replace(/(api key[^:]*:\s*)\S+/gi, "$1<key>");
+}
 
 const succeeded = (operation: Operation, body: any) =>
   operation === "search"
@@ -33,6 +51,24 @@ export function registerWebToolsProxy(
   app: Hono<any>,
   dependencies: WebToolsProxyDependencies,
 ) {
+  // 同一份运行里，某个域名被抓了几次：用来给一句提示（只提示，不拦）。
+  const domainHits = new Map<string, number>();
+  const domainOf = (url: string): string => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return "";
+    }
+  };
+  const hints = (run: string, url: string): string | null => {
+    const host = domainOf(url);
+    if (!host) return null;
+    const key = run + "|" + host;
+    const count = (domainHits.get(key) ?? 0) + 1;
+    domainHits.set(key, count);
+    if (count < 3) return null;
+    return `这个域名（${host}）在本次运行里已经抓了第 ${count} 次；如果是在找「还有谁在做这件事」，换用 web_search 或换一个来源更省时间。`;
+  };
   const handle = (operation: Operation) => async (c: any) => {
     let claims: { account: string; dossier: string; run: string };
     try {
@@ -50,12 +86,22 @@ export function registerWebToolsProxy(
     const target = new URL(
       dependencies.providerBaseUrl.replace(/\/+$/, "") + "/v1/tools/" + operation,
     );
-    let response: Response;
-    try {
-      response = await dependencies.forward(
+    // 一次搜多个 query：上游是单 query 接口，这里并行发、合并去重，结果自然更多。
+    const queries: string[] = (() => {
+      if (operation !== "search") return [];
+      const raw = parsed as { queries?: unknown; query?: unknown };
+      const list = Array.isArray(raw.queries) ? raw.queries : [];
+      const items = list
+        .map((item) => String(item ?? "").trim())
+        .filter((item) => item.length > 0)
+        .slice(0, 5);
+      return items;
+    })();
+    const send = async (payloadBody: string) =>
+      dependencies.forward(
         new Request(target, {
           method: "POST",
-          body,
+          body: payloadBody,
           headers: {
             "content-type": "application/json",
             authorization: "Bearer " + dependencies.providerKey,
@@ -63,6 +109,46 @@ export function registerWebToolsProxy(
           signal: c.req.raw.signal,
         }),
       );
+    let response: Response;
+    let merged: unknown = null;
+    try {
+      if (queries.length > 1) {
+        // 多个 query：每个单独发（上游只吃单 query），合并去重。
+        const bodies = queries.map((query) => {
+          const clone = { ...(parsed as Record<string, unknown>) };
+          delete clone.queries;
+          clone.query = query;
+          return JSON.stringify(clone);
+        });
+        const responses = await Promise.all(bodies.map((item) => send(item)));
+        const parts = await Promise.all(responses.map((item) => item.text()));
+        const okParts = parts
+          .map((part) => {
+            try {
+              return JSON.parse(part) as { results?: Array<{ url?: string }> };
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean) as Array<{ results?: Array<{ url?: string }> }>;
+        if (!okParts.length) response = responses[0];
+        else {
+          const seen = new Set<string>();
+          const results = okParts.flatMap((part) => part.results ?? []).filter((item) => {
+            const key = String(item?.url ?? "");
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          merged = { ...(okParts[0] as object), results: results.slice(0, 20) };
+          response = new Response(JSON.stringify(merged), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+      } else {
+        response = await send(body);
+      }
     } catch (error) {
       return c.json(
         {
@@ -88,7 +174,9 @@ export function registerWebToolsProxy(
         {
           error: {
             code: "WEB_PROVIDER_STATUS",
-            message: `DeepSeek ${operation} 返回 ${response.status}${detail ? "：" + detail : ""}`,
+            message: redactSecrets(
+              `DeepSeek ${operation} 返回 ${response.status}${detail ? "：" + detail : ""}`,
+            ),
           },
         },
         response.status === 401 || response.status === 403 ? 502 : response.status,
@@ -120,7 +208,28 @@ export function registerWebToolsProxy(
           costCny: dependencies.feeCny,
         })
         .catch(() => {});
-    return new Response(text, {
+    // 来路：搜索记结果 URL；抓取记页面里的外链（citation），并给「同域名反复抓」的提示。
+    if (operation === "search") {
+      const urls = (Array.isArray(payload?.results) ? payload.results : [])
+        .map((item: any) => String(item?.url ?? item?.link ?? ""))
+        .filter((url: string) => url.startsWith("http"));
+      if (urls.length)
+        await dependencies
+          .noteSources?.({ account: claims.account, run: claims.run, urls, kind: "search" })
+          .catch(() => {});
+    } else {
+      const content = String(payload?.content ?? "");
+      const links = [...content.matchAll(/https?:\/\/[^\s)"'<>\\]+/g)]
+        .map((match) => match[0].replace(/[.,;:]+$/, ""))
+        .slice(0, 60);
+      if (links.length)
+        await dependencies
+          .noteSources?.({ account: claims.account, run: claims.run, urls: links, kind: "citation" })
+          .catch(() => {});
+      const hint = hints(claims.run, content ? String(payload?.url ?? "") : "");
+      if (hint) payload = { ...payload, hint };
+    }
+    return new Response(JSON.stringify(payload), {
       status: 200,
       headers: { "content-type": "application/json", "cache-control": "no-store" },
     });

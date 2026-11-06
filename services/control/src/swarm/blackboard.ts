@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { buildCoverage, coverageGaps } from "./coverage";
 import type pg from "pg";
 import type {
   Claim,
@@ -37,6 +38,8 @@ export type EvidenceInput = {
   locator: Evidence["locator"];
   access: Evidence["access"];
   how: string;
+  /** 来路；不填就按控制面见过的网址自动判（search / citation / known-url）。 */
+  discovery?: Evidence["discovery"] | null;
 };
 
 /**
@@ -153,6 +156,80 @@ export async function recordSubmission(
  * 记一条证据；同来源 + 同版本 + 同定位已经有就复用那一条（引用关系另外记）。
  * 返回证据 id 和它是不是新记的。
  */
+/** 站点/仓库的稳定标识：github 取 owner/repo，其他取域名。 */
+function siteKeyOf(raw: string): string {
+  const text = String(raw ?? "").trim();
+  if (!text) return "";
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(text) ? text : "https://" + text);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    if (/github\.com$|githubusercontent\.com$/.test(host) && segments.length >= 2)
+      return `${segments[0]}/${segments[1]}`;
+    return host;
+  } catch {
+    return "";
+  }
+}
+
+/** 把 ref / 网址归一成可以互相比较的形状（去协议、去尾斜杠、小写）。 */
+function normalizeRef(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "")
+    .split("?")[0] ?? "";
+}
+
+/**
+ * 判这条证据的来路（18 广度返工）：
+ * - 网址在「搜索结果」里出现过 → search；
+ * - 网址在「已抓页面里的外链」里出现过 → citation；
+ * - 都没有 → known-url（早就知道、直接抓的）。
+ * 只看控制面自己记的转发记录，不问模型「你是怎么找到的」。
+ */
+export async function inferDiscovery(
+  client: Client,
+  account: string,
+  runId: string,
+  source: Evidence["source"],
+): Promise<Evidence["discovery"]> {
+  const raw = [source.ref, source.assetId].filter(Boolean).join(" ");
+  const ref = normalizeRef(raw);
+  if (!ref) return "known-url";
+  // E4：先按「站点 / 仓库」比。先搜到 github.com/OnlyWorlds/OnlyWorlds、
+  // 再读 raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/... 也算搜出来的。
+  const site = siteKeyOf(raw);
+  if (site) {
+    const siteHit = (
+      await client.query(
+        `select kind from swarm_source_hit
+          where account_id=$1 and run_id=$2 and (url ilike $3 or url ilike $4)
+          order by case when kind='search' then 0 else 1 end
+          limit 1`,
+        [account, runId, `%${site}%`, `%${site.toLowerCase()}%`],
+      )
+    ).rows[0];
+    if (siteHit) return String(siteHit.kind) === "search" ? "search" : "citation";
+  }
+  const hits = (
+    await client.query(
+      "select url, kind from swarm_source_hit where account_id=$1 and run_id=$2",
+      [account, runId],
+    )
+  ).rows as Array<{ url: string; kind: string }>;
+  const match = (kind: string) =>
+    hits.some((hit) => {
+      const url = normalizeRef(String(hit.url));
+      if (hit.kind !== kind || !url) return false;
+      return ref.includes(url) || url.includes(ref);
+    });
+  if (match("search")) return "search";
+  if (match("citation")) return "citation";
+  return "known-url";
+}
+
 export async function putEvidence(
   client: Client,
   input: { account: string; runId: string; submissionId: string; evidence: EvidenceInput },
@@ -164,19 +241,21 @@ export async function putEvidence(
       [input.account, input.runId, key],
     )
   ).rows[0];
-  if (existing)
+  if (existing) {
+    const { discovery: ignoredDiscovery, ...rest } = input.evidence;
+    void ignoredDiscovery;
     return {
       id: String(existing.id),
       created: false,
-      evidence: {
-        id: String(existing.id),
-        ...input.evidence,
-      },
+      evidence: { id: String(existing.id), ...rest },
     };
+  }
   const id = randomUUID();
+  const discovery =
+    input.evidence.discovery ?? (await inferDiscovery(client, input.account, input.runId, input.evidence.source));
   await client.query(
-    `insert into swarm_evidence(id,account_id,run_id,submission_id,source,locator,access,how,dedupe_key)
-     values($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    `insert into swarm_evidence(id,account_id,run_id,submission_id,source,locator,access,how,dedupe_key,discovery)
+     values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     [
       id,
       input.account,
@@ -187,9 +266,16 @@ export async function putEvidence(
       input.evidence.access,
       input.evidence.how,
       key,
+      discovery ?? null,
     ],
   );
-  return { id, created: true, evidence: { id, ...input.evidence } };
+  const { discovery: ignoredExplicit, ...evidenceRest } = input.evidence;
+  void ignoredExplicit;
+  return {
+    id,
+    created: true,
+    evidence: { id, ...evidenceRest, ...(discovery ? { discovery } : {}) },
+  };
 }
 
 export type ClaimInput = {
@@ -370,6 +456,7 @@ export function evidenceRow(row: Record<string, unknown>): Evidence {
     locator: (row.locator as Evidence["locator"]) ?? null,
     access: row.access as Evidence["access"],
     how: String(row.how),
+    ...(row.discovery ? { discovery: String(row.discovery) as Evidence["discovery"] } : {}),
   };
 }
 
@@ -402,6 +489,8 @@ export async function latestClaims(
     /** 独立阶段裁剪：只给这些路线的结论（null = 不裁）。 */
     routes?: string[] | null;
     sinceVersion?: number;
+    /** 只看这个时间点之后创建的结论（增量读黑板的游标）。 */
+    sinceAt?: Date | null;
     limit?: number;
   } = {},
 ): Promise<Claim[]> {
@@ -412,6 +501,7 @@ export async function latestClaims(
           and ($3::text is null or c.route_id=$3)
           and ($4::text is null or c.task_id=$4)
           and ($5::text[] is null or c.route_id = any($5::text[]) or c.route_id is null)
+          and ($6::timestamptz is null or c.created_at > $6::timestamptz)
         order by c.id, c.version desc`,
       [
         account,
@@ -419,6 +509,7 @@ export async function latestClaims(
         filter.routeId ?? null,
         filter.taskId ?? null,
         filter.routes ?? null,
+        filter.sinceAt ?? null,
       ],
     )
   ).rows.map(claimRow);
@@ -499,6 +590,8 @@ export async function buildReport(
     stateReason?: string | null;
     /** 运行状态：决定 stage / awaiting_review / final 等。 */
     runState?: string | null;
+    /** 成稿（负责人写的那份贯穿全局的报告）；没有就是 null。 */
+    narrative?: string | null;
     limits?: { rounds: number; minutes: number } | null;
     used?: { rounds: number; activeMs: number } | null;
   },
@@ -558,6 +651,27 @@ export async function buildReport(
       .map((route) => `${String(route.title)}：${String(route.gap ?? route.blocked_reason)}`)
       .filter((line) => !/(重复登记|已并入|同一条路线)/.test(line)),
     ...insufficient.map((claim) => `证据不足：${claim.text.slice(0, 80)}（${claim.statusReason ?? "未说明"}）`),
+    // 覆盖缺口（18 广度返工）：结论里提到、但没有任何证据指向的名字。
+    ...coverageGaps(
+      buildCoverage({
+        routes: routes.map((route) => ({
+          id: String(route.route_id ?? route.id ?? ""),
+          title: String(route.title ?? ""),
+        })),
+        claims: claims.map((claim) => ({
+          id: claim.id,
+          text: claim.text,
+          routeId: claim.routeId,
+          evidenceIds: claim.evidenceIds,
+        })),
+        evidence: [...evidence.values()].map((entry) => ({
+          id: entry.id,
+          claimIds: [],
+          source: { title: entry.source.title, ref: entry.source.ref },
+          locator: entry.locator,
+        })),
+      }),
+    ),
     ...(input.stateReason ? [input.stateReason] : []),
   ];
   const limits = [
@@ -614,7 +728,41 @@ export async function buildReport(
     negative: negative.map((claim) => claim.id),
     gaps: [...new Set(gaps)].slice(0, 20),
     sources: [...usedEvidence].filter((id) => evidence.some((entry) => entry.id === id)),
+    // 覆盖情况（D2）：报告里也带一份。
+    coverage: buildCoverage({
+      routes: routes.map((route) => ({
+        id: String(route.route_id ?? route.id ?? ""),
+        title: String(route.title ?? ""),
+      })),
+      claims: claims.map((claim) => ({
+        id: claim.id,
+        text: claim.text,
+        routeId: claim.routeId,
+        evidenceIds: claim.evidenceIds,
+      })),
+      evidence: [...evidence.values()].map((entry) => ({
+        id: entry.id,
+        // 这条证据被哪些结论引用：覆盖视图靠它把名字归到对应路线上。
+        claimIds: claims
+          .filter((claim) => claim.evidenceIds.includes(entry.id))
+          .map((claim) => claim.id),
+        source: { title: entry.source.title, ref: entry.source.ref },
+        locator: entry.locator,
+      })),
+    }),
+    // 按来路统计（18 广度返工）：页面显示「发现类 search / 共 M」。
+    discoveryCounts: (() => {
+      const counts = { search: 0, knownUrl: 0, citation: 0, unknown: 0 };
+      for (const entry of evidence) {
+        if (entry.discovery === "search") counts.search += 1;
+        else if (entry.discovery === "known-url") counts.knownUrl += 1;
+        else if (entry.discovery === "citation") counts.citation += 1;
+        else counts.unknown += 1;
+      }
+      return counts;
+    })(),
     nextSuggestion,
+    narrative: input.narrative ?? null,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -700,6 +848,8 @@ export type ReviewInput = {
   reason: string;
   evidenceIds: string[];
   taskId: string | null;
+  /** 核实者读原文的完整性（否定式结论的门禁用它）。 */
+  readCompleteness?: "full" | "partial" | null;
 };
 
 export function readReview(value: unknown): ReviewInput {
@@ -715,6 +865,9 @@ export function readReview(value: unknown): ReviewInput {
   const reason = str(input.reason);
   if (!reason || reason.length < 4)
     throw new ApiFailure("REVIEW_REASON_REQUIRED", 400, "审查要写清理由：看到了什么、为什么这样判。");
+  const completeness = str(input.readCompleteness);
+  if (completeness && completeness !== "full" && completeness !== "partial")
+    throw new ApiFailure("REVIEW_INVALID", 400, "read_completeness 只能是 full 或 partial。");
   const version = Number(input.claimVersion);
   return {
     claimId,
@@ -724,6 +877,7 @@ export function readReview(value: unknown): ReviewInput {
     reason: reason.slice(0, 4000),
     evidenceIds: list(input.evidenceIds).map(String).slice(0, 20),
     taskId: str(input.taskId),
+    readCompleteness: (completeness as "full" | "partial" | undefined) ?? null,
   };
 }
 
@@ -739,7 +893,8 @@ export function reviewRow(row: Record<string, unknown>): Review {
     verdict: row.verdict as Review["verdict"],
     round: Number(row.round ?? 0),
     taskId: row.task_id ? String(row.task_id) : "",
-  };
+    ...(row.read_completeness ? { readCompleteness: String(row.read_completeness) } : {}),
+  } as Review;
 }
 
 /** 某一版结论上的审查记录（按时间）。 */
@@ -767,7 +922,8 @@ async function refuteRounds(client: Client, account: string, runId: string, clai
   const row = (
     await client.query(
       `select count(*)::int n from swarm_review
-        where account_id=$1 and run_id=$2 and claim_id=$3 and kind='refute'`,
+        where account_id=$1 and run_id=$2 and claim_id=$3 and kind='refute'
+          and verdict='upheld'`,
       [account, runId, claimId],
     )
   ).rows[0];
@@ -803,7 +959,9 @@ export async function reviewClaim(
       "不能审自己交的结论：反驳和核实都要由别人做。",
     );
   const rounds = await refuteRounds(client, account, runId, claim.id);
-  if (review.kind === "refute" && rounds >= MAX_REFUTE_ROUNDS)
+  // 撤回/更正自己那条反驳不算新的一轮：两轮用完也要能收回（D5）。
+  const isCorrection = review.kind === "refute" && review.verdict !== "upheld";
+  if (review.kind === "refute" && !isCorrection && rounds >= MAX_REFUTE_ROUNDS)
     throw new ApiFailure(
       "REFUTE_ROUNDS_EXHAUSTED",
       400,
@@ -825,21 +983,54 @@ export async function reviewClaim(
       );
     // 这一版还有没解决的反驳时不能签核实：先改版本（或让反驳者撤回），
     // 否则「已核实」和「有争议」会同时出现在同一条结论上（真机里真出现过）。
+    // D5：只看这一版最新的一条反驳。反驳者后来更正（verdict=rejected / withdrawn）就算关闭，
+    // 不能因为「旧的那条 upheld 还在表里」把新版本的核实永远挡住。
     const openRefute = (
       await client.query(
-        `select by_member, reason from swarm_review
+        `select by_member, reason, verdict from swarm_review
           where account_id=$1 and run_id=$2 and claim_id=$3 and claim_version=$4
-            and kind='refute' and verdict='upheld'
+            and kind='refute'
+          order by created_at desc
           limit 1`,
         [account, runId, claim.id, claim.version],
       )
-    ).rows[0];
+    ).rows.find((row) => String(row.verdict) === "upheld");
     if (openRefute)
       throw new ApiFailure(
         "VERIFY_OPEN_REFUTE",
         409,
         `这一版还有没解决的反驳（${String(openRefute.by_member)}：${String(openRefute.reason).slice(0, 80)}）。先改主张或补证据出新版本，或者让反驳者撤回，再核实。`,
       );
+    // 核实门禁（17 返工 B2）：**任何**结论，只要核实者自己说读不全 / 核不了 / 打不开，
+    // 就不能判「已核实」，只能判 not_verifiable（证据不足）。
+    // 依据：PRD §5「回到原始出处去核」——读不全的核实不算核实。
+    const incompleteReading = /截断|读不全|没法穷举|未能穷举|无法穷举|只读了摘要|打不开|乱码|核不了|没核到|无法确认全文/.test(
+      review.reason,
+    );
+    if (review.verdict === "verified") {
+      if (review.readCompleteness === "partial")
+        throw new ApiFailure(
+          "VERIFY_NEEDS_FULL_TEXT",
+          409,
+          "核实自己标了 read_completeness=partial（读不全）：这种情况不能判已核实，请改判 not_verifiable，让结论进「证据不足」。",
+        );
+      if (incompleteReading)
+        throw new ApiFailure(
+          "VERIFY_NEEDS_FULL_TEXT",
+          409,
+          "你写的理由里提到读不全 / 核不了 / 打不开：这种情况不能判已核实，请改判 not_verifiable（证据不足）。",
+        );
+    }
+    // 否定式结论（「X 里没有 Y」）额外要求核实者明确确认读全了原文。
+    const negativeClaim = !!claim.negative;
+    if (negativeClaim && review.verdict === "verified") {
+      if (review.readCompleteness !== "full")
+        throw new ApiFailure(
+          "VERIFY_NEEDS_FULL_TEXT",
+          409,
+          "这是否定式结论（某处没有某样东西）：核实要确认自己读全了原文才能判已核实（read_completeness: \"full\"）；读不全就判 not_verifiable，让它进「证据不足」。",
+        );
+    }
     if (review.evidenceIds.length === 0)
       throw new ApiFailure(
         "VERIFY_EVIDENCE_REQUIRED",
@@ -850,8 +1041,8 @@ export async function reviewClaim(
   const id = randomUUID();
   await client.query(
     `insert into swarm_review(
-       account_id,run_id,id,claim_id,claim_version,kind,by_member,reason,evidence_ids,verdict,round,task_id,submission_id
-     ) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+       account_id,run_id,id,claim_id,claim_version,kind,by_member,reason,evidence_ids,verdict,round,task_id,submission_id,read_completeness
+     ) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
     [
       account,
       runId,
@@ -866,6 +1057,7 @@ export async function reviewClaim(
       input.round,
       review.taskId,
       input.submissionId,
+      review.readCompleteness ?? null,
     ],
   );
   const statusBefore = claim.status;
@@ -897,7 +1089,8 @@ export async function reviewClaim(
     status = "falsified";
     statusReason = `已降级/证伪：${review.reason.slice(0, 200)}`;
   }
-  const refuteRound = review.kind === "refute" ? rounds + 1 : rounds;
+  // 只有「成立的反驳」才加一轮；更正/撤回不加（也才不会撞上限）。
+  const refuteRound = review.kind === "refute" && review.verdict === "upheld" ? rounds + 1 : rounds;
   await client.query(
     `update swarm_claim
         set status=$4,

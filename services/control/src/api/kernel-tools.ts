@@ -162,7 +162,7 @@ export const KERNEL_TOOLS: Record<string, string[]> = {
   // meta 是插件在建任务、建成员时登记的研究语义（路线、父任务、角色、显示名）。
   // MVP-2：submit 交结论/证据/留言，query 增量读黑板，approach 登记路线。
   // MVP-3：review 是反驳/核实的审查入口。
-  swarm: ["plan", "log", "status", "meta", "submit", "query", "approach", "review"],
+  swarm: ["plan", "log", "status", "meta", "submit", "query", "approach", "review", "narrative", "coverage"],
   // 探索台的计划与画布：和页面调同一组服务函数，只是 via='agent'。
   explore: [
     "get",

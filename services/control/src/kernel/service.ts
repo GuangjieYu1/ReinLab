@@ -101,6 +101,8 @@ export type KernelDependencies = {
   layout: KernelLayout;
   factory: HarnessFactory;
   model: string;
+  /** 群研单独用的型号（17 返工）；不配就跟着 model。 */
+  swarmModel?: string;
   maxTokens: number;
   /** Control-plane base URL the run's kernel reaches for tools and the model. */
   controlUrl: string;
@@ -273,7 +275,11 @@ export class KernelService {
       run: runId,
       sessionId: prepared.sessionId,
       controlUrl: this.controlUrl(),
-      model: this.dependencies.model,
+      // 群研可以单独配型号（17 返工）：其余档位仍用内核默认模型。
+      model:
+        prepared.mode === "swarm"
+          ? (this.dependencies.swarmModel ?? this.dependencies.model)
+          : this.dependencies.model,
       maxTokens: this.dependencies.maxTokens,
       home: layout.home,
       mode: prepared.mode as "clarify" | "read" | "assist" | "explore" | "swarm",

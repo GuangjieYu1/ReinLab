@@ -118,7 +118,7 @@ const kernel = new KernelService({
         dossier,
         run: runId,
         purpose: "vision",
-        provider: "deepseek-official",
+        provider: providerLabel,
         model: usage.model,
         known: usage.inputTokens !== null && usage.outputTokens !== null,
         inputTokens: usage.inputTokens,
@@ -183,6 +183,7 @@ const kernel = new KernelService({
   auth: kernelAuth,
   factory: createHarnessFactory(),
   model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
+  ...(config.REINLAB_SWARM_MODEL ? { swarmModel: config.REINLAB_SWARM_MODEL } : {}),
   controlUrl: config.REINLAB_CONTROL_URL ?? "",
   maxTokens: Number(config.REINLAB_KERNEL_MAX_TOKENS ?? 32768),
   layout: {
@@ -226,7 +227,11 @@ const kernel = new KernelService({
 const swarmService = new SwarmService({
   db: database,
   kernel,
-  model: config.REINLAB_KERNEL_MODEL ?? "deepseek-v4-flash",
+  // 群研可以用单独的型号（17 返工：用户要 deepseek-v4.1-flash）；没配就跟着内核模型走。
+  model:
+    config.REINLAB_SWARM_MODEL ??
+    config.REINLAB_KERNEL_MODEL ??
+    "deepseek-v4-flash",
   // 进程启动时刻：比它更早结束的那一轮就是上一个进程留下的（§7.4 恢复）。
   processStartedAt: Date.now(),
 });
@@ -241,7 +246,15 @@ const localSecrets: Readonly<Record<string, string>> = (() => {
   }
 })();
 // 天气判断用的模型通道：和内核同一条 Anthropic 兼容入口，宿主自己带 key 调。
-const providerKey = localSecrets.DEEPSEEK_API_KEY;
+// 17 返工：可以换成别的 Anthropic 兼容网关（用户的 DSH 走 opencodego），
+// key 仍然只在 ~/.config/reinlab/local.env 里、只在进程内存里读。
+const providerKey = localSecrets.REINLAB_MODEL_API_KEY ?? localSecrets.DEEPSEEK_API_KEY;
+const providerBaseUrl =
+  localSecrets.REINLAB_MODEL_BASE_URL ?? "https://api.deepseek.com/anthropic";
+// opencodego 这类网关要求带一个会话 id 才能路由；没配就不带（官方 DeepSeek 不需要）。
+const providerSession = localSecrets.REINLAB_MODEL_SESSION ?? "";
+// 记账里的 provider 跟着网关走：官方是 deepseek-official，换网关就写网关名。
+const providerLabel = providerBaseUrl.includes("opencode.ai") ? "opencodego" : "deepseek-official";
 if (realModels && (!providerKey || /[\r\n]/.test(providerKey)))
   throw Error("LOCAL_MODEL_KEY_UNAVAILABLE");
 // 峰值费率（每百万 token）：配了就能在花之前估一次，没配就照实说估不了。
@@ -354,8 +367,23 @@ if (realModels && providerKey) {
     record: async (usage) => {
       // Cost from the configured per-million rates; without rates it stays
       // unknown instead of inventing a number.
-      const inRate = Number(config.MODEL_INPUT_CNY_PER_MILLION ?? Number.NaN);
-      const outRate = Number(config.MODEL_OUTPUT_CNY_PER_MILLION ?? Number.NaN);
+      // 费率：优先用 REINLAB_MODEL_* 覆盖（换网关后按网关费率），否则用配置里的峰值费率估算。
+      const inRate = Number(
+        config.REINLAB_MODEL_INPUT_CNY_PER_MILLION ??
+          config.MODEL_INPUT_CNY_PER_MILLION ??
+          Number.NaN,
+      );
+      const outRate = Number(
+        config.REINLAB_MODEL_OUTPUT_CNY_PER_MILLION ??
+          config.MODEL_OUTPUT_CNY_PER_MILLION ??
+          Number.NaN,
+      );
+      // 缓存读单价（¥/百万 token）：命中缓存的 token 比输入便宜，默认 0.02，可配。
+      const cacheRate = Number(
+        config.REINLAB_MODEL_CACHE_READ_CNY_PER_MILLION ??
+          config.MODEL_CACHE_READ_CNY_PER_MILLION ??
+          0.02,
+      );
       let cost: string | null = usage.costCny ?? null;
       if (
         cost === null &&
@@ -366,7 +394,9 @@ if (realModels && providerKey) {
         usage.outputTokens !== null
       )
         cost = (
-          (usage.inputTokens * inRate + usage.outputTokens * outRate) /
+          (usage.inputTokens * inRate +
+            usage.outputTokens * outRate +
+            (usage.cacheReadTokens ?? 0) * (Number.isFinite(cacheRate) ? cacheRate : 0)) /
           1_000_000
         ).toFixed(6);
       await database.withAccount(usage.account, async (client) => {
@@ -379,17 +409,40 @@ if (realModels && providerKey) {
     },
     // 按用户 2026-11-01 的要求：不设上限拦截（只记账，不拒绝调用）。
     now: () => Math.floor(Date.now() / 1000),
-    providerBaseUrl: "https://api.deepseek.com/anthropic",
+    providerBaseUrl,
     providerKey,
+    // 记账里的 provider 跟着网关走（官方 deepseek-official / 网关 opencodego）。
+    provider: providerLabel,
+    ...(providerSession ? { providerSession } : {}),
   });
   // DeepSeek Search / Fetch API：内核的 web_search / web_fetch 走这里，宿主密钥不外发。
   registerWebToolsProxy(app, {
     auth: kernelAuth,
     now: () => Math.floor(Date.now() / 1000),
     providerBaseUrl: "https://api.deepseek.com",
-    providerKey,
+    // 搜索/抓取走的是 DeepSeek 自己的 API，和模型网关是两把不同的 key（D1）：
+    // 模型网关换了 opencodego，这里仍然用官方 DEEPSEEK_API_KEY。
+    providerKey: localSecrets.DEEPSEEK_API_KEY ?? providerKey,
     feeCny: config.DEEPSEEK_WEB_FEE_CNY ?? "0.005000",
     forward: (request: Request) => fetch(request, { redirect: "error" }),
+    // 来路线索：搜索命中的 URL、已抓页面里的外链，记进 swarm_source_hit。
+    noteSources: async ({ account, run, urls, kind }) => {
+      const rows = urls
+        .map((url) => String(url).slice(0, 500))
+        .filter((url) => url.startsWith("http"))
+        .slice(0, 80);
+      if (!rows.length) return;
+      await database.withAccount(account, async (client) => {
+        for (const url of rows)
+          await client.query(
+            `insert into swarm_source_hit(account_id,run_id,url,kind) values($1,$2,$3,$4)
+             on conflict (account_id,run_id,url,kind) do update
+               set hits = swarm_source_hit.hits + 1, last_seen = now()`,
+            [account, run, url, kind],
+          );
+      });
+    },
+
     record: async (usage) => {
       await database.withAccount(usage.account, (client) => recordUsage(client, usage));
     },

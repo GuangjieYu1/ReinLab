@@ -45,6 +45,8 @@ export type MessagesProxyDependencies = {
   providerBaseUrl: string;
   providerKey: string;
   provider?: string;
+  /** 有的网关（opencodego）要求带会话 id 才路由。 */
+  providerSession?: string;
 };
 
 export const tokenOf = (request: Request) => {
@@ -120,18 +122,67 @@ export function registerMessagesProxy(
     } catch {
       return c.json({ error: "KERNEL_TOKEN_INVALID" }, 401);
     }
-    const body = await c.req.text();
+    if (process.env.REINLAB_DEBUG_MODEL_HEADERS === "1")
+      console.error(
+        JSON.stringify({
+          code: "MODEL_HEADERS",
+          headers: Object.fromEntries(
+            [...c.req.raw.headers.entries()]
+              .filter(([name]) => !["cookie", "authorization", "x-api-key"].includes(name))
+              .map(([name, value]) => [name, value.slice(0, 80)]),
+          ),
+        }),
+      );
+    const rawBody = await c.req.text();
     let parsed: { model?: unknown; stream?: unknown };
     try {
-      parsed = JSON.parse(body);
+      parsed = JSON.parse(rawBody);
     } catch {
       return c.json({ error: "MESSAGES_BODY_INVALID" }, 400);
     }
+    // 只转发 Anthropic Messages 认的字段：DSH 会带自己的私有字段（比如 dsh_plugin_packages），
+    // 官方网关可能无视，但 opencodego 会直接 400（requires a native Anthropic Messages target）。
+    const ALLOWED_FIELDS = new Set([
+      "model",
+      "messages",
+      "system",
+      "tools",
+      "tool_choice",
+      "max_tokens",
+      "temperature",
+      "top_p",
+      "top_k",
+      "stop_sequences",
+      "stream",
+      "metadata",
+      "thinking",
+      "betas",
+      "service_tier",
+    ]);
+    const dropped = Object.keys(parsed as Record<string, unknown>).filter(
+      (key) => !ALLOWED_FIELDS.has(key),
+    );
+    const body = dropped.length
+      ? JSON.stringify(
+          Object.fromEntries(
+            Object.entries(parsed as Record<string, unknown>).filter(([key]) =>
+              ALLOWED_FIELDS.has(key),
+            ),
+          ),
+        )
+      : rawBody;
+    if (dropped.length)
+      console.error(
+        JSON.stringify({ code: "MODEL_BODY_FIELDS_DROPPED", fields: dropped.slice(0, 8) }),
+      );
     const model = typeof parsed.model === "string" ? parsed.model : "";
     // 只把「真正在首次读这几张图」的那一笔算读图：请求里**最后一条消息**带图片内容块才算。
     // 后续步骤会把历史里的图一起回传，那些只是在延续思考，按编排记。
     const purpose = lastMessageHasImage(parsed) ? ("vision" as const) : ("planning" as const);
-    const target = new URL(dependencies.providerBaseUrl.replace(/\/+$/, "") + "/v1/messages");
+    // 网关的 base 有两种写法：官方 DeepSeek 是 .../anthropic（要补 /v1/messages），
+    // opencodego 是 .../v1（只要补 /messages）。按结尾判断，别拼出 /v1/v1。
+    const base = dependencies.providerBaseUrl.replace(/\/+$/, "");
+    const target = new URL(base.endsWith("/v1") ? base + "/messages" : base + "/v1/messages");
     const upstream = new Request(target, {
       method: "POST",
       body,
@@ -140,24 +191,45 @@ export function registerMessagesProxy(
         "accept": c.req.header("accept") ?? "text/event-stream",
         "anthropic-version": c.req.header("anthropic-version") ?? "2023-06-01",
         "x-api-key": dependencies.providerKey,
+        ...(dependencies.providerSession
+          ? { "x-opencode-session": dependencies.providerSession }
+          : {}),
       },
       signal: c.req.raw.signal,
     });
     // 网络抖动先重试：转发层偶发 fetch failed / 上游 5xx 时，这一次请求还没拿到
     // 任何内容（也没记用量），重发同一条请求是安全的；三次都失败才把失败交上去。
+    // E3：网关（opencodego）在 6 人并发时会限流。退避重试从 3 次加到 5 次、
+    // 间隔 0.5s → 1s → 2s → 4s 并带抖动，避免整队同时重试把限流打得更狠。
     const forwardWithRetry = async (): Promise<Response> => {
       let lastError: unknown;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
+      const delays = [500, 1000, 2200, 4000];
+      for (let attempt = 0; attempt <= delays.length; attempt += 1) {
         try {
           const response = await dependencies.forward(upstream.clone());
           if (response.status < 500 && response.status !== 429) return response;
+          if (response.status === 429) {
+            const retryAfter = Number(response.headers.get("retry-after") ?? "");
+            lastError = new Error("MODEL_UPSTREAM_429");
+            await response.body?.cancel().catch(() => undefined);
+            if (attempt < delays.length) {
+              const wait = Number.isFinite(retryAfter) && retryAfter > 0
+                ? Math.min(retryAfter * 1000, 8000)
+                : delays[attempt] + Math.floor(Math.random() * 300);
+              await new Promise((resolve) => setTimeout(resolve, wait));
+              continue;
+            }
+            throw lastError;
+          }
           lastError = new Error(`MODEL_UPSTREAM_${response.status}`);
           await response.body?.cancel().catch(() => undefined);
         } catch (error) {
           lastError = error;
         }
-        if (attempt < 2)
-          await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 400 : 1200));
+        if (attempt < delays.length)
+          await new Promise((resolve) =>
+            setTimeout(resolve, delays[attempt] + Math.floor(Math.random() * 300)),
+          );
       }
       throw lastError;
     };
@@ -221,16 +293,35 @@ export function registerMessagesProxy(
         },
       }),
     );
+    // 上游中途断开时给运行时一个「干净的结束」（SSE error 帧 + close），
+    // 而不是把连接硬断。控制器可能已经被对端关掉，所以每一步都要容错。
     const guarded = new ReadableStream<Uint8Array>({
       async start(controller) {
         const reader = relayed.getReader();
+        let open = true;
+        const finish = () => {
+          if (!open) return;
+          open = false;
+          try {
+            controller.close();
+          } catch {
+            /* 已经关了 */
+          }
+        };
         try {
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
-            controller.enqueue(value);
+            if (!open) break;
+            try {
+              controller.enqueue(value);
+            } catch {
+              open = false;
+              await reader.cancel().catch(() => undefined);
+              return;
+            }
           }
-          controller.close();
+          finish();
         } catch (error) {
           console.error(
             JSON.stringify({
@@ -238,20 +329,25 @@ export function registerMessagesProxy(
               message: String((error as Error)?.message ?? error).slice(0, 200),
             }),
           );
-          try {
-            controller.enqueue(
-              encoder.encode(
-                `\n\nevent: error\ndata: ${JSON.stringify({
-                  type: "error",
-                  error: { type: "upstream_unavailable", message: "模型服务中途断开" },
-                })}\n\n`,
-              ),
-            );
-          } catch {
-            /* 对端已经关了：只收尾 */
+          if (open) {
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `\n\nevent: error\ndata: ${JSON.stringify({
+                    type: "error",
+                    error: { type: "upstream_unavailable", message: "模型服务中途断开" },
+                  })}\n\n`,
+                ),
+              );
+            } catch {
+              /* 对端已经关了：只收尾 */
+            }
           }
-          controller.close();
+          finish();
         }
+      },
+      cancel() {
+        /* 对端主动取消：不用再补任何东西 */
       },
     });
     return new Response(guarded, {
