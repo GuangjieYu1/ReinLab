@@ -322,15 +322,126 @@ type AppliedOp = Op & { opId: string; actor: 'user' | 'agent'; summary: string;
 
 `creative/world.ts`、`novel.ts` 里的魔戒示例留给 `?preview` 和 CI 使用。真实模式只读接口，空世界观显示「建第一个人物 / 导入路网」引导。示例数据不能用来充当真实验收。
 
-## 5. MVP-1B（开工前 Claude 再补细节）
+## 5. MVP-1B · 小说双向（2026-11-07 补全）
 
-- **作品**：`Work { id, kind:'novel'|'film'|'comic', title, baseVersion, picks, overrides, outline, chapters: { id, title, scenes: { id, title, eventIds, text, textVersion, targetWords }[] }[] }`。接口：`/v1/creative/worlds/:id/works`、`/works/:workId`、`/works/:workId/ops`。正文修改也走 ops，带 `textVersion`。
-- **助手**：设定顾问、写作助手沿用内核会话：`POST /v1/kernel/runs { dossierId, mode:'creative_advisor' | 'creative_writer', query, workId? }`，在 AgentDock 里对话。助手产出的东西一律是 `Proposal`；正文改动是 `text_edit` 提议（带差异），作者接受才写入。
-- **加人物**：设定顾问产出 `kind:'itinerary'` 提议，`ops` 里包含新人物、事件和路线，`conflicts` 是试算后的检查结果。
-- **导入**：`POST /works/:workId/import { assetId | text }` → 导入任务。按章推进、能暂停续做；进度走事件 `creative.import`。抽取结果进待确认，可以按 `batchId`、`kind`、`doubts` 筛选后批量决定；被拒绝过的项不会再出现，除非原文或依据变了。
-- **历法**：服务端提供 `chinese_era` 历法，负责年号、干支、农历和公历互转。不确定时给 `StoryTime.candidates`。
-- **导出**：`GET /works/:workId/export?format=md|docx`。
-- **群研委托（可选）**：沿用契约 13 §6，`fromBench:'creative'`；结果卡被采用后，变成一批 `Proposal`。
+依据 19 §5、§6，以及 §10 的 1B 行。1A 的约定照旧：原子操作批次、服务端算好、前端不推断、红黄只给冲突。
+
+### 5.1 类型（追加到 `packages/contracts/src/creative.ts`）
+
+```ts
+type Work = {
+  id: string; worldId: string; kind: 'novel' | 'film' | 'comic'; title: string;
+  baseVersion: number;          // 建作品时锁定当时最新的已确认版本，以后不自动更新（逐条更新在 1C）
+  revision: number;             // 作品自己的修订号（大纲、章节、正文的操作批次）
+  targetWords: number | null; words: number;
+  outline: Outline | null;
+  chapters: Chapter[];
+  source?: { kind: 'import'; assetId: string; title: string; textVersion: number } | null;   // 导入来的作品
+};
+type Outline = {
+  state: 'draft' | 'confirmed';
+  logline: string; pov: string; ending: string;
+  chapters: { id: string; title: string; scenes: { id: string; title: string; goal: string; eventIds: string[]; targetWords: number | null }[] }[];
+  proposalIds: string[];        // 大纲里提到的新设定、新事件：仍然是提议，确认大纲不等于入账
+};
+type Chapter = { id: string; no: number; title: string; scenes: Scene[] };
+type Scene = {
+  id: string; title: string; goal: string;
+  eventIds: string[];           // 本场引用的事件（双向：事件的 workRefs 也会带上它）
+  text: string;                 // 正文，段落用空行分隔
+  textVersion: number;          // 每次落笔 +1；改正文都带 baseTextVersion
+  words: number; targetWords: number | null;
+  state: 'empty' | 'generating' | 'draft' | 'written';
+  marks: TextMark[];            // 服务端算好的正文标注，前端只画
+};
+type TextMark = {
+  para: number; from: number; to: number;      // 段落下标 + 段内字符区间
+  kind: 'entity' | 'event' | 'conflict' | 'stale_source';
+  refId: string;                                // entityId / eventId / conflictId / proposalId
+};
+type TextEdit = {                               // Proposal.kind = 'text_edit' 的 payload，放在 proposal.ops[0]
+  workId: string; sceneId: string; baseTextVersion: number;
+  mode: 'draft' | 'continue' | 'complete' | 'rewrite';
+  range: { para: number; from: number; to: number } | null;   // rewrite 替换的范围；continue 为 null（接在末尾）
+  before: string; after: string;
+};
+type ImportJob = {
+  id: string; workId: string; state: 'queued' | 'running' | 'paused' | 'done' | 'failed';
+  chapters: { total: number; done: number }; proposals: number;
+  current?: { chapterId: string; title: string } | null;
+  error?: string | null; cost: CreativeCny;
+};
+type GenerateJob = { id: string; workId: string; sceneIds: string[]; done: string[]; state: 'running' | 'stopped' | 'done' | 'failed'; error?: string | null; cost: CreativeCny };
+```
+
+`Proposal` 在 1B 用上全部种类。服务端还要多给三个字段：
+- `origin.source`：原文位置，加上原句；
+- `batchId`：同一章的抽取共用一个；
+- `candidates`：别名、共指、年号、古地名这类有多个候选时给出。
+
+`kind:'itinerary'` 是「加人物」提议。它的 `ops` 里包括新人物、几条事件、几段路线；`conflicts` 是服务端先跑过硬检查后的结果。
+
+### 5.2 接口
+
+| 方法 | 路由 | 说明 |
+|---|---|---|
+| 作品列表 | `GET /v1/creative/worlds/:id/works` → `Work[]`（不带正文） | 左栏「作品」 |
+| 建作品 | `POST /v1/creative/worlds/:id/works { kind, title, targetWords? }` → `Work` | 锁定当前最新版本 |
+| 作品详情 | `GET /v1/creative/worlds/:id/works/:workId` → `Work` | 带正文和标注 |
+| 改作品 | `POST /works/:workId/ops { baseRevision, ops: WorkOp[] }` → `{ revision, work }` | 原子批次，落后时 409 `REVISION_STALE` |
+| 生成 | `POST /works/:workId/generate { sceneIds, mode, hint?, range? }` → `GenerateJob` | 已授权的场景连续生成、逐场保存，可以停（`POST .../generate/:jobId/stop`）。产出是 `text_edit` 提议；空场景的起稿可以直接落成 `draft`，由作品设置 `autoAcceptDraft` 决定，默认关 |
+| 导入 | `POST /works/:workId/import { assetId } \| { text }` → `ImportJob` | 按章推进；`POST /imports/:jobId/pause`、`/resume` |
+| 导入状态 | `GET /imports/:jobId` → `ImportJob` | |
+| 待确认 | 沿用世界观快照里的 `proposals`；另加 `GET /v1/creative/worlds/:id/proposals?kind=&batchId=&doubt=&status=` 分页 | 1B 的提议多，单独分页 |
+| 批量决定 | 沿用 `ops`：多条 `proposal.decide`，每批不超过 40 条 | 依赖项一起显示；有歧义、要合并、出处过期的不能批量 |
+| 助手 | `POST /v1/kernel/runs { dossierId, mode: 'creative_advisor' \| 'creative_writer', query, workId?, sceneId? }` | 对话在 AgentDock 里，沿用探索台的会话事件；助手只能产出提议，不能自己落笔 |
+| 导出 | `GET /works/:workId/export?format=md\|docx` | |
+| 上传原文 | 沿用 `POST /v1/creative/worlds/:id/assets { name, content, format:'text' }` | 支持 txt 和 md；docx 先不做 |
+
+```ts
+type WorkOp =
+  | { op: 'work.set'; patch: Partial<Pick<Work, 'title' | 'targetWords'>> & { autoAcceptDraft?: boolean } }
+  | { op: 'outline.set'; outline: Omit<Outline, 'state' | 'proposalIds'> }
+  | { op: 'outline.confirm' }                                  // 确认大纲：按大纲建章、建场景；新设定照旧留在待确认
+  | { op: 'chapter.add'; title: string; at?: number } | { op: 'chapter.update'; id: string; title: string } | { op: 'chapter.remove'; id: string } | { op: 'chapter.move'; id: string; to: number }
+  | { op: 'scene.add'; chapterId: string; title: string; at?: number } | { op: 'scene.update'; id: string; patch: Partial<Pick<Scene, 'title' | 'goal' | 'eventIds' | 'targetWords'>> }
+  | { op: 'scene.remove'; id: string } | { op: 'scene.move'; id: string; chapterId: string; to: number }
+  | { op: 'text.set'; sceneId: string; baseTextVersion: number; text: string }   // 作者直接写：直接落笔
+  | { op: 'text.accept'; proposalId: string; text?: string };                      // 接受 AI 的改动；带 text 就是「改后接受」
+```
+
+### 5.3 事件（追加）
+
+| `type` | `data` | 前端 |
+|---|---|---|
+| `creative.work` | `{ workId, revision }` | 重取作品 |
+| `creative.text` | `{ workId, sceneId, state, textVersion }` | 场景正在生成 / 已出草稿 |
+| `creative.import` | `ImportJob` | 导入进度条 |
+| `creative.generate` | `GenerateJob` | 生成进度、停止 |
+
+### 5.4 页面（小说面解锁）
+
+```
+┌ 章节 ──────┐┌ 正文 ────────────────────────────┐┌ 本场 · 待确认 · 助手 ┐
+│ 作品切换   ││ 第 2 章 · 补斗篷                  ││ 本场目标 / 引用事件   │
+│ 卷→章→场景 ││ 段落；@实体 下划线，悬停看设定卡   ││ 待确认（按批次筛）    │
+│ 字数/目标  ││ 冲突段落标红黄；过期出处标灰       ││ 写作助手 / 设定顾问   │
+└────────────┘└──────────────────────────────────┘└──────────────────────┘
+```
+
+- **建作品**：选「从世界观写」或「导入一部小说」。导入向导分三步：上传或粘贴原文 → 看分章结果 → 开始，可以暂停、续做。
+- **大纲确认卡**：主线、视角、结局、章场安排、关键事件、目标字数，都能改；确认之后才能「按场景生成」。
+- **生成**：选中一场或几场，点「生成」；进度逐场显示，能停。AI 的改动按差异显示，接受才落笔；也能改完再接受。
+- **正文**：作者直接写，失焦或停顿 2 秒自动 `text.set`。选中一段可以续写、改写。冲突落在哪一段，就在那一段标红或标黄。
+- **待确认**：按批次、种类、有没有疑点筛；明确的项可以批量接受；有歧义的单独处理，显示各个候选和原句。
+- **加人物**：设定顾问对话里说「加一个……」，产出一张经历提议卡：人物、几条事件、几段路线和硬检查结果，看过再接受。
+- **世界观面联动**：点正文里引用的事件，跳到世界观面的地图和时间轴；事件详情里列出它在哪部作品的哪一章出现。
+- **花费**：生成和导入的任务各自显示花费，状态栏显示累计。
+
+### 5.5 首例
+
+- 原创短篇：5,000–10,000 字，3–6 场。
+- 公版：《聊斋志异》选两三篇人物走动多、年代写得具体的，比如《王六郎》《聂小倩》《画皮》；原文用维基文库的版本，由用户拍板。
 
 ## 6. MVP-1C（开工前 Claude 再补细节）
 
