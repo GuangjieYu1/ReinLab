@@ -1,0 +1,7 @@
+# 测试库要和本机 Supabase 同一个能力面：vector（既有迁移要）+ postgis + pgrouting（创作台路网要）。
+# 本机 Supabase 的 Postgres 里 postgis 3.3.7 / pgrouting 3.4.1 已可用；这里装同一整套。
+FROM pgvector/pgvector:0.8.2-pg16
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-16-postgis-3 postgresql-16-pgrouting \
+ && rm -rf /var/lib/apt/lists/*

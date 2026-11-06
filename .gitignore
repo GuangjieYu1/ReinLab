@@ -33,3 +33,6 @@ infra/supabase/.branches/
 
 # 统一用 pnpm：npm 的锁文件不再进版本库（2026-10-29 集成）。
 package-lock.json
+
+# pnpm 在仓库里落下的本地 store（本机工具链产物，不进版本库）。
+.pnpm-store/

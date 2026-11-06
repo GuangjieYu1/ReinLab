@@ -7,7 +7,7 @@ import { navigate } from '../../nav';
 import { BENCHES, CODES, FILE_NOUN, benchInfo, fileNo, type BenchId } from './benches';
 import ResearchBench from '../../data/ResearchStudioData';
 import EngineeringBench from './engineering/EngineeringBench';
-import CreativeBench from './creative/CreativeStudio';
+import CreativeBench from '../../data/CreativeStudioData';
 import AutomationBench from './automation/AutomationStudio';
 import DataBench from './data/DataStudio';
 import ExplorationBench from '../../data/ExploreStudioData';

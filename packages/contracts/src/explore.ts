@@ -9,7 +9,8 @@ export namespace GeoJSON {
   export type LineString = { type: 'LineString'; coordinates: Position[] };
   export type Polygon = { type: 'Polygon'; coordinates: Position[][] };
   export type MultiLineString = { type: 'MultiLineString'; coordinates: Position[][] };
-  export type Geometry = Point | LineString | Polygon | MultiLineString;
+  export type MultiPolygon = { type: 'MultiPolygon'; coordinates: Position[][][] };
+  export type Geometry = Point | LineString | Polygon | MultiPolygon | MultiLineString;
 }
 
 export type LngLat = [number, number];

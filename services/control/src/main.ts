@@ -29,6 +29,7 @@ import { createWeatherJudge } from "./explore/weather-judge";
 import { createFeelReader } from "./explore/feel";
 import { applyOps, readPlan } from "./explore/service";
 import { configureOverpassEndpoint, localSceneStore } from "./explore/scene";
+import { configureCreativeOverpass } from "./creative/network";
 import { configureLightJobs } from "./explore/light-job";
 import { publishOps } from "./api/explore-api";
 import { createWeatherScheduler } from "./explore/schedule";
@@ -295,6 +296,8 @@ const feelReader = providerKey
 
 // 公共 Overpass 忙的时候可以在 local.env 里配 OVERPASS_URL 换一个实例（默认官方站点）。
 configureOverpassEndpoint(localSecrets.OVERPASS_URL ?? null);
+// 创作台的路网导入与推断路线查地形也用同一个 Overpass 实例。
+configureCreativeOverpass({ endpoint: localSecrets.OVERPASS_URL ?? null });
 
 // 地点搜索与步行路线：国内高德、海外 ORS。密钥只在进程里，不发给浏览器。
 configureGeoProviders({
@@ -325,8 +328,31 @@ const bookEngine = (account: string, dossier: string, plan: import("./explore/bo
   );
 };
 
+// 创作台的 AI 推断路线：真模型、真搜索、真读网页，花费只记不拦。
+// 走 DeepSeek 官方入口（和用户自己的会话网关分开）：后台任务不跟交互会话抢同一个承载单元，
+// key 仍然只在进程内存里读。想换回网关就在 local.env 里写 REINLAB_CREATIVE_ROUTE_BASE_URL。
+const creativeRouteBase =
+  localSecrets.REINLAB_CREATIVE_ROUTE_BASE_URL?.trim() || "https://api.deepseek.com/anthropic";
+const creativeRouteKey = localSecrets.DEEPSEEK_API_KEY ?? providerKey;
+const creativeRoute = creativeRouteKey
+  ? {
+      baseUrl: creativeRouteBase,
+      apiKey: creativeRouteKey,
+      model: config.REINLAB_CREATIVE_ROUTE_MODEL ?? "deepseek-chat",
+      provider: creativeRouteBase.includes("api.deepseek.com") ? "deepseek-official" : providerLabel,
+      ...(reviewPricing ? { pricing: reviewPricing } : {}),
+      // 查资料走官方 DeepSeek 的 Search / Fetch（同一把 key）。
+      web: {
+        baseUrl: "https://api.deepseek.com",
+        apiKey: creativeRouteKey,
+        ...(config.DEEPSEEK_WEB_FEE_CNY ? { feeCny: Number(config.DEEPSEEK_WEB_FEE_CNY) } : {}),
+      },
+    }
+  : undefined;
+
 const app = await createApp({
   pool,
+  ...(creativeRoute ? { creativeRouteInference: creativeRoute } : {}),
   session: config.SUPABASE_ANON_KEY
     ? { url: config.SUPABASE_URL, anonKey: config.SUPABASE_ANON_KEY,
         usernameAlias: config.PROVISIONER_DRIVER === 'docker'

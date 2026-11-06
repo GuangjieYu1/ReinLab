@@ -421,7 +421,10 @@ export const ToolResult = z
   .strict();
 export const DossierCreate = z
   .object({
-    bench: z.literal("research").default("research"),
+    // 研究台是默认；创作台（一个档案就是一个世界观）也从这里建，别的台暂时不给建。
+    bench: z.enum(["research", "creative"]).default("research"),
+    kind: z.enum(["reading", "topic", "workspace", "learning"]).optional(),
+    intent: z.string().trim().max(2000).optional(),
     title: text.max(200),
   })
   .strict();
@@ -636,4 +639,5 @@ export type BrowserSession = {
 export type * from './dossier';
 export type * from './explore';
 export type * from './swarm';
+export type * from './creative';
 export * from './explore-poses';

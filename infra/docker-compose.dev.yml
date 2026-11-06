@@ -1,6 +1,10 @@
 services:
   db:
-    image: pgvector/pgvector:0.8.2-pg16
+    # 只给测试用的一次性库：能力面和本机 Supabase 对齐（vector + postgis + pgrouting）。
+    build:
+      context: ./db
+      dockerfile: Dockerfile.test
+    image: reinlab-pg-test:pg16-postgis-pgrouting
     ports:
       - '127.0.0.1:55432:5432'
     environment:
