@@ -38,7 +38,9 @@ const SYSTEM = `你在给一部小说写正文。用户给你这一场的目标�
 - 只写这一场：不要替下一场收尾，也不要跳到别的时间线。
 - 只用给你的设定和原文里已经写到的信息。设定里没有的地点、人物、时间不要编；非写不可时写得更含糊，并在 why 里说明。
 - 叙述性质要跟原文一致：原文是回忆、传闻就别写成正在发生。
-- 中文正文，段落之间空一行。`;
+- 中文正文，段落之间空一行。
+- 续写（continue）只给「接下去的新内容」：不要重复、抄写或重排已有正文里已经有的段落；想改前面的句子就明说，别偷偷改。
+- 改写（rewrite）只给替换那一段之后的文字，不要带上这一段之前的内容。`;
 
 export type WriterDeps = {
   model?: ModelDeps;
@@ -57,6 +59,50 @@ export function rangeTextOf(
   const paragraph = paragraphs[range.para];
   if (paragraph === undefined) return '';
   return paragraph.slice(range.from, range.to);
+}
+
+/**
+ * 续写时模型会把原文抄回来（验收 B1）。这里把 body 里「抄原文」的那一段剪掉，只留新增：
+ * 1. 按段落对：从原文最后一段往前找，看它在 body 里出现在哪（允许模型改了其中几段）；
+ *    找到就把这一位置之前（含）的内容整段剪掉；
+ * 2. 段落对不上时，按「body 以原文开头」整段剪；
+ * 3. 都不中就当模型没抄，原样返回。
+ */
+export function stripRepeatedExisting(existing: string, body: string): string {
+  const norm = (value: string) => value.replace(/\s+/g, '');
+  const trimmedBody = body.trim();
+  if (!existing.trim() || !trimmedBody) return trimmedBody;
+  const existingParagraphs = existing
+    .split(/\n\s*\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const bodyParagraphs = trimmedBody
+    .split(/\n\s*\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!existingParagraphs.length || !bodyParagraphs.length) return trimmedBody;
+  const bodyNorm = bodyParagraphs.map(norm);
+  // 1) 从原文最后一段往前找：它在 body 里出现在哪，剪到它为止
+  //    （抄整篇时最后一段就在末尾，剪完是空，调用方当失败处理）
+  for (let index = existingParagraphs.length - 1; index >= 0; index -= 1) {
+    const target = norm(existingParagraphs[index]);
+    if (target.length < 4) continue;
+    const at = bodyNorm.lastIndexOf(target);
+    if (at < 0) continue;
+    return bodyParagraphs.slice(at + 1).join('\n\n').trim();
+  }
+  // 2) 整段照抄：body 以原文开头
+  const existingNorm = norm(existing);
+  if (existingNorm.length >= 20 && norm(trimmedBody).startsWith(existingNorm)) {
+    let seen = 0;
+    let cursor = 0;
+    while (cursor < trimmedBody.length && seen < existingNorm.length) {
+      if (!/\s/.test(trimmedBody[cursor])) seen += 1;
+      cursor += 1;
+    }
+    return trimmedBody.slice(cursor).trim();
+  }
+  return trimmedBody;
 }
 
 const costOf = (
@@ -293,7 +339,11 @@ export async function runGenerate(
         ).rows[0];
         if (!work) throw new ApiFailure('WORK_NOT_FOUND', 404, '找不到这部作品。');
         const { scene: target } = sceneOf(work.document, sceneId);
-        const text = job.mode === 'rewrite' ? body : job.mode === 'continue' ? `${scene.text.trim()}\n\n${body}`.trim() : body;
+        // 续写：模型偶尔会把原文抄回来（验收 B1），这里把重叠部分剪掉再加。
+        const addition = job.mode === 'continue' ? stripRepeatedExisting(target.text, body) : body;
+        if (job.mode === 'continue' && !addition)
+          throw new ApiFailure('GENERATE_EMPTY', 503, '模型只重复了原文，没有给出新增内容。请再试一次或换个提示。');
+        const text = job.mode === 'rewrite' ? addition : job.mode === 'continue' ? `${target.text.trim()}\n\n${addition}`.trim() : addition;
         const proposal: Proposal = {
           id: randomUUID(),
           batchId: `generate_${job.id}`,

@@ -14,6 +14,7 @@ import {
 import type { CreativeDocument } from "../src/creative/world";
 import { applyOps, emptyDocument } from "../src/creative/world";
 import { buildDocx } from "../src/creative/docx";
+import { stripRepeatedExisting } from "../src/creative/writer";
 
 let counter = 0;
 const ids = () => `id-${++counter}`;
@@ -190,6 +191,20 @@ describe("作品账本", () => {
     const stale = computeMarks({ document: written, world, sceneId: written.chapters[0].scenes[0].id, conflicts: [], proposals: [proposal] });
     expect(stale.some((mark) => mark.kind === "stale_source" && mark.refId === "pr1")).toBe(true);
     expect(quoteStillThere("沈砚在阊门等沈生。", "沈砚在阊门")).toBe(true);
+  });
+
+  it("续写把模型抄回来的原文剪掉，只留新增（验收 B1）", () => {
+    const existing = "第一段：夜里出了阊门。\n\n第二段：城墙在身后合上。\n\n第三段：雨还没有停。";
+    // 1) 整段照抄 + 新段
+    const copied = `${existing}\n\n第四段：他往西走。`;
+    expect(stripRepeatedExisting(existing, copied)).toBe("第四段：他往西走。");
+    // 2) 抄的时候顺手改了一段（第三段被改），仍按最后对上的一段剪
+    const edited = "第一段：夜里出了阊门。\n\n第二段：城墙在身后合上。\n\n第三段：雨小了些。\n\n第四段：他往西走。";
+    expect(stripRepeatedExisting(existing, edited)).toBe("第三段：雨小了些。\n\n第四段：他往西走。");
+    // 3) 只给了新增：一个字不动
+    expect(stripRepeatedExisting(existing, "第四段：他往西走。")).toBe("第四段：他往西走。");
+    // 4) 整篇只抄原文：剪完是空，调用方会当失败处理
+    expect(stripRepeatedExisting(existing, existing)).toBe("");
   });
 
   it("导出：md 有标题和章节，docx 是能打开的 zip", () => {

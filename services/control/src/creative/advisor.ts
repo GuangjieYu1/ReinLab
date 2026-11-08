@@ -46,6 +46,25 @@ export type AdvisorDeps = {
   provider?: string;
 };
 
+/**
+ * 提议种类的判定（契约 §5.1：加人物是 itinerary）。
+ * 模型经常把「建人物 + 几条事件」写成 entity，这里按实际 ops 纠回来。
+ */
+export function derivedKind(ops: CreativeOp[], declared?: string): Proposal['kind'] {
+  const addsPerson = ops.some((op) => op.op === 'entity.add' && op.entity.kind === 'person');
+  const addsAnyEntity = ops.some((op) => op.op === 'entity.add');
+  const addsEvent = ops.some((op) => op.op === 'event.add');
+  const addsRule = ops.some((op) => op.op === 'rule.set');
+  const addsRelation = ops.some((op) => op.op === 'relation.add');
+  const addable = ['itinerary', 'entity', 'event', 'rule', 'relation', 'map_edit', 'merge', 'route', 'text_edit'];
+  if (addsEvent && addsPerson) return 'itinerary';
+  if (addsEvent) return 'event';
+  if (addsRule) return 'rule';
+  if (addsRelation) return 'relation';
+  if (addsAnyEntity) return 'entity';
+  return declared && addable.includes(declared) ? (declared as Proposal['kind']) : 'event';
+}
+
 /** 这一次顾问调用的花费；没配单价或 token 未知就记未知（不记 0）。 */
 function costOfUsage(
   deps: AdvisorDeps,
@@ -293,9 +312,7 @@ export async function advise(
       if (!parsedTime.ok) doubts.push(`${label}时间「${time.input}」认不出来：${parsedTime.failure.message}`);
     }
   }
-  const kind = ['itinerary', 'entity', 'event', 'rule', 'relation'].includes(asText(parsed.kind, 20))
-    ? (asText(parsed.kind, 20) as Proposal['kind'])
-    : 'event';
+  const kind = derivedKind(ops, asText(parsed.kind, 20));
   const { trialOps, unresolvedPeople, unresolvedPlaces } = splitTrialOps(world, ops);
   // 契约 §1.1 补注 1：没解析成 id 的不参与试算，但要说清楚（不能当成没有冲突）。
   for (const name of unresolvedPeople) doubts.push(`「${name}」还没确认，试算没算他。`);

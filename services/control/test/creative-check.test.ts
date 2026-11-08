@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { CreativeOp, CreativeRouteLeg, WorldEvent } from "@reinlab/contracts";
 import { runCheck } from "../src/creative/check";
-import { splitTrialOps } from "../src/creative/advisor";
+import { derivedKind, splitTrialOps } from "../src/creative/advisor";
 import { applyOps, emptyDocument, legIdFor, type CreativeDocument } from "../src/creative/world";
 import { gregorianToT } from "../src/creative/story-time";
 
@@ -468,6 +468,92 @@ describe("五类检查与修法", () => {
     expect(withBadPlace.unresolvedPlaces).toEqual(["没建过的山村"]);
     expect((withBadPlace.trialOps[0] as { event: { placeName?: string } }).event.placeName).toBeUndefined();
     void id;
+  });
+
+  it("同一批里刚建的人物能被按名字引用；重名不静默再建（验收 B3）", () => {
+    const { document } = build();
+    // 顾问「加人物」的一条提议：建人物 + 建地点 + 两条事件，全部按名字引用
+    const batch = [
+      { op: "entity.add", entity: { kind: "person", name: "老周", aliases: ["周阿大"], summary: "摆渡人" } },
+      {
+        op: "entity.add",
+        entity: {
+          kind: "place",
+          name: "阊门外渡口",
+          aliases: ["渡口"],
+          place: { level: "site", parentId: null, geo: null, geoCertainty: "unlocated", connects: [] },
+          parentName: "青州城",
+        },
+      },
+      {
+        op: "event.add",
+        event: {
+          title: "沈砚搭船", what: "过河", kind: "travel",
+          participants: [
+            { entityId: "", entityName: "张三", as: "actor" },
+            { entityId: "", entityName: "老周", as: "actor" },
+          ],
+          placeId: null, placeName: "阊门外渡口", travel: null, narrative: "fact",
+          start: { input: "1684-04-21 06:20" }, end: { input: "1684-04-21 06:40" },
+        },
+      },
+    ] as unknown as CreativeOp[];
+    const applied = applyOps(document, batch, { actor: "user", ids });
+    const zhou = applied.next.entities.find((item) => item.name === "老周")!;
+    const wharf = applied.next.entities.find((item) => item.name === "阊门外渡口")!;
+    expect(zhou).toBeTruthy();
+    expect(wharf.place?.parentId).toBe(document.entities.find((item) => item.name === "青州城")!.id);
+    const event = applied.next.events.find((item) => item.title === "沈砚搭船")!;
+    expect(event.participants[0].entityId).toBe(document.entities.find((item) => item.name === "张三")!.id);
+    expect(event.participants[1].entityId).toBe(zhou.id);
+    expect(event.placeId).toBe(wharf.id);
+
+    // 再来一批同名的：409，不再静默多建一个
+    expect(() =>
+      applyOps(applied.next, [{ op: "entity.add", entity: { kind: "person", name: "老周", aliases: [] } }] as unknown as CreativeOp[], {
+        actor: "user",
+        ids,
+      }),
+    ).toThrow(/已经有一个叫「老周」/);
+
+    // 一批里有对不上的名字：整批不生效（applyOps 不改原文档，调用方回滚）
+    const before = applied.next.entities.length;
+    expect(() =>
+      applyOps(
+        applied.next,
+        [
+          { op: "entity.add", entity: { kind: "person", name: "新人", aliases: [] } },
+          {
+            op: "event.add",
+            event: {
+              title: "找不到人的事件", what: "x", kind: "stay",
+              participants: [{ entityId: "", entityName: "根本没这个人", as: "actor" }],
+              placeId: null, travel: null, narrative: "fact",
+              start: { input: "1684-04-21 06:20" }, end: { input: "1684-04-21 06:40" },
+            },
+          },
+        ] as unknown as CreativeOp[],
+        { actor: "user", ids },
+      ),
+    ).toThrow(/还没有入账/);
+    expect(applied.next.entities.length).toBe(before);
+  });
+
+  it("顾问的「加人物」提议算 itinerary，不是 entity（验收 B2）", () => {
+    const person = { op: "entity.add", entity: { kind: "person", name: "老周", aliases: [] } };
+    const eventOp = {
+      op: "event.add",
+      event: {
+        title: "过河", what: "x", kind: "travel",
+        participants: [{ entityId: "", entityName: "老周", as: "actor" }],
+        placeId: null, travel: null, narrative: "fact",
+        start: { input: "1684-04-21 06:20" }, end: { input: "1684-04-21 06:40" },
+      },
+    };
+    expect(derivedKind([person, eventOp] as unknown as CreativeOp[], "entity")).toBe("itinerary");
+    expect(derivedKind([eventOp] as unknown as CreativeOp[], "entity")).toBe("event");
+    expect(derivedKind([person] as unknown as CreativeOp[], "event")).toBe("entity");
+    expect(derivedKind([{ op: "rule.set", rule: { id: "r", text: "夜里不许出城", machine: null } }] as unknown as CreativeOp[])).toBe("rule");
   });
 
   it("信息不足与未覆盖照实显示，不当作通过", () => {

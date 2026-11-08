@@ -165,6 +165,7 @@ export const ProposalsQuery = z.object({
   status: z.enum(['pending', 'accepted', 'rejected', 'deferred']).optional(),
   cursor: z.string().max(20).optional(),
   limit: z.string().max(5).optional(),
+  sort: z.enum(['newest', 'oldest']).optional(),
 });
 
 export const TracksQuery = z.object({

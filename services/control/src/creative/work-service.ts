@@ -393,7 +393,16 @@ export async function listProposals(
   client: pg.PoolClient,
   account: string,
   dossier: string,
-  query: { kind?: string; batchId?: string; doubt?: boolean; status?: string; cursor?: number; limit?: number },
+  query: {
+    kind?: string;
+    batchId?: string;
+    doubt?: boolean;
+    status?: string;
+    cursor?: number;
+    limit?: number;
+    /** newest（默认，新的在前）或 oldest。 */
+    sort?: 'newest' | 'oldest';
+  },
 ): Promise<{ proposals: Proposal[]; nextCursor: number | null }> {
   const world = await loadWorld(client, account, dossier);
   const statuses = query.status ? [query.status] : ['pending', 'deferred'];
@@ -402,6 +411,8 @@ export async function listProposals(
   if (query.batchId) items = items.filter((proposal) => proposal.batchId === query.batchId);
   if (query.doubt === true) items = items.filter((proposal) => proposal.doubts.length > 0);
   if (query.doubt === false) items = items.filter((proposal) => proposal.doubts.length === 0);
+  // 验收 B4：默认新的在前（提议是按产生顺序追加的，倒过来就是「刚交的」在前）。
+  if ((query.sort ?? 'newest') === 'newest') items = [...items].reverse();
   const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
   const start = Math.max(0, query.cursor ?? 0);
   const page = items.slice(start, start + limit);

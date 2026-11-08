@@ -453,6 +453,7 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       ...(c.req.query('status') ? { status: c.req.query('status') } : {}),
       ...(c.req.query('cursor') ? { cursor: c.req.query('cursor') } : {}),
       ...(c.req.query('limit') ? { limit: c.req.query('limit') } : {}),
+      ...(c.req.query('sort') ? { sort: c.req.query('sort') } : {}),
     });
     if (!parsed.success) throw new ApiFailure('INVALID_INPUT', 400, '筛选条件不符合要求。');
     const query = parsed.data;
@@ -466,6 +467,7 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
         ...(query.batchId ? { batchId: query.batchId } : {}),
         ...(query.doubt ? { doubt: query.doubt === 'true' } : {}),
         ...(query.status ? { status: query.status } : {}),
+        ...(query.sort ? { sort: query.sort } : {}),
         cursor,
         limit,
       });

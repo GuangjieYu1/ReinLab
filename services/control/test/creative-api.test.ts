@@ -1374,3 +1374,16 @@ describe("创作台写作与顾问（1B 契约 §5.2）", () => {
     expect(after.events.some((item: any) => item.title === "王二到阊门")).toBe(true);
   });
 });
+
+describe("待确认排序（验收 B4）", () => {
+  it("默认新的在前，sort=oldest 反过来", async () => {
+    const newest = await (await api(`/v1/creative/worlds/${dossierA}/proposals?limit=200`)).json();
+    const oldest = await (await api(`/v1/creative/worlds/${dossierA}/proposals?limit=200&sort=oldest`)).json();
+    expect(newest.proposals.length).toBeGreaterThan(1);
+    expect(oldest.proposals.length).toBe(newest.proposals.length);
+    expect(newest.proposals[0].id).toBe(oldest.proposals.at(-1).id);
+    expect(newest.proposals.at(-1).id).toBe(oldest.proposals[0].id);
+    const bad = await api(`/v1/creative/worlds/${dossierA}/proposals?sort=wat`);
+    expect(bad.status).toBe(400);
+  });
+});

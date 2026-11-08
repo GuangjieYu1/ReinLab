@@ -151,12 +151,20 @@ function findEntity(document: CreativeDocument, id: string): Entity {
   return found;
 }
 
-/** 按名字或别名找实体（导入来的事件用名字引用；重名就报错，不猜是哪一个）。 */
-function entityByName(document: CreativeDocument, name: string): Entity {
+/**
+ * 按名字或别名找实体（导入来的事件用名字引用）。
+ * 同一批里刚建出来的实体优先：顾问一条提议里「建人物 + 建地点 + 几条事件」靠它串起来。
+ * 还是多个候选就报错，不猜是哪一个。
+ */
+function entityByName(document: CreativeDocument, name: string, createdHere?: Set<string>): Entity {
   const matched = document.entities.filter(
     (item) => item.name === name || (item.aliases ?? []).includes(name),
   );
   if (matched.length === 1) return matched[0];
+  if (matched.length > 1 && createdHere) {
+    const fresh = matched.filter((item) => createdHere.has(item.id));
+    if (fresh.length === 1) return fresh[0];
+  }
   if (matched.length > 1)
     throw fail('ENTITY_AMBIGUOUS', 422, `「${name}」对上了 ${matched.length} 个实体，请先合并或改名。`);
   throw fail('ENTITY_NOT_FOUND', 404, `原文里的「${name}」还没有入账：先把这个人或地点建出来（或接受对应的提议）。`);
@@ -166,10 +174,11 @@ function entityByName(document: CreativeDocument, name: string): Entity {
 function resolveParticipant(
   document: CreativeDocument,
   participant: { entityId?: string; entityName?: string; as: Participation },
+  createdHere?: Set<string>,
 ): { entityId: string; as: Participation } {
   if (participant.entityId) return { entityId: participant.entityId, as: participant.as };
   if (participant.entityName) {
-    const entity = entityByName(document, participant.entityName);
+    const entity = entityByName(document, participant.entityName, createdHere);
     return { entityId: entity.id, as: participant.as };
   }
   throw fail('INVALID_INPUT', 400, '参与者要写人物 id 或名字。');
@@ -327,6 +336,8 @@ export function applyOps(
   const redraws: { legId: string; hint?: string }[] = [];
   const ids = options.ids ?? randomUUID;
   const at = options.at ?? new Date().toISOString();
+  /** 这一批里刚建出来的实体 id：同批的后续操作按名字引用时要优先认它们。 */
+  const createdHere = new Set<string>();
 
   for (const op of ops) {
     const summary = summaryOf(op, next);
@@ -345,6 +356,17 @@ export function applyOps(
         if (!ENTITY_KINDS.includes(op.entity.kind))
           throw fail('INVALID_INPUT', 400, '实体的种类只能是人物、地点、物件或组织。');
         if (!op.entity.name?.trim()) throw fail('INVALID_INPUT', 400, '实体要有名字。');
+        // 重名不静默再建一个（验收 B3：重名会让后面按名字引用的整批对不上）。
+        const duplicated = next.entities.find(
+          (item) => item.name === op.entity.name.trim() || (item.aliases ?? []).includes(op.entity.name!.trim()),
+        );
+        if (duplicated)
+          throw fail(
+            'ENTITY_EXISTS',
+            409,
+            `已经有一个叫「${op.entity.name.trim()}」的实体（${duplicated.kind === 'person' ? '人物' : duplicated.kind === 'place' ? '地点' : '对象'}）：先合并或改名，别重复建。`,
+            { entityId: duplicated.id },
+          );
         const entity: Entity = {
           ...(op.entity as Entity),
           id: ids(),
@@ -358,7 +380,7 @@ export function applyOps(
           };
           if (!place.parentId) {
             const parentName = (entity as { parentName?: string }).parentName;
-            if (parentName) place.parentId = entityByName(next, parentName).id;
+            if (parentName) place.parentId = entityByName(next, parentName, createdHere).id;
           }
           if (!PLACE_LEVELS.includes(place.level))
             throw fail('INVALID_INPUT', 400, '地点层级只能是世界、区域、城市、建筑、楼层、房间或场所。');
@@ -370,6 +392,7 @@ export function applyOps(
         }
         if (entity.kind === 'person' && !entity.person) entity.person = { born: null, died: null };
         next.entities.push(entity);
+        createdHere.add(entity.id);
         push({ entity });
         break;
       }
@@ -434,9 +457,11 @@ export function applyOps(
         if (!input.title?.trim()) throw fail('INVALID_INPUT', 400, '事件要有标题。');
         if (!input.participants?.length)
           throw fail('INVALID_INPUT', 400, '事件至少要有一个参与者。');
-        const participants = input.participants.map((participant) => resolveParticipant(next, participant));
+        const participants = input.participants.map((participant) =>
+          resolveParticipant(next, participant, createdHere),
+        );
         const placeId =
-          input.placeId ?? (input.placeName ? entityByName(next, input.placeName).id : null);
+          input.placeId ?? (input.placeName ? entityByName(next, input.placeName, createdHere).id : null);
         if (placeId) findEntity(next, placeId);
         const start = parseInput(next, input.start, '开始时间');
         const end = parseInput(next, input.end, '结束时间');
@@ -471,10 +496,10 @@ export function applyOps(
         delete patch.gaps;
         if (Array.isArray(patch.participants))
           patch.participants = (patch.participants as { entityId?: string; entityName?: string; as: Participation }[]).map(
-            (participant) => resolveParticipant(next, participant),
+            (participant) => resolveParticipant(next, participant, createdHere),
           );
         if (typeof patch.placeName === 'string' && !patch.placeId)
-          patch.placeId = entityByName(next, patch.placeName).id;
+          patch.placeId = entityByName(next, patch.placeName, createdHere).id;
         if (typeof patch.placeId === 'string') findEntity(next, patch.placeId);
         const merged: WorldEvent = {
           ...next.events[index],
