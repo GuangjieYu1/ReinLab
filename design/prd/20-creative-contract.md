@@ -454,11 +454,133 @@ type WorkOp =
 - 原创短篇：5,000–10,000 字，3–6 场。
 - 公版：《聊斋志异》选两三篇人物走动多、年代写得具体的，比如《王六郎》《聂小倩》《画皮》；原文用维基文库的版本，由用户拍板。
 
-## 6. MVP-1C（开工前 Claude 再补细节）
+## 6. MVP-1C · 多部作品共用一个世界观，改了设定怎么办（2026-11-09 补全）
 
-- `Work.baseVersion` 加上 `picks: { itemId, fromVersion }[]` 和 `overrides: { itemId, patch, note }[]`；`GET /works/:workId/effective` 还原这部作品实际采用的设定组合。
-- 改设定以后：`GET /v1/creative/worlds/:id/impact?fromVersion&toVersion` 返回 `{ items: { itemId, before, after, sure: { workId, chapterId, sceneId, why }[], maybe: { workId, chapterId, quote, why }[] }[] }`。
-- 作者决定：`POST /works/:workId/sync { itemId, decision:'follow'|'keep'|'change_world' }`。选「跟着改」时生成 `text_edit` 提议；未处理的地方标「待同步」。
+依据 19 §7、§10 的 1C 行、§11 的 1C 验收。1A、1B 的约定照旧：原子批次、服务端算好、前端不推断。
+
+一句话：**世界观可以往前改，每部作品自己决定跟不跟。** 改设定从不偷偷改作品；作品用哪套设定，随时能完整还原，检查和助手都按它来。
+
+### 6.1 三个概念
+
+- **草稿和版本**：世界观平时改的都是草稿（`World.version.draftChanges` 记有多少条没成版）。作者点「保存为版本」，草稿上的改动形成新版本 vN。旧版本只读，随时能看（`?version=n`，1A 已有）。
+- **设定条目**：版本差异按「条目」算。条目就是带稳定 id 的一样东西：实体、关系、事件、交通方式、规则、改造层。一条条目在一个版本里只有三种变化：新增、修改、删除。
+- **作品的设定组合**：作品记三样东西：
+  - 基准版本 `baseVersion`（建作品时锁定，1B 已有）；
+  - 逐条采用的更新 `picks`：比如「基于 v1，但城门位置用 v2 的」；
+  - 本作品局部改写 `overrides`：只对这部作品生效，明确标「本作品设定」。
+
+  三样合起来就是这部作品**实际用的设定**。检查、轨迹、写作助手、设定顾问，在这部作品里一律按它来。
+
+### 6.2 类型（追加到 `packages/contracts/src/creative.ts`）
+
+```ts
+type ItemKind = 'entity' | 'relation' | 'event' | 'mode' | 'rule' | 'edit';
+type ItemChange = {
+  itemId: string; kind: ItemKind; title: string;      // title 给人看：「阊门（地点）」「沈砚病故（事件）」
+  change: 'add' | 'update' | 'remove';
+  before: unknown | null; after: unknown | null;      // 该条目在两个版本里的完整内容（删除时 after 为 null）
+  fields: string[];                                   // 改了哪些字段，人话：「开始时间」「地点」「参与者」
+};
+// WorldVersion 追加：
+type WorldVersion = { n: number; at: Iso; summary: string; changes: number; items?: ItemChange[] };   // items 只在单独取版本时给
+
+// Work 追加：
+type WorkSetting = {
+  baseVersion: number;
+  picks: { itemId: string; fromVersion: number; at: Iso }[];          // 这条条目改用 fromVersion 的内容
+  overrides: { itemId: string; kind: ItemKind; patch: unknown; note: string; at: Iso }[];   // 本作品设定
+  decisions: { itemId: string; toVersion: number; decision: 'follow' | 'keep'; at: Iso }[];  // 作者对每条更新的决定（含「保留旧版」）
+  pendingSync: number;                                  // 还有多少处正文标着「待同步」
+};
+// Work 上直接带 setting: WorkSetting（baseVersion 移进来，保留原字段兼容）
+
+// 影响清单
+type ImpactRef =
+  | { kind: 'scene'; workId: string; chapterId: string; sceneId: string; para?: number; quote?: string }
+  | { kind: 'event'; eventId: string } | { kind: 'leg'; legId: string };
+type ImpactItem = {
+  change: ItemChange;
+  group: string;                                        // 同一原因的成组：比如「阊门挪了位置」牵出的所有路线和场景同一组
+  sure: (ImpactRef & { why: string })[];                // 程序沿引用和依赖找到的，确定受影响
+  maybe: (ImpactRef & { why: string; quote: string })[];// AI 在没有明确引用的正文里找到的，附原句和理由
+  works: { workId: string; uses: 'old' | 'new' | 'override'; decision: 'follow' | 'keep' | null; checkAfter: CheckRun | null }[];
+    // 每部作品现在用这条的哪个版本、作者决定了没有、采用新版后检查结果（服务端试算）
+};
+type ImpactReport = {
+  fromVersion: number; toVersion: number; items: ImpactItem[];
+  maybeScan: { state: 'none' | 'running' | 'done' | 'failed'; cost: CreativeCny; error?: string | null };
+};
+
+// 正文标注追加一种
+// TextMark.kind 加 'sync'：这一段因为某条设定更新待同步，refId = itemId
+```
+
+### 6.3 接口
+
+| 方法 | 路由 | 说明 |
+|---|---|---|
+| 版本详情 | `GET /v1/creative/worlds/:id/versions/:n` → `WorldVersion`（带 `items`） | 版本面板展开看「这一版改了什么」 |
+| 草稿差异 | `GET /v1/creative/worlds/:id/versions/draft` → `{ items: ItemChange[] }` | 「保存为版本」前先给作者看会存进哪些改动 |
+| 影响清单 | `GET /v1/creative/worlds/:id/impact?from=&to=` → `ImpactReport` | `sure` 当场算好；`maybe` 读最近一次扫描结果 |
+| 扫正文 | `POST /v1/creative/worlds/:id/impact/scan { from, to }` → `ImpactReport['maybeScan']` | AI 读各作品正文找「可能受影响」，异步、花钱、只记不拦；进度走 `creative.impact` 事件 |
+| 作品实际设定 | `GET /v1/creative/worlds/:id/works/:workId/effective` → `WorldSnapshot` | 同快照形状，内容是这部作品实际用的组合；`check` 也按组合算；条目上带 `setting: 'base' \| 'picked' \| 'override'` |
+| 决定 | `POST /works/:workId/ops`，用下面的 `WorkOp` | 同 1B，作品 revision 落后 409 |
+
+```ts
+type WorkOp = /* 1B 的全部 */
+  | { op: 'setting.follow'; itemId: string; toVersion: number }     // 跟着改：picks 加一条；sure 里的场景标 sync；记 decision
+  | { op: 'setting.keep'; itemId: string; toVersion: number }       // 保留旧版：只记 decision，不改 picks
+  | { op: 'setting.follow_version'; toVersion: number }             // 整版跟进：baseVersion 换成 toVersion，所有未决定的条目都按 follow 处理
+  | { op: 'override.set'; itemId: string; kind: ItemKind; patch: unknown; note: string }   // 本作品改写
+  | { op: 'override.remove'; itemId: string }
+  | { op: 'override.promote'; itemId: string }                     // 推广到共享世界观：生成一条世界观提议，作品这边不变，等提议被接受
+  | { op: 'sync.suggest'; itemId: string; sceneIds: string[] }      // 让写作助手按新设定出修改建议：异步，产出 text_edit 提议（同 1B 的生成任务）
+  | { op: 'sync.dismiss'; itemId: string; sceneId: string; reason: string };   // 「这里不用改」：去掉这一处待同步，记原因
+```
+
+规则：
+- **「改设定本身」不是作品上的操作**：页面带作者回世界观面改草稿，存成新版本后，影响清单按新版重算。历史版本不改写。
+- **跟着改 ≠ 改正文**：`setting.follow` 只换设定、给场景标「待同步」。正文要不要改、怎么改，由作者逐处决定：直接改、让助手出建议（`sync.suggest`）、或者「这里不用改」。接受 `text_edit` 提议后，这处待同步自动消掉。
+- **混用要查**：作品采用部分新设定后，服务端按新组合跑一遍检查。由混用新冒出来的冲突，在 `ImpactItem.works[].checkAfter` 和作品的 `effective.check` 里标出来，不能因为「各自都对」就算通过。
+- **局部改写**只影响本作品；在世界观面看这条条目时，列出「哪些作品改写了它」。`override.promote` 产出普通的世界观提议，走待确认，接受后进入草稿。
+- **新作品**：建作品时锁定当前最新的已确认版本；草稿上没成版的改动不进作品。
+- **可能影响（maybe）**：只是线索，作者可以忽略；忽略记在 decisions 里，不会反复冒出来。
+
+### 6.4 事件（追加）
+
+| `type` | `data` | 前端 |
+|---|---|---|
+| `creative.version` | `WorldVersion` | 新版本存好；有作品基于旧版时，弹「有 n 部作品可能受影响」 |
+| `creative.impact` | `ImpactReport['maybeScan']` | 扫正文的进度和花费 |
+| `creative.work` | 1B 已有 | `setting.*` / `sync.*` 之后重取作品 |
+
+### 6.5 页面（Claude 实现）
+
+- **世界观面 · 版本**（左栏「版本」一节，1A 只有按钮）：
+  - 版本列表：每版一行「v2 · 11 月 9 日 · 改了 3 条 · 摘要」，点开看条目变化（前后对照，只标改了的字段）；点「看这一版」进只读视图（1A 已有）。
+  - 「保存为版本」先弹草稿差异，填一句摘要再存。
+  - 存好以后，如果有作品基于旧版本，地图上方出提示「有 2 部作品基于 v1，看看受什么影响」→ 打开影响面板。
+- **影响面板**（世界观面右栏新的一页「影响」）：
+  - 按 `group` 分组，每组一行原因，比如「阊门往北挪了 300 米」，展开看条目前后对照；
+  - 下面按作品分行：用的是旧版还是新版、确定受影响的章节场景（点了跳过去）、可能受影响的原句（灰色，标「AI 找的，可能不准」）、采用新版后的检查结果（红黄）；
+  - 每部作品三个按钮：**跟着改 / 保留旧版 / 改设定**。「改设定」带回世界观面，选中这条条目进编辑；
+  - 顶部「让 AI 扫一遍正文」按钮，显示进度和花费；没扫过时 maybe 区写「还没扫」。
+- **小说面**：
+  - 作品头部一行：「基于 v1 · 采用了 v2 的 2 条 · 本作品改写 1 条 · 待同步 3 处」，点开是设定组合明细，每条可以撤销采用、取消改写。
+  - 正文里 `sync` 标注：段落左边一条橙线，悬停写「阊门位置在 v2 改了，这段可能要跟着改」，右键或点开有「让助手改 / 这里不用改」。
+  - 待同步的处理：「让助手改」就是 `sync.suggest`，结果进「待确认 · 正文改稿」，和 1B 一样看差异、接受。
+- **世界观面 · 按作品看**：顶栏加一个「按作品看」下拉。选了某部作品，地图、时间轴、检查都换成它的实际设定（只读，改写的条目标「本作品」）。
+
+### 6.6 验收（19 §11 的 1C）
+
+在 `dc55c5ff` 上做，两部作品《阊门夜行》《1B 页面验收 · 河边访友》都引用「阊门」和「出阊门」：
+1. 存 v3：把「阊门」挪个位置、把「出阊门」改早一小时；存版本前先看到草稿差异。
+2. 影响面板：两部作品都列出来；确定受影响的章节场景能跳过去；扫一遍正文，能找到没明确引用、但写了「阊门」的段落。
+3. 《阊门夜行》选「跟着改」：设定组合变成「v2 + 2 条 v3」，正文对应段落标待同步；让助手出一条修改建议并接受，这处待同步消掉。
+4. 《河边访友》选「保留旧版」：按作品看时，地图上阊门还在老位置；检查结果不变。
+5. 「改设定」：从影响面板跳回世界观面，再改一次，存成 v4；影响清单按 v4 重算。
+6. 在《阊门夜行》里对「顾嬷嬷」做一条本作品改写；世界观面看顾嬷嬷，能看到「被《阊门夜行》改写」；推广到共享世界观，变成一条待确认提议。
+7. 旧版本 v1、v2 都还能只读打开；刷新以后所有决定、组合、待同步都还在。
 
 ## 7. 断线与恢复
 

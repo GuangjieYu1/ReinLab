@@ -62,7 +62,7 @@ export function ProposalCard({ proposal: p, busy, decide, acceptText, source }: 
   </article>;
 }
 
-export function OutlineEditor({ work, snap, save, busy }: { work: Work; snap: WorldSnapshot; save: (o: Omit<Outline, 'state' | 'proposalIds'>, confirm: boolean) => Promise<void>; busy: boolean }) {
+export function OutlineEditor({ work, snap, save, busy, onDirty }: { work: Work; snap: WorldSnapshot; save: (o: Omit<Outline, 'state' | 'proposalIds'>, confirm: boolean) => Promise<void>; busy: boolean; onDirty?: (dirty: boolean) => void }) {
   const blankScene = () => ({ id: crypto.randomUUID(), title: '新场景', goal: '', eventIds: [] as string[], targetWords: null as number | null });
   const [draft, setDraft] = useState<Omit<Outline, 'state' | 'proposalIds'>>(() => {
     const current = work.chapters.map(c => ({ id: c.id, title: c.title, scenes: c.scenes.map(sc => ({ id: sc.id, title: sc.title, goal: sc.goal, eventIds: sc.eventIds, targetWords: sc.targetWords })) }));
@@ -77,7 +77,11 @@ export function OutlineEditor({ work, snap, save, busy }: { work: Work; snap: Wo
     return { logline: work.outline?.logline ?? '', pov: work.outline?.pov ?? '', ending: work.outline?.ending ?? '', chapters: chapters.length ? chapters : [{ id: crypto.randomUUID(), title: '第一章', scenes: [blankScene()] }] };
   });
   const [error, setError] = useState('');
-  const submit = async (confirm: boolean) => { setError(''); try { await save(draft, confirm); } catch (e) { setError((e as Error).message); } };
+  // 改过还没保存：告诉外面，切页时要提醒，不然会悄悄丢
+  const first = useRef(true);
+  useEffect(() => { if (first.current) { first.current = false; return; } onDirty?.(true); }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onDirty?.(false), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const submit = async (confirm: boolean) => { setError(''); try { await save(draft, confirm); onDirty?.(false); } catch (e) { setError((e as Error).message); } };
   return <div className="cw-pane cw-form"><h3>大纲 · {work.outline?.state === 'confirmed' ? '已确认' : '待确认'}</h3>
     {(['logline', 'pov', 'ending'] as const).map((key, i) => <label key={key}>{['主线', '视角', '结局方向'][i]}<textarea value={draft[key]} onChange={e => setDraft({ ...draft, [key]: e.target.value })} /></label>)}
     {draft.chapters.map((c, ci) => <fieldset key={c.id}><legend>第 {ci + 1} 章</legend><input aria-label={`第 ${ci + 1} 章标题`} value={c.title} onChange={e => setDraft({ ...draft, chapters: draft.chapters.map((x, i) => i === ci ? { ...x, title: e.target.value } : x) })} />
