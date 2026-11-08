@@ -13,12 +13,13 @@ import { CreativeAssistant } from './NovelPanels';
 import WorldMap, { type DrawMode, type MapPick } from './WorldMap';
 import StoryTimeline from './StoryTimeline';
 import { CheckPanel, Detail, KIND_ZH, ProposalList, submitChunks, type Sel } from './Panels';
+import { ImpactPanel, VersionsPanel } from './Impact';
 import { EditForm, EntityForm, EventForm, ModeForm, RuleForm, type DrawReq, type FormKind } from './Forms';
 import '../../engineering/dev.css';
 import '../creative.css';
 import './live.css';
 
-type Tab = 'check' | 'props' | 'detail' | 'form' | 'assistant';
+type Tab = 'check' | 'props' | 'detail' | 'form' | 'assistant' | 'impact';
 const EMPTY_FC: EditFeatures = { type: 'FeatureCollection', features: [] };
 
 /** 创作台真实模式 · 世界观面（20-creative-contract.md §4）。小说面接 1B，视频留到 MVP-3。 */
@@ -30,6 +31,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const [novelTarget, setNovelTarget] = useState<{ workId: string; chapterId?: string; sceneId?: string }>();
   const [snap, setSnap] = useState<WorldSnapshot | null>(null), [loadErr, setLoadErr] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);        // 正在只读查看的历史版本
+  const [asWork, setAsWork] = useState<string | null>(null);          // 按某部作品的实际设定看（只读）
   const [cfg, setCfg] = useState<MapConfig | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]), [trackLegs, setTrackLegs] = useState<CreativeRouteLeg[]>([]);
   const [t, setT] = useState(0), [edits, setEdits] = useState<EditFeatures>(EMPTY_FC);
@@ -41,16 +43,16 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const [focus, setFocus] = useState<{ coords: LngLat[]; n: number } | null>(null);
   const bbox = useRef<[number, number, number, number] | null>(null);
   const [xpOpen, setXpOpen] = useState(true), [xpView, setXpView] = useState<ExplorerView>('files');
-  const [verName, setVerName] = useState(''), [netMsg, setNetMsg] = useState<string | null>(null);
+  const [netMsg, setNetMsg] = useState<string | null>(null);
   const snapRef = useRef(snap); snapRef.current = snap;
   useEffect(() => { void adapter.proposals({ kind: 'route', status: 'rejected', limit: '20' }).then(r => setVoided(r.proposals.filter(p => p.resolution?.by === 'agent'))).catch(() => {}); }, [adapter, snap?.world.revision]);
-  const readOnly = viewing != null;
+  const readOnly = viewing != null || asWork != null;
 
   // ── 取数 ──
   const reload = useCallback(async () => {
-    try { const s = await adapter.load(viewing ?? undefined); setSnap(s); setLoadErr(null); return s; }
+    try { const s = asWork ? await adapter.effective(asWork) : await adapter.load(viewing ?? undefined); setSnap(s); setLoadErr(null); return s; }
     catch (e) { setLoadErr((e as Error).message); return null; }
-  }, [adapter, viewing]);
+  }, [adapter, viewing, asWork]);
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => { adapter.mapConfig().then(setCfg, () => setCfg(null)); }, [adapter]);
   const span = useMemo<[number, number] | null>(() => {
@@ -84,6 +86,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
     const stop = adapter.subscribe(cursor, ev => {
       if (ev.type === 'creative.check') setSnap(s => s ? { ...s, check: ev.data as CheckRun } : s);
       else if (ev.type === 'creative.usage') setCost(ev.data.cost);
+      else if (ev.type === 'creative.version') { const n = ev.data.n; void adapter.works().then(ws => { setWorks(ws); const old = ws.filter(w => (w.setting?.baseVersion ?? w.baseVersion) < n).length; if (old) { setNotice(`已存为 v${n}。有 ${old} 部作品还基于旧版本，可以在右栏「影响」里看各自受什么影响。`); setTab('impact'); } }).catch(() => {}); }
       else if (ev.type === 'creative.network') { setSnap(s => s ? { ...s, world: { ...s.world, network: ev.data } } : s); if (ev.data.state !== 'importing') soon(); }
       else soon();
     }, soon);
@@ -177,7 +180,6 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
     const b = bbox.current ?? [73, 18, 135, 54];
     await send([{ op: 'world.set', patch: { basemap: kind === 'real' ? { kind: 'real', bbox: b } : { kind: 'blank', scaleKmPerUnit: null } } }]);
   });
-  const saveVersion = () => void act(async () => { const v = await adapter.saveVersion(verName.trim() || '手动保存'); setVerName(''); setNotice(`已保存为 v${v.n}（${v.changes} 处改动）。`); await reload(); });
 
   // ── 左栏 ──
   const placeTree = (parent: string | null): { name: string; path: string; ext?: string; children?: any[]; meta?: any }[] =>
@@ -205,10 +207,8 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
         <label className="rh-btn cw-file">上传 Azgaar 道路 GeoJSON<input type="file" accept=".geojson,.json,application/geo+json" onChange={e => { const f = e.target.files?.[0]; if (f) importAzgaar(f); e.target.value = ''; }} /></label></>}
       {netMsg && <small>{netMsg}</small>}
     </div> },
-    { id: 'versions', title: '版本', count: snap.versions.length, folded: true, body: <div className="cw-net">
-      <div className="dv-xp-list">{snap.versions.slice().reverse().map(v => <button key={v.n} aria-current={viewing === v.n || undefined} onClick={() => { setViewing(v.n); setSel(null); }}><b>v{v.n} · {v.summary}</b><small>{new Date(v.at).toLocaleString()} · {v.changes} 处</small></button>)}</div>
-      {!readOnly && <div className="cw-row"><input value={verName} onChange={e => setVerName(e.target.value)} placeholder="这一版改了什么" /><button className="rh-btn" disabled={busy} onClick={saveVersion}>保存为版本</button></div>}
-    </div> },
+    { id: 'versions', title: '版本', count: snap.versions.length, folded: true, body: <VersionsPanel adapter={adapter} snap={snap} viewing={viewing} busy={busy} readOnly={readOnly}
+      onView={n => { setAsWork(null); setViewing(n); setSel(null); }} onSave={summary => act(async () => { const v = await adapter.saveVersion(summary); setNotice(`已保存为 v${v.n}（${v.changes} 条改动）。`); await reload(); })} /> },
   ] : [];
 
   // ── 右栏 ──
@@ -240,9 +240,12 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
         <header className="dv-bar cr-bar">
           <div className="dv-bar-id"><b>WORLD</b><small>世界观<br />CANON</small></div>
           <div className="cr-work"><small>WORLD · 以地图为主</small><strong>《{title}》</strong><span>{snap ? `${places.length} 个地点 · ${snap.events.length} 条事件 · ${snap.legs.length} 段行程` : '载入中…'}</span></div>
-          {!readOnly && snap && <div className="cw-bar-acts"><button className="rh-btn" onClick={() => openForm({ kind: 'event', personId: sel?.kind === 'person' ? sel.id : undefined })}>＋ 事件</button></div>}
+          {snap && <div className="cw-bar-acts">
+            {works.length > 0 && <select className="cw-aswork" aria-label="按作品看" value={asWork ?? ''} onChange={e => { setViewing(null); setAsWork(e.target.value || null); setSel(null); }}><option value="">看草稿（共享世界观）</option>{works.map(w => <option key={w.id} value={w.id}>按《{w.title}》看</option>)}</select>}
+            {!readOnly && <button className="rh-btn" onClick={() => openForm({ kind: 'event', personId: sel?.kind === 'person' ? sel.id : undefined })}>＋ 事件</button>}</div>}
         </header>
-        {readOnly && <div className="cw-banner">正在只读查看 v{viewing}（历史版本不做检查）<button className="rh-btn" onClick={() => setViewing(null)}>回到草稿</button></div>}
+        {viewing != null && <div className="cw-banner">正在只读查看 v{viewing}（历史版本不做检查）<button className="rh-btn" onClick={() => setViewing(null)}>回到草稿</button></div>}
+        {asWork && (() => { const w = works.find(x => x.id === asWork), st = w?.setting; return <div className="cw-banner">按《{w?.title}》的实际设定看（只读）：基于 v{st?.baseVersion ?? w?.baseVersion}{st?.picks.length ? ` · 采用了 ${st.picks.length} 条新设定` : ''}{st?.overrides.length ? ` · 本作品改写 ${st.overrides.length} 条` : ''} · 检查按这套组合算<button className="rh-btn" onClick={() => setAsWork(null)}>回到草稿</button></div>; })()}
         {notice && <div className="cw-banner" role="status">{notice}<button className="rh-btn" onClick={() => setNotice(null)}>知道了</button></div>}
         {net?.state === 'failed' && <div className="cw-banner" role="alert">路网导入失败：{net.error || '原因未知'}。{realMap ? '把地图移到故事发生的地方，再按当前视野重新导入。' : '可以重新上传道路文件。'}</div>}
         {loadErr && !snap ? <div className="cw-blank"><p>世界观没读出来：{loadErr}</p><button className="rh-btn" onClick={() => void reload()}>重试</button></div>
@@ -268,6 +271,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
           <button role="tab" aria-selected={tab === 'check'} onClick={() => setTab('check')}>检查<em data-sev={hard ? 'hard' : sus ? 'suspect' : undefined}>{hard + sus || ''}</em></button>
           <button role="tab" aria-selected={tab === 'props'} onClick={() => setTab('props')}>待确认<em>{pending || ''}</em></button>
           <button role="tab" aria-selected={tab === 'detail'} onClick={() => setTab('detail')} disabled={!sel}>详情</button>
+          <button role="tab" aria-selected={tab === 'impact'} onClick={() => setTab('impact')}>影响</button>
           <button role="tab" aria-selected={tab === 'assistant'} onClick={() => setTab('assistant')}>顾问</button>
           {form && <button role="tab" aria-selected={tab === 'form'} onClick={() => setTab('form')}>编辑</button>}
         </nav>
@@ -275,6 +279,9 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
           {!snap ? null
             : tab === 'check' ? <CheckPanel check={snap.check} look={look} sel={selConf?.id ?? null} onSel={pickConflict} onApply={applyFixes} onRecheck={recheck} busy={busy || readOnly} />
             : tab === 'props' ? <><button className="rh-btn" onClick={() => setFace('novel')}>小说提议、候选与正文改稿 →</button><ProposalList voided={voided} proposals={snap.proposals.filter(p => p.kind === 'route')} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} /></>
+            : tab === 'impact' ? <ImpactPanel adapter={adapter} snap={snap} works={works} onOpenScene={ref => { setNovelTarget(ref); setFace('novel'); }}
+                onWorksChanged={() => void adapter.works().then(setWorks)}
+                onEditItem={c => { setAsWork(null); setViewing(null); const ent = snap.entities.find(e => e.id === c.itemId); const s: Sel | null = c.kind === 'event' ? { kind: 'event', id: c.itemId } : ent ? { kind: ent.kind === 'place' ? 'place' : 'person', id: c.itemId } : c.kind === 'rule' ? { kind: 'rule', id: c.itemId } : c.kind === 'mode' ? { kind: 'mode', id: c.itemId } : c.kind === 'edit' ? { kind: 'edit', id: c.itemId } : null; if (s) { setSel(s); editSel(s); setNotice('改完存成新版本，影响清单会按新版本重算。'); } }} />
             : tab === 'assistant' ? <CreativeAssistant adapter={adapter} onUpdate={() => void reload()} initialMode="creative_advisor" />
             : tab === 'form' && form ? formFor(form)
             : sel ? <Detail works={works} onOpenWork={ref => { setNovelTarget(ref); setFace('novel'); }} sel={sel} look={look} legs={legs} edits={snap.edits} modes={snap.modes} conflicts={conflicts} onPick={pick} onEdit={readOnly ? () => {} : editSel} onRemove={readOnly ? () => {} : removeSel} onDraw={drawRoute} onRedraw={id => redraw(id)} />

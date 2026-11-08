@@ -122,12 +122,16 @@ export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, 
 }) {
   const name = (id: string | null | undefined) => (id && look.entities.get(id)?.name) || '未定';
   const tools = (removable = true) => <div className="cw-row"><button className="rh-btn" onClick={() => onEdit(sel)}>编辑</button>{removable && <button className="rh-btn" onClick={() => onRemove(sel)}>删除</button>}</div>;
+  // 1C：条目被哪些作品改写；按作品看时标出这条用的是基准、采用的新版还是本作品改写
+  const ov = (x: { overriddenBy?: { workId: string; workTitle: string }[]; setting?: string } | undefined) => <>
+    {x?.setting && x.setting !== 'base' && <p className="cw-ov" data-k={x.setting}>{x.setting === 'override' ? '本作品改写' : '采用了新版设定'}</p>}
+    {!!x?.overriddenBy?.length && <p className="cw-ov">被{x.overriddenBy.map(w => `《${w.workTitle}》`).join('、')}改写（只对那部作品生效）</p>}</>;
   const flagsOf = (pred: (c: CreativeConflict) => boolean) => conflicts.filter(pred).map(c => <p key={c.id} className="cw-flag" data-sev={c.severity}>{KIND_ZH[c.kind]} · {c.why}</p>);
   if (sel.kind === 'event') {
     const e = look.events.get(sel.id); if (!e) return <p className="cw-muted">这条事件已经不在了。</p>;
     const time = (s: WorldEvent['start']) => <>{s.label}{s.certainty !== 'exact' && <small> · {s.certainty === 'range' ? '范围' : s.certainty === 'relative' ? '相对' : '未知'}</small>}</>;
     return <div className="cw-pane cw-detail">
-      <span className="rh-micro">事件 · {NARR_ZH[e.narrative]} · {BASIS_ZH[e.origin.basis] ?? e.origin.basis}</span><h3>{e.title}</h3>{e.what && <p>{e.what}</p>}
+      <span className="rh-micro">事件 · {NARR_ZH[e.narrative]} · {BASIS_ZH[e.origin.basis] ?? e.origin.basis}</span><h3>{e.title}</h3>{ov(e as never)}{e.what && <p>{e.what}</p>}
       {flagsOf(c => c.eventIds.includes(e.id))}
       <dl>
         <div><dt>开始</dt><dd>{time(e.start)}</dd></div><div><dt>结束</dt><dd>{time(e.end)}</dd></div>
@@ -147,7 +151,7 @@ export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, 
       .sort((a, b) => (a.start.t ?? Infinity) - (b.start.t ?? Infinity));
     const kids = [...look.entities.values()].filter(x => x.place?.parentId === e.id);
     return <div className="cw-pane cw-detail">
-      <span className="rh-micro">{sel.kind === 'person' ? '人物' : `地点 · ${LEVEL_ZH[e.place?.level ?? 'site']}`}{e.aliases.length ? ` · 又名 ${e.aliases.join('、')}` : ''}</span><h3>{e.name}</h3>{e.summary && <p>{e.summary}</p>}
+      <span className="rh-micro">{sel.kind === 'person' ? '人物' : `地点 · ${LEVEL_ZH[e.place?.level ?? 'site']}`}{e.aliases.length ? ` · 又名 ${e.aliases.join('、')}` : ''}</span><h3>{e.name}</h3>{ov(e as never)}{e.summary && <p>{e.summary}</p>}
       {flagsOf(c => c.entityIds.includes(e.id))}
       {e.place && <dl>
         <div><dt>上级</dt><dd>{e.place.parentId ? <button className="cw-link" onClick={() => onPick({ kind: 'place', id: e.place!.parentId! })}>{name(e.place.parentId)}</button> : '—'}</dd></div>
@@ -176,7 +180,7 @@ export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, 
   if (sel.kind === 'edit') {
     const e = edits.find(x => x.id === sel.id); if (!e) return <p className="cw-muted">这个改造已经不在了。</p>;
     return <div className="cw-pane cw-detail">
-      <span className="rh-micro">改造层 · {EFFECT_ZH[e.effect]}</span><h3>{e.title}</h3>
+      <span className="rh-micro">改造层 · {EFFECT_ZH[e.effect]}</span><h3>{e.title}</h3>{ov(e as never)}
       <dl><div><dt>生效</dt><dd>{e.valid.from?.label ?? '一直'} → {e.valid.to?.label ?? '一直'}</dd></div>
         {e.props?.name && <div><dt>名称</dt><dd>{e.props.name}</dd></div>}
         {e.target?.placeId && <div><dt>对象</dt><dd>{name(e.target.placeId)}</dd></div>}
@@ -185,7 +189,7 @@ export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, 
       {tools()}
     </div>;
   }
-  if (sel.kind === 'mode') { const m = modes.find(x => x.id === sel.id); return m ? <div className="cw-pane cw-detail"><span className="rh-micro">交通方式</span><h3>{m.name}</h3><p>{m.kmPerHour} km/小时 · {m.network === 'road' ? '走路网' : m.network === 'water' ? '走水路' : m.network === 'any' ? '不限' : '不走路网'}{m.note ? ` · ${m.note}` : ''}</p>{tools()}</div> : null; }
+  if (sel.kind === 'mode') { const m = modes.find(x => x.id === sel.id); return m ? <div className="cw-pane cw-detail"><span className="rh-micro">交通方式</span><h3>{m.name}</h3>{ov(m as never)}<p>{m.kmPerHour} km/小时 · {m.network === 'road' ? '走路网' : m.network === 'water' ? '走水路' : m.network === 'any' ? '不限' : '不走路网'}{m.note ? ` · ${m.note}` : ''}</p>{tools()}</div> : null; }
   const r = look.rules.get(sel.id);
   return r ? <div className="cw-pane cw-detail"><span className="rh-micro">规则 · {r.machine ? '程序能判' : '自然语言，检查里显示「未覆盖」'}</span><p>{r.text}</p>{tools()}</div> : null;
 }

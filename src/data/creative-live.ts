@@ -60,6 +60,11 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
     importNetwork: req => call('POST', `${base}/network/import`, req),
     uploadAsset: (name, content) => call('POST', `${base}/assets`, { name, content, format: 'geojson' }),
     saveVersion: summary => call('POST', `${base}/versions`, { summary }),
+    version: n => call('GET', `${base}/versions/${n}`),
+    draftDiff: () => call('GET', `${base}/versions/draft`),
+    impact: (from, to) => call('GET', `${base}/impact?from=${from}&to=${to}`),
+    impactScan: (from, to) => call('POST', `${base}/impact/scan`, { from, to }),
+    effective: workId => call('GET', `${base}/works/${enc(workId)}/effective`),
     mapConfig: () => call('GET', '/v1/explore/map-config'),
     subscribe(after, on, onGap) {
       const ctl = new AbortController();

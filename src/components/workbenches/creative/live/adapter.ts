@@ -1,8 +1,6 @@
 // 创作台真实模式的数据边界（design/prd/20-creative-contract.md §2、22-creative-1a-frontend-brief.md）。
 // 页面只认这个接口；冲突、路程、故事时间换算都由服务端算，前端不推断。
-import type {
-  Work, WorkOp, Proposal, ImportJob, GenerateJob, TextEdit, CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GeoJSON, NetworkStatus, Track, WorldSnapshot, WorldVersion,
-} from '../../../../../packages/contracts/src/creative';
+import type { CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GenerateJob, GeoJSON, ImpactReport, ImportJob, ItemChange, NetworkStatus, Proposal, TextEdit, Track, Work, WorkOp, WorldSnapshot, WorldVersion } from '../../../../../packages/contracts/src/creative';
 import type { MapConfig } from '../../explore/live/adapter';
 
 /** edits/geojson 返回的要素集合（geometry 可能为 null：目标对不上，待确认）。 */
@@ -21,6 +19,8 @@ export type CreativeStreamEvent =
   | { seq: number; type: 'creative.proposal'; data: unknown }
   | { seq: number; type: 'creative.leg'; data: CreativeRouteLeg }
   | { seq: number; type: 'creative.network'; data: NetworkStatus }
+  | { seq: number; type: 'creative.version'; data: WorldVersion }
+  | { seq: number; type: 'creative.impact'; data: ImpactReport['maybeScan'] }
   | { seq: number; type: 'creative.usage'; data: { cost: { value: number | null; known: boolean } } };
 
 export interface CreativeAdapter {
@@ -52,6 +52,12 @@ export interface CreativeAdapter {
   importNetwork(req: NetworkImport): Promise<{ jobId: string }>;
   uploadAsset(name: string, content: string): Promise<{ assetId: string }>;
   saveVersion(summary: string): Promise<WorldVersion>;
+  /** 1C：版本差异、草稿差异、影响清单、扫正文、作品实际设定。 */
+  version(n: number): Promise<WorldVersion>;
+  draftDiff(): Promise<{ items: ItemChange[] }>;
+  impact(from: number, to: number): Promise<ImpactReport>;
+  impactScan(from: number, to: number): Promise<ImpactReport['maybeScan']>;
+  effective(workId: string): Promise<WorldSnapshot>;
   mapConfig(): Promise<MapConfig>;
   /** 从 after 起订阅；seq 跳号或断线由页面重取快照兜底。 */
   subscribe(after: number, on: (e: CreativeStreamEvent) => void, onGap: () => void): () => void;
