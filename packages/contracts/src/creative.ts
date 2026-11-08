@@ -126,6 +126,8 @@ export type WorldEvent = {
    */
   participants: { entityId: string; entityName?: string; as: Participation }[];
   placeId: string | null;
+  /** 同 entityName：地点还在待确认里时只写名字，接受提议时解析，解析不到整批拒绝。 */
+  placeName?: string;
   start: StoryTime;
   end: StoryTime;
   travel?: { fromId: string | null; toId: string | null; modeId: string | null } | null;
