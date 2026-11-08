@@ -49,7 +49,7 @@ export function ProposalCard({ proposal: p, busy, decide, acceptText, source }: 
     {p.doubts.map((d, i) => <p key={i} className="cw-warn">待确认：{d}</p>)}
     {p.dependsOn.length > 0 && <p>依赖提议：{p.dependsOn.join('、')}（请先处理依赖项）</p>}
     {p.conflicts.map(c => <p key={c.id} className="cw-flag" data-sev={c.severity}>{c.severity === 'hard' ? '确定冲突' : '疑似冲突'}：{c.why}</p>)}
-    {p.kind === 'itinerary' && <details><summary>人物、事件与路线</summary>{p.ops.map((op, i) => <p key={i}>{op.op === 'entity.add' ? `人物：${op.entity.name}` : op.op === 'event.add' ? `事件：${op.event.title} · ${op.event.what ?? ''}` : op.op === 'route.draw' ? '路线：已附行程路径' : op.op === 'relation.add' ? '人物关系：随提议一并提交' : '关联设定修改'}</p>)}{!p.conflicts.length && <p>本次硬检查未报告冲突；请同时核对疑点。</p>}</details>}
+    {p.kind === 'itinerary' && <details><summary>人物、事件与路线</summary>{p.ops.map((op, i) => <p key={i}>{op.op === 'entity.add' ? `${({ person: '人物', place: '地点', item: '物件', org: '组织' } as Record<string, string>)[(op.entity as { kind?: string }).kind ?? ''] ?? '设定'}：${op.entity.name}` : op.op === 'event.add' ? `事件：${op.event.title} · ${op.event.what ?? ''}` : op.op === 'route.draw' ? '路线：已附行程路径' : op.op === 'relation.add' ? '人物关系：随提议一并提交' : '关联设定修改'}</p>)}{!p.conflicts.length && <p>本次硬检查未报告冲突；请同时核对疑点。</p>}</details>}
     {edit && <>{edit.mode === 'continue' || !edit.before ? <p className="cn-diff-note"><span className="rh-micro">{edit.mode === 'continue' ? '接在本场末尾' : '起稿'}</span></p> : <DiffView before={edit.before} after={after} />}
       <details className="cn-diff-edit" open={after !== edit.after}><summary>改一改再接受</summary><textarea aria-label="修改后正文" value={after} onChange={e => setAfter(e.target.value)} rows={7} disabled={!pending(p)} /></details></>}
     {pending(p) ? <div className="cw-row">
