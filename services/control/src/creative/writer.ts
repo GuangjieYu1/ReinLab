@@ -98,6 +98,12 @@ export const generateJobOf = (document: GenerateJobDocument): GenerateJob => ({
   cost: document.cost,
 });
 
+// 写入任务状态前锁住同一行，停止与场次完成不能相互覆盖。
+async function lockGenerateJob(client: pg.PoolClient, account: string, dossier: string, jobId: string) {
+  await client.query("select id from creative_job where account_id=$1 and dossier_id=$2 and id=$3 and kind='generate' for update", [account, dossier, jobId]);
+  return readGenerateJob(client, account, dossier, jobId);
+}
+
 export async function readGenerateJob(
   client: pg.PoolClient,
   account: string,
@@ -215,7 +221,7 @@ export async function runGenerate(
 ): Promise<void> {
   if (!deps.model) {
     await database.withAccount(account, async (client) => {
-      const job = await readGenerateJob(client, account, dossier, jobId);
+      const job = await lockGenerateJob(client, account, dossier, jobId);
       job.state = 'failed';
       job.error = '本机没配置模型 key，生成开不了。';
       await saveJob(client, { account, dossier, workId: job.workId }, job);
@@ -225,7 +231,7 @@ export async function runGenerate(
   }
   for (;;) {
     const step = await database.withAccount(account, async (client) => {
-      const job = await readGenerateJob(client, account, dossier, jobId);
+      const job = await lockGenerateJob(client, account, dossier, jobId);
       if (job.state === 'stopped' || job.state === 'failed' || job.state === 'done') return null;
       const pending = job.sceneIds.find((id) => !job.done.includes(id));
       if (!pending) {
@@ -276,7 +282,7 @@ export async function runGenerate(
       if (!body) throw new ApiFailure('GENERATE_EMPTY', 503, '模型没有给出正文。');
       const why = clip(parsed?.why ?? '', 500);
       // 改写要给出被替换的那一段原话，接受时才能准确替换（不是拿整场的前 400 字顶替）。
-      const before = job.mode === 'rewrite' ? rangeTextOf(scene.text, job.range) : '';
+      const before = job.mode === 'rewrite' ? rangeTextOf(scene.text, job.range) : scene.text;
       const cost = costOf(deps, result.usage);
       await database.withAccount(account, async (client) => {
         const work = (
@@ -287,7 +293,7 @@ export async function runGenerate(
         ).rows[0];
         if (!work) throw new ApiFailure('WORK_NOT_FOUND', 404, '找不到这部作品。');
         const { scene: target } = sceneOf(work.document, sceneId);
-        const text = job.mode === 'rewrite' ? body : job.mode === 'continue' ? `${target.text.trim()}\n\n${body}`.trim() : body;
+        const text = job.mode === 'rewrite' ? body : job.mode === 'continue' ? `${scene.text.trim()}\n\n${body}`.trim() : body;
         const proposal: Proposal = {
           id: randomUUID(),
           batchId: `generate_${job.id}`,
@@ -299,7 +305,7 @@ export async function runGenerate(
               op: 'text.set',
               workId: job.workId,
               sceneId,
-              baseTextVersion: target.textVersion,
+              baseTextVersion: scene.textVersion,
               mode: job.mode,
               range: job.range ?? null,
               before,
@@ -331,7 +337,7 @@ export async function runGenerate(
         let sceneState: 'generating' | 'draft' | 'written' = 'draft';
         if (autoAccept) {
           const applied = applyWorkOps(work.document, [
-            { op: 'text.set', sceneId, baseTextVersion: target.textVersion, text },
+            { op: 'text.set', sceneId, baseTextVersion: scene.textVersion, text },
           ]);
           sceneState = 'written';
           await client.query(
@@ -339,13 +345,14 @@ export async function runGenerate(
             [account, dossier, job.workId, work.revision + 1, JSON.stringify(applied.next)],
           );
         }
+        const currentJob = await lockGenerateJob(client, account, dossier, jobId);
         const nextJob: GenerateJobDocument = {
-          ...job,
-          done: [...job.done, sceneId],
+          ...currentJob,
+          done: [...new Set([...currentJob.done, sceneId])],
           cost:
             cost.known && cost.value !== null
-              ? { value: Number(((job.cost.value ?? 0) + cost.value).toFixed(6)), known: true }
-              : { value: job.cost.value, known: job.cost.known && cost.known },
+              ? { value: Number(((currentJob.cost.value ?? 0) + cost.value).toFixed(6)), known: true }
+              : { value: currentJob.cost.value, known: currentJob.cost.known && cost.known },
           error: null,
         };
         await saveJob(client, { account, dossier, workId: job.workId }, nextJob);
@@ -376,7 +383,8 @@ export async function runGenerate(
     } catch (error) {
       const failure = error instanceof ApiFailure ? error.message : String((error as Error)?.message ?? error);
       await database.withAccount(account, async (client) => {
-        const jobNow = await readGenerateJob(client, account, dossier, jobId);
+        const jobNow = await lockGenerateJob(client, account, dossier, jobId);
+        if (jobNow.state === 'stopped') return;
         jobNow.state = 'failed';
         jobNow.error = clip(failure, 300);
         await saveJob(client, { account, dossier, workId: jobNow.workId }, jobNow);
@@ -393,7 +401,7 @@ export async function stopGenerate(
   dossier: string,
   jobId: string,
 ): Promise<GenerateJobDocument> {
-  const job = await readGenerateJob(client, account, dossier, jobId);
+  const job = await lockGenerateJob(client, account, dossier, jobId);
   if (job.state === 'running') job.state = 'stopped';
   await saveJob(client, { account, dossier, workId: job.workId }, job);
   await appendEvents(client, { account, dossier }, [{ type: 'creative.generate', data: generateJobOf(job) }]);

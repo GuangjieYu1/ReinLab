@@ -1,0 +1,76 @@
+/* 1B 沿用创作台 / 小说面的纸面、正文和卡片样式，仅补真实数据控件布局。 */
+.cn-scroll { overflow:auto; min-height:0; flex:1; }
+.cn .cw-form label { display:grid; gap:6px; margin-bottom:10px; }
+.cn input:not([type=checkbox]), .cn select, .cn textarea { max-width:100%; box-sizing:border-box; }
+.cn .cw-pane textarea { width:100%; }
+.cn pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
+.cn .cw-pane fieldset { border:1px solid var(--rh-line); margin:10px 0; }
+.cn .cw-pane h3 { margin:8px 0; }
+.cn .cw-pane blockquote { margin:10px 0; padding-left:12px; border-left:2px solid var(--rh-line); }
+.cn-tree-scene { display:flex; align-items:center; }
+.cn-tree-scene button { flex:1; }
+.cn .cw-row { flex-wrap:wrap; }
+.cn .cw-side-body > div[hidden] { display:none; }
+.cn .ad { min-height:480px; height:65vh; width:100%; }
+.cn-manuscript { min-height:0; flex:1; display:block; }
+.cn-manuscript .nv-ms { height:100%; }
+.cn-manuscript .nv-para { margin-bottom:14px; }
+.cn-manuscript .nv-para textarea { height:100%; }
+.cn-manuscript .nv-mark[data-kind=stale_source] { color:var(--rh-ink-4); text-decoration:underline dotted; }
+.cn-manuscript .nv-mark[data-sev=hard] { text-decoration-color:var(--cw-red); }
+.cn-manuscript .nv-mark[data-sev=suspect] { text-decoration-color:var(--cw-amber); }
+
+/* ── Claude 审阅后（2026-11-09）：表单控件统一成莱茵样式，正文以外的部分不再像后台表单 ── */
+.cn input:not([type=checkbox]):not([type=file]), .cn select, .cn .cw-pane textarea, .cn .cn-diff-edit textarea {
+  font:400 13px/1.5 var(--rh-f-ui); color:var(--rh-ink); background:var(--rh-white);
+  border:1px solid var(--rh-line); border-radius:0; padding:6px 8px; outline:none; }
+.cn input:not([type=checkbox]):focus, .cn select:focus, .cn textarea:focus { border-color:var(--rh-ink); }
+.cn select { appearance:none; padding-right:24px; cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--rh-ink) 50%),linear-gradient(135deg,var(--rh-ink) 50%,transparent 50%);
+  background-position:calc(100% - 13px) 50%,calc(100% - 8px) 50%; background-size:5px 5px; background-repeat:no-repeat; }
+.cn .cw-form label, .cn .cn-field { font:600 11px/1.3 var(--rh-f-mono); letter-spacing:.04em; color:var(--rh-ink-3); text-transform:none; }
+.cn .cn-field { display:grid; gap:6px; margin-bottom:10px; }
+.cn .cn-field small { font-weight:400; color:var(--rh-ink-4); margin-left:4px; }
+.cn .cw-pane h3 { font:700 15px/1.3 var(--rh-f-ui); }
+
+/* 左栏：勾选框和场景名同一行 */
+.cn-tree-scene { gap:6px; padding-left:4px; }
+.cn-tree-scene input[type=checkbox] { margin:0; flex:none; accent-color:var(--rh-ink); }
+.cn-work-set { margin-top:8px; border-top:1px solid var(--rh-line); padding-top:6px; }
+.cn-work-set summary { cursor:pointer; font:600 11px/1.6 var(--rh-f-mono); color:var(--rh-ink-3); }
+.cn-work-set label { display:grid; gap:4px; margin:8px 0; font:500 11px/1.3 var(--rh-f-ui); color:var(--rh-ink-3); }
+
+/* 引用事件：小标签 */
+.cn-chips { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+.cn-chip { display:inline-flex; align-items:center; gap:4px; padding:2px 4px 2px 8px; border:1px solid var(--rh-ink); background:var(--rh-paper); font:500 12px/1.5 var(--rh-f-ui); color:var(--rh-ink); }
+.cn-chip button { border:0; background:none; cursor:pointer; font:600 13px/1 var(--rh-f-ui); color:var(--rh-ink-3); padding:0 2px; }
+.cn-chip button:hover { color:var(--rh-danger); }
+.cn-chips select { width:auto; font-size:12px; padding:2px 24px 2px 6px; }
+.cn-jumps { display:flex; flex-wrap:wrap; gap:4px 10px; margin:4px 0; }
+
+/* 改稿对照：只标改动的那一截 */
+.cn-diff { display:grid; gap:6px; margin:8px 0; font:400 13.5px/1.8 var(--rh-f-read); }
+.cn-diff p { margin:0; padding:6px 10px; background:var(--rh-white); border-left:3px solid var(--rh-line); }
+.cn-diff p:last-child { border-left-color:var(--rh-ink); }
+.cn-diff .rh-micro { display:block; margin-bottom:2px; }
+.cn-diff del { color:var(--rh-danger); text-decoration:line-through; background:color-mix(in srgb, var(--rh-danger) 8%, transparent); }
+.cn-diff ins { text-decoration:none; background:var(--rh-accent-wash, #ffe7d1); box-shadow:inset 0 -2px 0 var(--rh-accent); }
+.cn-diff-note { margin:6px 0; }
+.cn-diff-edit summary { cursor:pointer; font:600 11px/1.8 var(--rh-f-mono); color:var(--rh-ink-3); }
+.cn .cw-proposal h3 { margin:2px 0 4px; }
+.cn .dv-xp-list > .cn-tree-scene { display:flex; align-items:center; gap:8px; padding:0 0 0 12px; }
+.cn .cn-tree-scene > button { display:grid; gap:3px; padding:7px 14px 7px 0; border:0; background:none; text-align:left; cursor:pointer; }
+.cn .cn-tree-scene > button:hover { background:var(--rh-paper-3); }
+.cn .cn-tree-scene:has(> button[aria-current]) { background:var(--rh-ink); } .cn .cn-tree-scene > button[aria-current] { color:var(--rh-paper); }
+.cn .cn-tree-scene:has(> button[aria-current]) input { accent-color:var(--rh-paper); }
+/* 待确认：筛选两列排；卡片摘要最多 5 行，依据折叠 */
+.cn .cn-filters { grid-template-columns:1fr 1fr; gap:8px; position:sticky; top:0; z-index:1; background:var(--rh-paper); border-bottom:1px solid var(--rh-line); }
+.cn .cn-filters label { margin:0; }
+.cn .cn-filters > select { align-self:end; }
+.cn .cn-filters > button { grid-column:1 / -1; }
+.cn .cn-sum { display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; margin:0; }
+.cn .cn-why summary { cursor:pointer; font:600 11px/1.8 var(--rh-f-mono); color:var(--rh-ink-3); }
+.cn .cn-why p { color:var(--rh-ink-3); margin:4px 0 0; }
+.cn .cn-file { display:flex !important; align-items:center; gap:10px; cursor:pointer; }
+.cn .cn-file input[type=file] { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+.cn .cn-file small { font:400 12px/1 var(--rh-f-mono); color:var(--rh-ink-4); }

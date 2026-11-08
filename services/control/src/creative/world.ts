@@ -610,7 +610,7 @@ export function applyOps(
         const proposal = next.proposals[index];
         if (proposal.status !== 'pending' && proposal.status !== 'deferred')
           throw fail('PROPOSAL_SETTLED', 409, '这条提议已经处理过了。');
-        if (proposal.kind === 'text_edit')
+        if (proposal.kind === 'text_edit' && op.decision === 'accepted')
           throw fail('INVALID_INPUT', 400, '正文提议要在作品里接受（text.accept），不在世界观批次里。');
         const chosen = op.candidate !== undefined ? proposal.candidates?.[op.candidate] : undefined;
         if (op.candidate !== undefined && !chosen) throw fail('INVALID_INPUT', 400, '没有这个候选。');

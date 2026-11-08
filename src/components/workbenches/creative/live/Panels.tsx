@@ -111,7 +111,9 @@ export type Sel =
   | { kind: 'event'; id: string } | { kind: 'person'; id: string } | { kind: 'place'; id: string }
   | { kind: 'leg'; id: string } | { kind: 'edit'; id: string } | { kind: 'mode'; id: string } | { kind: 'rule'; id: string };
 
-export function Detail({ sel, look, legs, edits, modes, conflicts, onPick, onEdit, onRemove, onDraw, onRedraw }: {
+export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, conflicts, onPick, onEdit, onRemove, onDraw, onRedraw }: {
+  works?: import('../../../../../packages/contracts/src/creative').Work[];
+  onOpenWork?: (ref: { workId: string; chapterId?: string; sceneId?: string }) => void;
   sel: Sel; look: Lookup; legs: Map<string, CreativeRouteLeg>; edits: MapEdit[]; modes: TransportMode[]; conflicts: CreativeConflict[];
   onPick: (s: Sel) => void; onEdit: (s: Sel) => void; onRemove: (s: Sel) => void; onDraw: (legId: string) => void; onRedraw: (legId: string) => void;
 }) {
@@ -130,6 +132,7 @@ export function Detail({ sel, look, legs, edits, modes, conflicts, onPick, onEdi
         {e.travel && <div><dt>怎么到</dt><dd>从{name(e.travel.fromId)} · {modes.find(m => m.id === e.travel!.modeId)?.name ?? '交通方式未定'}</dd></div>}
         <div><dt>参与</dt><dd>{e.participants.map(p => <button key={p.entityId} className="cw-link" onClick={() => onPick({ kind: 'person', id: p.entityId })}>{name(p.entityId)}<small>{p.as === 'actor' ? '' : p.as === 'present' ? ' 在场' : p.as === 'remote' ? ' 远程' : ' 提及'}</small></button>)}</dd></div>
       </dl>
+      {e.workRefs.length > 0 && <section><h4>出现于作品</h4>{e.workRefs.map((r, i) => <button className="cw-link" key={i} onClick={() => onOpenWork?.(r)}>{works.find(w => w.id === r.workId)?.title ?? `作品 ${r.workId.slice(0, 8)}`}{r.chapterId ? ` · ${works.find(w => w.id === r.workId)?.chapters.find(c => c.id === r.chapterId)?.title ?? r.chapterId}` : ''}{r.sceneId ? ` · ${works.find(w => w.id === r.workId)?.chapters.flatMap(c => c.scenes).find(sc => sc.id === r.sceneId)?.title ?? r.sceneId}` : ''}</button>)}</section>}
       {e.gaps.length > 0 && <p className="cw-warn">检查缺口：{e.gaps.join('；')}</p>}
       {e.start.original && e.start.original !== e.start.label && <p className="cw-muted">原写法：{e.start.original}</p>}
       {tools()}

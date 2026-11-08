@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  CheckRun, CreativeConflict, CreativeOp, CreativeRouteLeg, Fix, LngLat, Proposal, Track, WorldSnapshot,
+  CheckRun, CreativeConflict, CreativeOp, CreativeRouteLeg, Fix, LngLat, Proposal, Track, Work, WorldSnapshot,
 } from '../../../../../packages/contracts/src/creative';
 import BenchFrame from '../../BenchFrame';
 import Explorer, { Tree, type ExplorerSection, type ExplorerView } from '../../engineering/Explorer';
@@ -8,6 +8,8 @@ import type { BenchProps } from '../../WorkbenchStudio';
 import type { MapConfig } from '../../explore/live/adapter';
 import { CreativeError, type CreativeAdapter, type EditFeatures } from './adapter';
 import { bucketOf, positionsAt, type Pos } from './geo';
+import LiveNovel from './LiveNovel';
+import { CreativeAssistant } from './NovelPanels';
 import WorldMap, { type DrawMode, type MapPick } from './WorldMap';
 import StoryTimeline from './StoryTimeline';
 import { CheckPanel, Detail, KIND_ZH, ProposalList, submitChunks, type Sel } from './Panels';
@@ -16,11 +18,15 @@ import '../../engineering/dev.css';
 import '../creative.css';
 import './live.css';
 
-type Tab = 'check' | 'props' | 'detail' | 'form';
+type Tab = 'check' | 'props' | 'detail' | 'form' | 'assistant';
 const EMPTY_FC: EditFeatures = { type: 'FeatureCollection', features: [] };
 
-/** 创作台真实模式 · 世界观面（20-creative-contract.md §4）。小说、视频两个面在 1B / MVP-3 接入。 */
+/** 创作台真实模式 · 世界观面（20-creative-contract.md §4）。小说面接 1B，视频留到 MVP-3。 */
 export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: BenchProps & { adapter: CreativeAdapter }) {
+  const [works, setWorks] = useState<Work[]>([]);
+  useEffect(() => { void adapter.works().then(setWorks).catch(() => {}); }, [adapter]);
+  const [face, setFace] = useState<'world' | 'novel'>('world');
+  const [novelTarget, setNovelTarget] = useState<{ workId: string; chapterId?: string; sceneId?: string }>();
   const [snap, setSnap] = useState<WorldSnapshot | null>(null), [loadErr, setLoadErr] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);        // 正在只读查看的历史版本
   const [cfg, setCfg] = useState<MapConfig | null>(null);
@@ -213,8 +219,10 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const empty = snap && !snap.entities.length && !snap.events.length;
   const title = snap?.world.title ?? dossier?.title ?? '世界观';
 
-  return <BenchFrame code="CRTV" section="004" file={file} reduced={reduced} chrome={chrome} face="world" onFace={() => {}}
-    faces={[{ id: 'world', label: '世界观', en: 'WORLD', badge: hard }, { id: 'novel', label: '小说', en: 'NOVEL', locked: true }, { id: 'video', label: '视频', en: 'VIDEO', locked: true }]}
+  if (face === 'novel' && snap) return <LiveNovel adapter={adapter} snapshot={snap} initial={novelTarget} file={file} reduced={reduced} chrome={chrome} dossier={dossier} onWorld={s => { setFace('world'); if (s) pick(s); void reload(); }} />;
+
+  return <BenchFrame code="CRTV" section="004" file={file} reduced={reduced} chrome={chrome} face="world" onFace={f => { if (f === 'novel') setFace('novel'); }}
+    faces={[{ id: 'world', label: '世界观', en: 'WORLD', badge: hard }, { id: 'novel', label: '小说', en: 'NOVEL', locked: !snap }, { id: 'video', label: '视频', en: 'VIDEO', locked: true }]}
     strip={<>《{title}》 <i>·</i> 人物 {persons.length} <i>·</i> 事件 {snap?.events.length ?? 0} <i>·</i> 红 {hard} · 黄 {sus}</>}
     shutterLines={f => [`> open world · ${title}`, `> face · ${f.en.toLowerCase()}`, '> ready']}
     status={<><span><i className="en-sq" />《{title}》</span><span>修订 {snap?.world.revision ?? '—'} · v{snap?.world.version.latest ?? 0}{snap?.world.version.draftChanges ? ` ＋${snap.world.version.draftChanges} 处未成版` : ''}</span>
@@ -253,14 +261,16 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
           <button role="tab" aria-selected={tab === 'check'} onClick={() => setTab('check')}>检查<em data-sev={hard ? 'hard' : sus ? 'suspect' : undefined}>{hard + sus || ''}</em></button>
           <button role="tab" aria-selected={tab === 'props'} onClick={() => setTab('props')}>待确认<em>{pending || ''}</em></button>
           <button role="tab" aria-selected={tab === 'detail'} onClick={() => setTab('detail')} disabled={!sel}>详情</button>
+          <button role="tab" aria-selected={tab === 'assistant'} onClick={() => setTab('assistant')}>顾问</button>
           {form && <button role="tab" aria-selected={tab === 'form'} onClick={() => setTab('form')}>编辑</button>}
         </nav>
         <div className="cw-side-body">
           {!snap ? null
             : tab === 'check' ? <CheckPanel check={snap.check} look={look} sel={selConf?.id ?? null} onSel={pickConflict} onApply={applyFixes} onRecheck={recheck} busy={busy || readOnly} />
-            : tab === 'props' ? <ProposalList proposals={snap.proposals} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} />
+            : tab === 'props' ? <><button className="rh-btn" onClick={() => setFace('novel')}>小说提议、候选与正文改稿 →</button><ProposalList proposals={snap.proposals.filter(p => p.kind === 'route')} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} /></>
+            : tab === 'assistant' ? <CreativeAssistant adapter={adapter} onUpdate={() => void reload()} initialMode="creative_advisor" />
             : tab === 'form' && form ? formFor(form)
-            : sel ? <Detail sel={sel} look={look} legs={legs} edits={snap.edits} modes={snap.modes} conflicts={conflicts} onPick={pick} onEdit={readOnly ? () => {} : editSel} onRemove={readOnly ? () => {} : removeSel} onDraw={drawRoute} onRedraw={id => redraw(id)} />
+            : sel ? <Detail works={works} onOpenWork={ref => { setNovelTarget(ref); setFace('novel'); }} sel={sel} look={look} legs={legs} edits={snap.edits} modes={snap.modes} conflicts={conflicts} onPick={pick} onEdit={readOnly ? () => {} : editSel} onRemove={readOnly ? () => {} : removeSel} onDraw={drawRoute} onRedraw={id => redraw(id)} />
             : <p className="cw-muted cw-pane">在地图、时间轴或左栏里点一个东西看详情。</p>}
         </div>
         {selConf && tab !== 'check' && <button className="cw-confbar" data-sev={selConf.severity} onClick={() => setTab('check')}>{selConf.severity === 'hard' ? '确定冲突' : '疑似'} · {KIND_ZH[selConf.kind] ?? ''} · 回到检查</button>}

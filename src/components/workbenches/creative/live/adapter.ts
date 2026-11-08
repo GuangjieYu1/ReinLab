@@ -1,7 +1,7 @@
 // 创作台真实模式的数据边界（design/prd/20-creative-contract.md §2、22-creative-1a-frontend-brief.md）。
 // 页面只认这个接口；冲突、路程、故事时间换算都由服务端算，前端不推断。
 import type {
-  CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GeoJSON, NetworkStatus, Track, WorldSnapshot, WorldVersion,
+  Work, WorkOp, Proposal, ImportJob, GenerateJob, TextEdit, CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GeoJSON, NetworkStatus, Track, WorldSnapshot, WorldVersion,
 } from '../../../../../packages/contracts/src/creative';
 import type { MapConfig } from '../../explore/live/adapter';
 
@@ -12,6 +12,10 @@ export type NetworkImport = { source: 'osm'; bbox: [number, number, number, numb
 
 /** 服务端推来的创作台事件（契约 §3）。 */
 export type CreativeStreamEvent =
+  | { seq: number; type: 'creative.work'; data: { workId: string; revision: number } }
+  | { seq: number; type: 'creative.text'; data: { workId: string; sceneId: string } }
+  | { seq: number; type: 'creative.import'; data: ImportJob }
+  | { seq: number; type: 'creative.generate'; data: GenerateJob }
   | { seq: number; type: 'creative.op'; data: { revision: number; applied: CreativeAppliedOp[] } }
   | { seq: number; type: 'creative.check'; data: CheckRun }
   | { seq: number; type: 'creative.proposal'; data: unknown }
@@ -21,6 +25,21 @@ export type CreativeStreamEvent =
 
 export interface CreativeAdapter {
   kind: 'live';
+  works(): Promise<Work[]>;
+  work(id: string): Promise<Work>;
+  createWork(title: string, targetWords?: number): Promise<Work>;
+  workOps(id: string, baseRevision: number, ops: WorkOp[]): Promise<{ revision: number; work: Work }>;
+  proposals(filters: Record<string, string>): Promise<{ proposals: Proposal[]; nextCursor: string | null }>;
+  generate(id: string, req: { sceneIds: string[]; mode: TextEdit['mode']; hint?: string; range?: TextEdit['range'] }): Promise<GenerateJob>;
+  generation(workId: string, jobId: string, stop?: boolean): Promise<GenerateJob>;
+  importText(workId: string, text: string, title?: string): Promise<ImportJob>;
+  importJob(id: string, action?: 'pause' | 'resume'): Promise<ImportJob>;
+  exportWork(id: string, format: 'md' | 'docx'): Promise<void>;
+  startAssistant(query: string, mode: 'creative_advisor' | 'creative_writer', workId?: string, sceneId?: string): Promise<{ id: string }>;
+  runs(): Promise<{ runs: { id: string; mode?: string; state: string }[] }>;
+  runEvents(id: string, after: number): Promise<{ events: { seq: number; action: string; payload: Record<string, any> }[]; hasMore?: boolean }>;
+  runState(id: string): Promise<{ state: string }>;
+
   load(version?: number): Promise<WorldSnapshot>;
   ops(baseRevision: number, ops: CreativeOp[]): Promise<OpsResult>;
   tracks(from: number, to: number, entityIds?: string[]): Promise<{ tracks: Track[]; legs: CreativeRouteLeg[] }>;

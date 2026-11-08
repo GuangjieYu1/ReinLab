@@ -7,7 +7,7 @@ import { createLiveCreativeAdapter } from './creative-live';
 
 /**
  * 创作台：真实模式接控制面（每份档案一个世界观，20-creative-contract.md）；演示模式仍是魔戒示例。
- * 1A 只接世界观面，小说、视频两个面在 1B / MVP-3 接入。
+ * 1A 世界观与 1B 小说已接真实数据，视频留到 MVP-3。
  */
 export default function CreativeStudioData(props: BenchProps) {
   const dossierId = props.dossier?.id;

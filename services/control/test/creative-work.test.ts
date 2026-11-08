@@ -12,7 +12,7 @@ import {
   wordsOf,
 } from "../src/creative/work";
 import type { CreativeDocument } from "../src/creative/world";
-import { emptyDocument } from "../src/creative/world";
+import { applyOps, emptyDocument } from "../src/creative/world";
 import { buildDocx } from "../src/creative/docx";
 
 let counter = 0;
@@ -129,6 +129,22 @@ describe("作品账本", () => {
     expect(applyTextEdit(scene, rewrite).text).toBe("第一段。\n\n改过的第二段。");
     expect(applyTextEdit(scene, rewrite, "整段换成这个").text).toBe("整段换成这个");
     expect(() => applyTextEdit({ ...scene, textVersion: 9 }, rewrite)).toThrow(/又改过/);
+  });
+
+  it("续写整场提议以原正文为 before，接受不会重复原文", () => {
+    const scene = { ...workWithOutline().chapters[0].scenes[0], text: "旧正文。", textVersion: 1 };
+    const edit: TextEdit = { workId: "w1", sceneId: scene.id, baseTextVersion: 1, mode: "continue", range: null, before: scene.text, after: "旧正文。\n\n新增段落。" };
+    expect(applyTextEdit(scene, edit).text).toBe("旧正文。\n\n新增段落。");
+  });
+
+  it("正文提议可拒绝和暂缓，但不能经世界观接受", () => {
+    const world = emptyDocument("测试");
+    world.proposals = [{ id: "p-text", kind: "text_edit", title: "续写", summary: "", ops: [], origin: { basis: "inferred", by: "writer" }, doubts: [], dependsOn: [], conflicts: [], status: "pending" }];
+    for (const decision of ["rejected", "deferred"] as const) {
+      const result = applyOps(world, [{ op: "proposal.decide", id: "p-text", decision }], { actor: "user" });
+      expect(result.next.proposals[0].status).toBe(decision);
+    }
+    expect(() => applyOps(world, [{ op: "proposal.decide", id: "p-text", decision: "accepted" }], { actor: "user" })).toThrow(/text.accept/);
   });
 
   it("改写只替换给出的那一段原话", () => {
