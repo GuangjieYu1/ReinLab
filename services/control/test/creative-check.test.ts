@@ -556,6 +556,32 @@ describe("五类检查与修法", () => {
     expect(derivedKind([{ op: "rule.set", rule: { id: "r", text: "夜里不许出城", machine: null } }] as unknown as CreativeOp[])).toBe("rule");
   });
 
+  it("正文提议：接受要走 text.accept，拒绝/暂缓可以在这里划掉", () => {
+    const { document } = build();
+    const edit = {
+      id: "pr-edit",
+      kind: "text_edit" as const,
+      title: "这一场：起稿",
+      summary: "",
+      ops: [{ op: "text.set", workId: "w1", sceneId: "s1", baseTextVersion: 0, mode: "draft" as const, range: null, before: "", after: "一稿。" }],
+      origin: { basis: "inferred" as const, by: "writer" as const },
+      doubts: [],
+      dependsOn: [],
+      conflicts: [],
+      status: "pending" as const,
+    };
+    const withEdit = { ...document, proposals: [edit] };
+    expect(() =>
+      applyOps(withEdit, [{ op: "proposal.decide", id: "pr-edit", decision: "accepted" }], { actor: "user", ids }),
+    ).toThrow(/text\.accept/);
+    const rejected = applyOps(withEdit, [{ op: "proposal.decide", id: "pr-edit", decision: "rejected" }], {
+      actor: "user",
+      ids,
+    });
+    expect(rejected.next.proposals[0].status).toBe("rejected");
+    expect(rejected.next.proposals[0].resolution?.decision).toBe("rejected");
+  });
+
   it("信息不足与未覆盖照实显示，不当作通过", () => {
     const { document, id } = build();
     const withUnknown = applyOps(
