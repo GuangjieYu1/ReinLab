@@ -401,6 +401,39 @@ export async function readImportJob(
   return job;
 }
 
+export type ChapterPreview = { index: number; title: string; chars: number; paragraphs: number; preview: string };
+
+/**
+ * 只分章、不抽取、不落库（1B 前端要的「先看分章结果再开始」）。
+ * 和真正导入用的是同一个 splitChapters，切出来一定一致。
+ */
+export async function previewImport(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+  workId: string,
+  source: { text: string },
+): Promise<{ chapters: ChapterPreview[] }> {
+  await requireCreativeDossier(client, account, dossier);
+  const exists = (
+    await client.query('select 1 from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3', [
+      account,
+      dossier,
+      workId,
+    ])
+  ).rowCount;
+  if (!exists) throw new ApiFailure('WORK_NOT_FOUND', 404, '找不到这部作品。');
+  const chapters = splitChapters(source.text).map((chapter, index) => ({
+    index,
+    title: chapter.title,
+    chars: Array.from(chapter.text.replace(/\s+/g, '')).length,
+    paragraphs: chapter.text.split(/\n\s*\n/).filter((item) => item.trim()).length,
+    preview: clip(chapter.text.replace(/\s+/g, ' ').trim(), 80),
+  }));
+  if (!chapters.length) throw new ApiFailure('IMPORT_EMPTY', 422, '这份原文是空的。');
+  return { chapters };
+}
+
 /**
  * 开始导入：分章、把正文写进作品的章和场、建任务行。真正的抽取由 runImport 在事务外跑。
  */
@@ -492,13 +525,23 @@ export async function setImportState(
   if (action === 'pause') {
     if (job.state !== 'running' && job.state !== 'queued' && job.state !== 'paused')
       throw new ApiFailure('JOB_SETTLED', 409, '这个任务已经结束了。');
-    job.state = 'paused';
+    // 最后一章已经抽完（队列空了）就没什么可暂停的：终态是 done。
+    job.state = job.queue.length ? 'paused' : 'done';
+    if (!job.queue.length) {
+      job.error = null;
+      job.current = null;
+    }
   } else {
     if (job.state !== 'paused' && job.state !== 'failed' && job.state !== 'running')
       throw new ApiFailure('JOB_SETTLED', 409, '这个任务已经结束了。');
-    if (!job.queue.length) throw new ApiFailure('JOB_SETTLED', 409, '这一份已经抽完了。');
-    job.state = 'queued';
-    job.error = null;
+    if (!job.queue.length) {
+      job.state = 'done';
+      job.error = null;
+      job.current = null;
+    } else {
+      job.state = 'queued';
+      job.error = null;
+    }
   }
   await saveJob(client, { account, dossier, workId: job.workId }, job);
   await appendEvents(client, { account, dossier }, [{ type: 'creative.import', data: importJobOf(job) }]);
@@ -521,7 +564,18 @@ export async function runImport(
     // 取下一章（同一个事务里改状态，避免两个 runner 抢同一章）
     const step = await database.withAccount(account, async (client) => {
       const job = await readImportJob(client, account, dossier, jobId);
-      if (job.state === 'paused' || job.state === 'done' || job.state === 'failed') return { job, chapter: null };
+      if (job.state === 'done' || job.state === 'failed') return { job, chapter: null };
+      if (job.state === 'paused') {
+        // 暂停发生在最后一章收尾之后：队列空了就是抽完了，终态改成 done。
+        if (!job.queue.length) {
+          job.state = 'done';
+          job.current = null;
+          await saveJob(client, { account, dossier, workId: job.workId }, job);
+          await appendEvents(client, { account, dossier }, [{ type: 'creative.import', data: importJobOf(job) }]);
+          return { job, chapter: null };
+        }
+        return { job, chapter: null };
+      }
       if (!job.queue.length) {
         job.state = 'done';
         job.current = null;
@@ -607,6 +661,8 @@ export async function runImport(
         const job = await readImportJob(client, account, dossier, jobId);
         job.queue = job.queue.filter((item) => item.chapterId !== step.chapter!.chapterId);
         job.done += 1;
+        // 最后一章抽完：即使中途被暂停过，终态也是 done（不然会停在「2/2 · paused」）。
+        if (!job.queue.length) job.state = 'done';
         job.proposals += merged.added.length;
         job.current = null;
         job.cost =

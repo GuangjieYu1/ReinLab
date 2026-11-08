@@ -306,7 +306,8 @@ export function voidRouteProposals(
     const next: Proposal = {
       ...proposal,
       status: 'rejected',
-      resolution: { decision: 'rejected', reason, at, by: 'user' },
+      // 系统自动作废（不是作者亲手拒的）：by 必须是 agent（契约 §1.1 补注 2）。
+      resolution: { decision: 'rejected', reason, at, by: 'agent' },
     };
     voided.push(next);
     return next;
@@ -435,10 +436,7 @@ export function applyOps(
           throw fail('INVALID_INPUT', 400, '事件至少要有一个参与者。');
         const participants = input.participants.map((participant) => resolveParticipant(next, participant));
         const placeId =
-          input.placeId ??
-          ((input as { placeName?: string }).placeName
-            ? entityByName(next, (input as unknown as { placeName: string }).placeName).id
-            : null);
+          input.placeId ?? (input.placeName ? entityByName(next, input.placeName).id : null);
         if (placeId) findEntity(next, placeId);
         const start = parseInput(next, input.start, '开始时间');
         const end = parseInput(next, input.end, '结束时间');
@@ -583,7 +581,7 @@ export function applyOps(
       case 'route.draw': {
         if (op.path?.type !== 'LineString' || op.path.coordinates.length < 2)
           throw fail('INVALID_INPUT', 400, '手绘路线至少要有两个点。');
-        const voided = voidRouteProposals(next, op.legId, '这段路你手绘了，这条推断提议作废。', at);
+        const voided = voidRouteProposals(next, op.legId, '作者手绘了新路线', at);
         next.manualRoutes = [...next.manualRoutes.filter((item) => item.legId !== op.legId), { legId: op.legId, path: clone(op.path) }];
         next.inferredRoutes = next.inferredRoutes.filter((item) => item.legId !== op.legId);
         next.routeFailures = next.routeFailures.filter((item) => item.legId !== op.legId);
@@ -595,7 +593,7 @@ export function applyOps(
       }
       case 'route.redraw': {
         redraws.push({ legId: op.legId, ...(op.hint ? { hint: op.hint } : {}) });
-        const voided = voidRouteProposals(next, op.legId, '这段路重新让 AI 画，旧推断提议作废。', at);
+        const voided = voidRouteProposals(next, op.legId, '作者让 AI 重画了这段路线，旧的推断不作数', at);
         next.inferredRoutes = next.inferredRoutes.filter((item) => item.legId !== op.legId);
         next.routeFailures = next.routeFailures.filter((item) => item.legId !== op.legId);
         push(

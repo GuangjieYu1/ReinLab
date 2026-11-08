@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { CreativeOp, CreativeRouteLeg, WorldEvent } from "@reinlab/contracts";
 import { runCheck } from "../src/creative/check";
+import { splitTrialOps } from "../src/creative/advisor";
 import { applyOps, emptyDocument, legIdFor, type CreativeDocument } from "../src/creative/world";
 import { gregorianToT } from "../src/creative/story-time";
 
@@ -341,7 +342,10 @@ describe("五类检查与修法", () => {
     );
     const old = drawn.next.proposals.find((item) => item.id === "pr-old")!;
     expect(old.status).toBe("rejected");
-    expect(old.resolution?.reason).toContain("手绘");
+    expect(old.resolution?.reason).toBe("作者手绘了新路线");
+    // 系统自动作废，不是作者亲手拒的（契约 §1.1 补注 2）
+    expect(old.resolution?.by).toBe("agent");
+    expect(old.resolution?.at).toBe("2026-11-07T00:00:00.000Z");
     expect(drawn.next.manualRoutes.some((item) => item.legId === legs[0].id)).toBe(true);
     expect(drawn.applied[0].summary).toContain("作废");
 
@@ -415,6 +419,55 @@ describe("五类检查与修法", () => {
     const preview = appearance.fixes.find((fix) => fix.label.includes("回忆"))!.preview[0];
     expect(preview.before).toBe("事实");
     expect(preview.after).toBe("回忆");
+  });
+
+  it("试算先摘掉还没确认的人名地名，放进疑点（契约 §1.1 补注 1）", () => {
+    const { document, id } = build();
+    const ops = [
+      { op: "entity.add", entity: { kind: "person", name: "王二", aliases: [] } },
+      {
+        op: "event.add",
+        event: {
+          title: "王二到阊门",
+          what: "来送信",
+          kind: "stay",
+          participants: [
+            { entityId: "", entityName: "王二", as: "actor" },
+            { entityId: "", entityName: "张三", as: "present" },
+            { entityId: "", entityName: "还没建的老兵", as: "present" },
+          ],
+          placeId: null,
+          placeName: "青州城",
+          travel: null,
+          narrative: "fact",
+          start: { input: "1684-04-21 10:00" },
+          end: { input: "1684-04-21 11:00" },
+        },
+      },
+    ] as unknown as CreativeOp[];
+    const { trialOps, unresolvedPeople, unresolvedPlaces } = splitTrialOps(document, ops);
+    const event = trialOps.find((op) => op.op === "event.add") as { event: { participants: { entityName?: string }[]; placeName?: string } };
+    // 同批新建的王二、已入账的张三（按名字对得上）留着；老兵拿掉
+    expect(event.event.participants.map((item) => item.entityName)).toEqual(["王二", "张三"]);
+    expect(event.event.placeName).toBe("青州城");
+    expect(unresolvedPeople).toEqual(["还没建的老兵"]);
+    expect(unresolvedPlaces).toEqual([]);
+
+    // 地点对不上也一样：从试算里摘掉，记进疑点
+    const withBadPlace = splitTrialOps(document, [
+      {
+        op: "event.add",
+        event: {
+          title: "去个没建过的地方", what: "走", kind: "stay",
+          participants: [{ entityId: "", entityName: "张三", as: "actor" }],
+          placeId: null, placeName: "没建过的山村", travel: null, narrative: "fact",
+          start: { input: "1684-04-21 10:00" }, end: { input: "1684-04-21 11:00" },
+        },
+      },
+    ] as unknown as CreativeOp[]);
+    expect(withBadPlace.unresolvedPlaces).toEqual(["没建过的山村"]);
+    expect((withBadPlace.trialOps[0] as { event: { placeName?: string } }).event.placeName).toBeUndefined();
+    void id;
   });
 
   it("信息不足与未覆盖照实显示，不当作通过", () => {

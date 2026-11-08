@@ -926,6 +926,115 @@ describe("任务中断后能收拾（1B）", () => {
   });
 });
 
+describe("导入预览分章 + 最后一章暂停落在 done（1B）", () => {
+  let workId = "";
+
+  it("预览分章：只分章、不落库、不抽取", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "预览测试" }),
+    });
+    workId = (await created.json()).id;
+    const preview = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/import/preview`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ text: "## 第一夜\n甲。乙。\n\n## 第二夜\n丙。\n\n## 第三夜\n丁。" }),
+    });
+    expect(preview.status).toBe(200);
+    const body = await preview.json();
+    expect(body.chapters).toHaveLength(3);
+    expect(body.chapters.map((item: any) => item.title)).toEqual(["第一夜", "第二夜", "第三夜"]);
+    expect(body.chapters[0].chars).toBeGreaterThan(0);
+    expect(body.chapters[0].paragraphs).toBe(1);
+    expect(body.chapters[2].preview).toContain("丁");
+
+    // 预览不落库：作品还是空的
+    const detail = await (await api(`/v1/creative/worlds/${dossierA}/works/${workId}`)).json();
+    expect(detail.chapters).toEqual([]);
+    // 空原文明确拒绝
+    const empty = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/import/preview`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ text: "   " }),
+    });
+    expect([400, 422]).toContain(empty.status);
+  });
+
+  it("在最后一章执行中暂停：抽完以后终态是 done，不是 paused", async () => {
+    const fast = importExtractorHolder.current;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    importExtractorHolder.current = async () => {
+      await gate;
+      return { extraction: { entities: [], events: [], merges: [] }, usage: { inputTokens: 1, outputTokens: 1 } };
+    };
+    try {
+      const started = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/import`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: JSON.stringify({ text: "## 唯一一章\n内容。", title: "暂停测试" }),
+      });
+      const job = await started.json();
+      expect(job.chapters.total).toBe(1);
+      // 这一章还没抽完就暂停
+      const paused = await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/pause`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: "{}",
+      });
+      expect(paused.status).toBe(200);
+      // 放行：那一章抽完，队列空了 → 终态 done
+      release();
+      let final: any = null;
+      for (let index = 0; index < 100; index += 1) {
+        await new Promise((done) => setTimeout(done, 100));
+        final = await (await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}`)).json();
+        if (final.state === "done" || final.state === "failed") break;
+      }
+      expect(final.state).toBe("done");
+      expect(final.chapters.done).toBe(final.chapters.total);
+    } finally {
+      release();
+      importExtractorHolder.current = fast;
+    }
+  });
+
+  it("队列空了还点继续：直接给 done，不再报「已经抽完了」", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "继续测试" }),
+    });
+    const work = await created.json();
+    const started = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/import`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ text: "## 一章\n内容。", title: "继续测试" }),
+    });
+    const job = await started.json();
+    for (let index = 0; index < 60; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const current = await (await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}`)).json();
+      if (current.state === "done") break;
+    }
+    // 手工做回「暂停但队列已空」这种老状态，再点继续
+    await admin.query(
+      `update creative_job set state='paused', document=jsonb_set(document,'{state}','"paused"') where id=$1`,
+      [job.id],
+    );
+    const resumed = await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/resume`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect(resumed.status).toBe(200);
+    expect((await resumed.json()).state).toBe("done");
+  });
+});
+
 describe("创作台会话走 kernel runs（1B 契约 §5.2「助手」）", () => {
   it("设定顾问：建 run、写事件、只产出提议", async () => {
     advisorModelHolder.current = async () =>

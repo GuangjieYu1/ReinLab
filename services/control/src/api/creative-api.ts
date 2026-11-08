@@ -15,7 +15,7 @@ import type { Database } from '../db/database';
 import { AdvisorBody, AssetBody, GenerateBody, ImportBody, ImportWorkBody, OpsBody, ProposalsQuery, VersionBody, WorkCreate, WorkOpsBody } from '../creative/schema';
 import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
 import { advise } from '../creative/advisor';
-import { importJobOf, readImportJob, runImport, setImportState, startImport } from '../creative/import-job';
+import { importJobOf, previewImport, readImportJob, runImport, setImportState, startImport } from '../creative/import-job';
 import {
   applyWorkBatch,
   createWork,
@@ -307,6 +307,33 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
   );
 
   // ── 导入原文（1B，契约 §5.2）──────────────────
+  /** 只分章、不抽取、不落库：导入向导第一步先给作者看分章结果。 */
+  app.post('/v1/creative/worlds/:dossierId/works/:workId/import/preview', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const workId = c.req.param('workId');
+    const parsed = ImportWorkBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) throw new ApiFailure('INVALID_INPUT', 400, '请求字段不符合要求，请检查输入。');
+    const input = parsed.data;
+    const text =
+      'assetId' in input
+        ? await database.withAccount(account, async (client) => {
+            const asset = (
+              await client.query<{ content: string }>(
+                'select content from creative_asset where id=$1 and account_id=$2 and dossier_id=$3',
+                [input.assetId, account, dossier],
+              )
+            ).rows[0];
+            if (!asset) throw new ApiFailure('ASSET_NOT_FOUND', 404, '找不到这份上传的原文。');
+            return asset.content;
+          })
+        : input.text;
+    return database.withAccount(account, async (client) => {
+      const preview: unknown = await previewImport(client, account, dossier, workId, { text });
+      return c.json(preview as Record<string, unknown>);
+    });
+  });
+
   app.post('/v1/creative/worlds/:dossierId/works/:workId/import', async (c) => {
     const account = c.get('accountId');
     const dossier = c.req.param('dossierId');

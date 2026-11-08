@@ -137,6 +137,54 @@ export function advisorOps(payload: AdvisorPayload): { ops: CreativeOp[]; doubts
   return { ops, doubts };
 }
 
+/**
+ * 试算前把「还没确认的人/地点」摘出来（契约 §1.1 补注 1）：
+ * 它们没解析成 id，不参与判定，但要在 doubts 里说清楚，不能当作没冲突。
+ */
+export function splitTrialOps(
+  world: CreativeDocument,
+  ops: CreativeOp[],
+): { trialOps: CreativeOp[]; unresolvedPeople: string[]; unresolvedPlaces: string[] } {
+  const known = new Set<string>();
+  for (const entity of world.entities) {
+    known.add(entity.name);
+    for (const alias of entity.aliases ?? []) known.add(alias);
+  }
+  // 同一批里先建出来的实体，后面的操作能引用到
+  for (const op of ops) if (op.op === 'entity.add') known.add(op.entity.name);
+  const unresolvedPeople: string[] = [];
+  const unresolvedPlaces: string[] = [];
+  const trialOps: CreativeOp[] = [];
+  for (const op of ops) {
+    if (op.op !== 'event.add') {
+      trialOps.push(op);
+      continue;
+    }
+    const participants = op.event.participants.filter((participant) => {
+      if (participant.entityId) return true;
+      const name = participant.entityName ?? '';
+      if (name && known.has(name)) return true;
+      if (name && !unresolvedPeople.includes(name)) unresolvedPeople.push(name);
+      return false;
+    });
+    const place = op.event.placeName ?? '';
+    const placeResolved = !place || known.has(place);
+    if (place && !placeResolved && !unresolvedPlaces.includes(place)) unresolvedPlaces.push(place);
+    if (!participants.length) continue; // 一个人都对不上：这条不进试算，只留疑点
+    const { placeName: _dropped, ...eventRest } = op.event;
+    trialOps.push({
+      ...op,
+      event: {
+        ...eventRest,
+        participants,
+        placeId: null,
+        ...(placeResolved && place ? { placeName: place } : {}),
+      },
+    } as CreativeOp);
+  }
+  return { trialOps, unresolvedPeople, unresolvedPlaces };
+}
+
 /** 试算：把这条提议先应用一份副本，再跑检查，看接受以后会怎样。 */
 export async function trialConflicts(
   client: pg.PoolClient,
@@ -214,7 +262,13 @@ export async function advise(
   const kind = ['itinerary', 'entity', 'event', 'rule', 'relation'].includes(asText(parsed.kind, 20))
     ? (asText(parsed.kind, 20) as Proposal['kind'])
     : 'event';
-  const conflicts = await trialConflicts(client, { account, dossier, document: world, ops });
+  const { trialOps, unresolvedPeople, unresolvedPlaces } = splitTrialOps(world, ops);
+  // 契约 §1.1 补注 1：没解析成 id 的不参与试算，但要说清楚（不能当成没有冲突）。
+  for (const name of unresolvedPeople) doubts.push(`「${name}」还没确认，试算没算他。`);
+  for (const name of unresolvedPlaces) doubts.push(`「${name}」还没确认，试算没算这个地点。`);
+  const conflicts = trialOps.length
+    ? await trialConflicts(client, { account, dossier, document: world, ops: trialOps })
+    : [];
   const proposal: Proposal = {
     id: randomUUID(),
     kind,
