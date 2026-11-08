@@ -102,6 +102,23 @@ export async function runCreativeSession(
   try {
     if (mode === 'creative_advisor') {
       const result = await deps.db.withAccount(account, (client) => advise(client, account, dossierId, deps.advisor ?? {}, query));
+      if (!result.proposals.length) {
+        // 模型按底线提不出设定：照实回答，不把这次会话记成失败。
+        const declined = result.declined ?? '这一步没有能入账的设定。';
+        await deps.db.withAccount(account, (client) =>
+          say(client, account, {
+            dossierId,
+            runId,
+            who: 'assistant',
+            text: `${declined}\n\n这次没有生成提议。要入账的话，请先补上能站得住的原文明写或作者设定。`,
+            key: 'reply',
+          }),
+        );
+        await deps.db.withAccount(account, async (client) => {
+          await client.query("update run set state='completed', ended_at=now() where account_id=$1 and id=$2", [account, runId]);
+        });
+        return;
+      }
       const proposal = result.proposals[0];
       const lines = [
         proposal.summary || proposal.title,

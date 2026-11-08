@@ -1090,6 +1090,65 @@ describe("创作台会话走 kernel runs（1B 契约 §5.2「助手」）", () =
     expect(world.entities.some((item: any) => item.name === "船夫")).toBe(false);
   });
 
+  it("顾问按底线提不出设定：会话照常完成，回复里说明为什么，不记成失败", async () => {
+    advisorModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                kind: "event",
+                title: "",
+                summary: "",
+                entities: [],
+                events: [],
+                rules: [],
+                doubts: ["现有设定没有夜间时段，不能凭摘要编一条夜规"],
+              }),
+            },
+          ],
+          usage: { input_tokens: 300, output_tokens: 120 },
+        }),
+        { status: 200 },
+      );
+    const started = await api("/v1/kernel/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ dossierId: dossierA, query: "夜里有什么规矩？", mode: "creative_advisor" }),
+    });
+    const { id } = await started.json();
+    let state = "";
+    let reply = "";
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      state = (await admin.query("select state from run where id=$1", [id])).rows[0]?.state ?? "";
+      const events = await admin.query(
+        "select action, payload from event where run_id=$1 order by seq",
+        [id],
+      );
+      const message = events.rows.filter((row) => row.action === "assistant/message").at(-1);
+      reply = message
+        ? (message.payload?.message?.content ?? []).map((block: any) => block.text ?? "").join("")
+        : "";
+      if (state === "completed" || state === "failed") break;
+    }
+    expect(state).toBe("completed");
+    expect(reply).toContain("夜间时段");
+    expect(reply).toContain("没有生成提议");
+
+    // 直接调顾问接口也是 200 + declined，不是 422
+    const direct = await api(`/v1/creative/worlds/${dossierA}/advisor`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ query: "夜里有什么规矩？" }),
+    });
+    expect(direct.status).toBe(200);
+    const body = await direct.json();
+    expect(body.proposals).toEqual([]);
+    expect(body.declined).toContain("夜间时段");
+  });
+
   it("别的台的档案开不了创作台助手", async () => {
     const denied = await api("/v1/kernel/runs", {
       method: "POST",

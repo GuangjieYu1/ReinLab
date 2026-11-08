@@ -46,10 +46,28 @@ export type AdvisorDeps = {
   provider?: string;
 };
 
+/** 这一次顾问调用的花费；没配单价或 token 未知就记未知（不记 0）。 */
+function costOfUsage(
+  deps: AdvisorDeps,
+  usage: { inputTokens: number | null; outputTokens: number | null },
+): Cny {
+  if (!deps.pricing || Number.isInteger(usage.inputTokens) === false || Number.isInteger(usage.outputTokens) === false)
+    return { value: null, known: false };
+  return {
+    value:
+      ((usage.inputTokens as number) * deps.pricing.inputPerMillion +
+        (usage.outputTokens as number) * deps.pricing.outputPerMillion) /
+      1_000_000,
+    known: true,
+  };
+}
+
 export type AdvisorResult = {
   proposals: Proposal[];
   usage: { inputTokens: number | null; outputTokens: number | null };
   cost: Cny;
+  /** 模型按底线拒绝提设定（查不到依据）：这不算失败，是「这一步提不出来」的答复。 */
+  declined?: string;
 };
 
 type AdvisorPayload = {
@@ -246,8 +264,24 @@ export async function advise(
   if (!parsed) throw new ApiFailure('ADVISOR_UNREADABLE', 503, '模型没有给出能用的提议。');
   const { ops, doubts } = advisorOps(parsed);
   if (!ops.length) {
-    const message = doubts.length ? `模型给不出可入账的内容：${doubts.join('；')}` : '模型没有给出能入账的内容。';
-    throw new ApiFailure('ADVISOR_EMPTY', 422, clip(message, 300));
+    // 没有可入账的东西：照实说，不当成系统故障（会话里显示成一句正常的答复）。
+    const reason = doubts.length ? doubts.join('；') : '模型没有给出能入账的设定。';
+    const cost = costOfUsage(deps, result.usage);
+    await client.query(
+      `insert into usage_record(id,account_id,dossier_id,run_id,provider,model,known,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_cny,purpose)
+       values(gen_random_uuid(),$1,$2,null,$3,$4,$5,$6,$7,null,null,$8,'creative_advisor')`,
+      [
+        account,
+        dossier,
+        deps.provider ?? 'deepseek-official',
+        deps.model.model,
+        cost.known,
+        cost.known ? result.usage.inputTokens : null,
+        cost.known ? result.usage.outputTokens : null,
+        cost.known && cost.value !== null ? cost.value.toFixed(6) : null,
+      ],
+    );
+    return { proposals: [], usage: result.usage, cost, declined: clip(reason, 500) };
   }
   const calendar = world.calendars.find((item) => item.kind === 'chinese_era')?.id ?? 'gregorian';
   // 时间写法先在本机认一遍，认不出的写在疑点里（接受时也不会硬填）
@@ -290,17 +324,7 @@ export async function advise(
     { type: 'creative.proposal', data: proposal },
     { type: 'creative.op', data: { revision, applied: [] } },
   ]);
-  const cost: Cny = deps.pricing &&
-    Number.isInteger(result.usage.inputTokens) &&
-    Number.isInteger(result.usage.outputTokens)
-    ? {
-        value:
-          ((result.usage.inputTokens as number) * deps.pricing.inputPerMillion +
-            (result.usage.outputTokens as number) * deps.pricing.outputPerMillion) /
-          1_000_000,
-        known: true,
-      }
-    : { value: null, known: false };
+  const cost: Cny = costOfUsage(deps, result.usage);
   await client.query(
     `insert into usage_record(id,account_id,dossier_id,run_id,provider,model,known,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_cny,purpose)
      values(gen_random_uuid(),$1,$2,null,$3,$4,$5,$6,$7,null,null,$8,'creative_advisor')`,

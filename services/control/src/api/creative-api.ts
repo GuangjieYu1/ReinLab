@@ -435,7 +435,11 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       const result = await advise(client, c.get('accountId'), c.req.param('dossierId'), options.advisor ?? {}, input.query);
       return {
         status: 200,
-        body: { proposals: result.proposals, cost: result.cost } as unknown as JsonValue,
+        body: {
+          proposals: result.proposals,
+          cost: result.cost,
+          ...(result.declined ? { declined: result.declined } : {}),
+        } as unknown as JsonValue,
       };
     }),
   );
