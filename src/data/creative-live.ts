@@ -54,6 +54,7 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
     load: version => call('GET', base + (version ? `?version=${version}` : '')),
     ops: (baseRevision: number, ops: CreativeOp[]) => call('POST', `${base}/ops`, { baseRevision, ops }),
     tracks: (from, to, ids) => call('GET', `${base}/tracks?from=${Math.floor(from)}&to=${Math.ceil(to)}${ids?.length ? `&entityIds=${ids.map(enc).join(',')}` : ''}`),
+    networkGeo: bbox => call('GET', `${base}/network/geojson${bbox ? `?bbox=${bbox.join(',')}` : ''}`),
     editsAt: t => call('GET', `${base}/edits/geojson?t=${Math.round(t)}`),
     check: () => call('POST', `${base}/check`, {}),
     importNetwork: req => call('POST', `${base}/network/import`, req),

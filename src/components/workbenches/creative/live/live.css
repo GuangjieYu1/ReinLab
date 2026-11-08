@@ -173,3 +173,5 @@
 .cw-voided { margin:0 0 8px; padding:6px 8px; border:1px dashed var(--rh-line); font:400 12px/1.6 var(--rh-f-ui); color:var(--rh-ink-3); }
 .cw-voided summary { cursor:pointer; font:600 11px/1.6 var(--rh-f-mono); }
 .cw-voided p { margin:4px 0 0; }
+/* 架空世界导入了路网时，引导卡挪到左上角，别挡住路 */
+.cw-guide[data-has-net] { top:56px; left:16px; transform:none; max-width:360px; }

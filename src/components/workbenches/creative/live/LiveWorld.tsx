@@ -120,6 +120,10 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const places = useMemo(() => (snap?.entities ?? []).filter(e => e.kind === 'place'), [snap]);
   const conflicts = snap?.check?.conflicts ?? [];
   const realMap = !!snap && (snap.world.basemap.kind === 'real' || snap.world.network.sources.some(s => s.kind === 'osm'));
+  // 没有真实底图（空白纸面 / 架空）时，路网只能自己画：拉一次导入的路网几何
+  const [netGeo, setNetGeo] = useState<unknown>(null);
+  const netKey = snap ? `${snap.world.network.state}:${snap.world.network.sources.length}:${realMap}` : '';
+  useEffect(() => { if (!snap || realMap || snap.world.network.state !== 'ready') { setNetGeo(null); return; } let off = false; adapter.networkGeo().then(g => { if (!off) setNetGeo(g); }, () => {}); return () => { off = true; }; }, [adapter, netKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // 选中的冲突跟着最新检查走：修好了就自动放下（「信息不足」那种临时选中按事件还在就留着）
   const selConf = selConfRaw && (selConfRaw.id.startsWith('gap:') ? selConfRaw : conflicts.find(c => c.id === selConfRaw.id) ?? null);
   const flags = useMemo(() => {
@@ -240,16 +244,17 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
         </header>
         {readOnly && <div className="cw-banner">正在只读查看 v{viewing}（历史版本不做检查）<button className="rh-btn" onClick={() => setViewing(null)}>回到草稿</button></div>}
         {notice && <div className="cw-banner" role="status">{notice}<button className="rh-btn" onClick={() => setNotice(null)}>知道了</button></div>}
+        {net?.state === 'failed' && <div className="cw-banner" role="alert">路网导入失败：{net.error || '原因未知'}。{realMap ? '把地图移到故事发生的地方，再按当前视野重新导入。' : '可以重新上传道路文件。'}</div>}
         {loadErr && !snap ? <div className="cw-blank"><p>世界观没读出来：{loadErr}</p><button className="rh-btn" onClick={() => void reload()}>重试</button></div>
           : !snap ? <div className="cw-blank"><p>载入中…</p></div>
           : <div className="cw-stage">
-            <WorldMap cfg={cfg} real={realMap}
+            <WorldMap cfg={cfg} real={realMap} network={netGeo}
               places={places} edits={edits} legs={[...legs.values()]} people={people}
               sel={{ entityId: sel?.kind === 'person' ? sel.id : undefined, placeId: sel?.kind === 'place' ? sel.id : undefined, legIds: sel?.kind === 'leg' ? [sel.id] : undefined }}
               flags={{ legs: flags.legs, people: flags.people }} hiLegs={new Set(selConf?.legIds ?? [])} focus={focus} draw={draw}
               onPick={onMapPick} onView={b => { bbox.current = b; }} />
-            {empty && !draw && <div className="cw-guide"><b>这是一个空世界观</b>
-              <p>{realMap ? '把地图移到故事发生的地方，导入那一块的路网；再建人物、地点，给人物加几条带时间和地点的事件，拖时间轴就能看到人物沿路移动。' : '故事发生在真实的地方，就先换成真实地图；架空世界可以上传 Azgaar 导出的道路，或者就在空白纸面上画。'}</p>
+            {empty && !draw && <div className="cw-guide" data-has-net={!!netGeo || undefined}><b>{netGeo ? '路网已经导入，还没有人物和地点' : '这是一个空世界观'}</b>
+              <p>{netGeo ? '图上的细线就是导入的道路。先建地点和人物，给人物加几条带时间和地点的事件，就能沿这些路走。' : realMap ? '把地图移到故事发生的地方，导入那一块的路网；再建人物、地点，给人物加几条带时间和地点的事件，拖时间轴就能看到人物沿路移动。' : '故事发生在真实的地方，就先换成真实地图；架空世界可以上传 Azgaar 导出的道路，或者就在空白纸面上画。'}</p>
               <div className="cw-row">{!realMap && <button className="rh-btn is-solid" onClick={() => setBasemap('real')}>用真实地图</button>}
                 <button className={`rh-btn${realMap ? ' is-solid' : ''}`} onClick={() => openForm({ kind: 'entity', entityKind: 'person' })}>建第一个人物</button><button className="rh-btn" onClick={() => openForm({ kind: 'entity', entityKind: 'place' })}>建一个地点</button>
                 {realMap && <button className="rh-btn" onClick={importOsm}>按当前视野导入路网</button>}</div></div>}

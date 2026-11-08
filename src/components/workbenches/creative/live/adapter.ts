@@ -46,6 +46,8 @@ export interface CreativeAdapter {
   ops(baseRevision: number, ops: CreativeOp[]): Promise<OpsResult>;
   tracks(from: number, to: number, entityIds?: string[]): Promise<{ tracks: Track[]; legs: CreativeRouteLeg[] }>;
   editsAt(t: number): Promise<EditFeatures>;
+  /** 路网几何（只读），架空世界画路用。 */
+  networkGeo(bbox?: [number, number, number, number]): Promise<unknown>;
   check(): Promise<CheckRun>;
   importNetwork(req: NetworkImport): Promise<{ jobId: string }>;
   uploadAsset(name: string, content: string): Promise<{ assetId: string }>;
