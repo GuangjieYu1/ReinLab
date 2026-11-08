@@ -25,6 +25,7 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
       const { assetId } = await call<{ assetId: string }>('POST', `${base}/assets`, { name: title || '导入原文', content: text, format: 'text' });
       return call('POST', `${base}/works/${enc(id)}/import`, { assetId });
     },
+    importPreview: (id, text) => call('POST', `${base}/works/${enc(id)}/import/preview`, { text }),
     importJob: (id, action) => call(action ? 'POST' : 'GET', `${base}/imports/${enc(id)}${action ? '/' + action : ''}`, action ? {} : undefined),
     exportWork: async (id, format) => {
       const res = await fetch(`/backend${base}/works/${enc(id)}/export?format=${format}`, { credentials: 'same-origin' });

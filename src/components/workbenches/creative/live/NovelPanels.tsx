@@ -57,7 +57,7 @@ export function ProposalCard({ proposal: p, busy, decide, acceptText, source }: 
         : p.candidates?.length ? p.candidates.map((c, i) => <button key={i} className="rh-btn" disabled={busy} title={c.why} onClick={() => decide(p, 'accepted', i)}>选择：{c.label}</button>)
         : <button className="rh-btn" disabled={busy} onClick={() => decide(p, 'accepted')}>接受</button>}
       <button className="rh-btn" disabled={busy} onClick={() => decide(p, 'rejected')}>拒绝</button><button className="rh-btn" disabled={busy} onClick={() => decide(p, 'deferred')}>暂缓</button>
-    </div> : <p className="cw-muted">{p.resolution?.reason ?? '已处理'}</p>}
+    </div> : <p className="cw-muted">{p.resolution ? `${p.resolution.by === 'agent' ? '系统' : '作者'}${{ accepted: '已接受', rejected: p.resolution.by === 'agent' ? '已作废' : '已拒绝', deferred: '暂缓' }[p.resolution.decision as string] ?? '已处理'}${p.resolution.reason ? '：' + p.resolution.reason : ''}` : '已处理'}</p>}
     {p.candidates?.map((c, i) => <p key={i}><b>{c.label}</b>：{c.why}</p>)}
   </article>;
 }

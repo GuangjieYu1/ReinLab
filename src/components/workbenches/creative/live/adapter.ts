@@ -33,6 +33,8 @@ export interface CreativeAdapter {
   generate(id: string, req: { sceneIds: string[]; mode: TextEdit['mode']; hint?: string; range?: TextEdit['range'] }): Promise<GenerateJob>;
   generation(workId: string, jobId: string, stop?: boolean): Promise<GenerateJob>;
   importText(workId: string, text: string, title?: string): Promise<ImportJob>;
+  /** 只分章、不落库：导入向导第二步给作者看分章结果。 */
+  importPreview(workId: string, text: string): Promise<{ chapters: { index: number; title: string; chars: number; paragraphs: number; preview: string }[] }>;
   importJob(id: string, action?: 'pause' | 'resume'): Promise<ImportJob>;
   exportWork(id: string, format: 'md' | 'docx'): Promise<void>;
   startAssistant(query: string, mode: 'creative_advisor' | 'creative_writer', workId?: string, sceneId?: string): Promise<{ id: string }>;

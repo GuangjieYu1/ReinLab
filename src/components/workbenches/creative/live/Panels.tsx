@@ -71,14 +71,17 @@ export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, busy }
 }
 
 /* ———— 待确认（1A 只有路线） ———— */
-export function ProposalList({ proposals, legs, look, onDecide, onRedraw, onDraw, onFocusLeg, busy }: {
+export function ProposalList({ proposals, legs, look, onDecide, onRedraw, onDraw, onFocusLeg, busy, voided = [] }: {
+  voided?: Proposal[];
   proposals: Proposal[]; legs: Map<string, CreativeRouteLeg>; look: Lookup;
   onDecide: (p: Proposal, d: 'accepted' | 'rejected' | 'deferred') => void;
   onRedraw: (legId: string, hint: string) => void; onDraw: (legId: string) => void; onFocusLeg: (legId: string) => void; busy: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(null), [hint, setHint] = useState('');
-  if (!proposals.length) return <div className="cw-pane"><p className="cw-muted">没有待确认的内容。缺路时 AI 画的推断路线会出现在这里。</p></div>;
-  return <div className="cw-pane">{proposals.map(p => {
+  // 系统自动作废的推断路线（比如作者手绘后）：卡片从待确认里消失，但要让作者知道为什么
+  const gone = voided.length > 0 && <details className="cw-voided"><summary>系统作废了 {voided.length} 条推断路线</summary>{voided.map(p => <p key={p.id}><b>{p.title}</b> · {p.resolution?.reason ?? '已作废'}</p>)}</details>;
+  if (!proposals.length) return <div className="cw-pane">{gone}<p className="cw-muted">没有待确认的内容。缺路时 AI 画的推断路线会出现在这里。</p></div>;
+  return <div className="cw-pane">{gone}{proposals.map(p => {
     const legId = (p.ops.find(o => o.op === 'route.draw') as { legId?: string } | undefined)?.legId;
     const leg = legId ? legs.get(legId) : undefined;
     const who = leg ? look.entities.get(leg.entityId)?.name : undefined;

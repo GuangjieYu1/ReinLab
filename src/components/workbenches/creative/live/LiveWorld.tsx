@@ -25,6 +25,7 @@ const EMPTY_FC: EditFeatures = { type: 'FeatureCollection', features: [] };
 export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: BenchProps & { adapter: CreativeAdapter }) {
   const [works, setWorks] = useState<Work[]>([]);
   useEffect(() => { void adapter.works().then(setWorks).catch(() => {}); }, [adapter]);
+  const [voided, setVoided] = useState<Proposal[]>([]);
   const [face, setFace] = useState<'world' | 'novel'>('world');
   const [novelTarget, setNovelTarget] = useState<{ workId: string; chapterId?: string; sceneId?: string }>();
   const [snap, setSnap] = useState<WorldSnapshot | null>(null), [loadErr, setLoadErr] = useState<string | null>(null);
@@ -42,6 +43,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const [xpOpen, setXpOpen] = useState(true), [xpView, setXpView] = useState<ExplorerView>('files');
   const [verName, setVerName] = useState(''), [netMsg, setNetMsg] = useState<string | null>(null);
   const snapRef = useRef(snap); snapRef.current = snap;
+  useEffect(() => { void adapter.proposals({ kind: 'route', status: 'rejected', limit: '20' }).then(r => setVoided(r.proposals.filter(p => p.resolution?.by === 'agent'))).catch(() => {}); }, [adapter, snap?.world.revision]);
   const readOnly = viewing != null;
 
   // ── 取数 ──
@@ -267,7 +269,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
         <div className="cw-side-body">
           {!snap ? null
             : tab === 'check' ? <CheckPanel check={snap.check} look={look} sel={selConf?.id ?? null} onSel={pickConflict} onApply={applyFixes} onRecheck={recheck} busy={busy || readOnly} />
-            : tab === 'props' ? <><button className="rh-btn" onClick={() => setFace('novel')}>小说提议、候选与正文改稿 →</button><ProposalList proposals={snap.proposals.filter(p => p.kind === 'route')} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} /></>
+            : tab === 'props' ? <><button className="rh-btn" onClick={() => setFace('novel')}>小说提议、候选与正文改稿 →</button><ProposalList voided={voided} proposals={snap.proposals.filter(p => p.kind === 'route')} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} /></>
             : tab === 'assistant' ? <CreativeAssistant adapter={adapter} onUpdate={() => void reload()} initialMode="creative_advisor" />
             : tab === 'form' && form ? formFor(form)
             : sel ? <Detail works={works} onOpenWork={ref => { setNovelTarget(ref); setFace('novel'); }} sel={sel} look={look} legs={legs} edits={snap.edits} modes={snap.modes} conflicts={conflicts} onPick={pick} onEdit={readOnly ? () => {} : editSel} onRemove={readOnly ? () => {} : removeSel} onDraw={drawRoute} onRedraw={id => redraw(id)} />
