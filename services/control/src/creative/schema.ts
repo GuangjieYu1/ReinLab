@@ -92,11 +92,81 @@ export const AssetBody = z
     name: z.string().min(1).max(200),
     // Azgaar 导出的 Routes GeoJSON 文本；超过这个长度先拆，不要塞进一个请求。
     content: z.string().min(2).max(8_000_000),
-    format: z.enum(['geojson', 'map']).default('geojson'),
+    // geojson / map = Azgaar 的道路；text = 导入用的原文（txt / md）
+    format: z.enum(['geojson', 'map', 'text']).default('geojson'),
   })
   .strict();
 
 export const VersionBody = z.object({ summary: z.string().max(300).default('') }).strict();
+
+// ── 1B 作品（契约 §5.2）─────────────────────────
+export const WorkCreate = z
+  .object({
+    kind: z.enum(['novel', 'film', 'comic']).default('novel'),
+    title: z.string().trim().min(1).max(200),
+    targetWords: z.number().int().min(0).max(50_000_000).nullable().optional(),
+  })
+  .strict();
+
+const chapterId = z.string().min(1).max(64);
+const sceneId = z.string().min(1).max(64);
+
+export const WorkOpInput = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('work.set'), patch: record }).strict(),
+  z.object({ op: z.literal('outline.set'), outline: record }).strict(),
+  z.object({ op: z.literal('outline.confirm') }).strict(),
+  z.object({ op: z.literal('chapter.add'), title: z.string().max(200), at: z.number().int().min(0).max(10_000).optional() }).strict(),
+  z.object({ op: z.literal('chapter.update'), id: chapterId, title: z.string().max(200) }).strict(),
+  z.object({ op: z.literal('chapter.remove'), id: chapterId }).strict(),
+  z.object({ op: z.literal('chapter.move'), id: chapterId, to: z.number().int().min(0).max(10_000) }).strict(),
+  z.object({ op: z.literal('scene.add'), chapterId, title: z.string().max(200), at: z.number().int().min(0).max(10_000).optional() }).strict(),
+  z.object({ op: z.literal('scene.update'), id: sceneId, patch: record }).strict(),
+  z.object({ op: z.literal('scene.remove'), id: sceneId }).strict(),
+  z.object({ op: z.literal('scene.move'), id: sceneId, chapterId, to: z.number().int().min(0).max(10_000) }).strict(),
+  z
+    .object({
+      op: z.literal('text.set'),
+      sceneId,
+      baseTextVersion: z.number().int().min(0),
+      // 一场几千字：给到 20 万字符，别在一场里塞整本书。
+      text: z.string().max(200_000),
+    })
+    .strict(),
+  z.object({ op: z.literal('text.accept'), proposalId: z.string().min(1).max(64), text: z.string().max(200_000).optional() }).strict(),
+]);
+
+export const WorkOpsBody = z
+  .object({
+    baseRevision: z.number().int().min(-1).optional(),
+    ops: z.array(WorkOpInput).min(1).max(40),
+  })
+  .strict();
+
+export const ImportWorkBody = z.union([
+  z.object({ assetId: z.string().uuid() }).strict(),
+  z.object({ text: z.string().min(1).max(2_000_000), title: z.string().max(200).optional() }).strict(),
+]);
+
+export const GenerateBody = z
+  .object({
+    sceneIds: z.array(z.string().min(1).max(64)).min(1).max(40),
+    mode: z.enum(['draft', 'continue', 'complete', 'rewrite']).default('draft'),
+    hint: z.string().max(2000).optional(),
+    range: z.object({ para: z.number().int().min(0), from: z.number().int().min(0), to: z.number().int().min(0) }).strict().optional(),
+  })
+  .strict();
+
+export const AdvisorBody = z.object({ query: z.string().trim().min(1).max(2000) }).strict();
+
+export const ProposalsQuery = z.object({
+  kind: z.string().max(32).optional(),
+  batchId: z.string().max(64).optional(),
+  doubt: z.enum(['true', 'false']).optional(),
+  status: z.enum(['pending', 'accepted', 'rejected', 'deferred']).optional(),
+  cursor: z.string().max(20).optional(),
+  limit: z.string().max(5).optional(),
+  sort: z.enum(['newest', 'oldest']).optional(),
+});
 
 export const TracksQuery = z.object({
   from: z.string().optional(),

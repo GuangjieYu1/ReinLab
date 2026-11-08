@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  CheckRun, CreativeConflict, CreativeOp, CreativeRouteLeg, Fix, LngLat, Proposal, Track, WorldSnapshot,
+  CheckRun, CreativeConflict, CreativeOp, CreativeRouteLeg, Fix, LngLat, Proposal, Track, Work, WorldSnapshot,
 } from '../../../../../packages/contracts/src/creative';
 import BenchFrame from '../../BenchFrame';
 import Explorer, { Tree, type ExplorerSection, type ExplorerView } from '../../engineering/Explorer';
@@ -8,6 +8,8 @@ import type { BenchProps } from '../../WorkbenchStudio';
 import type { MapConfig } from '../../explore/live/adapter';
 import { CreativeError, type CreativeAdapter, type EditFeatures } from './adapter';
 import { bucketOf, positionsAt, type Pos } from './geo';
+import LiveNovel from './LiveNovel';
+import { CreativeAssistant } from './NovelPanels';
 import WorldMap, { type DrawMode, type MapPick } from './WorldMap';
 import StoryTimeline from './StoryTimeline';
 import { CheckPanel, Detail, KIND_ZH, ProposalList, submitChunks, type Sel } from './Panels';
@@ -16,11 +18,16 @@ import '../../engineering/dev.css';
 import '../creative.css';
 import './live.css';
 
-type Tab = 'check' | 'props' | 'detail' | 'form';
+type Tab = 'check' | 'props' | 'detail' | 'form' | 'assistant';
 const EMPTY_FC: EditFeatures = { type: 'FeatureCollection', features: [] };
 
-/** 创作台真实模式 · 世界观面（20-creative-contract.md §4）。小说、视频两个面在 1B / MVP-3 接入。 */
+/** 创作台真实模式 · 世界观面（20-creative-contract.md §4）。小说面接 1B，视频留到 MVP-3。 */
 export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: BenchProps & { adapter: CreativeAdapter }) {
+  const [works, setWorks] = useState<Work[]>([]);
+  useEffect(() => { void adapter.works().then(setWorks).catch(() => {}); }, [adapter]);
+  const [voided, setVoided] = useState<Proposal[]>([]);
+  const [face, setFace] = useState<'world' | 'novel'>('world');
+  const [novelTarget, setNovelTarget] = useState<{ workId: string; chapterId?: string; sceneId?: string }>();
   const [snap, setSnap] = useState<WorldSnapshot | null>(null), [loadErr, setLoadErr] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);        // 正在只读查看的历史版本
   const [cfg, setCfg] = useState<MapConfig | null>(null);
@@ -36,6 +43,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const [xpOpen, setXpOpen] = useState(true), [xpView, setXpView] = useState<ExplorerView>('files');
   const [verName, setVerName] = useState(''), [netMsg, setNetMsg] = useState<string | null>(null);
   const snapRef = useRef(snap); snapRef.current = snap;
+  useEffect(() => { void adapter.proposals({ kind: 'route', status: 'rejected', limit: '20' }).then(r => setVoided(r.proposals.filter(p => p.resolution?.by === 'agent'))).catch(() => {}); }, [adapter, snap?.world.revision]);
   const readOnly = viewing != null;
 
   // ── 取数 ──
@@ -112,6 +120,10 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const places = useMemo(() => (snap?.entities ?? []).filter(e => e.kind === 'place'), [snap]);
   const conflicts = snap?.check?.conflicts ?? [];
   const realMap = !!snap && (snap.world.basemap.kind === 'real' || snap.world.network.sources.some(s => s.kind === 'osm'));
+  // 没有真实底图（空白纸面 / 架空）时，路网只能自己画：拉一次导入的路网几何
+  const [netGeo, setNetGeo] = useState<unknown>(null);
+  const netKey = snap ? `${snap.world.network.state}:${snap.world.network.sources.length}:${realMap}` : '';
+  useEffect(() => { if (!snap || realMap || snap.world.network.state !== 'ready') { setNetGeo(null); return; } let off = false; adapter.networkGeo().then(g => { if (!off) setNetGeo(g); }, () => {}); return () => { off = true; }; }, [adapter, netKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // 选中的冲突跟着最新检查走：修好了就自动放下（「信息不足」那种临时选中按事件还在就留着）
   const selConf = selConfRaw && (selConfRaw.id.startsWith('gap:') ? selConfRaw : conflicts.find(c => c.id === selConfRaw.id) ?? null);
   const flags = useMemo(() => {
@@ -213,8 +225,10 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const empty = snap && !snap.entities.length && !snap.events.length;
   const title = snap?.world.title ?? dossier?.title ?? '世界观';
 
-  return <BenchFrame code="CRTV" section="004" file={file} reduced={reduced} chrome={chrome} face="world" onFace={() => {}}
-    faces={[{ id: 'world', label: '世界观', en: 'WORLD', badge: hard }, { id: 'novel', label: '小说', en: 'NOVEL', locked: true }, { id: 'video', label: '视频', en: 'VIDEO', locked: true }]}
+  if (face === 'novel' && snap) return <LiveNovel adapter={adapter} snapshot={snap} initial={novelTarget} file={file} reduced={reduced} chrome={chrome} dossier={dossier} onWorld={s => { setFace('world'); if (s) pick(s); void reload(); }} />;
+
+  return <BenchFrame code="CRTV" section="004" file={file} reduced={reduced} chrome={chrome} face="world" onFace={f => { if (f === 'novel') setFace('novel'); }}
+    faces={[{ id: 'world', label: '世界观', en: 'WORLD', badge: hard }, { id: 'novel', label: '小说', en: 'NOVEL', locked: !snap }, { id: 'video', label: '视频', en: 'VIDEO', locked: true }]}
     strip={<>《{title}》 <i>·</i> 人物 {persons.length} <i>·</i> 事件 {snap?.events.length ?? 0} <i>·</i> 红 {hard} · 黄 {sus}</>}
     shutterLines={f => [`> open world · ${title}`, `> face · ${f.en.toLowerCase()}`, '> ready']}
     status={<><span><i className="en-sq" />《{title}》</span><span>修订 {snap?.world.revision ?? '—'} · v{snap?.world.version.latest ?? 0}{snap?.world.version.draftChanges ? ` ＋${snap.world.version.draftChanges} 处未成版` : ''}</span>
@@ -230,16 +244,17 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
         </header>
         {readOnly && <div className="cw-banner">正在只读查看 v{viewing}（历史版本不做检查）<button className="rh-btn" onClick={() => setViewing(null)}>回到草稿</button></div>}
         {notice && <div className="cw-banner" role="status">{notice}<button className="rh-btn" onClick={() => setNotice(null)}>知道了</button></div>}
+        {net?.state === 'failed' && <div className="cw-banner" role="alert">路网导入失败：{net.error || '原因未知'}。{realMap ? '把地图移到故事发生的地方，再按当前视野重新导入。' : '可以重新上传道路文件。'}</div>}
         {loadErr && !snap ? <div className="cw-blank"><p>世界观没读出来：{loadErr}</p><button className="rh-btn" onClick={() => void reload()}>重试</button></div>
           : !snap ? <div className="cw-blank"><p>载入中…</p></div>
           : <div className="cw-stage">
-            <WorldMap cfg={cfg} real={realMap}
+            <WorldMap cfg={cfg} real={realMap} network={netGeo}
               places={places} edits={edits} legs={[...legs.values()]} people={people}
               sel={{ entityId: sel?.kind === 'person' ? sel.id : undefined, placeId: sel?.kind === 'place' ? sel.id : undefined, legIds: sel?.kind === 'leg' ? [sel.id] : undefined }}
               flags={{ legs: flags.legs, people: flags.people }} hiLegs={new Set(selConf?.legIds ?? [])} focus={focus} draw={draw}
               onPick={onMapPick} onView={b => { bbox.current = b; }} />
-            {empty && !draw && <div className="cw-guide"><b>这是一个空世界观</b>
-              <p>{realMap ? '把地图移到故事发生的地方，导入那一块的路网；再建人物、地点，给人物加几条带时间和地点的事件，拖时间轴就能看到人物沿路移动。' : '故事发生在真实的地方，就先换成真实地图；架空世界可以上传 Azgaar 导出的道路，或者就在空白纸面上画。'}</p>
+            {empty && !draw && <div className="cw-guide" data-has-net={!!netGeo || undefined}><b>{netGeo ? '路网已经导入，还没有人物和地点' : '这是一个空世界观'}</b>
+              <p>{netGeo ? '图上的细线就是导入的道路。先建地点和人物，给人物加几条带时间和地点的事件，就能沿这些路走。' : realMap ? '把地图移到故事发生的地方，导入那一块的路网；再建人物、地点，给人物加几条带时间和地点的事件，拖时间轴就能看到人物沿路移动。' : '故事发生在真实的地方，就先换成真实地图；架空世界可以上传 Azgaar 导出的道路，或者就在空白纸面上画。'}</p>
               <div className="cw-row">{!realMap && <button className="rh-btn is-solid" onClick={() => setBasemap('real')}>用真实地图</button>}
                 <button className={`rh-btn${realMap ? ' is-solid' : ''}`} onClick={() => openForm({ kind: 'entity', entityKind: 'person' })}>建第一个人物</button><button className="rh-btn" onClick={() => openForm({ kind: 'entity', entityKind: 'place' })}>建一个地点</button>
                 {realMap && <button className="rh-btn" onClick={importOsm}>按当前视野导入路网</button>}</div></div>}
@@ -253,14 +268,16 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
           <button role="tab" aria-selected={tab === 'check'} onClick={() => setTab('check')}>检查<em data-sev={hard ? 'hard' : sus ? 'suspect' : undefined}>{hard + sus || ''}</em></button>
           <button role="tab" aria-selected={tab === 'props'} onClick={() => setTab('props')}>待确认<em>{pending || ''}</em></button>
           <button role="tab" aria-selected={tab === 'detail'} onClick={() => setTab('detail')} disabled={!sel}>详情</button>
+          <button role="tab" aria-selected={tab === 'assistant'} onClick={() => setTab('assistant')}>顾问</button>
           {form && <button role="tab" aria-selected={tab === 'form'} onClick={() => setTab('form')}>编辑</button>}
         </nav>
         <div className="cw-side-body">
           {!snap ? null
             : tab === 'check' ? <CheckPanel check={snap.check} look={look} sel={selConf?.id ?? null} onSel={pickConflict} onApply={applyFixes} onRecheck={recheck} busy={busy || readOnly} />
-            : tab === 'props' ? <ProposalList proposals={snap.proposals} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} />
+            : tab === 'props' ? <><button className="rh-btn" onClick={() => setFace('novel')}>小说提议、候选与正文改稿 →</button><ProposalList voided={voided} proposals={snap.proposals.filter(p => p.kind === 'route')} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} /></>
+            : tab === 'assistant' ? <CreativeAssistant adapter={adapter} onUpdate={() => void reload()} initialMode="creative_advisor" />
             : tab === 'form' && form ? formFor(form)
-            : sel ? <Detail sel={sel} look={look} legs={legs} edits={snap.edits} modes={snap.modes} conflicts={conflicts} onPick={pick} onEdit={readOnly ? () => {} : editSel} onRemove={readOnly ? () => {} : removeSel} onDraw={drawRoute} onRedraw={id => redraw(id)} />
+            : sel ? <Detail works={works} onOpenWork={ref => { setNovelTarget(ref); setFace('novel'); }} sel={sel} look={look} legs={legs} edits={snap.edits} modes={snap.modes} conflicts={conflicts} onPick={pick} onEdit={readOnly ? () => {} : editSel} onRemove={readOnly ? () => {} : removeSel} onDraw={drawRoute} onRedraw={id => redraw(id)} />
             : <p className="cw-muted cw-pane">在地图、时间轴或左栏里点一个东西看详情。</p>}
         </div>
         {selConf && tab !== 'check' && <button className="cw-confbar" data-sev={selConf.severity} onClick={() => setTab('check')}>{selConf.severity === 'hard' ? '确定冲突' : '疑似'} · {KIND_ZH[selConf.kind] ?? ''} · 回到检查</button>}

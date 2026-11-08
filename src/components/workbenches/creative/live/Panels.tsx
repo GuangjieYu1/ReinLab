@@ -71,14 +71,17 @@ export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, busy }
 }
 
 /* ———— 待确认（1A 只有路线） ———— */
-export function ProposalList({ proposals, legs, look, onDecide, onRedraw, onDraw, onFocusLeg, busy }: {
+export function ProposalList({ proposals, legs, look, onDecide, onRedraw, onDraw, onFocusLeg, busy, voided = [] }: {
+  voided?: Proposal[];
   proposals: Proposal[]; legs: Map<string, CreativeRouteLeg>; look: Lookup;
   onDecide: (p: Proposal, d: 'accepted' | 'rejected' | 'deferred') => void;
   onRedraw: (legId: string, hint: string) => void; onDraw: (legId: string) => void; onFocusLeg: (legId: string) => void; busy: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(null), [hint, setHint] = useState('');
-  if (!proposals.length) return <div className="cw-pane"><p className="cw-muted">没有待确认的内容。缺路时 AI 画的推断路线会出现在这里。</p></div>;
-  return <div className="cw-pane">{proposals.map(p => {
+  // 系统自动作废的推断路线（比如作者手绘后）：卡片从待确认里消失，但要让作者知道为什么
+  const gone = voided.length > 0 && <details className="cw-voided"><summary>系统作废了 {voided.length} 条推断路线</summary>{voided.map(p => <p key={p.id}><b>{p.title}</b> · {p.resolution?.reason ?? '已作废'}</p>)}</details>;
+  if (!proposals.length) return <div className="cw-pane">{gone}<p className="cw-muted">没有待确认的内容。缺路时 AI 画的推断路线会出现在这里。</p></div>;
+  return <div className="cw-pane">{gone}{proposals.map(p => {
     const legId = (p.ops.find(o => o.op === 'route.draw') as { legId?: string } | undefined)?.legId;
     const leg = legId ? legs.get(legId) : undefined;
     const who = leg ? look.entities.get(leg.entityId)?.name : undefined;
@@ -111,7 +114,9 @@ export type Sel =
   | { kind: 'event'; id: string } | { kind: 'person'; id: string } | { kind: 'place'; id: string }
   | { kind: 'leg'; id: string } | { kind: 'edit'; id: string } | { kind: 'mode'; id: string } | { kind: 'rule'; id: string };
 
-export function Detail({ sel, look, legs, edits, modes, conflicts, onPick, onEdit, onRemove, onDraw, onRedraw }: {
+export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, conflicts, onPick, onEdit, onRemove, onDraw, onRedraw }: {
+  works?: import('../../../../../packages/contracts/src/creative').Work[];
+  onOpenWork?: (ref: { workId: string; chapterId?: string; sceneId?: string }) => void;
   sel: Sel; look: Lookup; legs: Map<string, CreativeRouteLeg>; edits: MapEdit[]; modes: TransportMode[]; conflicts: CreativeConflict[];
   onPick: (s: Sel) => void; onEdit: (s: Sel) => void; onRemove: (s: Sel) => void; onDraw: (legId: string) => void; onRedraw: (legId: string) => void;
 }) {
@@ -130,6 +135,7 @@ export function Detail({ sel, look, legs, edits, modes, conflicts, onPick, onEdi
         {e.travel && <div><dt>怎么到</dt><dd>从{name(e.travel.fromId)} · {modes.find(m => m.id === e.travel!.modeId)?.name ?? '交通方式未定'}</dd></div>}
         <div><dt>参与</dt><dd>{e.participants.map(p => <button key={p.entityId} className="cw-link" onClick={() => onPick({ kind: 'person', id: p.entityId })}>{name(p.entityId)}<small>{p.as === 'actor' ? '' : p.as === 'present' ? ' 在场' : p.as === 'remote' ? ' 远程' : ' 提及'}</small></button>)}</dd></div>
       </dl>
+      {e.workRefs.length > 0 && <section><h4>出现于作品</h4>{e.workRefs.map((r, i) => <button className="cw-link" key={i} onClick={() => onOpenWork?.(r)}>{works.find(w => w.id === r.workId)?.title ?? `作品 ${r.workId.slice(0, 8)}`}{r.chapterId ? ` · ${works.find(w => w.id === r.workId)?.chapters.find(c => c.id === r.chapterId)?.title ?? r.chapterId}` : ''}{r.sceneId ? ` · ${works.find(w => w.id === r.workId)?.chapters.flatMap(c => c.scenes).find(sc => sc.id === r.sceneId)?.title ?? r.sceneId}` : ''}</button>)}</section>}
       {e.gaps.length > 0 && <p className="cw-warn">检查缺口：{e.gaps.join('；')}</p>}
       {e.start.original && e.start.original !== e.start.label && <p className="cw-muted">原写法：{e.start.original}</p>}
       {tools()}

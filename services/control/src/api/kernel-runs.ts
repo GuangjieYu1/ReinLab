@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { JsonValue } from "@reinlab/contracts";
 import type { Hono } from "hono";
 import { ApiFailure } from "./errors";
 import { mutate, type ApiEnv } from "./context";
 import type { Database } from "../db/database";
 import type { KernelService } from "../kernel/service";
 import { runUsage } from "../run/usage";
+import { createCreativeRun, runCreativeSession } from "../creative/assistant-run";
 
 const Create = z
   .object({
@@ -15,7 +17,11 @@ const Create = z
     newSession: z.boolean().optional(),
     // assist = 非研究台的最小侧边会话；explore = 探索台的旅拍规划会话；
     // swarm = 研究台群研的负责人会话（澄清阶段）。
-    mode: z.enum(["assist", "explore", "swarm"]).optional(),
+    // creative_advisor / creative_writer：创作台的设定顾问与写作助手（1B 契约 §5.2）。
+    mode: z.enum(["assist", "explore", "swarm", "creative_advisor", "creative_writer"]).optional(),
+    /** 写作助手要指定作品与场景。 */
+    workId: z.string().uuid().optional(),
+    sceneId: z.string().min(1).max(64).optional(),
     /** 这一轮随消息带上的参考图（探索台）。 */
     refIds: z.array(z.string().min(1).max(200)).max(20).optional(),
   })
@@ -23,7 +29,13 @@ const Create = z
 
 export type KernelRunApiDependencies = {
   db: Database;
-  kernel: KernelService;
+  /** 内核服务；只挂创作台助手时可以不传（其余模式会明确说内核没就绪）。 */
+  kernel?: KernelService;
+  /** 创作台的顾问 / 写作助手：跑在控制面，但沿用 run 与事件流。 */
+  creative?: {
+    advisor?: import("../creative/advisor").AdvisorDeps;
+    writer?: import("../creative/writer").WriterDeps;
+  };
   /** 群研的发起走这一档：建 swarm_run 而不是普通精读运行。 */
   swarm?: import("../swarm/service").SwarmService;
 };
@@ -40,8 +52,9 @@ export function registerKernelRuns(
   app.post("/v1/kernel/runs", async (c) => {
     const account = c.get("accountId");
     let created: string | undefined;
+    let creativeMode: "creative_advisor" | "creative_writer" | undefined;
     let lastInput:
-      | { newSession?: boolean; mode?: "assist" | "explore" | "swarm" }
+      | { newSession?: boolean; mode?: "assist" | "explore" | "swarm" | "creative_advisor" | "creative_writer" }
       | undefined;
     const response = await mutate(c, dependencies.db, Create, async (client, input) => {
       const dossier = (
@@ -51,6 +64,23 @@ export function registerKernelRuns(
         )
       ).rows[0];
       if (!dossier) throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "档案不存在。");
+      // 创作台的会话：建 run 行，真正回答在事务外跑（页面按 runId 订阅同一条事件流）。
+      if (input.mode === "creative_advisor" || input.mode === "creative_writer") {
+        if (!dependencies.creative)
+          throw new ApiFailure("CREATIVE_ASSISTANT_UNAVAILABLE", 503, "创作台助手尚未就绪。");
+        const runId = await createCreativeRun(client, account, {
+          dossierId: input.dossierId,
+          mode: input.mode,
+          query: input.query,
+          ...(input.workId ? { workId: input.workId } : {}),
+          ...(input.sceneId ? { sceneId: input.sceneId } : {}),
+        });
+        created = runId;
+        creativeMode = input.mode;
+        // 形状和精读/探索那一档一致（sessionId/resume 这里没有：会话跑在控制面，不是内核子进程）
+        const body = { id: runId, sessionId: null, resume: null } as unknown as JsonValue;
+        return { status: 201 as const, body };
+      }
       // 群研：同一个档案上只留一个没结束的运行，重连/重复点开的还是它。
       if (input.mode === "swarm") {
         if (dossier.bench !== "research")
@@ -73,6 +103,8 @@ export function registerKernelRuns(
         throw new ApiFailure("BENCH_UNSUPPORTED", 400, "只有研究档案可以精读。");
       if (mode === "explore" && dossier.bench !== "exploration")
         throw new ApiFailure("BENCH_UNSUPPORTED", 400, "只有探索档案能开旅拍规划会话。");
+      if (!dependencies.kernel)
+        throw new ApiFailure("KERNEL_UNAVAILABLE", 503, "内核尚未就绪，这一档先用不了。");
       lastInput = input;
       const runId = randomUUID();
       await client.query(
@@ -97,6 +129,19 @@ export function registerKernelRuns(
     });
     // The kernel starts after the run row commits; it opens its own transaction.
     if (!created) return response;
+    if (creativeMode) {
+      // 创作台会话跑在控制面里：一条消息一条事件，页面照常订阅 /v1/kernel/runs/:id/stream。
+      void runCreativeSession(
+        { db: dependencies.db, ...(dependencies.creative?.advisor ? { advisor: dependencies.creative.advisor } : {}), ...(dependencies.creative?.writer ? { writer: dependencies.creative.writer } : {}) },
+        account,
+        created,
+      ).catch((error) => {
+        console.error(
+          JSON.stringify({ code: "CREATIVE_SESSION_FAILED", message: String((error as Error)?.message ?? error).slice(0, 200) }),
+        );
+      });
+      return response;
+    }
     if (lastInput?.mode === "swarm") {
       // 返回形状和精读那一档一致（`id` 是运行 id），前端不用分叉。
       const started = await dependencies.swarm!.begin(
@@ -109,7 +154,7 @@ export function registerKernelRuns(
         201,
       );
     }
-    const started = await dependencies.kernel.submit(account, created, {
+    const started = await dependencies.kernel!.submit(account, created, {
       ...(lastInput?.mode === "assist"
         ? { mode: "assist" as const }
         : lastInput?.mode === "explore"
@@ -390,6 +435,16 @@ export function registerKernelRuns(
     const id = c.req.param("id");
     if (!z.string().uuid().safeParse(id).success)
       throw new ApiFailure("RUN_NOT_FOUND", 404, "运行不存在。");
+    if (!dependencies.kernel) {
+      // 创作台会话没有内核子进程：直接把运行标成 cancelled。
+      await dependencies.db.withAccount(account, async (client) => {
+        await client.query(
+          "update run set state='cancelled', ended_at=now() where account_id=$1 and id=$2 and state in ('queued','running')",
+          [account, id],
+        );
+      });
+      return c.json({ id, state: "cancelled" });
+    }
     const state = await dependencies.kernel.cancel(account, id);
     return c.json({ id, state });
   });

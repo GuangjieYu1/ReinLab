@@ -21,8 +21,11 @@ function blankStyle(glyphs?: string): StyleSpecification {
 }
 
 function addLayers(map: MLMap) {
-  for (const id of ['cw-edits', 'cw-legs', 'cw-places', 'cw-people', 'cw-draw']) if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
+  for (const id of ['cw-net', 'cw-edits', 'cw-legs', 'cw-places', 'cw-people', 'cw-draw']) if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   const add = (l: maplibregl.AddLayerObject) => { if (!map.getLayer(l.id)) map.addLayer(l); };
+  // 导入的路网（架空世界没有底图路，只能自己画）：细墨线压在最底下
+  add({ id: 'cw-net', type: 'line', source: 'cw-net', layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': INK, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 14, 1.6], 'line-opacity': ['case', ['==', ['get', 'passable'], false], 0.2, 0.55] } });
   // 改造层：隐藏是一块纸色遮罩；新增按样式画
   add({ id: 'cw-edit-hide', type: 'fill', source: 'cw-edits', filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['==', ['get', 'effect'], 'hide']], paint: { 'fill-color': PAPER, 'fill-opacity': 0.88 } });
   add({ id: 'cw-edit-area', type: 'fill', source: 'cw-edits', filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['!=', ['get', 'effect'], 'hide']], paint: { 'fill-color': INK, 'fill-opacity': 0.06 } });
@@ -71,16 +74,25 @@ type Props = {
   onPick: (p: MapPick) => void;
   /** 视野变了：导入 OSM 时按当前视野截一块。 */
   onView: (bbox: [number, number, number, number]) => void;
+  /** 路网几何（`network/geojson`）；有真实底图时不传。 */
+  network?: unknown;
 };
 
 export default function WorldMap(p: Props) {
   const box = useRef<HTMLDivElement>(null), mapRef = useRef<MLMap | null>(null), ready = useRef(false);
   const latest = useRef(p); latest.current = p;
-  const drawPts = useRef<LngLat[]>([]);
+  const drawPts = useRef<LngLat[]>([]), netShown = useRef<unknown>(undefined);
 
   const refresh = () => {
     const map = mapRef.current, q = latest.current; if (!map || !ready.current) return;
     const set = (id: string, data: unknown) => (map.getSource(id) as GeoJSONSource | undefined)?.setData(data as never);
+    // 路网要素多，只在换了数据时才重设
+    if (netShown.current !== (q.network ?? null)) {
+      const first = !netShown.current; netShown.current = q.network ?? null; set('cw-net', q.network ?? EMPTY);
+      // 第一次拿到路网、世界里又还没有地点时，缩放到路网范围（架空世界的坐标可能在任何地方）
+      const cs = ((q.network as { features?: { geometry?: { coordinates?: number[][] } }[] } | null)?.features ?? []).flatMap(f => f.geometry?.coordinates ?? []);
+      if (first && cs.length && !q.places.some(e => e.place?.geo)) map.fitBounds([[Math.min(...cs.map(c => c[0])), Math.min(...cs.map(c => c[1]))], [Math.max(...cs.map(c => c[0])), Math.max(...cs.map(c => c[1]))]], { padding: 60, duration: 0 });
+    }
     set('cw-edits', { type: 'FeatureCollection', features: q.edits.features.filter(f => f.geometry).map(f => ({ ...f, properties: { ...f.properties, passOpen: (f.properties as any)?.passable?.open ?? null } })) });
     set('cw-legs', { type: 'FeatureCollection', features: q.legs.filter(l => l.path).map(l => ({ type: 'Feature', geometry: l.path,
       properties: { id: l.id, kind: l.kind, sel: !!q.sel.legIds?.includes(l.id), hi: q.hiLegs.has(l.id), flag: q.flags.legs.get(l.id) ?? '',

@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { CreativeOp, CreativeRouteLeg, WorldEvent } from "@reinlab/contracts";
 import { runCheck } from "../src/creative/check";
+import { derivedKind, splitTrialOps } from "../src/creative/advisor";
 import { applyOps, emptyDocument, legIdFor, type CreativeDocument } from "../src/creative/world";
 import { gregorianToT } from "../src/creative/story-time";
 
@@ -310,6 +311,275 @@ describe("五类检查与修法", () => {
       now: now(),
     });
     expect(after.conflicts.find((item) => item.kind === "travel_time")!.severity).toBe("hard");
+  });
+
+  it("手绘一段路以后，同一段的旧推断提议作废并写明原因（1A 遗留 1）", () => {
+    const { document } = build();
+    const legs = legsFor(document, 600);
+    const path = { type: "LineString" as const, coordinates: [[118.5, 36.7], [118.7, 36.8], [119.2, 37.1]] as [number, number][] };
+    const withInferred: CreativeDocument = {
+      ...document,
+      inferredRoutes: [{ legId: legs[0].id, proposalId: "pr-old", path, why: "按县志走古道", sources: [{ title: "县志" }] }],
+      proposals: [
+        {
+          id: "pr-old",
+          kind: "route",
+          title: "推断路线",
+          summary: "按县志走古道",
+          ops: [{ op: "route.draw", legId: legs[0].id, path }],
+          origin: { basis: "inferred", by: "route_ai", why: "按县志走古道" },
+          doubts: [],
+          dependsOn: [],
+          conflicts: [],
+          status: "pending",
+        },
+      ],
+    };
+    const drawn = applyOps(
+      withInferred,
+      [{ op: "route.draw", legId: legs[0].id, path: { type: "LineString", coordinates: [[118.5, 36.7], [119.2, 37.1]] } }],
+      { actor: "user", ids, at: "2026-11-07T00:00:00.000Z" },
+    );
+    const old = drawn.next.proposals.find((item) => item.id === "pr-old")!;
+    expect(old.status).toBe("rejected");
+    expect(old.resolution?.reason).toBe("作者手绘了新路线");
+    // 系统自动作废，不是作者亲手拒的（契约 §1.1 补注 2）
+    expect(old.resolution?.by).toBe("agent");
+    expect(old.resolution?.at).toBe("2026-11-07T00:00:00.000Z");
+    expect(drawn.next.manualRoutes.some((item) => item.legId === legs[0].id)).toBe(true);
+    expect(drawn.applied[0].summary).toContain("作废");
+
+    // 作废以后再点确认：明确回 409，不会把手绘覆盖掉。
+    expect(() =>
+      applyOps(drawn.next, [{ op: "proposal.decide", id: "pr-old", decision: "accepted" }], { actor: "user", ids }),
+    ).toThrow(/处理过了/);
+    expect(drawn.next.manualRoutes[0].path.coordinates).toHaveLength(2);
+  });
+
+  it("让 AI 重画也会作废旧推断提议（1A 遗留 1）", () => {
+    const { document } = build();
+    const legs = legsFor(document, 600);
+    const withInferred: CreativeDocument = {
+      ...document,
+      inferredRoutes: [{ legId: legs[0].id, proposalId: "pr-old", path: { type: "LineString", coordinates: [[118.5, 36.7], [119.2, 37.1]] }, why: "旧依据", sources: [{ title: "县志" }] }],
+      proposals: [
+        {
+          id: "pr-old",
+          kind: "route",
+          title: "推断路线",
+          summary: "旧依据",
+          ops: [{ op: "route.draw", legId: legs[0].id, path: { type: "LineString", coordinates: [[118.5, 36.7], [119.2, 37.1]] } }],
+          origin: { basis: "inferred", by: "route_ai", why: "旧依据" },
+          doubts: [],
+          dependsOn: [],
+          conflicts: [],
+          status: "pending",
+        },
+      ],
+    };
+    const redrawn = applyOps(withInferred, [{ op: "route.redraw", legId: legs[0].id }], { actor: "user", ids });
+    expect(redrawn.next.proposals.find((item) => item.id === "pr-old")?.status).toBe("rejected");
+    expect(redrawn.redraws).toHaveLength(1);
+  });
+
+  it("层级和叙述性质都给中文，不吐枚举值（1A 遗留 5）", () => {
+    const { document, id } = build();
+    // 把苏州（城市）挂到客栈（建筑）下面：层级反了（建筑比城市低）。
+    const inverted = applyOps(
+      document,
+      [{ op: "entity.update", id: id["青州城"], patch: { place: { level: "city", parentId: id["悦来客栈"], geo: { type: "Point", coordinates: [118.5, 36.7] }, geoCertainty: "exact", connects: [] } } } as CreativeOp],
+      { actor: "user", ids },
+    ).next;
+    const check = runCheck({ document: inverted, legs: [], revision: 3, now: now() });
+    const level = check.conflicts.find((item) => item.kind === "place_hierarchy" && item.why.includes("层级反了"))!;
+    expect(level.why).toContain("建筑");
+    expect(level.why).toContain("城市");
+    expect(level.why).not.toMatch(/region|building|room/);
+    expect(level.fixes[0].preview[0].before).toBe("城市");
+    expect(level.fixes[0].preview[0].after).toBe("楼层");
+    expect(level.fixes[0].label).not.toMatch(/building|floor/);
+
+    // 死后出场的修法预览：事实 → 回忆，不是 fact → flashback。
+    const death = applyOps(
+      document,
+      [
+        event("病故", id["张三"], id["悦来客栈"], "1684-04-22 08:00", "1684-04-22 09:00", { kind: "death" }),
+        event("又见他", id["张三"], id["清河镇"], "1684-04-23 08:00", "1684-04-23 09:00"),
+      ],
+      { actor: "user", ids },
+    ).next;
+    const deathId = death.events.find((item) => item.title === "病故")!.id;
+    const withDeath = applyOps(death, [{ op: "entity.update", id: id["张三"], patch: { person: { died: deathId } } } as CreativeOp], {
+      actor: "user",
+      ids,
+    }).next;
+    const appearance = runCheck({ document: withDeath, legs: [], revision: 4, now: now() }).conflicts.find(
+      (item) => item.kind === "dead_appearance",
+    )!;
+    const preview = appearance.fixes.find((fix) => fix.label.includes("回忆"))!.preview[0];
+    expect(preview.before).toBe("事实");
+    expect(preview.after).toBe("回忆");
+  });
+
+  it("试算先摘掉还没确认的人名地名，放进疑点（契约 §1.1 补注 1）", () => {
+    const { document, id } = build();
+    const ops = [
+      { op: "entity.add", entity: { kind: "person", name: "王二", aliases: [] } },
+      {
+        op: "event.add",
+        event: {
+          title: "王二到阊门",
+          what: "来送信",
+          kind: "stay",
+          participants: [
+            { entityId: "", entityName: "王二", as: "actor" },
+            { entityId: "", entityName: "张三", as: "present" },
+            { entityId: "", entityName: "还没建的老兵", as: "present" },
+          ],
+          placeId: null,
+          placeName: "青州城",
+          travel: null,
+          narrative: "fact",
+          start: { input: "1684-04-21 10:00" },
+          end: { input: "1684-04-21 11:00" },
+        },
+      },
+    ] as unknown as CreativeOp[];
+    const { trialOps, unresolvedPeople, unresolvedPlaces } = splitTrialOps(document, ops);
+    const event = trialOps.find((op) => op.op === "event.add") as { event: { participants: { entityName?: string }[]; placeName?: string } };
+    // 同批新建的王二、已入账的张三（按名字对得上）留着；老兵拿掉
+    expect(event.event.participants.map((item) => item.entityName)).toEqual(["王二", "张三"]);
+    expect(event.event.placeName).toBe("青州城");
+    expect(unresolvedPeople).toEqual(["还没建的老兵"]);
+    expect(unresolvedPlaces).toEqual([]);
+
+    // 地点对不上也一样：从试算里摘掉，记进疑点
+    const withBadPlace = splitTrialOps(document, [
+      {
+        op: "event.add",
+        event: {
+          title: "去个没建过的地方", what: "走", kind: "stay",
+          participants: [{ entityId: "", entityName: "张三", as: "actor" }],
+          placeId: null, placeName: "没建过的山村", travel: null, narrative: "fact",
+          start: { input: "1684-04-21 10:00" }, end: { input: "1684-04-21 11:00" },
+        },
+      },
+    ] as unknown as CreativeOp[]);
+    expect(withBadPlace.unresolvedPlaces).toEqual(["没建过的山村"]);
+    expect((withBadPlace.trialOps[0] as { event: { placeName?: string } }).event.placeName).toBeUndefined();
+    void id;
+  });
+
+  it("同一批里刚建的人物能被按名字引用；重名不静默再建（验收 B3）", () => {
+    const { document } = build();
+    // 顾问「加人物」的一条提议：建人物 + 建地点 + 两条事件，全部按名字引用
+    const batch = [
+      { op: "entity.add", entity: { kind: "person", name: "老周", aliases: ["周阿大"], summary: "摆渡人" } },
+      {
+        op: "entity.add",
+        entity: {
+          kind: "place",
+          name: "阊门外渡口",
+          aliases: ["渡口"],
+          place: { level: "site", parentId: null, geo: null, geoCertainty: "unlocated", connects: [] },
+          parentName: "青州城",
+        },
+      },
+      {
+        op: "event.add",
+        event: {
+          title: "沈砚搭船", what: "过河", kind: "travel",
+          participants: [
+            { entityId: "", entityName: "张三", as: "actor" },
+            { entityId: "", entityName: "老周", as: "actor" },
+          ],
+          placeId: null, placeName: "阊门外渡口", travel: null, narrative: "fact",
+          start: { input: "1684-04-21 06:20" }, end: { input: "1684-04-21 06:40" },
+        },
+      },
+    ] as unknown as CreativeOp[];
+    const applied = applyOps(document, batch, { actor: "user", ids });
+    const zhou = applied.next.entities.find((item) => item.name === "老周")!;
+    const wharf = applied.next.entities.find((item) => item.name === "阊门外渡口")!;
+    expect(zhou).toBeTruthy();
+    expect(wharf.place?.parentId).toBe(document.entities.find((item) => item.name === "青州城")!.id);
+    const event = applied.next.events.find((item) => item.title === "沈砚搭船")!;
+    expect(event.participants[0].entityId).toBe(document.entities.find((item) => item.name === "张三")!.id);
+    expect(event.participants[1].entityId).toBe(zhou.id);
+    expect(event.placeId).toBe(wharf.id);
+
+    // 再来一批同名的：409，不再静默多建一个
+    expect(() =>
+      applyOps(applied.next, [{ op: "entity.add", entity: { kind: "person", name: "老周", aliases: [] } }] as unknown as CreativeOp[], {
+        actor: "user",
+        ids,
+      }),
+    ).toThrow(/已经有一个叫「老周」/);
+
+    // 一批里有对不上的名字：整批不生效（applyOps 不改原文档，调用方回滚）
+    const before = applied.next.entities.length;
+    expect(() =>
+      applyOps(
+        applied.next,
+        [
+          { op: "entity.add", entity: { kind: "person", name: "新人", aliases: [] } },
+          {
+            op: "event.add",
+            event: {
+              title: "找不到人的事件", what: "x", kind: "stay",
+              participants: [{ entityId: "", entityName: "根本没这个人", as: "actor" }],
+              placeId: null, travel: null, narrative: "fact",
+              start: { input: "1684-04-21 06:20" }, end: { input: "1684-04-21 06:40" },
+            },
+          },
+        ] as unknown as CreativeOp[],
+        { actor: "user", ids },
+      ),
+    ).toThrow(/还没有入账/);
+    expect(applied.next.entities.length).toBe(before);
+  });
+
+  it("顾问的「加人物」提议算 itinerary，不是 entity（验收 B2）", () => {
+    const person = { op: "entity.add", entity: { kind: "person", name: "老周", aliases: [] } };
+    const eventOp = {
+      op: "event.add",
+      event: {
+        title: "过河", what: "x", kind: "travel",
+        participants: [{ entityId: "", entityName: "老周", as: "actor" }],
+        placeId: null, travel: null, narrative: "fact",
+        start: { input: "1684-04-21 06:20" }, end: { input: "1684-04-21 06:40" },
+      },
+    };
+    expect(derivedKind([person, eventOp] as unknown as CreativeOp[], "entity")).toBe("itinerary");
+    expect(derivedKind([eventOp] as unknown as CreativeOp[], "entity")).toBe("event");
+    expect(derivedKind([person] as unknown as CreativeOp[], "event")).toBe("entity");
+    expect(derivedKind([{ op: "rule.set", rule: { id: "r", text: "夜里不许出城", machine: null } }] as unknown as CreativeOp[])).toBe("rule");
+  });
+
+  it("正文提议：接受要走 text.accept，拒绝/暂缓可以在这里划掉", () => {
+    const { document } = build();
+    const edit = {
+      id: "pr-edit",
+      kind: "text_edit" as const,
+      title: "这一场：起稿",
+      summary: "",
+      ops: [{ op: "text.set", workId: "w1", sceneId: "s1", baseTextVersion: 0, mode: "draft" as const, range: null, before: "", after: "一稿。" }],
+      origin: { basis: "inferred" as const, by: "writer" as const },
+      doubts: [],
+      dependsOn: [],
+      conflicts: [],
+      status: "pending" as const,
+    };
+    const withEdit = { ...document, proposals: [edit] };
+    expect(() =>
+      applyOps(withEdit, [{ op: "proposal.decide", id: "pr-edit", decision: "accepted" }], { actor: "user", ids }),
+    ).toThrow(/text\.accept/);
+    const rejected = applyOps(withEdit, [{ op: "proposal.decide", id: "pr-edit", decision: "rejected" }], {
+      actor: "user",
+      ids,
+    });
+    expect(rejected.next.proposals[0].status).toBe("rejected");
+    expect(rejected.next.proposals[0].resolution?.decision).toBe("rejected");
   });
 
   it("信息不足与未覆盖照实显示，不当作通过", () => {

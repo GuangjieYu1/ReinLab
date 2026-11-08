@@ -120,8 +120,14 @@ export type WorldEvent = {
   title: string;
   what: string;
   kind: 'stay' | 'travel' | 'interaction' | 'birth' | 'death' | 'other';
-  participants: { entityId: string; as: Participation }[];
+  /**
+   * 导入来的事件还不知道实体 id（那些实体也在待确认里）：这时 `entityId` 留空，
+   * 用 `entityName` 按名字/别名解析（服务端在应用操作时解析，解析不到就整批拒绝）。
+   */
+  participants: { entityId: string; entityName?: string; as: Participation }[];
   placeId: string | null;
+  /** 同 entityName：地点还在待确认里时只写名字，接受提议时解析，解析不到整批拒绝。 */
+  placeName?: string;
   start: StoryTime;
   end: StoryTime;
   travel?: { fromId: string | null; toId: string | null; modeId: string | null } | null;
@@ -261,6 +267,11 @@ export type Proposal = {
     | 'text_edit';
   title: string;
   summary: string;
+  /**
+   * 接受后要执行的操作。`kind:'text_edit'` 的提议把 `TextEdit` 放在 `ops[0]`
+   * （契约 §5.1，多带一个 `op:'text.set'` 标记），由作品的 `text.accept` 落实，
+   * 世界观账本不执行它。
+   */
   ops: CreativeOp[];
   origin: CreativeProvenance;
   doubts: string[];
@@ -268,6 +279,11 @@ export type Proposal = {
   conflicts: CreativeConflict[];
   candidates?: { label: string; ops: CreativeOp[]; why: string }[];
   status: Decision;
+  /**
+   * 处理结果和原因：手绘路线会让同一段旧的推断提议作废（1A 遗留 1），
+   * 作者拒绝、暂缓也记在这里，页面显示「已作废：你手绘了这段」而不是悄悄消失。
+   */
+  resolution?: { decision: Decision; reason: string; at: CreativeIso; by: 'user' | 'agent' } | null;
 };
 
 // ── 版本（1A 只保留，1C 才有界面）───────────────
@@ -317,7 +333,9 @@ export type CreativeOp =
     }
   /** 删约束是明确的设定决定。 */
   | { op: 'constraint.drop'; eventId: string; field: string; reason: string }
-  | { op: 'world.set'; patch: Partial<Pick<World, 'title' | 'basemap'>> };
+  | { op: 'world.set'; patch: Partial<Pick<World, 'title' | 'basemap'>> }
+  /** 只在作品里落实：`kind:'text_edit'` 的提议用它（契约 §5.1）。世界观账本不执行。 */
+  | ({ op: 'text.set' } & TextEdit);
 
 export type CreativeAppliedOp = CreativeOp & {
   opId: string;
@@ -332,6 +350,123 @@ export type CreativeAppliedOp = CreativeOp & {
     removedId?: string;
   };
 };
+
+// ── 作品（1B，契约 §5.1）─────────────────────────
+export type Work = {
+  id: string;
+  worldId: string;
+  /** 1B 先做小说；影视、漫剧留到后面。 */
+  kind: 'novel' | 'film' | 'comic';
+  title: string;
+  /** 建作品时锁定当时最新的已确认版本，以后不自动更新（逐条更新在 1C）。 */
+  baseVersion: number;
+  /** 作品自己的修订号：大纲、章节、正文的操作批次。 */
+  revision: number;
+  targetWords: number | null;
+  words: number;
+  outline: Outline | null;
+  chapters: Chapter[];
+  /** 导入来的作品。 */
+  source?: { kind: 'import'; assetId: string; title: string; textVersion: number } | null;
+  /** 空场景起稿是否直接落成 draft；默认关（作者接受才算写过）。 */
+  autoAcceptDraft?: boolean;
+};
+
+export type Outline = {
+  state: 'draft' | 'confirmed';
+  logline: string;
+  pov: string;
+  ending: string;
+  chapters: {
+    id: string;
+    title: string;
+    scenes: { id: string; title: string; goal: string; eventIds: string[]; targetWords: number | null }[];
+  }[];
+  /** 大纲里提到的新设定、新事件：仍然是提议，确认大纲不等于入账。 */
+  proposalIds: string[];
+};
+
+export type Chapter = { id: string; no: number; title: string; scenes: Scene[] };
+
+export type Scene = {
+  id: string;
+  title: string;
+  goal: string;
+  /** 本场引用的事件（双向：事件的 workRefs 也会带上它）。 */
+  eventIds: string[];
+  /** 正文，段落用空行分隔。 */
+  text: string;
+  /** 每次落笔 +1；改正文都带 baseTextVersion。 */
+  textVersion: number;
+  words: number;
+  targetWords: number | null;
+  state: 'empty' | 'generating' | 'draft' | 'written';
+  /** 服务端算好的正文标注，前端只画。 */
+  marks: TextMark[];
+};
+
+export type TextMark = {
+  para: number;
+  from: number;
+  to: number;
+  kind: 'entity' | 'event' | 'conflict' | 'stale_source';
+  /** entityId / eventId / conflictId / proposalId。 */
+  refId: string;
+};
+
+/** `Proposal.kind = 'text_edit'` 的 payload，放在 `proposal.ops[0]`（契约 §5.1）。 */
+export type TextEdit = {
+  workId: string;
+  sceneId: string;
+  baseTextVersion: number;
+  mode: 'draft' | 'continue' | 'complete' | 'rewrite';
+  /** rewrite 替换的范围；continue 为 null（接在末尾）。 */
+  range: { para: number; from: number; to: number } | null;
+  before: string;
+  after: string;
+};
+
+export type ImportJob = {
+  id: string;
+  workId: string;
+  state: 'queued' | 'running' | 'paused' | 'done' | 'failed';
+  chapters: { total: number; done: number };
+  proposals: number;
+  current?: { chapterId: string; title: string } | null;
+  error?: string | null;
+  cost: CreativeCny;
+};
+
+export type GenerateJob = {
+  id: string;
+  workId: string;
+  sceneIds: string[];
+  done: string[];
+  state: 'running' | 'stopped' | 'done' | 'failed';
+  error?: string | null;
+  cost: CreativeCny;
+};
+
+export type WorkOp =
+  | { op: 'work.set'; patch: Partial<Pick<Work, 'title' | 'targetWords'>> & { autoAcceptDraft?: boolean } }
+  | { op: 'outline.set'; outline: Omit<Outline, 'state' | 'proposalIds'> }
+  | { op: 'outline.confirm' }
+  | { op: 'chapter.add'; title: string; at?: number }
+  | { op: 'chapter.update'; id: string; title: string }
+  | { op: 'chapter.remove'; id: string }
+  | { op: 'chapter.move'; id: string; to: number }
+  | { op: 'scene.add'; chapterId: string; title: string; at?: number }
+  | {
+      op: 'scene.update';
+      id: string;
+      patch: Partial<Pick<Scene, 'title' | 'goal' | 'eventIds' | 'targetWords'>>;
+    }
+  | { op: 'scene.remove'; id: string }
+  | { op: 'scene.move'; id: string; chapterId: string; to: number }
+  /** 作者直接写：直接落笔。 */
+  | { op: 'text.set'; sceneId: string; baseTextVersion: number; text: string }
+  /** 接受 AI 的改动；带 text 就是「改后接受」。 */
+  | { op: 'text.accept'; proposalId: string; text?: string };
 
 // ── 快照 ──────────────────────────────────────────
 export type WorldSnapshot = {

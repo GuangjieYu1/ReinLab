@@ -2,7 +2,7 @@ import type pg from "pg";
 import { ApiFailure } from "../api/errors";
 
 /** 用途：计划编排 / 读图 / 天气判断 / 天气调整。后台调用没有 run。 */
-export type UsagePurpose = "planning" | "vision" | "weather_judge" | "weather_adjust" | "creative_route";
+export type UsagePurpose = "planning" | "vision" | "weather_judge" | "weather_adjust" | "creative_route" | "creative_import" | "creative_generate" | "creative_advisor";
 
 export type UsageRecord = {
   account: string;

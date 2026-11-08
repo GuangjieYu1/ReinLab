@@ -8,15 +8,27 @@
 import { randomUUID } from 'node:crypto';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import type { JsonValue, CreativeOp } from '@reinlab/contracts';
+import type { JsonValue, CreativeOp, WorkOp } from '@reinlab/contracts';
 import { ApiFailure } from './errors';
 import { mutate, type ApiEnv } from './context';
 import type { Database } from '../db/database';
-import { AssetBody, ImportBody, OpsBody, VersionBody } from '../creative/schema';
+import { AdvisorBody, AssetBody, GenerateBody, ImportBody, ImportWorkBody, OpsBody, ProposalsQuery, VersionBody, WorkCreate, WorkOpsBody } from '../creative/schema';
+import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
+import { advise } from '../creative/advisor';
+import { importJobOf, previewImport, readImportJob, runImport, setImportState, startImport } from '../creative/import-job';
+import {
+  applyWorkBatch,
+  createWork,
+  exportWork,
+  listProposals,
+  listWorks,
+  readWork,
+} from '../creative/work-service';
 import {
   applyBatch,
   beginNetworkImport,
   loadWorld,
+  readNetworkGeoJson,
   readSnapshot,
   readTracks,
   rangeOf,
@@ -34,6 +46,12 @@ import { validateBbox, type OverpassTransport } from '../creative/network';
 const EmptyBody = z.object({}).strict();
 
 export type CreativeApiOptions = {
+  /** 按章抽取的模型通道；没配就导入直接失败（不伪造抽取结果）。 */
+  importExtraction?: import('../creative/import-job').ImportDeps;
+  /** 写作助手（按场景生成）；没配就生成直接失败。 */
+  writer?: import('../creative/writer').WriterDeps;
+  /** 设定顾问；没配就直接说开不了。 */
+  advisor?: import('../creative/advisor').AdvisorDeps;
   /** AI 推断路线的模型通道；没配就只记「没开」，不伪造路线。 */
   routeInference?: RouteInferenceDeps;
   /** Overpass 取数通道（测试注入）。 */
@@ -78,9 +96,11 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     const parsed = version === undefined ? null : Number(version);
     if (parsed !== null && (!Number.isSafeInteger(parsed) || parsed < 1))
       throw new ApiFailure('INVALID_INPUT', 400, '版本号要从 1 起。');
-    return database.withAccount(c.get('accountId'), async (client) =>
-      c.json((await readSnapshot(client, c.get('accountId'), c.req.param('dossierId'), parsed)) as unknown as JsonValue),
-    );
+    return database.withAccount(c.get('accountId'), async (client) => {
+      // 快照类型（含 20 种 op 与提议）太大，直接交给 c.json 会把泛型推断撑爆。
+      const snapshot: unknown = await readSnapshot(client, c.get('accountId'), c.req.param('dossierId'), parsed);
+      return c.json(snapshot as Record<string, unknown>);
+    });
   });
 
   /** 改：一个原子批次，revision +1，然后自动做一次（增量）检查。 */
@@ -88,10 +108,12 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     const account = c.get('accountId');
     const dossier = c.req.param('dossierId');
     let outcome: OpsOutcome | null = null;
-    const response = await mutate(c, database, OpsBody, async (client, input) => {
+    // 20 种 op 的判别联合让 zod 推断太深（TS2589）：这里明确收窄成实际用的形状。
+    type OpsInput = { baseRevision?: number; ops: CreativeOp[] };
+    const response = await mutate<OpsInput>(c, database, OpsBody as unknown as z.ZodType<OpsInput>, async (client, input) => {
       const result = await applyBatch(client, account, dossier, {
         ...(input.baseRevision !== undefined ? { baseRevision: input.baseRevision } : {}),
-        ops: input.ops as CreativeOp[],
+        ops: input.ops,
         actor: 'user',
       });
       outcome = result;
@@ -116,8 +138,14 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       .map((item) => item.trim())
       .filter(Boolean);
     return database.withAccount(c.get('accountId'), async (client) => {
-      const result = await readTracks(client, c.get('accountId'), c.req.param('dossierId'), range, entityIds.length ? entityIds : undefined);
-      return c.json(result as unknown as JsonValue);
+      const result: unknown = await readTracks(
+        client,
+        c.get('accountId'),
+        c.req.param('dossierId'),
+        range,
+        entityIds.length ? entityIds : undefined,
+      );
+      return c.json(result as Record<string, unknown>);
     });
   });
 
@@ -126,9 +154,31 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     const raw = c.req.query('t');
     const at = raw === undefined || raw === '' ? null : Number(raw);
     if (at !== null && !Number.isFinite(at)) throw new ApiFailure('INVALID_INPUT', 400, 't 要是故事时间的分钟数。');
-    return database.withAccount(c.get('accountId'), async (client) =>
-      c.json((await editsGeoJson(client, c.get('accountId'), c.req.param('dossierId'), at)) as unknown as JsonValue),
-    );
+    return database.withAccount(c.get('accountId'), async (client) => {
+      const body: unknown = await editsGeoJson(client, c.get('accountId'), c.req.param('dossierId'), at);
+      return c.json(body as Record<string, unknown>);
+    });
+  });
+
+  /**
+   * 路网几何（只读，1A 遗留 4）：架空世界没有底图路，页面得自己画。
+   * `?bbox=西,南,东,北` 只取一块；不传就是整个世界观。单次要素有上限。
+   */
+  app.get('/v1/creative/worlds/:dossierId/network/geojson', (c) => {
+    const raw = c.req.query('bbox');
+    let bbox: [number, number, number, number] | null = null;
+    if (raw !== undefined && raw !== '') {
+      const parts = raw.split(',').map((item) => Number(item.trim()));
+      if (parts.length !== 4 || parts.some((value) => !Number.isFinite(value)))
+        throw new ApiFailure('INVALID_INPUT', 400, 'bbox 要用「西,南,东,北」四个数字。');
+      if (parts[0] >= parts[2] || parts[1] >= parts[3])
+        throw new ApiFailure('INVALID_INPUT', 400, 'bbox 两个角写反了：西 < 东，南 < 北。');
+      bbox = parts as [number, number, number, number];
+    }
+    return database.withAccount(c.get('accountId'), async (client) => {
+      const body: unknown = await readNetworkGeoJson(client, c.get('accountId'), c.req.param('dossierId'), bbox);
+      return c.json(body as Record<string, unknown>);
+    });
   });
 
   /** 全部重查：手动按钮。 */
@@ -183,10 +233,252 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     }),
   );
 
+  // ── 作品（1B，契约 §5.2）──────────────────────
+  app.get('/v1/creative/worlds/:dossierId/works', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const works: unknown = await listWorks(client, c.get('accountId'), c.req.param('dossierId'));
+      return c.json(works as Record<string, unknown>[]);
+    }),
+  );
+
+  app.post('/v1/creative/worlds/:dossierId/works', (c) =>
+    mutate(c, database, WorkCreate, async (client, input) => {
+      const work = await createWork(client, c.get('accountId'), c.req.param('dossierId'), {
+        kind: input.kind ?? 'novel',
+        title: input.title,
+        targetWords: input.targetWords ?? null,
+      });
+      return { status: 201, body: work as unknown as JsonValue };
+    }),
+  );
+
+  app.get('/v1/creative/worlds/:dossierId/works/:workId', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const work: unknown = await readWork(
+        client,
+        c.get('accountId'),
+        c.req.param('dossierId'),
+        c.req.param('workId'),
+      );
+      return c.json(work as Record<string, unknown>);
+    }),
+  );
+
+  app.post('/v1/creative/worlds/:dossierId/works/:workId/ops', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const workId = c.req.param('workId');
+    type WorkOpsInput = { baseRevision?: number; ops: WorkOp[] };
+    return mutate<WorkOpsInput>(
+      c,
+      database,
+      WorkOpsBody as unknown as z.ZodType<WorkOpsInput>,
+      async (client, input) => {
+        const result = await applyWorkBatch(client, account, dossier, workId, {
+          ...(input.baseRevision !== undefined ? { baseRevision: input.baseRevision } : {}),
+          ops: input.ops,
+        });
+        return {
+          status: 200,
+          body: { revision: result.revision, work: result.work } as unknown as JsonValue,
+        };
+      },
+    );
+  });
+
+  app.get('/v1/creative/worlds/:dossierId/works/:workId/export', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const format = c.req.query('format') === 'docx' ? 'docx' : 'md';
+      const result = await exportWork(
+        client,
+        c.get('accountId'),
+        c.req.param('dossierId'),
+        c.req.param('workId'),
+        format,
+      );
+      return new Response(result.body as unknown as ReadableStream | string, {
+        headers: {
+          'content-type': result.contentType,
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
+          'cache-control': 'no-store',
+        },
+      });
+    }),
+  );
+
+  // ── 导入原文（1B，契约 §5.2）──────────────────
+  /** 只分章、不抽取、不落库：导入向导第一步先给作者看分章结果。 */
+  app.post('/v1/creative/worlds/:dossierId/works/:workId/import/preview', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const workId = c.req.param('workId');
+    const parsed = ImportWorkBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) throw new ApiFailure('INVALID_INPUT', 400, '请求字段不符合要求，请检查输入。');
+    const input = parsed.data;
+    const text =
+      'assetId' in input
+        ? await database.withAccount(account, async (client) => {
+            const asset = (
+              await client.query<{ content: string }>(
+                'select content from creative_asset where id=$1 and account_id=$2 and dossier_id=$3',
+                [input.assetId, account, dossier],
+              )
+            ).rows[0];
+            if (!asset) throw new ApiFailure('ASSET_NOT_FOUND', 404, '找不到这份上传的原文。');
+            return asset.content;
+          })
+        : input.text;
+    return database.withAccount(account, async (client) => {
+      const preview: unknown = await previewImport(client, account, dossier, workId, { text });
+      return c.json(preview as Record<string, unknown>);
+    });
+  });
+
+  app.post('/v1/creative/worlds/:dossierId/works/:workId/import', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const workId = c.req.param('workId');
+    let jobId: string | null = null;
+    const response = await mutate(c, database, ImportWorkBody, async (client, input) => {
+      const source =
+        'assetId' in input
+          ? await (async () => {
+              const asset = (
+                await client.query<{ content: string; name: string; format: string }>(
+                  'select content, name, format from creative_asset where id=$1 and account_id=$2 and dossier_id=$3',
+                  [input.assetId, account, dossier],
+                )
+              ).rows[0];
+              if (!asset) throw new ApiFailure('ASSET_NOT_FOUND', 404, '找不到这份上传的原文。');
+              return { text: asset.content, title: asset.name, assetId: input.assetId };
+            })()
+          : { text: input.text, ...(input.title ? { title: input.title } : {}) };
+      const started = await startImport(client, account, dossier, workId, source);
+      jobId = started.job.id;
+      return { status: 202, body: importJobOf(started.job) as unknown as JsonValue };
+    });
+    if (jobId && options.importExtraction)
+      void runImport(database, account, dossier, jobId, options.importExtraction).catch((error) => {
+        console.error(
+          JSON.stringify({ code: 'CREATIVE_IMPORT_FAILED', message: String((error as Error)?.message ?? error).slice(0, 200) }),
+        );
+      });
+    return response;
+  });
+
+  app.get('/v1/creative/worlds/:dossierId/imports/:jobId', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const job = await readImportJob(client, c.get('accountId'), c.req.param('dossierId'), c.req.param('jobId'));
+      const body: unknown = importJobOf(job);
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
+
+  for (const action of ['pause', 'resume'] as const)
+    app.post(`/v1/creative/worlds/:dossierId/imports/:jobId/${action}`, async (c) => {
+      const account = c.get('accountId');
+      const dossier = c.req.param('dossierId');
+      let jobId: string | null = null;
+      const response = await mutate(c, database, EmptyBody, async (client) => {
+        const job = await setImportState(client, account, dossier, c.req.param('jobId'), action);
+        jobId = job.id;
+        return { status: 200, body: importJobOf(job) as unknown as JsonValue };
+      });
+      if (action === 'resume' && jobId && options.importExtraction)
+        void runImport(database, account, dossier, jobId, options.importExtraction).catch(() => undefined);
+      return response;
+    });
+
+  // ── 生成与顾问（1B，契约 §5.2）──────────────
+  app.post('/v1/creative/worlds/:dossierId/works/:workId/generate', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const workId = c.req.param('workId');
+    let jobId: string | null = null;
+    const response = await mutate(c, database, GenerateBody, async (client, input) => {
+      const job = await startGenerate(client, account, dossier, workId, {
+        sceneIds: input.sceneIds,
+        mode: input.mode ?? 'draft',
+        ...(input.hint ? { hint: input.hint } : {}),
+        ...(input.range ? { range: input.range } : {}),
+      });
+      jobId = job.id;
+      return { status: 202, body: generateJobOf(job) as unknown as JsonValue };
+    });
+    if (jobId)
+      void runGenerate(database, options.writer ?? {}, account, dossier, jobId).catch((error) => {
+        console.error(
+          JSON.stringify({ code: 'CREATIVE_GENERATE_FAILED', message: String((error as Error)?.message ?? error).slice(0, 200) }),
+        );
+      });
+    return response;
+  });
+
+  app.get('/v1/creative/worlds/:dossierId/generate/:jobId', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const job = await readGenerateJob(client, c.get('accountId'), c.req.param('dossierId'), c.req.param('jobId'));
+      const body: unknown = generateJobOf(job);
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
+
+  app.post('/v1/creative/worlds/:dossierId/generate/:jobId/stop', (c) =>
+    mutate(c, database, EmptyBody, async (client) => {
+      const job = await stopGenerate(client, c.get('accountId'), c.req.param('dossierId'), c.req.param('jobId'));
+      return { status: 200, body: generateJobOf(job) as unknown as JsonValue };
+    }),
+  );
+
+  /** 设定顾问：一句话提一条设定（加人物、加规则……），先自己跑硬检查再交。 */
+  app.post('/v1/creative/worlds/:dossierId/advisor', (c) =>
+    mutate(c, database, AdvisorBody, async (client, input) => {
+      const result = await advise(client, c.get('accountId'), c.req.param('dossierId'), options.advisor ?? {}, input.query);
+      return {
+        status: 200,
+        body: {
+          proposals: result.proposals,
+          cost: result.cost,
+          ...(result.declined ? { declined: result.declined } : {}),
+        } as unknown as JsonValue,
+      };
+    }),
+  );
+
+  /** 待确认提议分页（1B 提议多，单独取）。 */
+  app.get('/v1/creative/worlds/:dossierId/proposals', (c) => {
+    const parsed = ProposalsQuery.safeParse({
+      ...(c.req.query('kind') ? { kind: c.req.query('kind') } : {}),
+      ...(c.req.query('batchId') ? { batchId: c.req.query('batchId') } : {}),
+      ...(c.req.query('doubt') ? { doubt: c.req.query('doubt') } : {}),
+      ...(c.req.query('status') ? { status: c.req.query('status') } : {}),
+      ...(c.req.query('cursor') ? { cursor: c.req.query('cursor') } : {}),
+      ...(c.req.query('limit') ? { limit: c.req.query('limit') } : {}),
+      ...(c.req.query('sort') ? { sort: c.req.query('sort') } : {}),
+    });
+    if (!parsed.success) throw new ApiFailure('INVALID_INPUT', 400, '筛选条件不符合要求。');
+    const query = parsed.data;
+    const cursor = query.cursor === undefined ? 0 : Number(query.cursor);
+    const limit = query.limit === undefined ? 50 : Number(query.limit);
+    if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(limit) || limit < 1)
+      throw new ApiFailure('INVALID_INPUT', 400, 'cursor 和 limit 要是正整数。');
+    return database.withAccount(c.get('accountId'), async (client) => {
+      const page: unknown = await listProposals(client, c.get('accountId'), c.req.param('dossierId'), {
+        ...(query.kind ? { kind: query.kind } : {}),
+        ...(query.batchId ? { batchId: query.batchId } : {}),
+        ...(query.doubt ? { doubt: query.doubt === 'true' } : {}),
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.sort ? { sort: query.sort } : {}),
+        cursor,
+        limit,
+      });
+      return c.json(page as Record<string, unknown>);
+    });
+  });
+
   /** 存一个版本（1A 只保留，界面在 1C）。 */
   app.post('/v1/creative/worlds/:dossierId/versions', (c) =>
     mutate(c, database, VersionBody, async (client, input) => {
-      const version = await saveVersion(client, c.get('accountId'), c.req.param('dossierId'), input.summary);
+      const version = await saveVersion(client, c.get('accountId'), c.req.param('dossierId'), input.summary ?? '');
       return { status: 201, body: version as unknown as JsonValue };
     }),
   );

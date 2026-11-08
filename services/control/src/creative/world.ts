@@ -14,6 +14,7 @@ import type {
   CreativeBasemap,
   Calendar,
   CreativeCny,
+  Participation,
   Entity,
   MapEdit,
   NetworkStatus,
@@ -60,17 +61,23 @@ export type CreativeDocument = {
   /** 算不出路的原因（人话），按 leg 记。 */
   routeFailures: { legId: string; failure: string }[];
   network: NetworkStatus;
+  /** 路网状态是什么时候变的：控制面重启后据此判断哪些导入卡死了（1A 遗留 3）。 */
+  networkUpdatedAt?: string | null;
   usage: CreativeCny;
 };
 
 export const GREGORIAN: Calendar = { id: 'gregorian', name: '公历', kind: 'gregorian' };
 export const CUSTOM_ERA: Calendar = { id: 'custom', name: '自定义纪元', kind: 'custom', note: '第 1 日 = 纪元第一天' };
+/** 年号历（1B）：明洪武到清宣统，农历按天文算法算，不确定时给候选。 */
+export const CHINESE_ERA: Calendar = {
+  id: 'chinese_era', name: '年号历', kind: 'chinese_era', note: '年号 + 干支 + 农历，例如「康熙二十三年三月初七」',
+};
 
 export function emptyDocument(title: string): CreativeDocument {
   return {
     title,
     basemap: { kind: 'blank', scaleKmPerUnit: null },
-    calendars: [{ ...GREGORIAN }, { ...CUSTOM_ERA }],
+    calendars: [{ ...GREGORIAN }, { ...CHINESE_ERA }, { ...CUSTOM_ERA }],
     entities: [],
     relations: [],
     events: [],
@@ -144,6 +151,39 @@ function findEntity(document: CreativeDocument, id: string): Entity {
   return found;
 }
 
+/**
+ * 按名字或别名找实体（导入来的事件用名字引用）。
+ * 同一批里刚建出来的实体优先：顾问一条提议里「建人物 + 建地点 + 几条事件」靠它串起来。
+ * 还是多个候选就报错，不猜是哪一个。
+ */
+function entityByName(document: CreativeDocument, name: string, createdHere?: Set<string>): Entity {
+  const matched = document.entities.filter(
+    (item) => item.name === name || (item.aliases ?? []).includes(name),
+  );
+  if (matched.length === 1) return matched[0];
+  if (matched.length > 1 && createdHere) {
+    const fresh = matched.filter((item) => createdHere.has(item.id));
+    if (fresh.length === 1) return fresh[0];
+  }
+  if (matched.length > 1)
+    throw fail('ENTITY_AMBIGUOUS', 422, `「${name}」对上了 ${matched.length} 个实体，请先合并或改名。`);
+  throw fail('ENTITY_NOT_FOUND', 404, `原文里的「${name}」还没有入账：先把这个人或地点建出来（或接受对应的提议）。`);
+}
+
+/** 参与者/地点：给 id 用 id，只给名字就解析。 */
+function resolveParticipant(
+  document: CreativeDocument,
+  participant: { entityId?: string; entityName?: string; as: Participation },
+  createdHere?: Set<string>,
+): { entityId: string; as: Participation } {
+  if (participant.entityId) return { entityId: participant.entityId, as: participant.as };
+  if (participant.entityName) {
+    const entity = entityByName(document, participant.entityName, createdHere);
+    return { entityId: entity.id, as: participant.as };
+  }
+  throw fail('INVALID_INPUT', 400, '参与者要写人物 id 或名字。');
+}
+
 function findEvent(document: CreativeDocument, id: string): WorldEvent {
   const found = document.events.find((item) => item.id === id);
   if (!found) throw fail('EVENT_NOT_FOUND', 404, '这条事件已经不在了。');
@@ -196,6 +236,8 @@ export type ApplyOutcome = {
 export type ApplyOptions = {
   actor: 'user' | 'agent';
   ids?: () => string;
+  /** 处理结果的时间：作废、接受、拒绝都要记下是什么时候。 */
+  at?: string;
 };
 
 function summaryOf(op: CreativeOp, document: CreativeDocument): string {
@@ -252,6 +294,36 @@ function summaryOf(op: CreativeOp, document: CreativeDocument): string {
 const labelKind = (kind: Entity['kind']) =>
   ({ person: '人物', place: '地点', item: '物件', org: '组织' })[kind];
 
+/**
+ * 同一段路只能有一条结论：手绘或重画以后，这段路原来那条推断提议作废（1A 遗留 1）。
+ * 返回作废的提议，调用方写进 applied 让页面知道发生了什么，并且不能再确认它。
+ */
+export function voidRouteProposals(
+  document: CreativeDocument,
+  legId: string,
+  reason: string,
+  at: string,
+): Proposal[] {
+  const voided: Proposal[] = [];
+  document.proposals = document.proposals.map((proposal) => {
+    if (proposal.kind !== 'route') return proposal;
+    if (proposal.status !== 'pending' && proposal.status !== 'deferred') return proposal;
+    const belongs =
+      document.inferredRoutes.some((route) => route.proposalId === proposal.id && route.legId === legId) ||
+      proposal.ops.some((op) => op.op === 'route.draw' && op.legId === legId);
+    if (!belongs) return proposal;
+    const next: Proposal = {
+      ...proposal,
+      status: 'rejected',
+      // 系统自动作废（不是作者亲手拒的）：by 必须是 agent（契约 §1.1 补注 2）。
+      resolution: { decision: 'rejected', reason, at, by: 'agent' },
+    };
+    voided.push(next);
+    return next;
+  });
+  return voided;
+}
+
 /** 一个批次的纯计算：要么全成，要么抛错（调用方回滚事务）。 */
 export function applyOps(
   document: CreativeDocument,
@@ -263,18 +335,38 @@ export function applyOps(
   const touchedEvents = new Set<string>();
   const redraws: { legId: string; hint?: string }[] = [];
   const ids = options.ids ?? randomUUID;
+  const at = options.at ?? new Date().toISOString();
+  /** 这一批里刚建出来的实体 id：同批的后续操作按名字引用时要优先认它们。 */
+  const createdHere = new Set<string>();
 
   for (const op of ops) {
     const summary = summaryOf(op, next);
     const opId = ids();
-    const push = (result: CreativeAppliedOp['result']) =>
-      applied.push({ ...(op as CreativeOp), opId, actor: options.actor, summary, result });
+    const push = (result: CreativeAppliedOp['result'], summaryOverride?: string) =>
+      applied.push({
+        ...(op as CreativeOp),
+        opId,
+        actor: options.actor,
+        summary: summaryOverride ?? summary,
+        result,
+      });
 
     switch (op.op) {
       case 'entity.add': {
         if (!ENTITY_KINDS.includes(op.entity.kind))
           throw fail('INVALID_INPUT', 400, '实体的种类只能是人物、地点、物件或组织。');
         if (!op.entity.name?.trim()) throw fail('INVALID_INPUT', 400, '实体要有名字。');
+        // 重名不静默再建一个（验收 B3：重名会让后面按名字引用的整批对不上）。
+        const duplicated = next.entities.find(
+          (item) => item.name === op.entity.name.trim() || (item.aliases ?? []).includes(op.entity.name!.trim()),
+        );
+        if (duplicated)
+          throw fail(
+            'ENTITY_EXISTS',
+            409,
+            `已经有一个叫「${op.entity.name.trim()}」的实体（${duplicated.kind === 'person' ? '人物' : duplicated.kind === 'place' ? '地点' : '对象'}）：先合并或改名，别重复建。`,
+            { entityId: duplicated.id },
+          );
         const entity: Entity = {
           ...(op.entity as Entity),
           id: ids(),
@@ -286,6 +378,10 @@ export function applyOps(
           const place = entity.place ?? {
             level: 'site' as PlaceLevel, parentId: null, geo: null, geoCertainty: 'unlocated' as const, connects: [],
           };
+          if (!place.parentId) {
+            const parentName = (entity as { parentName?: string }).parentName;
+            if (parentName) place.parentId = entityByName(next, parentName, createdHere).id;
+          }
           if (!PLACE_LEVELS.includes(place.level))
             throw fail('INVALID_INPUT', 400, '地点层级只能是世界、区域、城市、建筑、楼层、房间或场所。');
           entity.place = {
@@ -296,6 +392,7 @@ export function applyOps(
         }
         if (entity.kind === 'person' && !entity.person) entity.person = { born: null, died: null };
         next.entities.push(entity);
+        createdHere.add(entity.id);
         push({ entity });
         break;
       }
@@ -360,12 +457,18 @@ export function applyOps(
         if (!input.title?.trim()) throw fail('INVALID_INPUT', 400, '事件要有标题。');
         if (!input.participants?.length)
           throw fail('INVALID_INPUT', 400, '事件至少要有一个参与者。');
-        for (const participant of input.participants) findEntity(next, participant.entityId);
-        if (input.placeId) findEntity(next, input.placeId);
+        const participants = input.participants.map((participant) =>
+          resolveParticipant(next, participant, createdHere),
+        );
+        const placeId =
+          input.placeId ?? (input.placeName ? entityByName(next, input.placeName, createdHere).id : null);
+        if (placeId) findEntity(next, placeId);
         const start = parseInput(next, input.start, '开始时间');
         const end = parseInput(next, input.end, '结束时间');
         const event: WorldEvent = {
           ...(input as unknown as WorldEvent),
+          participants,
+          placeId,
           id: ids(),
           start,
           end,
@@ -392,8 +495,11 @@ export function applyOps(
         delete patch.end;
         delete patch.gaps;
         if (Array.isArray(patch.participants))
-          for (const participant of patch.participants as { entityId: string }[])
-            findEntity(next, participant.entityId);
+          patch.participants = (patch.participants as { entityId?: string; entityName?: string; as: Participation }[]).map(
+            (participant) => resolveParticipant(next, participant, createdHere),
+          );
+        if (typeof patch.placeName === 'string' && !patch.placeId)
+          patch.placeId = entityByName(next, patch.placeName, createdHere).id;
         if (typeof patch.placeId === 'string') findEntity(next, patch.placeId);
         const merged: WorldEvent = {
           ...next.events[index],
@@ -500,17 +606,25 @@ export function applyOps(
       case 'route.draw': {
         if (op.path?.type !== 'LineString' || op.path.coordinates.length < 2)
           throw fail('INVALID_INPUT', 400, '手绘路线至少要有两个点。');
+        const voided = voidRouteProposals(next, op.legId, '作者手绘了新路线', at);
         next.manualRoutes = [...next.manualRoutes.filter((item) => item.legId !== op.legId), { legId: op.legId, path: clone(op.path) }];
         next.inferredRoutes = next.inferredRoutes.filter((item) => item.legId !== op.legId);
         next.routeFailures = next.routeFailures.filter((item) => item.legId !== op.legId);
-        push({});
+        push(
+          voided[0] ? { proposal: voided[0] } : {},
+          voided.length ? `画了一段路线，作废了同一段的 ${voided.length} 条推断提议` : undefined,
+        );
         break;
       }
       case 'route.redraw': {
         redraws.push({ legId: op.legId, ...(op.hint ? { hint: op.hint } : {}) });
+        const voided = voidRouteProposals(next, op.legId, '作者让 AI 重画了这段路线，旧的推断不作数', at);
         next.inferredRoutes = next.inferredRoutes.filter((item) => item.legId !== op.legId);
         next.routeFailures = next.routeFailures.filter((item) => item.legId !== op.legId);
-        push({});
+        push(
+          voided[0] ? { proposal: voided[0] } : {},
+          voided.length ? `让 AI 重画路线，作废了旧的 ${voided.length} 条推断提议` : undefined,
+        );
         break;
       }
       case 'proposal.decide': {
@@ -519,10 +633,23 @@ export function applyOps(
         const proposal = next.proposals[index];
         if (proposal.status !== 'pending' && proposal.status !== 'deferred')
           throw fail('PROPOSAL_SETTLED', 409, '这条提议已经处理过了。');
+        if (proposal.kind === 'text_edit' && op.decision === 'accepted')
+          throw fail('INVALID_INPUT', 400, '正文提议要在作品里接受（text.accept），不在世界观批次里。');
         const chosen = op.candidate !== undefined ? proposal.candidates?.[op.candidate] : undefined;
         if (op.candidate !== undefined && !chosen) throw fail('INVALID_INPUT', 400, '没有这个候选。');
-        const decideOps = op.ops ?? chosen?.ops ?? [];
-        next.proposals[index] = { ...proposal, status: op.decision };
+        // 页面只发「接受」时，用提议自己带的 ops（路线、经历、合并候选都靠它）。
+        const decideOps = op.ops ?? chosen?.ops ?? proposal.ops ?? [];
+        next.proposals[index] = {
+          ...proposal,
+          status: op.decision,
+          resolution: {
+            decision: op.decision,
+            reason:
+              op.decision === 'accepted' ? '作者接受了这条提议。' : op.decision === 'rejected' ? '作者拒绝了这条提议。' : '作者暂缓了这条提议。',
+            at,
+            by: options.actor,
+          },
+        };
         // 「修改后接受」：页面改过的 ops 先执行，再把提议标成接受。
         if (op.decision === 'accepted' && decideOps.length) {
           const nested = applyOps(next, decideOps, options);
@@ -577,6 +704,9 @@ export function applyOps(
         push({});
         break;
       }
+      case 'text.set':
+        // 正文改动只走作品接口（text.accept），世界观账本不管正文。
+        throw fail('INVALID_INPUT', 400, '正文改动要在作品里落实（text.accept），这里只改世界观。');
       default:
         throw fail('INVALID_INPUT', 400, '不认识这个操作。');
     }
@@ -597,7 +727,7 @@ export function worldOf(
   dossierId: string,
   document: CreativeDocument,
   revision: number,
-  versions: { latest: number; changes: number },
+  versions: { latest: number; draftChanges: number },
 ): World {
   const withTime = document.events.filter(
     (event) => boundsOf(event.start).start !== null && boundsOf(event.end).end !== null,

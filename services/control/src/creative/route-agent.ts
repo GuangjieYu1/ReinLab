@@ -22,6 +22,7 @@ import { recordUsage } from '../run/usage';
 import { recordSpend } from '../budget/spend';
 import { loadWorld, type WorldState } from './service';
 import { modeOf } from './world';
+import { clip } from './text';
 
 const MAX_STEPS = 8;
 const MAX_TOKENS = 2048;
@@ -173,13 +174,13 @@ export function validateSubmittedRoute(
       const title = String((item as { title?: unknown }).title ?? '').trim();
       if (!title) continue;
       const url = String((item as { url?: unknown }).url ?? '').trim();
-      sources.push(url ? { title: title.slice(0, 200), url: url.slice(0, 500) } : { title: title.slice(0, 200) });
+      sources.push(url ? { title: clip(title, 200), url: clip(url, 500) } : { title: clip(title, 200) });
     }
   if (!sources.length) return { ok: false, reason: '没有给出来源。' };
   const doubts = Array.isArray(payload.doubts)
-    ? payload.doubts.map((item) => String(item).slice(0, 300)).slice(0, 8)
+    ? payload.doubts.map((item) => clip(item, 300)).slice(0, 8)
     : [];
-  return { ok: true, path, why: why.slice(0, 2000), sources, doubts };
+  return { ok: true, path, why: clip(why, 2000), sources, doubts };
 }
 
 /** 网关会限流（429）也会偶发 5xx：等一会儿重发同一条请求是安全的（还没拿到内容）。 */
@@ -262,8 +263,8 @@ async function webTool(
     signal: AbortSignal.timeout(90_000),
   });
   const text = await response.text();
-  if (!response.ok) return `工具调用失败（上游 ${response.status}）：${text.slice(0, 300)}`;
-  return text.slice(0, 20_000);
+  if (!response.ok) return `工具调用失败（上游 ${response.status}）：${clip(text, 300)}`;
+  return clip(text, 20_000);
 }
 
 /** 地形事实：这一段附近的 OSM 水系、山口、浅滩与山道。查不到就说查不到。 */
@@ -295,9 +296,9 @@ async function terrainAround(point: [number, number], radius: number): Promise<s
       const lon = item.lon ?? item.center?.lon;
       return `${name}${lat !== undefined && lon !== undefined ? ` @ ${lon.toFixed(4)},${lat.toFixed(4)}` : ''}${tags.waterway ? `（水系：${tags.waterway}）` : ''}${tags.highway ? `（道路：${tags.highway}）` : ''}`;
     });
-    return `这一带 OSM 记录（前 ${lines.length} 条）：\n` + lines.join('\n');
+    return clip(`这一带 OSM 记录（前 ${lines.length} 条）：\n` + lines.join('\n'), 20_000);
   } catch (error) {
-    return `查地形时出错：${String((error as Error)?.message ?? error).slice(0, 200)}`;
+    return `查地形时出错：${clip((error as Error)?.message ?? error, 200)}`;
   }
 }
 
@@ -376,7 +377,7 @@ export async function inferRoute(
     try {
       response = await callModel(deps, body, deadline);
     } catch (error) {
-      return { ok: false, failure: `模型通道不可用：${String((error as Error)?.message ?? error).slice(0, 200)}`, usage };
+      return { ok: false, failure: `模型通道不可用：${clip((error as Error)?.message ?? error, 200)}`, usage };
     }
     if (!response.ok) {
       const detail = response.payload?.error?.message ?? response.text.slice(0, 200);
@@ -384,8 +385,8 @@ export async function inferRoute(
         ok: false,
         failure:
           response.status === 0
-            ? `模型通道没通：${String(response.text).slice(0, 200)}`
-            : `模型返回 ${response.status}：${String(detail).slice(0, 200)}`,
+            ? `模型通道没通：${clip(response.text, 200)}`
+            : `模型返回 ${response.status}：${clip(detail, 200)}`,
         usage,
       };
     }
@@ -404,7 +405,7 @@ export async function inferRoute(
       if (rejection) return { ok: false, failure: `模型没有交出合格路线：${rejection}`, usage };
       const parsed = extractJson(text);
       const validated = validateSubmittedRoute(parsed, request);
-      if (validated.ok) return { ok: true, ...validated, usage };
+      if (validated.ok) return { ...validated, usage };
       // 只是回了话：再问一次——要么交路线，要么明确放弃。放弃也是一种结果。
       if (nudges < 2) {
         nudges += 1;
@@ -412,18 +413,18 @@ export async function inferRoute(
           role: 'user',
           content:
             '要么用 submit_route 交出路线（三个以上点、依据、来源），要么直接说「放弃」并说明缺什么资料。' +
-            (text ? `你上一条说的是：${text.slice(0, 300)}` : ''),
+            (text ? `你上一条说的是：${clip(text, 300)}` : ''),
         });
         continue;
       }
-      return { ok: false, failure: `模型只回了话，没有交路线${text ? `：${text.slice(0, 300)}` : ''}`, usage };
+      return { ok: false, failure: `模型只回了话，没有交路线${text ? `：${clip(text, 300)}` : ''}`, usage };
     }
 
     const results: { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }[] = [];
     for (const call of toolUses) {
       if (call.name === 'submit_route') {
         const validated = validateSubmittedRoute(call.input, request);
-        if (validated.ok) return { ok: true, ...validated, usage };
+        if (validated.ok) return { ...validated, usage };
         rejection = validated.reason;
         results.push({
           type: 'tool_result',
@@ -517,13 +518,37 @@ export async function storeInference(
   next.inferredRoutes = document.inferredRoutes.filter((item) => item.legId !== leg.id);
   next.routeFailures = document.routeFailures.filter((item) => item.legId !== leg.id);
   let proposal: Proposal | undefined;
-  if (result.ok) {
+  // 这段路作者已经自己画好了：AI 的结果不再挂上去，也不留待确认，
+  // 只记一条作废原因（否则页面点确认会把作者的手绘盖掉——1A 遗留 1 的竞态）。
+  const alreadyDrawn = document.manualRoutes.some((item) => item.legId === leg.id);
+  if (result.ok && alreadyDrawn) {
+    const voided: Proposal = {
+      id: routeProposalId(leg.id),
+      kind: 'route',
+      title: '推断路线',
+      summary: clip(result.why, 300),
+      ops: [{ op: 'route.draw', legId: leg.id, path: result.path }],
+      origin: { basis: 'inferred', by: 'route_ai', why: result.why },
+      doubts: result.doubts,
+      dependsOn: [],
+      conflicts: [],
+      status: 'rejected',
+      resolution: {
+        decision: 'rejected',
+        reason: '这段路你已经手绘了，这条推断不作数。',
+        at,
+        by: 'agent',
+      },
+    };
+    proposal = voided;
+    next.proposals = [...document.proposals.filter((item) => item.id !== voided.id), voided];
+  } else if (result.ok) {
     const proposalId = routeProposalId(leg.id);
     proposal = {
       id: proposalId,
       kind: 'route',
       title: '推断路线',
-      summary: result.why.slice(0, 300),
+      summary: clip(result.why, 300),
       ops: [{ op: 'route.draw', legId: leg.id, path: result.path }],
       origin: { basis: 'inferred', by: 'route_ai', why: result.why },
       doubts: result.doubts,
@@ -611,7 +636,7 @@ export async function runInference(
       from: item.from,
       to: item.to,
       mode: item.mode,
-      failure: item.leg.failure,
+      failure: item.leg.failure ?? null,
       networkState: item.networkState,
       ...(item.hint ? { hint: item.hint } : {}),
     });

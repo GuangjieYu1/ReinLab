@@ -95,7 +95,7 @@ type Participation = 'actor' | 'present' | 'remote' | 'mentioned';
 type WorldEvent = {
   id: string; title: string; what: string;
   kind: 'stay' | 'travel' | 'interaction' | 'birth' | 'death' | 'other';
-  participants: { entityId: string; as: Participation }[];
+  participants: { entityId: string; entityName?: string; as: Participation }[];   // entityName 只出现在提议的 ops 里，见 §1.1 补注
   placeId: string | null;                       // 未知可为 null
   start: StoryTime; end: StoryTime;
   travel?: { fromId: string | null; toId: string | null; modeId: string | null } | null;
@@ -193,6 +193,7 @@ type Proposal = {
   conflicts: Conflict[];                        // 接受后会出现的冲突（服务端先试算）
   candidates?: { label: string; ops: Op[]; why: string }[];   // 多候选时（古地名、共指、年号）
   status: Decision;
+  resolution?: { decision: Decision; reason: string; at: Iso; by: 'user' | 'agent' } | null;   // 怎么处理的、为什么；见 §1.1 补注
 };
 
 // ── 版本（1A 只保留，1C 才有界面）──
@@ -233,6 +234,16 @@ type Op =
   | { op: 'constraint.drop'; eventId: string; field: string; reason: string }   // 删约束是明确的设定决定
   | { op: 'world.set'; patch: Partial<Pick<World, 'title' | 'basemap'>> };
 ```
+
+**补注（2026-11-09，用户同意 DSH 的两处开口）**
+
+1. **只写名字的参与者和地点。** 导入和顾问交上来的提议里，事件的人物、地点可能还没有正式 id，因为它们本身也在待确认里。这时可以留空 `entityId`，只写 `entityName`；地点同理，留空 `placeId`，只写 `placeName`。
+   - 服务端在**接受提议、执行操作时**按名字或别名解析，解析不到就整批拒绝。所以正式账本里的事件永远是真 id。
+   - 页面在提议卡上照原样显示名字，并标「接受后匹配」。
+   - 提议里的硬检查试算：没解析成 id 的人或地点不参与判定，放进 `doubts`，写明「某某还没确认，试算没算他」。不能当作没有冲突。
+2. **`Proposal.resolution`。** 记录处理结果、原因、时间，以及是谁做的决定（`user` 是作者，`agent` 是系统自动作废）。
+   - 例：作者手绘路线后，旧的推断路线提议改成 `rejected`，`by: 'agent'`，`reason: '作者手绘了新路线'`，不能看起来像作者亲手拒的。
+   - 旧数据没有这个字段，页面显示「已处理」。
 
 时间输入只给原文写法（`input`，比如「1684-04-21 08:00」「康熙二十三年三月初七」「出城后三天」），由服务端解析成 `StoryTime`。解析不了返回 422 `TIME_UNPARSED`，并附候选。
 

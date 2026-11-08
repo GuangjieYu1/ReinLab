@@ -59,6 +59,22 @@ const overpass: OverpassTransport = async (_url, body) => {
   return { ok: true, status: 200, text: async () => JSON.stringify(payload) };
 };
 
+/** 写作助手/顾问的模型通道：测试注入，不连真模型。 */
+const writerModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
+  current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+};
+const advisorModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
+  current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+};
+
+/** 导入测试用的抽取通道：默认抽取一段固定结果，测试可以换。 */
+const importExtractorHolder: { current: (input: { chapterTitle: string; text: string }) => Promise<any> } = {
+  current: async () => ({
+    extraction: { entities: [], events: [], merges: [] },
+    usage: { inputTokens: 100, outputTokens: 50 },
+  }),
+};
+
 const api = async (path: string, init: RequestInit = {}, cookie = cookieA) =>
   app.request(path, { ...init, headers: { ...headers(cookie), ...(init.headers ?? {}) } });
 
@@ -85,6 +101,33 @@ beforeAll(async () => {
     auth: { issuer: "http://127.0.0.1/reinlab/auth/v1", secret: randomBytes(48) },
     kernelTools: { auth: { issue: (() => "t") as never, verify: (() => ({ account: A, dossier: dossierA, run: randomUUID() })) as never }, dispatch: async () => ({}) },
     creativeOverpass: overpass,
+    creativeImport: {
+      // 注入抽取通道：不连真模型，但走的是同一条导入流程（写库、进度、事件）
+      extractor: (input) => importExtractorHolder.current(input),
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+      model: "test-extract",
+    },
+    creativeWriter: {
+      model: {
+        baseUrl: "https://model.test/anthropic",
+        apiKey: "test-key",
+        model: "test-writer",
+        transport: (input, init) => writerModelHolder.current(input as string, init as RequestInit),
+      },
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+    },
+    creativeAdvisor: {
+      model: {
+        baseUrl: "https://model.test/anthropic",
+        apiKey: "test-key",
+        model: "test-advisor",
+        transport: (input, init) => advisorModelHolder.current(input as string, init as RequestInit),
+      },
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+    },
   });
 }, 60_000);
 
@@ -397,6 +440,53 @@ describe("创作台页面接口", () => {
     expect(after.world.network.sources.some((item: { kind: string }) => item.kind === "azgaar")).toBe(true);
   });
 
+  it("路网几何接口：只读、按 bbox 过滤（1A 遗留 4）", async () => {
+    const all = await api(`/v1/creative/worlds/${dossierA}/network/geojson`);
+    expect(all.status).toBe(200);
+    const collection = await all.json();
+    expect(collection.type).toBe("FeatureCollection");
+    expect(collection.features.length).toBeGreaterThanOrEqual(3);
+    const feature = collection.features[0];
+    expect(feature.type).toBe("Feature");
+    expect(feature.geometry.type).toBe("LineString");
+    expect(feature.geometry.coordinates.length).toBe(2);
+    expect(feature.properties.kind).toBe("osm");
+    expect(feature.properties.roadClass).toBe("primary");
+
+    const part = await api(`/v1/creative/worlds/${dossierA}/network/geojson?bbox=118.4,36.6,118.85,36.9`);
+    expect(part.status).toBe(200);
+    const partBody = await part.json();
+    expect(partBody.features.length).toBeLessThan(collection.features.length);
+    expect(partBody.features.some((item: any) => item.properties.kind === "osm")).toBe(true);
+
+    const wrong = await api(`/v1/creative/worlds/${dossierA}/network/geojson?bbox=119,36,118,35`);
+    expect(wrong.status).toBe(400);
+    expect((await wrong.json()).code).toBe("INVALID_INPUT");
+  });
+
+  it("卡在「导入中」的路网，控制面重启后第一次打开就改成失败（1A 遗留 3）", async () => {
+    await admin.query(
+      `update creative_world
+          set document = jsonb_set(jsonb_set(document, '{network,state}', '"importing"'),
+                                   '{networkUpdatedAt}', to_jsonb(($2::timestamptz)::text))
+        where dossier_id = $1`,
+      [dossierA, new Date(Date.now() - 3600_000).toISOString()],
+    );
+    const after = await snapshot();
+    expect(after.world.network.state).toBe("failed");
+    expect(after.world.network.error).toContain("导入中断");
+    // 事件流里要能看到这条变化
+    const events = await admin.query(
+      "select data from creative_event where dossier_id=$1 and type='creative.network' order by seq desc limit 1",
+      [dossierA],
+    );
+    expect(events.rows[0]?.data?.error).toContain("导入中断");
+
+    // 再打开一次不会反复改
+    const again = await snapshot();
+    expect(again.world.network.state).toBe("failed");
+  });
+
   it("存版本、取历史版本；刷新以后记录还在", async () => {
     const body = await snapshot();
     const saved = await api(`/v1/creative/worlds/${dossierA}/versions`, {
@@ -488,5 +578,812 @@ describe("创作台页面接口", () => {
     expect(response.status).toBe(422);
     expect((await response.json()).code).toBe("NETWORK_BBOX_TOO_LARGE");
     expect(overpassCalls).toBe(before);
+  });
+});
+
+describe("创作台作品（1B 契约 §5.2）", () => {
+  let workId = "";
+
+  const work = (path = "", init: RequestInit = {}) =>
+    app.request(`/v1/creative/worlds/${dossierA}/works${path}`, {
+      ...init,
+      headers: { ...headers(cookieA), ...(init.headers ?? {}) },
+    });
+
+  it("建作品：锁定当前最新版本，列表不带正文", async () => {
+    const created = await work("", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "阊门夜行", targetWords: 8000 }),
+    });
+    expect(created.status).toBe(201);
+    const body = await created.json();
+    workId = body.id;
+    expect(body.title).toBe("阊门夜行");
+    expect(body.baseVersion).toBe(1);
+    expect(body.revision).toBe(1);
+    expect(body.chapters).toEqual([]);
+    expect(body.words).toBe(0);
+
+    const list = await (await work("")).json();
+    expect(Array.isArray(list)).toBe(true);
+    expect(list[0].id).toBe(workId);
+    expect(list[0].targetWords).toBe(8000);
+  });
+
+  it("写大纲、确认、写正文：作品 revision +1，推 creative.work 与 creative.text", async () => {
+    const outlined = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "书生夜里出城送信",
+              pov: "第三人称限制",
+              ending: "信到了，人没回来",
+              chapters: [
+                {
+                  id: "ch1",
+                  title: "出城",
+                  scenes: [{ id: "sc1", title: "阊门", goal: "动身", eventIds: [], targetWords: 3000 }],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+    expect(outlined.status).toBe(200);
+    const outlineBody = await outlined.json();
+    expect(outlineBody.revision).toBe(2);
+    expect(outlineBody.work.outline.state).toBe("draft");
+
+    const confirmed = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 2, ops: [{ op: "outline.confirm" }] }),
+    });
+    expect(confirmed.status).toBe(200);
+    const confirmedBody = await confirmed.json();
+    expect(confirmedBody.revision).toBe(3);
+    expect(confirmedBody.work.outline.state).toBe("confirmed");
+    expect(confirmedBody.work.chapters).toHaveLength(1);
+    const sceneId = confirmedBody.work.chapters[0].scenes[0].id;
+
+    const written = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 3,
+        ops: [{ op: "text.set", sceneId, baseTextVersion: 0, text: "夜里出了阊门。\n\n城门在身后合上。" }],
+      }),
+    });
+    expect(written.status).toBe(200);
+    const writtenBody = await written.json();
+    expect(writtenBody.revision).toBe(4);
+    expect(writtenBody.work.chapters[0].scenes[0].textVersion).toBe(1);
+    expect(writtenBody.work.words).toBeGreaterThan(0);
+
+    const events = await admin.query(
+      "select type from creative_event where dossier_id=$1 and type in ('creative.work','creative.text') order by seq desc limit 6",
+      [dossierA],
+    );
+    const types = events.rows.map((row) => row.type);
+    expect(types).toContain("creative.text");
+    expect(types).toContain("creative.work");
+  });
+
+  it("正文版本对不上回 409，作品修订落后也回 409 带最新作品", async () => {
+    const current = await (await work(`/${workId}`)).json();
+    const sceneId = current.chapters[0].scenes[0].id;
+    const staleText = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: current.revision, ops: [{ op: "text.set", sceneId, baseTextVersion: 0, text: "第二段被盖掉" }] }),
+    });
+    expect(staleText.status).toBe(409);
+    expect((await staleText.json()).code).toBe("TEXT_VERSION_STALE");
+    const staleRevision = await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 1, ops: [{ op: "work.set", patch: { title: "改不动" } }] }),
+    });
+    expect(staleRevision.status).toBe(409);
+    const body = await staleRevision.json();
+    expect(body.code).toBe("REVISION_STALE");
+    expect(body.work.id).toBe(workId);
+  });
+
+  it("正文标注：提到的事件和人物都标上，段落下标对得上", async () => {
+    const current = await (await work(`/${workId}`)).json();
+    const sceneId = current.chapters[0].scenes[0].id;
+    // 让正文里出现世界里的事件标题「出阊门」之类，标注应当出现
+    await work(`/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: current.revision,
+        ops: [
+          {
+            op: "text.set",
+            sceneId,
+            baseTextVersion: current.chapters[0].scenes[0].textVersion,
+            text: "他想起出发那天。\n\n又想起张三。",
+          },
+        ],
+      }),
+    });
+    const detail = await (await work(`/${workId}`)).json();
+    const scene = detail.chapters[0].scenes[0];
+    expect(scene.marks.length).toBeGreaterThan(0);
+    expect(scene.marks.every((mark: any) => mark.para >= 0 && mark.from >= 0 && mark.to > mark.from)).toBe(true);
+    expect(scene.marks.some((mark: any) => mark.kind === "entity")).toBe(true);
+    expect(scene.marks.some((mark: any) => mark.kind === "event")).toBe(true);
+  });
+
+  it("导出：md 有标题正文，docx 是 zip", async () => {
+    const md = await work(`/${workId}/export?format=md`);
+    expect(md.status).toBe(200);
+    expect(md.headers.get("content-type")).toContain("text/markdown");
+    const mdText = await md.text();
+    expect(mdText).toContain("# 阊门夜行");
+    expect(mdText).toContain("## 第 1 章");
+
+    const docx = await work(`/${workId}/export?format=docx`);
+    expect(docx.status).toBe(200);
+    const bytes = new Uint8Array(await docx.arrayBuffer());
+    expect(bytes.slice(0, 2)).toEqual(new Uint8Array([0x50, 0x4b]));
+    expect(Buffer.from(bytes).includes(Buffer.from("word/document.xml"))).toBe(true);
+  });
+
+  it("待确认提议能按种类和批次筛", async () => {
+    const all = await (await app.request(`/v1/creative/worlds/${dossierA}/proposals`, { headers: headers(cookieA) })).json();
+    expect(Array.isArray(all.proposals)).toBe(true);
+    expect(all.nextCursor === null || typeof all.nextCursor === "number").toBe(true);
+    const route = await (
+      await app.request(`/v1/creative/worlds/${dossierA}/proposals?kind=route&limit=5`, { headers: headers(cookieA) })
+    ).json();
+    expect(route.proposals.every((item: any) => item.kind === "route")).toBe(true);
+    const bad = await app.request(`/v1/creative/worlds/${dossierA}/proposals?doubt=maybe`, { headers: headers(cookieA) });
+    expect(bad.status).toBe(400);
+  });
+});
+
+describe("创作台导入原文（1B 契约 §5.2）", () => {
+  let workId = "";
+  const workPath = (suffix = "") => `/v1/creative/worlds/${dossierA}/works/${workId}${suffix}`;
+
+  const importer = async (body: unknown) =>
+    api(workPath("/import"), { method: "POST", headers: { "Idempotency-Key": randomUUID() }, body: JSON.stringify(body) });
+
+  const waitJob = async (jobId: string) => {
+    for (let index = 0; index < 120; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const job = await (await api(`/v1/creative/worlds/${dossierA}/imports/${jobId}`)).json();
+      if (job.state === "done" || job.state === "failed" || job.state === "paused") return job;
+    }
+    throw new Error("导入没在预期时间内结束");
+  };
+
+  it("分章导入：一章一批，抽出来的每一项都带章段句出处", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "聊斋选篇" }),
+    });
+    const work = await created.json();
+    workId = work.id;
+
+    importExtractorHolder.current = async (input) => ({
+      extraction: {
+        entities: [
+          { kind: "person", name: "王六郎", aliases: [], summary: "溺死者", para: 0, sentence: 0, quote: "王六郎者，溺死鬼也。", basis: "explicit" },
+        ],
+        events: [
+          {
+            title: input.chapterTitle, what: "原文里的一夜", kind: "stay",
+            participants: [{ name: "王六郎", as: "actor" }], place: null,
+            start: "康熙二十三年三月初七", end: "康熙二十三年三月初七",
+            narrative: "fact", para: 0, sentence: 1, quote: "是夜，王六郎至。",
+          },
+        ],
+        merges: [],
+      },
+      usage: { inputTokens: 1200, outputTokens: 300 },
+    });
+
+    const started = await importer({ text: "## 第一夜\n王六郎者，溺死鬼也。是夜，王六郎至。\n\n## 第二夜\n又来。", title: "聊斋选篇" });
+    expect(started.status).toBe(202);
+    const job = await started.json();
+    expect(job.state).toBe("queued");
+    expect(job.chapters.total).toBe(2);
+
+    const done = await waitJob(job.id);
+    expect(done.state).toBe("done");
+    expect(done.chapters.done).toBe(2);
+    expect(done.proposals).toBeGreaterThanOrEqual(2);
+
+    // 正文进了作品的章和场
+    const detail = await (await api(workPath())).json();
+    expect(detail.chapters).toHaveLength(2);
+    expect(detail.chapters[0].scenes[0].text).toContain("王六郎者");
+    expect(detail.source.kind).toBe("import");
+
+    // 提议带出处：章、段、句、原句、原文版本
+    const proposals = await (
+      await api(`/v1/creative/worlds/${dossierA}/proposals?kind=event&limit=20`)
+    ).json();
+    const event = proposals.proposals.find((item: any) => item.title === "第一夜");
+    expect(event).toBeTruthy();
+    expect(event.origin.by).toBe("importer");
+    expect(event.origin.source).toMatchObject({ chapterId: detail.chapters[0].id, para: 0, sentence: 1, quote: "是夜，王六郎至。", textVersion: 1 });
+    expect(event.batchId).toBe(`import_${detail.chapters[0].id}`);
+
+    const events = await admin.query(
+      "select type from creative_event where dossier_id=$1 and type='creative.import' order by seq desc limit 3",
+      [dossierA],
+    );
+    expect(events.rowCount).toBeGreaterThan(0);
+  });
+
+  it("拒绝过的同一条再导一次不会出现；暂停后能续做", async () => {
+    const before = await (await api(`/v1/creative/worlds/${dossierA}/proposals?status=pending&limit=200`)).json();
+    const target = before.proposals.find((item: any) => item.kind === "event");
+    const world = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const rejected = await api(`/v1/creative/worlds/${dossierA}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: world.world.revision, ops: [{ op: "proposal.decide", id: target.id, decision: "rejected" }] }),
+    });
+    expect(rejected.status).toBe(200);
+
+    // 再导同一份原文：同一条（同章、同版本、同原句）不再冒出来
+    const again = await importer({ text: "## 第一夜\n王六郎者，溺死鬼也。是夜，王六郎至。\n\n## 第二夜\n又来。", title: "聊斋选篇" });
+    const job = await again.json();
+    const done = await waitJob(job.id);
+    expect(done.state).toBe("done");
+    const after = await (await api(`/v1/creative/worlds/${dossierA}/proposals?status=pending&limit=200`)).json();
+    const duplicated = after.proposals.filter(
+      (item: any) => item.kind === "event" && item.title === target.title && item.origin?.source?.quote === target.origin?.source?.quote,
+    );
+    expect(duplicated.length).toBeLessThanOrEqual(1);
+
+    // 暂停/续做：暂停之后状态是 paused，续做还能接着跑
+    const fresh = await importer({ text: "## 第三夜\n又一夜。", title: "聊斋选篇" });
+    const freshJob = await fresh.json();
+    const paused = await api(`/v1/creative/worlds/${dossierA}/imports/${freshJob.id}/pause`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect([200, 409]).toContain(paused.status);
+    const resumed = await api(`/v1/creative/worlds/${dossierA}/imports/${freshJob.id}/resume`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect([200, 409]).toContain(resumed.status);
+    const final = await waitJob(freshJob.id);
+    expect(["done", "paused", "running"]).toContain(final.state);
+  });
+});
+
+describe("任务中断后能收拾（1B）", () => {
+  it("停在「在跑」的导入任务，重启后第一次查变成暂停，可以继续", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "中断测试" }),
+    });
+    const work = await created.json();
+    // 抽取先卡住（gate），保证这条测的是「重启后的收拾」，不是抽取速度
+    const fast = importExtractorHolder.current;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    importExtractorHolder.current = async () => {
+      await gate;
+      return { extraction: { entities: [], events: [], merges: [] }, usage: { inputTokens: 1, outputTokens: 1 } };
+    };
+    try {
+      const started = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/import`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: JSON.stringify({ text: "## 第一章\n内容一。\n\n## 第二章\n内容二。", title: "中断测试" }),
+      });
+      const job = await started.json();
+      await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/pause`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: "{}",
+      });
+      // 模拟「上一个进程跑到一半被重启」：状态 running + updated_at 在过去
+      await admin.query(
+        `update creative_job
+            set state='running',
+                document = jsonb_set(jsonb_set(document, '{state}', '"running"'), '{error}', 'null'),
+                updated_at = now() - interval '2 hours'
+          where id=$1`,
+        [job.id],
+      );
+      const after = await (await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}`)).json();
+      expect(after.state).toBe("paused");
+      expect(after.error).toContain("服务重启");
+      const resumed = await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/resume`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: "{}",
+      });
+      expect(resumed.status).toBe(200);
+    } finally {
+      release();
+      importExtractorHolder.current = fast;
+    }
+  });
+});
+
+describe("导入预览分章 + 最后一章暂停落在 done（1B）", () => {
+  let workId = "";
+
+  it("预览分章：只分章、不落库、不抽取", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "预览测试" }),
+    });
+    workId = (await created.json()).id;
+    const preview = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/import/preview`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ text: "## 第一夜\n甲。乙。\n\n## 第二夜\n丙。\n\n## 第三夜\n丁。" }),
+    });
+    expect(preview.status).toBe(200);
+    const body = await preview.json();
+    expect(body.chapters).toHaveLength(3);
+    expect(body.chapters.map((item: any) => item.title)).toEqual(["第一夜", "第二夜", "第三夜"]);
+    expect(body.chapters[0].chars).toBeGreaterThan(0);
+    expect(body.chapters[0].paragraphs).toBe(1);
+    expect(body.chapters[2].preview).toContain("丁");
+
+    // 预览不落库：作品还是空的
+    const detail = await (await api(`/v1/creative/worlds/${dossierA}/works/${workId}`)).json();
+    expect(detail.chapters).toEqual([]);
+    // 空原文明确拒绝
+    const empty = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/import/preview`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ text: "   " }),
+    });
+    expect([400, 422]).toContain(empty.status);
+  });
+
+  it("在最后一章执行中暂停：抽完以后终态是 done，不是 paused", async () => {
+    const fast = importExtractorHolder.current;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    importExtractorHolder.current = async () => {
+      await gate;
+      return { extraction: { entities: [], events: [], merges: [] }, usage: { inputTokens: 1, outputTokens: 1 } };
+    };
+    try {
+      const started = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/import`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: JSON.stringify({ text: "## 唯一一章\n内容。", title: "暂停测试" }),
+      });
+      const job = await started.json();
+      expect(job.chapters.total).toBe(1);
+      // 这一章还没抽完就暂停
+      const paused = await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/pause`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: "{}",
+      });
+      expect(paused.status).toBe(200);
+      // 放行：那一章抽完，队列空了 → 终态 done
+      release();
+      let final: any = null;
+      for (let index = 0; index < 100; index += 1) {
+        await new Promise((done) => setTimeout(done, 100));
+        final = await (await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}`)).json();
+        if (final.state === "done" || final.state === "failed") break;
+      }
+      expect(final.state).toBe("done");
+      expect(final.chapters.done).toBe(final.chapters.total);
+    } finally {
+      release();
+      importExtractorHolder.current = fast;
+    }
+  });
+
+  it("队列空了还点继续：直接给 done，不再报「已经抽完了」", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "继续测试" }),
+    });
+    const work = await created.json();
+    const started = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/import`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ text: "## 一章\n内容。", title: "继续测试" }),
+    });
+    const job = await started.json();
+    for (let index = 0; index < 60; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const current = await (await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}`)).json();
+      if (current.state === "done") break;
+    }
+    // 手工做回「暂停但队列已空」这种老状态，再点继续
+    await admin.query(
+      `update creative_job set state='paused', document=jsonb_set(document,'{state}','"paused"') where id=$1`,
+      [job.id],
+    );
+    const resumed = await api(`/v1/creative/worlds/${dossierA}/imports/${job.id}/resume`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect(resumed.status).toBe(200);
+    expect((await resumed.json()).state).toBe("done");
+  });
+});
+
+describe("创作台会话走 kernel runs（1B 契约 §5.2「助手」）", () => {
+  it("设定顾问：建 run、写事件、只产出提议", async () => {
+    advisorModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                kind: "entity",
+                title: "加一个船夫",
+                summary: "冬天在渡口撑船的人。",
+                entities: [{ name: "船夫", kind: "person", aliases: ["舟子"], summary: "渡口撑船" }],
+                events: [],
+                rules: [],
+                doubts: [],
+              }),
+            },
+          ],
+          usage: { input_tokens: 500, output_tokens: 200 },
+        }),
+        { status: 200 },
+      );
+    const started = await api("/v1/kernel/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ dossierId: dossierA, query: "加一个渡口的船夫", mode: "creative_advisor" }),
+    });
+    expect(started.status).toBe(201);
+    const { id } = await started.json();
+    expect(id).toBeTruthy();
+
+    let actions: string[] = [];
+    let state = "";
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const run = await admin.query("select state from run where id=$1", [id]);
+      state = run.rows[0]?.state ?? "";
+      const events = await admin.query(
+        "select action from event where run_id=$1 order by seq",
+        [id],
+      );
+      actions = events.rows.map((row) => row.action);
+      if (state === "completed" || state === "failed") break;
+    }
+    expect(state).toBe("completed");
+    expect(actions).toContain("user/message");
+    expect(actions).toContain("assistant/message");
+    // 助手只产出提议：待确认里多了一条，账本里没有新实体
+    const proposals = await (await api(`/v1/creative/worlds/${dossierA}/proposals?limit=200`)).json();
+    expect(proposals.proposals.some((item: any) => item.title === "加一个船夫")).toBe(true);
+    const world = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    expect(world.entities.some((item: any) => item.name === "船夫")).toBe(false);
+  });
+
+  it("顾问按底线提不出设定：会话照常完成，回复里说明为什么，不记成失败", async () => {
+    advisorModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                kind: "event",
+                title: "",
+                summary: "",
+                entities: [],
+                events: [],
+                rules: [],
+                doubts: ["现有设定没有夜间时段，不能凭摘要编一条夜规"],
+              }),
+            },
+          ],
+          usage: { input_tokens: 300, output_tokens: 120 },
+        }),
+        { status: 200 },
+      );
+    const started = await api("/v1/kernel/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ dossierId: dossierA, query: "夜里有什么规矩？", mode: "creative_advisor" }),
+    });
+    const { id } = await started.json();
+    let state = "";
+    let reply = "";
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      state = (await admin.query("select state from run where id=$1", [id])).rows[0]?.state ?? "";
+      const events = await admin.query(
+        "select action, payload from event where run_id=$1 order by seq",
+        [id],
+      );
+      const message = events.rows.filter((row) => row.action === "assistant/message").at(-1);
+      reply = message
+        ? (message.payload?.message?.content ?? []).map((block: any) => block.text ?? "").join("")
+        : "";
+      if (state === "completed" || state === "failed") break;
+    }
+    expect(state).toBe("completed");
+    expect(reply).toContain("夜间时段");
+    expect(reply).toContain("没有生成提议");
+
+    // 直接调顾问接口也是 200 + declined，不是 422
+    const direct = await api(`/v1/creative/worlds/${dossierA}/advisor`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ query: "夜里有什么规矩？" }),
+    });
+    expect(direct.status).toBe(200);
+    const body = await direct.json();
+    expect(body.proposals).toEqual([]);
+    expect(body.declined).toContain("夜间时段");
+  });
+
+  it("别的台的档案开不了创作台助手", async () => {
+    const denied = await api("/v1/kernel/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ dossierId: dossierResearch, query: "加个人", mode: "creative_advisor" }),
+    });
+    expect(denied.status).toBe(400);
+    expect((await denied.json()).code).toBe("BENCH_UNSUPPORTED");
+  });
+});
+
+describe("事件与作品的双向引用（1B 契约 §5.1）", () => {
+  it("场景引用了事件，事件详情的 workRefs 就带上作品、章、场", async () => {
+    const snapshotWorld = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const event = snapshotWorld.events[0];
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "双向引用测试" }),
+    });
+    const work = await created.json();
+    const outlined = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "试", pov: "三", ending: "试",
+              chapters: [{ id: "cc1", title: "第一章", scenes: [{ id: "ss1", title: "出场", goal: "试", eventIds: [event.id], targetWords: 500 }] }],
+            },
+          },
+          { op: "outline.confirm" },
+        ],
+      }),
+    });
+    expect(outlined.status).toBe(200);
+    const after = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const linked = after.events.find((item: any) => item.id === event.id);
+    const chapterId = after.events.length ? null : null;
+    void chapterId;
+    expect(linked.workRefs).toHaveLength(1);
+    expect(linked.workRefs[0].workId).toBe(work.id);
+    expect(linked.workRefs[0].sceneId).toBe("ss1");
+    expect(linked.workRefs[0].chapterId).toBeTruthy();
+  });
+});
+
+describe("创作台写作与顾问（1B 契约 §5.2）", () => {
+  let workId = "";
+
+  const modelReply = (payload: unknown) =>
+    new Response(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(payload) }], usage: { input_tokens: 800, output_tokens: 400 } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("按场景生成：产出 text_edit 提议，正文不落笔，接受后才写进去", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "生成测试" }),
+    });
+    workId = (await created.json()).id;
+    const outlined = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "夜里送信", pov: "第三人称", ending: "信到了",
+              chapters: [{ id: "c1", title: "出城", scenes: [{ id: "s1", title: "阊门", goal: "动身", eventIds: [], targetWords: 800 }] }],
+            },
+          },
+          { op: "outline.confirm" },
+        ],
+      }),
+    });
+    expect(outlined.status).toBe(200);
+    const afterOutline = await outlined.json();
+    const sceneId = afterOutline.work.chapters[0].scenes[0].id;
+
+    writerModelHolder.current = async () => modelReply({ text: "夜里出了阊门，城门在身后合上。", why: "按目标写动身" });
+
+    const started = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/generate`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ sceneIds: [sceneId], mode: "draft" }),
+    });
+    expect(started.status).toBe(202);
+    const job = await started.json();
+    expect(job.state).toBe("running");
+
+    let jobState = "";
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const current = await (await api(`/v1/creative/worlds/${dossierA}/generate/${job.id}`)).json();
+      jobState = current.state;
+      if (jobState === "done" || jobState === "failed" || jobState === "stopped") break;
+    }
+    expect(jobState).toBe("done");
+
+    // 正文还没落笔：提议在待确认里，场景仍是空的
+    const detail = await (await api(`/v1/creative/worlds/${dossierA}/works/${workId}`)).json();
+    expect(detail.chapters[0].scenes[0].text).toBe("");
+    const proposals = await (await api(`/v1/creative/worlds/${dossierA}/proposals?kind=text_edit&limit=20`)).json();
+    const proposal = proposals.proposals.find((item: any) => item.ops?.[0]?.sceneId === sceneId);
+    expect(proposal).toBeTruthy();
+    expect(proposal.ops[0].after).toContain("阊门");
+    expect(proposal.origin.by).toBe("writer");
+
+    // 接受后才写进正文
+    const accepted = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: detail.revision, ops: [{ op: "text.accept", proposalId: proposal.id }] }),
+    });
+    expect(accepted.status).toBe(200);
+    const acceptedBody = await accepted.json();
+    expect(acceptedBody.work.chapters[0].scenes[0].text).toContain("夜里出了阊门");
+    expect(acceptedBody.work.chapters[0].scenes[0].textVersion).toBe(1);
+    const acceptedProposal = await (await api(`/v1/creative/worlds/${dossierA}/proposals?kind=text_edit&status=accepted&limit=20`)).json();
+    expect(acceptedProposal.proposals.some((item: any) => item.id === proposal.id && item.resolution?.decision === "accepted")).toBe(true);
+  });
+
+  it("生成能停；大纲没确认就不让写", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "未确认大纲" }),
+    });
+    const work = await created.json();
+    const scene = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 1, ops: [{ op: "chapter.add", title: "第一章" }] }),
+    });
+    const chapterId = (await scene.json()).work.chapters[0].id;
+    const withScene = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 2, ops: [{ op: "scene.add", chapterId, title: "一场" }] }),
+    });
+    const sceneId = (await withScene.json()).work.chapters[0].scenes[0].id;
+    const refused = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/generate`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ sceneIds: [sceneId], mode: "draft" }),
+    });
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).code).toBe("OUTLINE_NOT_CONFIRMED");
+
+    // 正常开始的能停
+    writerModelHolder.current = async () => new Promise((resolve) => setTimeout(() => resolve(modelReply({ text: "一段。", why: "" })), 400));
+    const started = await api(`/v1/creative/worlds/${dossierA}/works/${workId}/generate`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ sceneIds: [(await (await api(`/v1/creative/worlds/${dossierA}/works/${workId}`)).json()).chapters[0].scenes[0].id], mode: "continue" }),
+    });
+    const job = await started.json();
+    const stopped = await api(`/v1/creative/worlds/${dossierA}/generate/${job.id}/stop`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect(stopped.status).toBe(200);
+    expect(["stopped", "done", "running"]).toContain((await stopped.json()).state);
+  });
+
+  it("设定顾问：「加人物」提出经历，先跑硬检查再交，全部是提议", async () => {
+    advisorModelHolder.current = async () =>
+      modelReply({
+        kind: "itinerary",
+        title: "加一个赶车的把式",
+        summary: "王二从山村赶来送信，四月初七到阊门，当天在客栈落脚。",
+        entities: [{ name: "王二", kind: "person", aliases: ["王二郎"], summary: "赶车的把式" }],
+        events: [
+          {
+            title: "王二到阊门", what: "从山村赶来", kind: "stay",
+            participants: [{ name: "王二", as: "actor" }, { name: "张三", as: "present" }],
+            place: "青州城", start: "1684-04-21 10:00", end: "1684-04-21 11:00", narrative: "fact",
+          },
+        ],
+        rules: [],
+        doubts: ["原文没说王二的车是不是自己的"],
+      });
+
+    const response = await api(`/v1/creative/worlds/${dossierA}/advisor`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ query: "加一个从山村来的赶车人，跟沈砚打个照面" }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.proposals).toHaveLength(1);
+    const proposal = body.proposals[0];
+    expect(proposal.kind).toBe("itinerary");
+    expect(proposal.status).toBe("pending");
+    expect(proposal.doubts.length).toBeGreaterThan(0);
+    const ops = proposal.ops;
+    expect(ops.some((op: any) => op.op === "entity.add" && op.entity.name === "王二")).toBe(true);
+    const event = ops.find((op: any) => op.op === "event.add");
+    expect(event.event.participants[0].entityName).toBe("王二");
+    expect(Array.isArray(proposal.conflicts)).toBe(true);
+
+    // 接受以后王二才入账
+    const world = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const accepted = await api(`/v1/creative/worlds/${dossierA}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: world.world.revision, ops: [{ op: "proposal.decide", id: proposal.id, decision: "accepted" }] }),
+    });
+    expect(accepted.status).toBe(200);
+    const acceptedBody = await accepted.json();
+    expect(acceptedBody.applied.flatMap((item: any) => item.result && item.result.entity ? [item.result.entity.name] : [])).toContain("王二");
+    const after = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    expect(after.entities.some((item: any) => item.name === "王二")).toBe(true);
+    expect(after.events.some((item: any) => item.title === "王二到阊门")).toBe(true);
+  });
+});
+
+describe("待确认排序（验收 B4）", () => {
+  it("默认新的在前，sort=oldest 反过来", async () => {
+    const newest = await (await api(`/v1/creative/worlds/${dossierA}/proposals?limit=200`)).json();
+    const oldest = await (await api(`/v1/creative/worlds/${dossierA}/proposals?limit=200&sort=oldest`)).json();
+    expect(newest.proposals.length).toBeGreaterThan(1);
+    expect(oldest.proposals.length).toBe(newest.proposals.length);
+    expect(newest.proposals[0].id).toBe(oldest.proposals.at(-1).id);
+    expect(newest.proposals.at(-1).id).toBe(oldest.proposals[0].id);
+    const bad = await api(`/v1/creative/worlds/${dossierA}/proposals?sort=wat`);
+    expect(bad.status).toBe(400);
   });
 });
