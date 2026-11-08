@@ -7,7 +7,15 @@
  */
 
 import type pg from 'pg';
-import type { CheckRun, CreativeAppliedOp, Proposal, CreativeRouteLeg, WorldSnapshot, WorldVersion } from '@reinlab/contracts';
+import type {
+  CheckRun,
+  CreativeAppliedOp,
+  CreativeRouteLeg,
+  ItemChange,
+  Proposal,
+  WorldSnapshot,
+  WorldVersion,
+} from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { runCheck } from './check';
 import { appendEvents, cursorOf } from './events';
@@ -15,6 +23,7 @@ import { buildLegs } from './routing';
 import { buildTracks, type TrackRange } from './tracks';
 import { edgeCount, fetchOsmEdges, importAzgaar, insertEdges, syncEditEdges, type OverpassTransport } from './network';
 import { applyOps, emptyDocument, worldOf, type CreativeDocument } from './world';
+import { diffDocuments } from './items';
 
 export type WorldState = {
   revision: number;
@@ -191,6 +200,21 @@ export async function readSnapshot(
         ).rows[0]?.revision ?? 0,
       )
     : 0;
+  // 1C：哪些作品改写了这些条目（世界观面显示「被《X》改写」）；历史版本不挂当前作品的改写。
+  const overriddenBy = typeof version === 'number' ? new Map() : await overridesOfWorks(client, account, dossier);
+  const items = [
+    document.entities,
+    document.relations,
+    document.events,
+    document.modes,
+    document.rules,
+    document.edits,
+  ] as unknown as Record<string, unknown>[][];
+  for (const list of items)
+    for (const item of list) {
+      const owners = overriddenBy.get(String(item.id));
+      if (owners) item.overriddenBy = owners;
+    }
   return {
     world: worldOf(dossier, document, revision, {
       latest: latest?.n ?? 0,
@@ -350,14 +374,16 @@ export async function saveVersion(
     )
   ).rows[0];
   const n = (versions.length ? versions[versions.length - 1].n : 0) + 1;
-  const changes = Number(
-    (
-      await client.query<{ n: string }>(
-        'select count(*)::text n from creative_op where account_id=$1 and dossier_id=$2 and revision>$3',
-        [account, dossier, previous ? previous.revision : 0],
-      )
-    ).rows[0]?.n ?? 0,
-  );
+  // 「改了 3 条」按设定条目的差异数算（契约 §6.5），不是操作条数
+  const previousWorld = previous
+    ? (
+        await client.query<{ world: CreativeDocument }>(
+          'select world from creative_version where account_id=$1 and dossier_id=$2 and n=$3',
+          [account, dossier, previous.n],
+        )
+      ).rows[0]?.world
+    : undefined;
+  const changes = diffDocuments(previousWorld ?? emptyDocument(state.document.title), state.document).length;
   const label = summary.trim().slice(0, 300) || `版本 ${n}`;
   const inserted = (
     await client.query<{ at: Date }>(
@@ -366,10 +392,83 @@ export async function saveVersion(
       [account, dossier, n, label, changes, state.revision, JSON.stringify(state.document)],
     )
   ).rows[0];
+  const version: WorldVersion = { n, at: inserted.at.toISOString(), summary: label, changes };
   await appendEvents(client, { account, dossier }, [
     { type: 'creative.op', data: { revision: state.revision, applied: [] } },
+    { type: 'creative.version', data: version },
   ]);
-  return { n, at: inserted.at.toISOString(), summary: label, changes };
+  return version;
+}
+
+/** 哪些作品对哪些条目做了本作品改写（世界观面要看「被谁改写」）。 */
+async function overridesOfWorks(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+): Promise<Map<string, { workId: string; workTitle: string }[]>> {
+  const rows = (
+    await client.query<{ work_id: string; title: string; document: { setting?: { overrides?: { itemId: string }[] } } }>(
+      'select work_id, document->>\'title\' title, document from creative_work where account_id=$1 and dossier_id=$2',
+      [account, dossier],
+    )
+  ).rows;
+  const map = new Map<string, { workId: string; workTitle: string }[]>();
+  for (const row of rows)
+    for (const override of row.document.setting?.overrides ?? []) {
+      const list = map.get(override.itemId) ?? [];
+      if (!list.some((item) => item.workId === row.work_id))
+        list.push({ workId: row.work_id, workTitle: row.title });
+      map.set(override.itemId, list);
+    }
+  return map;
+}
+
+/** 单个版本（带这一版改了哪些条目）。 */
+export async function readVersion(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+  n: number,
+): Promise<WorldVersion & { items: ItemChange[] }> {
+  await requireCreativeDossier(client, account, dossier);
+  const current = (
+    await client.query<{ n: number; at: Date; summary: string; changes: number; world: CreativeDocument }>(
+      'select n, at, summary, changes, world from creative_version where account_id=$1 and dossier_id=$2 and n=$3',
+      [account, dossier, n],
+    )
+  ).rows[0];
+  if (!current) throw new ApiFailure('VERSION_NOT_FOUND', 404, '没有这个版本。');
+  const previous = n > 1
+    ? (
+        await client.query<{ world: CreativeDocument }>(
+          'select world from creative_version where account_id=$1 and dossier_id=$2 and n=$3',
+          [account, dossier, n - 1],
+        )
+      ).rows[0]?.world
+    : undefined;
+  return {
+    n: Number(current.n),
+    at: current.at.toISOString(),
+    summary: current.summary,
+    changes: Number(current.changes),
+    items: diffDocuments(previous ?? emptyDocument(current.world.title), current.world),
+  };
+}
+
+/** 草稿相对最新版本的差异（存版本前先看）。 */
+export async function readDraftDiff(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+): Promise<{ items: ItemChange[] }> {
+  const state = await loadWorld(client, account, dossier);
+  const latest = (
+    await client.query<{ world: CreativeDocument }>(
+      'select world from creative_version where account_id=$1 and dossier_id=$2 order by n desc limit 1',
+      [account, dossier],
+    )
+  ).rows[0]?.world;
+  return { items: diffDocuments(latest ?? emptyDocument(state.document.title), state.document) };
 }
 
 /** 单次取回路网几何的要素上限：超了就 422，让页面按 bbox 取一块（1A 遗留 4）。 */

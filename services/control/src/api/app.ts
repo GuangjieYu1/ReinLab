@@ -84,6 +84,8 @@ export async function createApp(options: {
   /** 创作台的写作助手与设定顾问；没配就照实说开不了。 */
   creativeWriter?: import("../creative/writer").WriterDeps;
   creativeAdvisor?: import("../creative/advisor").AdvisorDeps;
+  /** 1C：扫正文的模型通道。 */
+  creativeImpactScan?: import("../creative/scan").ScanDeps;
   /** 创作台路网导入的取数通道；缺省真实 Overpass。 */
   creativeOverpass?: import("../creative/network").OverpassTransport;
   realModelsEnabled?: boolean;
@@ -219,6 +221,7 @@ export async function createApp(options: {
     ...(options.creativeImport ? { importExtraction: options.creativeImport } : {}),
     ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
     ...(options.creativeAdvisor ? { advisor: options.creativeAdvisor } : {}),
+    ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
     ...(options.creativeOverpass ? { overpass: options.creativeOverpass } : {}),
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
@@ -262,6 +265,7 @@ export async function createApp(options: {
         ? {
             creative: {
               ...(options.creativeAdvisor ? { advisor: options.creativeAdvisor } : {}),
+    ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
               ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
             },
           }

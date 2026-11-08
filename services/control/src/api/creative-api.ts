@@ -12,7 +12,22 @@ import type { JsonValue, CreativeOp, WorkOp } from '@reinlab/contracts';
 import { ApiFailure } from './errors';
 import { mutate, type ApiEnv } from './context';
 import type { Database } from '../db/database';
-import { AdvisorBody, AssetBody, GenerateBody, ImportBody, ImportWorkBody, OpsBody, ProposalsQuery, VersionBody, WorkCreate, WorkOpsBody } from '../creative/schema';
+import {
+  AdvisorBody,
+  AssetBody,
+  GenerateBody,
+  ImpactScanBody,
+  ImportBody,
+  ImportWorkBody,
+  OpsBody,
+  ProposalsQuery,
+  VersionBody,
+  WorkCreate,
+  WorkOpsBody,
+} from '../creative/schema';
+import { impactOf } from '../creative/impact';
+import { beginScan, runScan, type ScanDeps } from '../creative/scan';
+import { readEffectiveSnapshot } from '../creative/work-service';
 import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
 import { advise } from '../creative/advisor';
 import { importJobOf, previewImport, readImportJob, runImport, setImportState, startImport } from '../creative/import-job';
@@ -29,12 +44,14 @@ import {
   beginNetworkImport,
   loadWorld,
   readNetworkGeoJson,
+  readDraftDiff,
   readSnapshot,
   readTracks,
   rangeOf,
   recheck,
   runNetworkImport,
   saveVersion,
+  readVersion,
   type OpsOutcome,
 } from '../creative/service';
 import { editsGeoJson } from '../creative/edits';
@@ -48,6 +65,8 @@ const EmptyBody = z.object({}).strict();
 export type CreativeApiOptions = {
   /** 按章抽取的模型通道；没配就导入直接失败（不伪造抽取结果）。 */
   importExtraction?: import('../creative/import-job').ImportDeps;
+  /** 1C：扫正文的模型通道；没配就扫不了（照实说）。 */
+  impactScan?: ScanDeps;
   /** 写作助手（按场景生成）；没配就生成直接失败。 */
   writer?: import('../creative/writer').WriterDeps;
   /** 设定顾问；没配就直接说开不了。 */
@@ -268,8 +287,9 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     const account = c.get('accountId');
     const dossier = c.req.param('dossierId');
     const workId = c.req.param('workId');
+    let pendingGenerates: string[] = [];
     type WorkOpsInput = { baseRevision?: number; ops: WorkOp[] };
-    return mutate<WorkOpsInput>(
+    const response = await mutate<WorkOpsInput>(
       c,
       database,
       WorkOpsBody as unknown as z.ZodType<WorkOpsInput>,
@@ -278,12 +298,17 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
           ...(input.baseRevision !== undefined ? { baseRevision: input.baseRevision } : {}),
           ops: input.ops,
         });
+        pendingGenerates = result.pendingGenerates;
         return {
           status: 200,
           body: { revision: result.revision, work: result.work } as unknown as JsonValue,
         };
       },
     );
+    // 1C：sync.suggest 起的生成任务在事务外跑
+    for (const jobId of pendingGenerates)
+      void runGenerate(database, options.writer ?? {}, account, dossier, jobId).catch(() => undefined);
+    return response;
   });
 
   app.get('/v1/creative/worlds/:dossierId/works/:workId/export', (c) =>
@@ -429,10 +454,66 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     }),
   );
 
+  // ── 1C：版本差异、影响清单、按作品看 ─────────────
+  /** 草稿相对最新版本的差异（存版本前先看）。注意要在 /versions/:n 之前匹配。 */
+  app.get('/v1/creative/worlds/:dossierId/versions/draft', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const body: unknown = await readDraftDiff(client, c.get('accountId'), c.req.param('dossierId'));
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
+
+  app.get('/v1/creative/worlds/:dossierId/versions/:n', (c) => {
+    const n = Number(c.req.param('n'));
+    if (!Number.isSafeInteger(n) || n < 1) throw new ApiFailure('INVALID_INPUT', 400, '版本号要从 1 起。');
+    return database.withAccount(c.get('accountId'), async (client) => {
+      const body: unknown = await readVersion(client, c.get('accountId'), c.req.param('dossierId'), n);
+      return c.json(body as Record<string, unknown>);
+    });
+  });
+
+  app.get('/v1/creative/worlds/:dossierId/impact', (c) => {
+    const from = Number(c.req.query('from') ?? 1);
+    const to = Number(c.req.query('to') ?? 0);
+    if (!Number.isSafeInteger(from) || from < 1 || !Number.isSafeInteger(to) || to < 1)
+      throw new ApiFailure('INVALID_INPUT', 400, 'from / to 要是正整数版本号。');
+    return database.withAccount(c.get('accountId'), async (client) => {
+      const body: unknown = await impactOf(client, c.get('accountId'), c.req.param('dossierId'), from, to);
+      return c.json(body as Record<string, unknown>);
+    });
+  });
+
+  app.post('/v1/creative/worlds/:dossierId/impact/scan', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    let scan: { from: number; to: number } | null = null;
+    const response = await mutate(c, database, ImpactScanBody, async (client, input) => {
+      const document = await beginScan(client, account, dossier, input.from, input.to);
+      scan = { from: input.from, to: input.to };
+      return { status: 202, body: document as unknown as JsonValue };
+    });
+    const started = scan as { from: number; to: number } | null;
+    if (started)
+      void runScan({ db: database, ...(options.impactScan ?? {}) }, account, dossier, started.from, started.to).catch((error) => {
+        console.error(
+          JSON.stringify({ code: 'CREATIVE_SCAN_FAILED', message: String((error as Error)?.message ?? error).slice(0, 200) }),
+        );
+      });
+    return response;
+  });
+
+  /** 按作品看：它实际用的设定组合（check 也按组合算）。 */
+  app.get('/v1/creative/worlds/:dossierId/works/:workId/effective', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const body = await readEffectiveSnapshot(client, c.get('accountId'), c.req.param('dossierId'), c.req.param('workId'));
+      return c.json(body);
+    }),
+  );
+
   /** 设定顾问：一句话提一条设定（加人物、加规则……），先自己跑硬检查再交。 */
   app.post('/v1/creative/worlds/:dossierId/advisor', (c) =>
     mutate(c, database, AdvisorBody, async (client, input) => {
-      const result = await advise(client, c.get('accountId'), c.req.param('dossierId'), options.advisor ?? {}, input.query);
+      const result = await advise(client, c.get('accountId'), c.req.param('dossierId'), options.advisor ?? {}, input.query, input.workId ? { workId: input.workId } : {});
       return {
         status: 200,
         body: {

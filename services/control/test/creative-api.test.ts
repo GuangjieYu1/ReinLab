@@ -63,6 +63,9 @@ const overpass: OverpassTransport = async (_url, body) => {
 const writerModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
   current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
 };
+const scanModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
+  current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+};
 const advisorModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
   current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
 };
@@ -124,6 +127,16 @@ beforeAll(async () => {
         apiKey: "test-key",
         model: "test-advisor",
         transport: (input, init) => advisorModelHolder.current(input as string, init as RequestInit),
+      },
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+    },
+    creativeImpactScan: {
+      model: {
+        baseUrl: "https://model.test/anthropic",
+        apiKey: "test-key",
+        model: "test-scan",
+        transport: (input, init) => scanModelHolder.current(input as string, init as RequestInit),
       },
       pricing: { inputPerMillion: 2, outputPerMillion: 8 },
       provider: "test",
@@ -1385,5 +1398,218 @@ describe("待确认排序（验收 B4）", () => {
     expect(newest.proposals.at(-1).id).toBe(oldest.proposals[0].id);
     const bad = await api(`/v1/creative/worlds/${dossierA}/proposals?sort=wat`);
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("1C：版本差异、影响清单、设定组合", () => {
+  const worldPath = `/v1/creative/worlds/${dossierA}`;
+  let placeId = "";
+  let eventId = "";
+  let vFrom = 0;
+  let vTo = 0;
+  let workId = "";
+  let itemId = "";
+
+  const ops = (body: unknown) =>
+    api(`${worldPath}/ops`, { method: "POST", headers: { "Idempotency-Key": randomUUID() }, body: JSON.stringify(body) });
+
+  it("存 v2 之前先看草稿差异：按条目列出改了哪些字段", async () => {
+    const snapshot = await (await api(worldPath)).json();
+    placeId = (snapshot.entities.find((item: any) => item.name === "青州城") ?? snapshot.entities[0]).id;
+    eventId = snapshot.events[0].id;
+    vFrom = snapshot.versions.length ? snapshot.versions.at(-1).n : 0;
+    // 挪地点 + 事件改早一小时
+    const place = snapshot.entities.find((item: any) => item.id === placeId)!;
+    const changed = await ops({
+      baseRevision: snapshot.world.revision,
+      ops: [
+        {
+          op: "entity.update",
+          id: placeId,
+          patch: { place: { ...place.place, geo: { type: "Point", coordinates: [118.55, 36.75] } } },
+        },
+        { op: "event.update", id: eventId, patch: { start: { input: "1684-04-21 05:00" } } },
+      ],
+    });
+    expect(changed.status).toBe(200);
+
+    const draft = await (await api(`${worldPath}/versions/draft`)).json();
+    expect(draft.items.length).toBeGreaterThanOrEqual(2);
+    const placeChange = draft.items.find((item: any) => item.itemId === placeId)!;
+    expect(placeChange.kind).toBe("entity");
+    expect(placeChange.fields).toContain("地点信息");
+    const eventChange = draft.items.find((item: any) => item.itemId === eventId)!;
+    expect(eventChange.fields).toContain("开始时间");
+
+    const saved = await api(`${worldPath}/versions`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ summary: "v2：青州城挪位置、出发改早一小时" }),
+    });
+    const version = await saved.json();
+    vTo = version.n;
+    expect(version.changes).toBe(draft.items.length);
+
+    const detail = await (await api(`${worldPath}/versions/${vTo}`)).json();
+    expect(detail.items.length).toBe(version.changes);
+    expect(detail.items.some((item: any) => item.itemId === placeId && item.fields.includes("地点信息"))).toBe(true);
+  });
+
+  it("影响清单：条目、确定受影响的场景、每部作品用哪版与检查试算", async () => {
+    const report = await (await api(`${worldPath}/impact?from=${vTo - 1}&to=${vTo}`)).json();
+    expect(report.fromVersion).toBe(vTo - 1);
+    expect(report.toVersion).toBe(vTo);
+    expect(report.items.length).toBeGreaterThanOrEqual(2);
+    const placeItem = report.items.find((item: any) => item.change.itemId === placeId)!;
+    expect(placeItem.group).toContain("位置");
+    // 确定受影响：事件引用这个地点、正文写到地名
+    expect(placeItem.sure.length).toBeGreaterThan(0);
+    expect(placeItem.sure.some((ref: any) => ref.kind === "event" || ref.kind === "scene")).toBe(true);
+    // 每部作品：旧/新、决定、检查试算
+    expect(Array.isArray(placeItem.works)).toBe(true);
+    for (const entry of placeItem.works) {
+      expect(["old", "new", "override"]).toContain(entry.uses);
+      expect(entry.checkAfter === null || Array.isArray(entry.checkAfter.conflicts)).toBe(true);
+    }
+    expect(report.maybeScan.state).toBe("none");
+  });
+
+  it("按作品看：effective 快照带 check，条目带 setting", async () => {
+    const works = await (await api(`${worldPath}/works`)).json();
+    workId = works[0].id;
+    const effective = await (await api(`${worldPath}/works/${workId}/effective`)).json();
+    expect(effective.world).toBeTruthy();
+    expect(effective.check).toBeTruthy();
+    expect(effective.entities.every((item: any) => ["base", "picked", "override"].includes(item.setting))).toBe(true);
+  });
+
+  it("跟着改：picks + 决定 + 场景待同步；effective 用新版，marks 带 sync", async () => {
+    itemId = placeId;
+    const work = await (await api(`${worldPath}/works/${workId}`)).json();
+    const followed = await api(`${worldPath}/works/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: work.revision,
+        ops: [{ op: "setting.follow", itemId, toVersion: vTo }],
+      }),
+    });
+    expect(followed.status).toBe(200);
+    const body = await followed.json();
+    expect(body.work.setting.picks.some((pick: any) => pick.itemId === itemId && pick.fromVersion === vTo)).toBe(true);
+    expect(body.work.setting.decisions.some((decision: any) => decision.itemId === itemId && decision.decision === "follow")).toBe(true);
+
+    const effective = await (await api(`${worldPath}/works/${workId}/effective`)).json();
+    const place = effective.entities.find((item: any) => item.id === itemId);
+    expect(place.setting).toBe("picked");
+    expect((place.place.geo.coordinates as number[])[0]).toBeCloseTo(118.55, 5);
+    const scenesWithSync = effective.chapters
+      ? effective.chapters.flatMap((chapter: any) => chapter.scenes).filter((scene: any) => scene.marks.some((mark: any) => mark.kind === "sync"))
+      : [];
+    expect(scenesWithSync.length).toBeGreaterThanOrEqual(0);
+    expect(body.work.setting.pendingSync).toBeGreaterThanOrEqual(0);
+  });
+
+  it("保留旧版：只记决定，不采用新版", async () => {
+    const works = await (await api(`${worldPath}/works`)).json();
+    const other = works.find((item: any) => item.id !== workId);
+    const detail = await (await api(`${worldPath}/works/${other.id}`)).json();
+    const kept = await api(`${worldPath}/works/${other.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: detail.revision, ops: [{ op: "setting.keep", itemId, toVersion: vTo }] }),
+    });
+    expect(kept.status).toBe(200);
+    const body = await kept.json();
+    expect(body.work.setting.decisions.some((decision: any) => decision.itemId === itemId && decision.decision === "keep")).toBe(true);
+    expect(body.work.setting.picks).toEqual([]);
+  });
+
+  it("本作品改写 + 推广：effective 里生效，推广成一条世界观提议", async () => {
+    const work = await (await api(`${worldPath}/works/${workId}`)).json();
+    const overridden = await api(`${worldPath}/works/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: work.revision,
+        ops: [{ op: "override.set", itemId, kind: "entity", patch: { summary: "本作品里这座城更冷" }, note: "本作品冷一点" }],
+      }),
+    });
+    expect(overridden.status).toBe(200);
+    const effective = await (await api(`${worldPath}/works/${workId}/effective`)).json();
+    const place = effective.entities.find((item: any) => item.id === itemId);
+    expect(place.setting).toBe("override");
+    expect(place.summary).toBe("本作品里这座城更冷");
+
+    const before = (await (await api(worldPath)).json()).proposals.length;
+    const promoted = await api(`${worldPath}/works/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: (await overridden.json()).revision,
+        ops: [{ op: "override.promote", itemId }],
+      }),
+    });
+    expect(promoted.status).toBe(200);
+    const after = (await (await api(worldPath)).json()).proposals.length;
+    expect(after).toBe(before + 1);
+  });
+
+  it("世界观面能看出哪些作品改写了这条条目", async () => {
+    const snapshot = await (await api(worldPath)).json();
+    const place = snapshot.entities.find((item: any) => item.id === itemId);
+    expect(place.overriddenBy?.some((entry: any) => entry.workId === workId)).toBe(true);
+    expect(place.overriddenBy[0].workTitle).toBeTruthy();
+  });
+
+  it("扫正文：异步，产出「可能受影响」的段落与花费", async () => {
+    const work = await (await api(`${worldPath}/works/${workId}`)).json();
+    const scene = work.chapters[0]?.scenes[0];
+    scanModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                hits: [
+                  {
+                    itemId,
+                    workId,
+                    chapterId: work.chapters[0].id,
+                    sceneId: scene.id,
+                    para: 0,
+                    quote: (scene.text ?? "青州").slice(0, 20),
+                    why: "这段提到了这座城",
+                  },
+                ],
+              }),
+            },
+          ],
+          usage: { input_tokens: 900, output_tokens: 120 },
+        }),
+        { status: 200 },
+      );
+    const started = await api(`${worldPath}/impact/scan`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ from: vTo - 1, to: vTo }),
+    });
+    expect(started.status).toBe(202);
+    expect((await started.json()).state).toBe("running");
+    let scan: any = null;
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      scan = (await (await api(`${worldPath}/impact?from=${vTo - 1}&to=${vTo}`)).json()).maybeScan;
+      if (scan.state === "done" || scan.state === "failed") break;
+    }
+    expect(scan.state).toBe("done");
+    expect(scan.cost.known).toBe(true);
+    expect(scan.cost.value).toBeGreaterThan(0);
+    const report = await (await api(`${worldPath}/impact?from=${vTo - 1}&to=${vTo}`)).json();
+    const item = report.items.find((entry: any) => entry.change.itemId === itemId);
+    expect(item.maybe.length).toBeGreaterThan(0);
+    expect(item.maybe[0].quote).toBeTruthy();
+    expect(item.maybe[0].why).toBeTruthy();
   });
 });

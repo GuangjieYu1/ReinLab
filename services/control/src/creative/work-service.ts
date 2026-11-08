@@ -7,8 +7,11 @@
  */
 
 import type pg from 'pg';
+import { randomUUID } from 'node:crypto';
 import type {
   CreativeAppliedOp,
+  CreativeOp,
+  ItemChange,
   Proposal,
   TextEdit,
   Work,
@@ -17,6 +20,25 @@ import type {
 import { ApiFailure } from '../api/errors';
 import { appendEvents } from './events';
 import { loadWorld, requireCreativeDossier } from './service';
+import { effectiveWorldOf } from './effective';
+import { worldOf } from './world';
+import { buildLegs } from './routing';
+import { runCheck } from './check';
+import { cursorOf } from './events';
+import type { CreativeDocument } from './world';
+import { diffDocuments, itemMapOf } from './items';
+import {
+  dismissSync,
+  followItem,
+  followVersion,
+  keepItem,
+  removeOverride,
+  resolveSync,
+  setOverride,
+  settingStateOf,
+} from './settings';
+import { impactOf, scenesAffectedBy } from './impact';
+import { startGenerate } from './writer';
 import { buildDocx } from './docx';
 import {
   applyTextEdit,
@@ -227,10 +249,173 @@ export async function readWork(
   });
 }
 
+/** 两个版本之间某条条目的变化（找不到就是 null）。 */
+async function itemChangeBetween(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+  fromVersion: number,
+  toVersion: number,
+  itemId: string,
+): Promise<{ change: import('@reinlab/contracts').ItemChange | null; toDocument: CreativeDocument | null }> {
+  const rows = (
+    await client.query<{ n: number; world: CreativeDocument }>(
+      'select n, world from creative_version where account_id=$1 and dossier_id=$2 and n = any($3::int[])',
+      [account, dossier, [...new Set([fromVersion, toVersion])].filter((n) => n > 0)],
+    )
+  ).rows;
+  const toDocument = rows.find((row) => Number(row.n) === toVersion)?.world ?? null;
+  if (!toDocument) return { change: null, toDocument: null };
+  const fromDocument = rows.find((row) => Number(row.n) === fromVersion)?.world ?? null;
+  const base = fromDocument ?? { entities: [], relations: [], events: [], modes: [], rules: [], edits: [] } as unknown as CreativeDocument;
+  const change = diffDocuments(base, toDocument).find((item) => item.itemId === itemId) ?? null;
+  return { change, toDocument };
+}
+
+/**
+ * 1C 的设定组合操作（契约 §6.3）。要读版本差异、有的还要生成改稿或推一条世界观提议，
+ * 所以放在服务层；纯状态变化在 settings.ts 里。
+ */
+async function applySettingOp(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+  workId: string,
+  document: WorkDocument,
+  op: WorkOp,
+  at: string,
+): Promise<{
+  document: WorkDocument;
+  summary: string;
+  generateJobId?: string;
+  worldTouched?: boolean;
+  worldSummary?: string;
+}> {
+  const state = settingStateOf(document);
+  const withSetting = (setting: ReturnType<typeof settingStateOf>, summary: string) => ({
+    document: { ...document, setting },
+    summary,
+  });
+
+  switch (op.op) {
+    case 'setting.follow': {
+      const { change } = await itemChangeBetween(client, account, dossier, document.baseVersion, op.toVersion, op.itemId);
+      const scenes = await scenesAffectedBy(client, account, dossier, workId, op.itemId, op.toVersion);
+      const next = followItem(state, { itemId: op.itemId, toVersion: op.toVersion, scenes, at });
+      return withSetting(
+        next,
+        `「${change?.title ?? op.itemId}」跟着改成 v${op.toVersion}${scenes.length ? `，${scenes.length} 处正文待同步` : ''}`,
+      );
+    }
+    case 'setting.keep': {
+      const { change } = await itemChangeBetween(client, account, dossier, document.baseVersion, op.toVersion, op.itemId);
+      return withSetting(keepItem(state, { itemId: op.itemId, toVersion: op.toVersion, at }), `「${change?.title ?? op.itemId}」保留旧版（不用 v${op.toVersion} 的改动）`);
+    }
+    case 'setting.follow_version': {
+      const from = document.baseVersion > 0 ? document.baseVersion : 1;
+      const report = await impactOf(client, account, dossier, from, op.toVersion);
+      const scenesByItem = new Map<string, string[]>();
+      for (const item of report.items) {
+        const scenes = [...new Set(item.sure.filter((ref) => ref.kind === 'scene' && (ref as { workId?: string }).workId === workId).map((ref) => (ref as { sceneId: string }).sceneId))];
+        if (scenes.length) scenesByItem.set(item.change.itemId, scenes);
+      }
+      const decidedItems = new Set(state.decisions.filter((decision) => decision.toVersion === op.toVersion).map((decision) => decision.itemId));
+      const next = followVersion(state, { toVersion: op.toVersion, scenesByItem, decidedItems, at });
+      return {
+        document: { ...document, baseVersion: op.toVersion, setting: next },
+        summary: `整版跟进到 v${op.toVersion}（${scenesByItem.size} 条条目有正文要跟着看）`,
+      };
+    }
+    case 'override.set': {
+      const next = setOverride(state, { itemId: op.itemId, kind: op.kind, patch: op.patch, note: op.note, at });
+      return withSetting(next, `对「${op.itemId}」做了本作品改写：${op.note.slice(0, 40)}`);
+    }
+    case 'override.remove': {
+      return withSetting(removeOverride(state, op.itemId), `取消了对「${op.itemId}」的本作品改写`);
+    }
+    case 'override.promote': {
+      const override = state.overrides.find((item) => item.itemId === op.itemId);
+      if (!override) throw new ApiFailure('OVERRIDE_NOT_FOUND', 404, '这条本作品改写已经不在了。');
+      const world = await loadWorld(client, account, dossier, { lock: true });
+      const map = itemMapOf(world.document);
+      const current = map.get(op.itemId);
+      if (!current) throw new ApiFailure('ITEM_NOT_FOUND', 404, '这条设定在世界观里已经不在了。');
+      const patch = (override.patch ?? {}) as Record<string, unknown>;
+      const merged = { ...current.value, ...patch } as Record<string, unknown>;
+      const opValue: CreativeOp =
+        override.kind === 'mode'
+          ? ({ op: 'mode.set', mode: merged } as unknown as CreativeOp)
+          : override.kind === 'rule'
+            ? ({ op: 'rule.set', rule: merged } as unknown as CreativeOp)
+            : ({ op: `${override.kind}.update`, id: op.itemId, patch } as unknown as CreativeOp);
+      const proposal: Proposal = {
+        id: randomUUID(),
+        kind:
+          override.kind === 'entity'
+            ? 'entity'
+            : override.kind === 'event'
+              ? 'event'
+              : override.kind === 'relation'
+                ? 'relation'
+                : override.kind === 'rule' || override.kind === 'mode'
+                  ? 'rule'
+                  : 'map_edit',
+        title: `推广本作品改写：${String(current.value.name ?? current.value.title ?? op.itemId)}`,
+        summary: override.note || '把这部作品的局部改写推广到共享世界观。',
+        ops: [opValue],
+        origin: { basis: 'author', by: 'user', why: override.note },
+        doubts: [],
+        dependsOn: [],
+        conflicts: [],
+        status: 'pending',
+      };
+      const worldNext: CreativeDocument = { ...world.document, proposals: [...world.document.proposals, proposal] };
+      const revision = world.revision + 1;
+      await client.query(
+        'update creative_world set revision=$3, document=$4::jsonb, updated_at=now() where account_id=$1 and dossier_id=$2',
+        [account, dossier, revision, JSON.stringify(worldNext)],
+      );
+      await appendEvents(client, { account, dossier }, [
+        { type: 'creative.proposal', data: proposal },
+        { type: 'creative.op', data: { revision, applied: [] } },
+      ]);
+      return {
+        document,
+        summary: `把「${proposal.title}」推广到共享世界观（进待确认）`,
+        worldTouched: true,
+        worldSummary: `世界观多了一条提议：${proposal.title}`,
+      };
+    }
+    case 'sync.suggest': {
+      const { change } = await itemChangeBetween(client, account, dossier, document.baseVersion, Math.max(1, document.baseVersion), op.itemId);
+      const hint = change
+        ? `这条设定变了：${change.title}（改了：${change.fields.join('、') || '内容'}）。请按新设定改这一场，只改需要改的地方，别动别的。`
+        : `按新设定重看这一场，只改需要改的地方。`;
+      const job = await startGenerate(client, account, dossier, workId, {
+        sceneIds: op.sceneIds,
+        mode: 'rewrite',
+        hint,
+        syncItem: op.itemId,
+      });
+      return { document, summary: `让助手按新设定改 ${op.sceneIds.length} 场（任务 ${job.id.slice(0, 8)}）`, generateJobId: job.id };
+    }
+    case 'sync.dismiss': {
+      return withSetting(
+        dismissSync(state, { itemId: op.itemId, sceneId: op.sceneId, reason: op.reason, at }),
+        `「这一处不用改」记下了：${op.reason.slice(0, 40)}`,
+      );
+    }
+    default:
+      throw new ApiFailure('INVALID_INPUT', 400, '不认识这个设定组合操作。');
+  }
+}
+
 export type WorkBatchOutcome = {
   revision: number;
   work: Work;
   applied: { op: string; summary: string }[];
+  /** 1C：sync.suggest 起的生成任务，提交后由调用方去跑。 */
+  pendingGenerates: string[];
 };
 
 /** 作品的一批改动：原子、revision +1、正文改动推 creative.text。 */
@@ -254,13 +439,37 @@ export async function applyWorkBatch(
     });
   }
 
+  const SETTING_OPS = new Set([
+    'setting.follow',
+    'setting.keep',
+    'setting.follow_version',
+    'override.set',
+    'override.remove',
+    'override.promote',
+    'sync.suggest',
+    'sync.dismiss',
+  ]);
   const acceptOps = request.ops.filter((op): op is Extract<WorkOp, { op: 'text.accept' }> => op.op === 'text.accept');
-  const restOps = request.ops.filter((op) => op.op !== 'text.accept');
+  const settingOps = request.ops.filter((op) => SETTING_OPS.has(op.op));
+  const restOps = request.ops.filter((op) => op.op !== 'text.accept' && !SETTING_OPS.has(op.op));
+
+  // 1C 的设定组合操作先做（要读版本差异、可能要生成改稿），再走 1B 的作品操作
+  const at = new Date().toISOString();
+  const applied: { op: string; summary: string }[] = [];
+  const pendingGenerates: string[] = [];
+  let base = state.document;
+  for (const op of settingOps) {
+    const result = await applySettingOp(client, account, dossier, workId, base, op, at);
+    base = result.document;
+    applied.push({ op: op.op, summary: result.summary });
+    if (result.generateJobId) pendingGenerates.push(result.generateJobId);
+    if (result.worldTouched) applied.push({ op: op.op, summary: result.worldSummary ?? '' });
+  }
   const outcome = restOps.length
-    ? applyWorkOps(state.document, restOps)
-    : { next: state.document, applied: [] as { op: string; summary: string }[], touchedScenes: [], proposalIds: [] as string[] };
+    ? applyWorkOps(base, restOps, { at })
+    : { next: base, applied: [] as { op: string; summary: string }[], touchedScenes: [], proposalIds: [] as string[] };
   const document = outcome.next;
-  const applied: { op: string; summary: string }[] = [...outcome.applied];
+  applied.push(...outcome.applied);
   const touched = [...outcome.touchedScenes];
   const revision = state.revision + 1;
 
@@ -291,6 +500,15 @@ export async function applyWorkBatch(
       touched.push({ sceneId: scene.id, state: scene.state, textVersion: scene.textVersion });
       acceptedTextScenes.push({ sceneId: scene.id, textVersion: scene.textVersion });
       applied.push({ op: 'text.accept', summary: `接受了「${scene.title}」的正文改动（${after.length} 字）` });
+      // 1C：这条改稿是为「某条设定更新」出的，接受之后那处待同步就消掉
+      if (typeof proposal.batchId === 'string' && proposal.batchId.startsWith('sync_')) {
+        document.setting = resolveSync(settingStateOf(document), {
+          itemId: proposal.batchId.slice('sync_'.length),
+          sceneId: scene.id,
+          at: new Date().toISOString(),
+          via: 'text_edit',
+        });
+      }
       worldDocument = {
         ...worldDocument,
         proposals: worldDocument.proposals.map((item: Proposal) =>
@@ -347,6 +565,49 @@ export async function applyWorkBatch(
     revision,
     work: project(document, revision, { withText: true, world: world.document, conflicts }),
     applied,
+    pendingGenerates,
+  };
+}
+
+/** 「这部作品实际用的设定」快照：同快照形状，check 按组合算，条目带 setting。 */
+export async function readEffectiveSnapshot(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+  workId: string,
+): Promise<Record<string, unknown>> {
+  const effective = await effectiveWorldOf(client, account, dossier, workId);
+  const document = effective.document;
+  const legs = await buildLegs(client, { account, dossier, document });
+  const check = runCheck({ document, legs, revision: effective.workRevision, now: new Date().toISOString() });
+  const versionRows = (
+    await client.query<{ n: number; at: Date; summary: string; changes: number; world: CreativeDocument }>(
+      'select n, at, summary, changes, world from creative_version where account_id=$1 and dossier_id=$2 order by n',
+      [account, dossier],
+    )
+  ).rows;
+  const latest = versionRows.length ? versionRows[versionRows.length - 1] : null;
+  const worldState = await loadWorld(client, account, dossier);
+  return {
+    world: {
+      ...worldOf(dossier, document, effective.workRevision, {
+        latest: latest ? Number(latest.n) : 0,
+        draftChanges: Math.max(0, worldState.revision - (latest ? Number(latest.n) : 0)),
+      }),
+      // 1C：按作品看时的口径
+      work: { id: workId, baseVersion: effective.baseVersion, picks: effective.picked, overrides: effective.overridden },
+    },
+    entities: document.entities,
+    relations: document.relations,
+    events: document.events,
+    modes: document.modes,
+    rules: document.rules,
+    edits: document.edits,
+    legs,
+    proposals: document.proposals.filter((item) => item.status === 'pending' || item.status === 'deferred'),
+    check,
+    versions: versionRows.map((row) => ({ n: Number(row.n), at: row.at.toISOString(), summary: row.summary, changes: Number(row.changes) })),
+    cursor: await cursorOf(client, { account, dossier }),
   };
 }
 

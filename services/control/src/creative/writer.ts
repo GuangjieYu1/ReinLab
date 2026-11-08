@@ -12,6 +12,7 @@ import type { CreativeCny as Cny, GenerateJob, Proposal } from '@reinlab/contrac
 import { ApiFailure } from '../api/errors';
 import { appendEvents } from './events';
 import { PROCESS_STARTED_AT, loadWorld } from './service';
+import { effectiveWorldOf } from './effective';
 import { callStructured, extractJson, type ModelDeps } from './model-call';
 import { clip } from './text';
 import { applyWorkOps, sceneOf, wordsOf, type WorkDocument } from './work';
@@ -27,6 +28,8 @@ export type GenerateJobDocument = {
   mode: 'draft' | 'continue' | 'complete' | 'rewrite';
   hint?: string;
   range?: { para: number; from: number; to: number };
+  /** 1C：这次生成是为了把某条设定更新同步到正文（产出提议的 batchId 用 sync_<itemId>）。 */
+  syncItem?: string;
   error: string | null;
   cost: Cny;
 };
@@ -183,6 +186,7 @@ export async function startGenerate(
     mode: GenerateJobDocument['mode'];
     hint?: string;
     range?: { para: number; from: number; to: number };
+    syncItem?: string;
   },
 ): Promise<GenerateJobDocument> {
   const work = (
@@ -208,6 +212,7 @@ export async function startGenerate(
     mode: input.mode,
     ...(input.hint ? { hint: input.hint } : {}),
     ...(input.range ? { range: input.range } : {}),
+    ...(input.syncItem ? { syncItem: input.syncItem } : {}),
     error: null,
     cost: { value: 0, known: true },
   };
@@ -292,7 +297,8 @@ export async function runGenerate(
     const { job, sceneId } = step;
     try {
       const loaded = await database.withAccount(account, async (client) => {
-        const world = await loadWorld(client, account, dossier);
+        // 1C：写作助手在这部作品里读的是它实际用的设定（组合还原），不是世界观草稿
+        const world = await effectiveWorldOf(client, account, dossier, job.workId);
         const work = (
           await client.query<{ document: WorkDocument }>(
             'select document from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3',
@@ -346,7 +352,7 @@ export async function runGenerate(
         const text = job.mode === 'rewrite' ? addition : job.mode === 'continue' ? `${target.text.trim()}\n\n${addition}`.trim() : addition;
         const proposal: Proposal = {
           id: randomUUID(),
-          batchId: `generate_${job.id}`,
+          batchId: job.syncItem ? `sync_${job.syncItem}` : `generate_${job.id}`,
           kind: 'text_edit',
           title: `${target.title}：${job.mode === 'rewrite' ? '改写' : job.mode === 'continue' ? '续写' : job.mode === 'complete' ? '补全' : '起稿'}`,
           summary: why || clip(body, 200),

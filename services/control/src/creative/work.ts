@@ -9,8 +9,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Chapter, Proposal, Outline, Scene, TextEdit, TextMark, Work, WorkOp } from '@reinlab/contracts';
+import type { Chapter, Outline, Proposal, Scene, TextEdit, TextMark, Work, WorkOp } from '@reinlab/contracts';
 import type { CreativeDocument } from './world';
+import { settingOf, syncItemsOfScene, type WorkSettingState } from './settings';
 import { ApiFailure } from '../api/errors';
 
 export type WorkDocument = {
@@ -24,6 +25,8 @@ export type WorkDocument = {
   chapters: Chapter[];
   source?: Work['source'];
   autoAcceptDraft?: boolean;
+  /** 1C：这部作品的设定组合与待同步状态。 */
+  setting?: WorkSettingState;
   createdAt: string;
 };
 
@@ -88,7 +91,7 @@ export type WorkApplyOutcome = {
   proposalIds: string[];
 };
 
-export type WorkApplyOptions = { ids?: () => string };
+export type WorkApplyOptions = { ids?: () => string; at?: string };
 
 /** 一个作品批次的纯计算：要么全成，要么抛错（调用方回滚事务）。 */
 export function applyWorkOps(
@@ -382,7 +385,19 @@ export function workOf(
     scenes: chapter.scenes.map((scene) => ({
       ...scene,
       words: wordsOf(scene.text),
-      marks: options.withText ? (options.marks ? options.marks(scene.id) : []) : [],
+      marks: options.withText
+        ? [
+            ...(options.marks ? options.marks(scene.id) : []),
+            // 1C：这一段因为某条设定更新待同步（refId = 条目 id）
+            ...syncItemsOfScene(document, scene.id).map((itemId) => ({
+              para: 0,
+              from: 0,
+              to: 0,
+              kind: 'sync' as const,
+              refId: itemId,
+            })),
+          ]
+        : [],
       ...(options.withText ? {} : { text: '' }),
     })),
   }));
@@ -403,5 +418,6 @@ export function workOf(
     chapters,
     ...(document.source ? { source: document.source } : {}),
     ...(document.autoAcceptDraft === undefined ? {} : { autoAcceptDraft: document.autoAcceptDraft }),
+    setting: settingOf(document),
   };
 }

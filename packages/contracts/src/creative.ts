@@ -82,6 +82,10 @@ export type PlaceLevel = 'world' | 'region' | 'city' | 'building' | 'floor' | 'r
 
 export type Entity = {
   id: string;
+  /** 1C：按作品看时，这条来自基准版本 / 逐条采用 / 本作品改写。 */
+  setting?: 'base' | 'picked' | 'override';
+  /** 1C：哪些作品改写了这条（世界观面「被《X》改写」）。 */
+  overriddenBy?: { workId: string; workTitle: string }[];
   kind: EntityKind;
   name: string;
   aliases: string[];
@@ -103,6 +107,10 @@ export type Entity = {
 
 export type Relation = {
   id: string;
+  /** 1C：按作品看时，这条来自基准版本 / 逐条采用 / 本作品改写。 */
+  setting?: 'base' | 'picked' | 'override';
+  /** 1C：哪些作品改写了这条（世界观面「被《X》改写」）。 */
+  overriddenBy?: { workId: string; workTitle: string }[];
   a: string;
   b: string;
   label: string;
@@ -117,6 +125,10 @@ export type Participation = 'actor' | 'present' | 'remote' | 'mentioned';
 
 export type WorldEvent = {
   id: string;
+  /** 1C：按作品看时，这条来自基准版本 / 逐条采用 / 本作品改写。 */
+  setting?: 'base' | 'picked' | 'override';
+  /** 1C：哪些作品改写了这条（世界观面「被《X》改写」）。 */
+  overriddenBy?: { workId: string; workTitle: string }[];
   title: string;
   what: string;
   kind: 'stay' | 'travel' | 'interaction' | 'birth' | 'death' | 'other';
@@ -142,6 +154,10 @@ export type WorldEvent = {
 // ── 规则 ──────────────────────────────────────────
 export type TransportMode = {
   id: string;
+  /** 1C：按作品看时，这条来自基准版本 / 逐条采用 / 本作品改写。 */
+  setting?: 'base' | 'picked' | 'override';
+  /** 1C：哪些作品改写了这条（世界观面「被《X》改写」）。 */
+  overriddenBy?: { workId: string; workTitle: string }[];
   name: string;
   kmPerHour: number;
   network: 'road' | 'water' | 'any' | 'none';
@@ -150,6 +166,10 @@ export type TransportMode = {
 
 export type WorldRule = {
   id: string;
+  /** 1C：按作品看时，这条来自基准版本 / 逐条采用 / 本作品改写。 */
+  setting?: 'base' | 'picked' | 'override';
+  /** 1C：哪些作品改写了这条（世界观面「被《X》改写」）。 */
+  overriddenBy?: { workId: string; workTitle: string }[];
   text: string;
   /** null = 程序还判不了 → 检查里显示「未覆盖」。 */
   machine: { kind: 'teleport' | 'remote_presence' | 'resurrection' | 'custom'; params: Record<string, unknown> } | null;
@@ -160,6 +180,10 @@ export type WorldRule = {
 // ── 改造层 ────────────────────────────────────────
 export type MapEdit = {
   id: string;
+  /** 1C：按作品看时，这条来自基准版本 / 逐条采用 / 本作品改写。 */
+  setting?: 'base' | 'picked' | 'override';
+  /** 1C：哪些作品改写了这条（世界观面「被《X》改写」）。 */
+  overriddenBy?: { workId: string; workTitle: string }[];
   title: string;
   effect: 'add' | 'hide' | 'rename' | 'restyle' | 'passability';
   target: {
@@ -287,7 +311,14 @@ export type Proposal = {
 };
 
 // ── 版本（1A 只保留，1C 才有界面）───────────────
-export type WorldVersion = { n: number; at: CreativeIso; summary: string; changes: number };
+export type WorldVersion = {
+  n: number;
+  at: CreativeIso;
+  summary: string;
+  changes: number;
+  /** 只在单独取版本时给：这一版相对上一版改了哪些条目。 */
+  items?: ItemChange[];
+};
 
 // ── 操作 ──────────────────────────────────────────
 export type CreativeOp =
@@ -370,6 +401,8 @@ export type Work = {
   source?: { kind: 'import'; assetId: string; title: string; textVersion: number } | null;
   /** 空场景起稿是否直接落成 draft；默认关（作者接受才算写过）。 */
   autoAcceptDraft?: boolean;
+  /** 这部作品实际用的设定组合（1C）。 */
+  setting?: WorkSetting;
 };
 
 export type Outline = {
@@ -409,7 +442,7 @@ export type TextMark = {
   para: number;
   from: number;
   to: number;
-  kind: 'entity' | 'event' | 'conflict' | 'stale_source';
+  kind: 'entity' | 'event' | 'conflict' | 'stale_source' | 'sync';
   /** entityId / eventId / conflictId / proposalId。 */
   refId: string;
 };
@@ -466,7 +499,75 @@ export type WorkOp =
   /** 作者直接写：直接落笔。 */
   | { op: 'text.set'; sceneId: string; baseTextVersion: number; text: string }
   /** 接受 AI 的改动；带 text 就是「改后接受」。 */
-  | { op: 'text.accept'; proposalId: string; text?: string };
+  | { op: 'text.accept'; proposalId: string; text?: string }
+  // ── 1C：设定组合与待同步（契约 §6.3）──
+  | { op: 'setting.follow'; itemId: string; toVersion: number }
+  | { op: 'setting.keep'; itemId: string; toVersion: number }
+  | { op: 'setting.follow_version'; toVersion: number }
+  | { op: 'override.set'; itemId: string; kind: ItemKind; patch: unknown; note: string }
+  | { op: 'override.remove'; itemId: string }
+  | { op: 'override.promote'; itemId: string }
+  | { op: 'sync.suggest'; itemId: string; sceneIds: string[] }
+  | { op: 'sync.dismiss'; itemId: string; sceneId: string; reason: string };
+
+// ── 设定条目与版本差异（1C，契约 §6.2）──────────
+export type ItemKind = 'entity' | 'relation' | 'event' | 'mode' | 'rule' | 'edit';
+
+/** 一条设定条目在两个版本之间的变化。 */
+export type ItemChange = {
+  itemId: string;
+  kind: ItemKind;
+  /** 给人看的：「阊门（地点）」「出阊门（事件）」。 */
+  title: string;
+  change: 'add' | 'update' | 'remove';
+  /** 该条目在两个版本里的完整内容；删除时 after 为 null。 */
+  before: unknown | null;
+  after: unknown | null;
+  /** 改了哪些字段（人话）。 */
+  fields: string[];
+};
+
+/** 作品的设定组合：基准版本 + 逐条采用 + 本作品改写 + 作者决定。 */
+export type WorkSetting = {
+  baseVersion: number;
+  /** 这条条目改用 fromVersion 的内容。 */
+  picks: { itemId: string; fromVersion: number; at: CreativeIso }[];
+  /** 本作品局部改写（只对这部作品生效）。 */
+  overrides: { itemId: string; kind: ItemKind; patch: unknown; note: string; at: CreativeIso }[];
+  /** 作者对每条更新的决定（含「保留旧版」）。 */
+  decisions: { itemId: string; toVersion: number; decision: 'follow' | 'keep'; at: CreativeIso }[];
+  /** 还有多少处正文标着「待同步」。 */
+  pendingSync: number;
+};
+
+// ── 影响清单（1C，契约 §6.2）──────────────────────
+export type ImpactRef =
+  | { kind: 'scene'; workId: string; chapterId: string; sceneId: string; para?: number; quote?: string }
+  | { kind: 'event'; eventId: string }
+  | { kind: 'leg'; legId: string };
+
+export type ImpactItem = {
+  change: ItemChange;
+  /** 同一原因的成组（比如「阊门挪了位置」牵出的所有路线和场景同一组）。 */
+  group: string;
+  /** 程序沿引用和依赖找到的，确定受影响。 */
+  sure: (ImpactRef & { why: string })[];
+  /** AI 在没有明确引用的正文里找到的，附原句和理由。 */
+  maybe: (ImpactRef & { why: string; quote: string })[];
+  works: {
+    workId: string;
+    uses: 'old' | 'new' | 'override';
+    decision: 'follow' | 'keep' | null;
+    checkAfter: CheckRun | null;
+  }[];
+};
+
+export type ImpactReport = {
+  fromVersion: number;
+  toVersion: number;
+  items: ImpactItem[];
+  maybeScan: { state: 'none' | 'running' | 'done' | 'failed'; cost: CreativeCny; error?: string | null };
+};
 
 // ── 快照 ──────────────────────────────────────────
 export type WorldSnapshot = {

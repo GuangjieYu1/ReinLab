@@ -16,6 +16,7 @@ import { runCheck } from './check';
 import { appendEvents } from './events';
 import { buildLegs } from './routing';
 import { loadWorld } from './service';
+import { effectiveWorldOf } from './effective';
 import { callStructured, extractJson, type ModelDeps } from './model-call';
 import { clip } from './text';
 import { applyOps, type CreativeDocument } from './world';
@@ -253,10 +254,14 @@ export async function advise(
   dossier: string,
   deps: AdvisorDeps,
   query: string,
+  options: { workId?: string } = {},
 ): Promise<AdvisorResult> {
   if (!deps.model) throw new ApiFailure('ADVISOR_UNAVAILABLE', 503, '本机没配置模型 key，顾问开不了。');
   const state = await loadWorld(client, account, dossier, { lock: true });
-  const world = state.document;
+  // 1C：在某一部作品里用时，读的是这部作品实际用的设定（组合还原），不是世界观草稿
+  const world = options.workId
+    ? (await effectiveWorldOf(client, account, dossier, options.workId)).document
+    : state.document;
   const summary = [
     `世界观：${world.title}`,
     `历法：${world.calendars.map((item) => `${item.name}（${item.kind}）`).join('、')}`,

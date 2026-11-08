@@ -387,12 +387,17 @@ const creativeWriter = writerModel
 const creativeAdvisor = writerModel
   ? { model: writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
   : undefined;
+// 1C 扫正文：读全文找「可能受影响」的段落，同一条模型通道。
+const creativeImpactScan = writerModel
+  ? { model: writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
+  : undefined;
 
 const app = await createApp({
   pool,
   ...(importExtraction ? { creativeImport: importExtraction } : {}),
   ...(creativeWriter ? { creativeWriter } : {}),
   ...(creativeAdvisor ? { creativeAdvisor } : {}),
+  ...(creativeImpactScan ? { creativeImpactScan } : {}),
   ...(creativeRoute ? { creativeRouteInference: creativeRoute } : {}),
   session: config.SUPABASE_ANON_KEY
     ? { url: config.SUPABASE_URL, anonKey: config.SUPABASE_ANON_KEY,

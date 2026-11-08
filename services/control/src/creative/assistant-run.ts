@@ -101,7 +101,9 @@ export async function runCreativeSession(
 
   try {
     if (mode === 'creative_advisor') {
-      const result = await deps.db.withAccount(account, (client) => advise(client, account, dossierId, deps.advisor ?? {}, query));
+      const result = await deps.db.withAccount(account, (client) =>
+        advise(client, account, dossierId, deps.advisor ?? {}, query, run.input.workId ? { workId: run.input.workId } : {}),
+      );
       if (!result.proposals.length) {
         // 模型按底线提不出设定：照实回答，不把这次会话记成失败。
         const declined = result.declined ?? '这一步没有能入账的设定。';

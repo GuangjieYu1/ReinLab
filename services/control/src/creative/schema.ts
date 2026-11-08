@@ -133,6 +133,23 @@ export const WorkOpInput = z.discriminatedUnion('op', [
     })
     .strict(),
   z.object({ op: z.literal('text.accept'), proposalId: z.string().min(1).max(64), text: z.string().max(200_000).optional() }).strict(),
+  // ── 1C：设定组合与待同步（契约 §6.3）──
+  z.object({ op: z.literal('setting.follow'), itemId: chapterId, toVersion: z.number().int().min(1).max(1_000_000) }).strict(),
+  z.object({ op: z.literal('setting.keep'), itemId: chapterId, toVersion: z.number().int().min(1).max(1_000_000) }).strict(),
+  z.object({ op: z.literal('setting.follow_version'), toVersion: z.number().int().min(1).max(1_000_000) }).strict(),
+  z
+    .object({
+      op: z.literal('override.set'),
+      itemId: chapterId,
+      kind: z.enum(['entity', 'relation', 'event', 'mode', 'rule', 'edit']),
+      patch: record,
+      note: z.string().min(1).max(300),
+    })
+    .strict(),
+  z.object({ op: z.literal('override.remove'), itemId: chapterId }).strict(),
+  z.object({ op: z.literal('override.promote'), itemId: chapterId }).strict(),
+  z.object({ op: z.literal('sync.suggest'), itemId: chapterId, sceneIds: z.array(sceneId).min(1).max(40) }).strict(),
+  z.object({ op: z.literal('sync.dismiss'), itemId: chapterId, sceneId, reason: z.string().min(1).max(300) }).strict(),
 ]);
 
 export const WorkOpsBody = z
@@ -156,7 +173,20 @@ export const GenerateBody = z
   })
   .strict();
 
-export const AdvisorBody = z.object({ query: z.string().trim().min(1).max(2000) }).strict();
+export const AdvisorBody = z
+  .object({
+    query: z.string().trim().min(1).max(2000),
+    /** 1C：在某一部作品里问时，读的是这部作品实际用的设定。 */
+    workId: z.string().uuid().optional(),
+  })
+  .strict();
+
+export const ImpactScanBody = z
+  .object({
+    from: z.number().int().min(1).max(1_000_000),
+    to: z.number().int().min(1).max(1_000_000),
+  })
+  .strict();
 
 export const ProposalsQuery = z.object({
   kind: z.string().max(32).optional(),
