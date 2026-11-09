@@ -60,6 +60,11 @@ export default function StoryTimeline({ persons, events, span, t, onT, flags, se
   };
 
   const byPerson = (id: string) => events.filter(e => e.participants.some(p => p.entityId === id));
+  // 人多时（> 6）默认只列窗口里有事件的人，可以搜名字；选中的人总在
+  const many = persons.length > 6;
+  const [who, setWho] = useState<'window' | 'all'>('window'), [q, setQ] = useState('');
+  const inWin = (id: string) => byPerson(id).some(e => e.start.t != null && e.start.t <= v1 && (e.end.t ?? e.start.t) >= v0);
+  const shown = !many ? persons : persons.filter(p => p.id === selPerson || ((who === 'all' || inWin(p.id)) && (!q.trim() || p.name.includes(q.trim()) || p.aliases.some(a => a.includes(q.trim())))));
   const now = nowLabel(events, t);
   const edge = (m: number) => { const n = nowLabel(events, m); return n ? `${n.label}${n.plus ? ` ＋${n.plus}` : ''}` : ''; };
   const zoomTo = (id: string) => {
@@ -78,15 +83,19 @@ export default function StoryTimeline({ persons, events, span, t, onT, flags, se
       <button className="rh-btn" onClick={() => setWin(full)} disabled={!span}>全部</button>
       {selEvent && <button className="rh-btn" onClick={() => zoomTo(selEvent)}>放大到选中</button>}
     </header>
+    {many && <div className="cw-tl-who"><select value={who} onChange={e => setWho(e.target.value as typeof who)} aria-label="列哪些人">
+      <option value="window">只列窗口里有事件的人</option><option value="all">列全部人物</option></select>
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="搜人物" aria-label="搜人物" />
+      <small>显示 {shown.length} / {persons.length} 人{who === 'window' ? ' · 缩放时间轴会换人' : ''}</small></div>}
     <div className="cw-tl-body" onWheel={wheel}>
-      <div className="cw-tl-names">{persons.map(p => {
+      <div className="cw-tl-names">{shown.map(p => {
         const ps = pos.get(p.id);
         return <button key={p.id} aria-current={selPerson === p.id || undefined} onClick={() => onPickPerson(p.id)} data-state={ps?.state}>
           <b>{p.name}</b><small>{ps?.state === 'unknown' ? `位置未定${ps.why ? ` · ${ps.why}` : ''}` : ps?.state === 'dead' ? '已故' : ps?.state === 'move' ? (ps.routeKind === 'inferred' ? '在路上 · 推断路线' : '在路上') : ps?.state === 'at' ? '在场' : '—'}</small></button>;
-      })}{!persons.length && <p className="cw-empty-row">还没有人物</p>}</div>
+      })}{!persons.length ? <p className="cw-empty-row">还没有人物</p> : !shown.length && <p className="cw-empty-row">这段时间没有人有事件</p>}</div>
       <div className="cw-tl-track" ref={track} onPointerDown={drag}>
         <div className="cw-tl-edges rh-micro"><span>{edge(v0)}</span><span>{edge(v1)}</span></div>
-        {persons.map(p => {
+        {shown.map(p => {
           const evs = byPerson(p.id), loose = evs.filter(e => e.start.t == null);
           return <div key={p.id} className="cw-tl-row" data-sel={selPerson === p.id || undefined} data-dead={pos.get(p.id)?.state === 'dead' || undefined}>
             {evs.filter(e => e.start.t != null).map(e => {

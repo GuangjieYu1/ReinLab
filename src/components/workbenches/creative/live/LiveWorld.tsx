@@ -148,7 +148,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
     const g = e.placeId ? look.entities.get(e.placeId)?.place?.geo : null; if (g?.type !== 'Point') return [];
     const a = e.start.t, b = e.end.t ?? a;
     const state: 'all' | 'past' | 'now' | 'future' = !live ? 'all' : a == null ? 'future' : t < a ? 'future' : t <= b! ? 'now' : 'past';
-    return [{ id: e.id, title: e.title, kind: e.kind, at: g.coordinates as LngLat, state, flag: flags.events.get(e.id), hearsay: e.narrative !== 'fact' }];
+    return [{ id: e.id, title: e.title, at: g.coordinates as LngLat, state, flag: flags.events.get(e.id), hearsay: e.narrative !== 'fact' }];
   }), [snap?.events, look, live, t, flags.events]);
   const portraits = useMemo(() => new Map(persons.flatMap(p => p.person?.portrait?.url ? [[p.id, p.person.portrait.url] as [string, string]] : [])), [persons]);
   // 地图上方的播报：最近发生的三件事（事件 + 从这一刻起的关系），正在发生的亮着

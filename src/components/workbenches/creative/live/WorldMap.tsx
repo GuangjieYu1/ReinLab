@@ -73,22 +73,18 @@ function addLayers(map: MLMap) {
 }
 
 // ── 画在画布上的图标：事件章、人物头像（styleimagemissing 时按 id 现画） ──
-const EV_GLYPH: Record<string, string> = { stay: '停', travel: '行', interaction: '遇', birth: '生', death: '殁', other: '事' };
-const EV_KINDS: [string, string][] = [['stay', '停留'], ['travel', '行程'], ['interaction', '相遇'], ['death', '亡故'], ['other', '其他']];
-const EV_COLOR: Record<string, string> = { stay: INK, travel: '#3d6f8e', interaction: ORANGE, birth: '#4f7d4a', death: '#5b5550', other: '#8a6a3e' };
 const PR = 2;
 function canvas(size: number) { const c = document.createElement('canvas'); c.width = c.height = size * PR; const g = c.getContext('2d')!; g.scale(PR, PR); return { c, g }; }
 function drawIcon(map: MLMap, id: string, portraits?: Map<string, string>) {
   if (map.hasImage(id)) return;
-  const [type, a, b, c, d] = id.split(':');
+  const [type, a = '', b = '', c, d] = id.split(':');
   if (type === 'ev') {
-    // ev:kind:flag:hearsay —— 方章：底色按种类，冲突描红黄边，传闻/梦境用虚线框
-    const S = 22, { c: cv, g } = canvas(S + 4);
-    g.fillStyle = EV_COLOR[a] ?? INK; g.strokeStyle = b === 'hard' ? RED : b === 'suspect' ? AMBER : CARD; g.lineWidth = b ? 2.5 : 1.5;
-    if (d === '1') { g.setLineDash([3, 2]); g.fillStyle = CARD; }
-    g.beginPath(); g.rect(2, 2, S, S); g.fill(); g.stroke();
-    if (d === '1') { g.strokeStyle = EV_COLOR[a] ?? INK; g.lineWidth = 1.5; g.stroke(); }
-    g.fillStyle = d === '1' ? (EV_COLOR[a] ?? INK) : CARD; g.font = `600 14px ${CJK}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(EV_GLYPH[a] ?? '事', 2 + S / 2, 2 + S / 2 + 1);
+    // ev:flag:hearsay —— 事件统一一种标记：墨色菱形；冲突描红黄边，传闻/梦境/假设用空心虚线
+    const S = 16, { c: cv, g } = canvas(S + 6), o = 3 + S / 2, h = a === '' ? 0 : 1;
+    g.beginPath(); g.moveTo(o, 3); g.lineTo(3 + S, o); g.lineTo(o, 3 + S); g.lineTo(3, o); g.closePath();
+    if (b === '1') { g.setLineDash([2.5, 2]); g.fillStyle = CARD; g.fill(); g.lineWidth = 1.6; g.strokeStyle = INK; g.stroke(); g.setLineDash([]); }
+    else { g.fillStyle = INK; g.fill(); }
+    if (h) { g.lineWidth = 2.4; g.strokeStyle = a === 'hard' ? RED : AMBER; g.stroke(); }
     map.addImage(id, g.getImageData(0, 0, cv.width, cv.height), { pixelRatio: PR }); return;
   }
   if (type === 'av') {
@@ -122,7 +118,7 @@ type Props = {
   /** 这一刻：null = 静态（全部路线、全部事件章，不画人物）；否则路线变淡，画走过的轨迹、人物、已发生 / 正在发生的事件。 */
   moment?: { trails: { entityId: string; lines: LngLat[][] }[] } | null;
   /** 有地点坐标的事件；state 由外面按 t 算好（static 时全是 all）。 */
-  events?: { id: string; title: string; kind: string; at: LngLat; state: 'all' | 'past' | 'now' | 'future'; flag?: Flag; hearsay?: boolean }[];
+  events?: { id: string; title: string; at: LngLat; state: 'all' | 'past' | 'now' | 'future'; flag?: Flag; hearsay?: boolean }[];
   /** 人物立绘（有的话当头像）。 */
   portraits?: Map<string, string>;
   /** 路网几何（`network/geojson`）；有真实底图时不传。 */
@@ -152,7 +148,7 @@ export default function WorldMap(p: Props) {
     set('cw-places', { type: 'FeatureCollection', features: q.places.filter(e => e.place?.geo?.type === 'Point').map(e => ({ type: 'Feature', geometry: e.place!.geo, properties: { id: e.id, name: e.name, sel: q.sel.placeId === e.id } })) });
     set('cw-trails', { type: 'FeatureCollection', features: (q.moment?.trails ?? []).flatMap(tr => tr.lines.map(c => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: c }, properties: { id: tr.entityId, sel: q.sel.entityId === tr.entityId } }))) });
     set('cw-events', { type: 'FeatureCollection', features: (q.events ?? []).map(e => ({ type: 'Feature', geometry: { type: 'Point', coordinates: e.at },
-      properties: { id: e.id, title: e.title, state: e.state, icon: `ev:${e.kind}:${e.flag ?? ''}:${e.hearsay ? 1 : 0}` } })) });
+      properties: { id: e.id, title: e.title, state: e.state, icon: `ev:${e.flag ?? ''}:${e.hearsay ? 1 : 0}` } })) });
     set('cw-people', { type: 'FeatureCollection', features: q.people.flatMap(x => { const at = x.at ?? (q.moment ? x.last : null); if (!at || !(q.moment || q.sel.entityId === x.entityId)) return [];
       const sel = q.sel.entityId === x.entityId, pic = q.portraits?.get(x.entityId);
       return [{ type: 'Feature', geometry: { type: 'Point', coordinates: at },
@@ -242,6 +238,6 @@ export default function WorldMap(p: Props) {
     <div ref={box} className="cw-map-gl" />
     {p.draw && <div className="cw-draw-hint"><b>{p.draw.hint}</b><span>{p.draw.kind === 'point' ? '在地图上点一下' : '逐点点击，双击结束 · 退格撤一点 · Esc 取消'}</span>
       <button className="rh-btn" onClick={() => { drawPts.current = []; p.draw?.onCancel(); }}>取消</button></div>}
-    <div className="cw-legend rh-micro"><span><i className="is-solid" />路网 / 手绘</span><span><i className="is-dash" />AI 推断（未确认）</span><span><i className="is-old" />改造层</span>{p.moment ? <span><i className="is-now" />走过的路</span> : <span>全部路线</span>}<span className="cw-legend-ev">{EV_KINDS.map(([k, z]) => <em key={k} data-k={k}>{EV_GLYPH[k]}<small>{z}</small></em>)}</span>{!p.real && <span>无真实底图</span>}</div>
+    <div className="cw-legend rh-micro"><span><i className="is-solid" />路网 / 手绘</span><span><i className="is-dash" />AI 推断（未确认）</span><span><i className="is-old" />改造层</span>{p.moment ? <span><i className="is-now" />走过的路</span> : <span>全部路线</span>}<span><i className="is-ev" />事件</span>{!p.real && <span>无真实底图</span>}</div>
   </div>;
 }
