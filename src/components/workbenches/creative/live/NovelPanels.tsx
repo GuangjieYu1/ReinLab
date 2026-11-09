@@ -101,6 +101,8 @@ export function CreativeAssistant({ adapter, workId, sceneId, onUpdate, initialM
   const [mode, setMode] = useState<'creative_writer' | 'creative_advisor'>(initialMode);
   const [events, setEvents] = useState<DockEvent[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const epoch = useRef(0), running = useRef(false), update = useRef(onUpdate); update.current = onUpdate;
+  // 29：同一个会话里续着聊；「新会话」才另开一个 run
+  const runId = useRef<string | null>(null);
   const follow = async (id: string, token: number) => {
     let after = 0;
     while (epoch.current === token) {
@@ -114,7 +116,7 @@ export function CreativeAssistant({ adapter, workId, sceneId, onUpdate, initialM
           const text = Array.isArray(msg.content) ? msg.content.map((b: { text?: string }) => b.text ?? '').join('') : typeof msg.content === 'string' ? msg.content : '';
           const key = `${id}:${ev.seq}`;
           if (text && (ev.action === 'user/message' || ev.action === 'assistant/message')) setEvents(xs => xs.some(x => x.id === key) ? xs : [...xs, { id: key, kind: ev.action === 'user/message' ? 'user' : 'agent', text, at: '' }]);
-          if (ev.action === 'tool/call') setEvents(xs => [...xs, { id: key, kind: 'note', text: `正在调用：${p.name ?? '创作工具'}`, at: '' }]);
+          if (ev.action === 'tool/call') setEvents(xs => xs.some(x => x.id === key) ? xs : [...xs, { id: key, kind: 'note', text: `正在调用：${p.name ?? '创作工具'}`, at: '' }]);
         }
         if (page.hasMore) continue;
         const status = await adapter.runState(id);
@@ -128,16 +130,24 @@ export function CreativeAssistant({ adapter, workId, sceneId, onUpdate, initialM
   };
   useEffect(() => {
     const token = ++epoch.current; setEvents([]); setError(''); setBusy(false); running.current = false;
-    adapter.runs().then(({ runs }) => { if (epoch.current !== token) return; const last = runs.find(r => r.mode === mode); if (last) void follow(last.id, token); }).catch(e => setError(e.message));
+    adapter.runs().then(({ runs }) => { if (epoch.current !== token) return; const last = runs.find(r => r.mode === mode); runId.current = last?.id ?? null; if (last) void follow(last.id, token); }).catch(e => setError(e.message));
     return () => { epoch.current++; };
   }, [adapter, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const send = async (text: string) => {
     if (running.current) { setError('助手仍在工作，请等本轮完成。'); return; }
     running.current = true; setBusy(true); setError('');
-    try { const run = await adapter.startAssistant(text, mode, workId, sceneId); const token = ++epoch.current; await follow(run.id, token); }
+    try {
+      const id = runId.current;
+      if (id) await adapter.sayAssistant(id, text);
+      const run = id ? { id } : await adapter.startAssistant(text, mode, workId, sceneId);
+      runId.current = run.id;
+      // 续一句时事件流接着读，已显示的按 key 去重
+      const token = ++epoch.current; await follow(run.id, token);
+    }
     catch (e) { running.current = false; setBusy(false); setError((e as Error).message); }
   };
-  return <><div className="cw-row cw-pane"><select aria-label="助手角色" disabled={busy} value={mode} onChange={e => setMode(e.target.value as typeof mode)}><option value="creative_writer">写作助手</option><option value="creative_advisor">设定顾问</option></select>{error && <p role="alert">{error}</p>}</div>
+  return <><div className="cw-row cw-pane"><select aria-label="助手角色" disabled={busy} value={mode} onChange={e => setMode(e.target.value as typeof mode)}><option value="creative_writer">写作助手</option><option value="creative_advisor">设定顾问</option></select>
+    <button className="rh-btn" disabled={busy || !events.length} onClick={() => { epoch.current++; runId.current = null; setEvents([]); setError(''); }} title="清掉这段对话，下一句另开一个会话">新会话</button>{error && <p role="alert">{error}</p>}</div>
     <AgentDock name={mode === 'creative_writer' ? '写作助手' : '设定顾问'} target="当前世界观 · 真实会话" plan={{ stages: ['阅读资料', '提出建议', '作者确认'], current: 0 }} events={events} busy={busy} suggestions={[{ id: 'add', label: '加人物', fill: '加一个人物：请提出与现有事件、路线接得上的经历，先做硬检查再提交提议。' }]} onSend={text => void send(text)} footnote="AI 只提议，接受后才入账或落笔" />
   </>;
 }

@@ -195,6 +195,14 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const decide = (p: Proposal, d: 'accepted' | 'rejected' | 'deferred') => void act(() => send([{ op: 'proposal.decide', id: p.id, decision: d }]));
   const applyFixes = (fixes: Fix[]) => act(() => submitChunks(send, fixes.flatMap(f => f.ops)));
   const recheck = () => void act(async () => { const c = await adapter.check(); setSnap(s => s ? { ...s, check: c } : s); });
+  const [judgeNote, setJudgeNote] = useState<string | null>(null);
+  const judge = () => void act(async () => {
+    setJudgeNote('模型正在读规则和事件…');
+    try { const r = await adapter.judgeRules(); setSnap(s => s ? { ...s, check: r.check } : s);
+      const n = r.check.conflicts.filter(c => c.kind === 'rule_model').length;
+      setJudgeNote(r.judged ? `判了 ${r.judged} 条规则 · 疑似 ${n} 处 · ${r.cost.known && r.cost.value != null ? `¥${r.cost.value.toFixed(3)}` : '花费未知'}` : `规则和事件没变，沿用上次结果（疑似 ${n} 处，没花钱）`); }
+    catch (e) { setJudgeNote(null); throw e; }
+  });
   const importOsm = () => void act(async () => {
     const b = bbox.current; if (!b) return;
     await adapter.importNetwork({ source: 'osm', bbox: b }); setNetMsg('开始导入当前视野的 OSM 路网（公共 Overpass 偶尔要排队一两分钟）。');
@@ -306,7 +314,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
         </nav>
         <div className="cw-side-body">
           {!snap ? null
-            : tab === 'check' ? <CheckPanel check={snap.check} look={look} sel={selConf?.id ?? null} onSel={pickConflict} onApply={applyFixes} onRecheck={recheck} busy={busy || readOnly} />
+            : tab === 'check' ? <CheckPanel check={snap.check} look={look} sel={selConf?.id ?? null} onSel={pickConflict} onApply={applyFixes} onRecheck={recheck} onJudge={readOnly ? undefined : judge} judgeNote={judgeNote} busy={busy || readOnly} />
             : tab === 'props' ? <><button className="rh-btn" onClick={() => setFace('novel')}>小说提议、候选与正文改稿 →</button><ProposalList voided={voided} proposals={snap.proposals.filter(p => p.kind === 'route')} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} /></>
             : tab === 'impact' ? <ImpactPanel adapter={adapter} snap={snap} works={works} onOpenScene={ref => { setNovelTarget(ref); setFace('novel'); }}
                 onWorksChanged={() => void adapter.works().then(setWorks)}

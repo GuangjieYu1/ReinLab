@@ -235,3 +235,6 @@
 .cw-tl-who select, .cw-tl-who input { font:400 12px var(--rh-f-ui); border:1px solid var(--rh-line); background:var(--rh-white); padding:3px 6px; }
 .cw-tl-who input { width:120px; }
 .cw-tl-who small { font:400 11px var(--rh-f-mono); color:var(--rh-ink-4); }
+.cw-judge .rh-btn { white-space:nowrap; flex:none; }
+.cw-judge { display:flex; align-items:center; gap:8px; margin:6px 0 10px; }
+.cw-judge small { font:400 11px/1.4 var(--rh-f-ui); color:var(--rh-ink-4); }

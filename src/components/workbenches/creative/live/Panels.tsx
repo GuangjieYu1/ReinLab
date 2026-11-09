@@ -5,7 +5,7 @@ import type {
 import { dur } from './geo';
 
 export const KIND_ZH: Record<ConflictKind, string> = {
-  double_location: '同时异地', travel_time: '路程耗时', dead_appearance: '死后出场', presence: '在场互动', place_hierarchy: '地点层级与连接', rule_model: '规则（模型判的疑似）',
+  double_location: '同时异地', travel_time: '路程耗时', dead_appearance: '死后出场', presence: '在场互动', place_hierarchy: '地点层级与连接', rule_model: '违反规则',
 };
 const BASIS_ZH: Record<string, string> = { explicit: '原文明写', inferred: '推断', unknown: '未知', author: '作者手写' };
 const NARR_ZH: Record<string, string> = { fact: '事实', hearsay: '传闻', dream: '梦境', hypothetical: '假设', flashback: '回忆' };
@@ -34,9 +34,10 @@ function FixPreview({ fixes, look, onAccept, onCancel, busy }: { fixes: Fix[]; l
 }
 
 /* ———— 检查（照 Aeon Timeline：红 / 黄 / 信息不足 / 未覆盖 + 本次查过未发现） ———— */
-export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, busy }: {
+export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, onJudge, judgeNote, busy }: {
   check: CheckRun | null; look: Lookup; sel: string | null; onSel: (c: CreativeConflict | null) => void;
   onApply: (fixes: Fix[]) => Promise<void>; onRecheck: () => void; busy: boolean;
+  /** 29：让模型判自然语言规则（显式按钮，花钱）。 */ onJudge?: () => void; judgeNote?: string | null;
 }) {
   const [preview, setPreview] = useState<{ key: string; fixes: Fix[] } | null>(null);
   if (!check) return <div className="cw-pane"><p className="cw-muted">还没检查过。</p><button className="rh-btn" onClick={onRecheck} disabled={busy}>全部重查</button></div>;
@@ -45,7 +46,7 @@ export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, busy }
   const apply = async (fixes: Fix[]) => { await onApply(fixes); setPreview(null); };
   const conflict = (c: CreativeConflict) => <article key={c.id} className="cw-conf" data-sev={c.severity} data-sel={sel === c.id || undefined}>
     <button className="cw-conf-head" onClick={() => onSel(sel === c.id ? null : c)}>
-      <em>{c.severity === 'hard' ? '确定冲突' : '疑似 · 按推断路线估算'}</em><b>{KIND_ZH[c.kind]}</b><p>{c.why}</p>
+      <em>{c.severity === 'hard' ? '确定冲突' : c.kind === 'rule_model' ? '疑似 · 模型按规则原话判的' : '疑似 · 按推断路线估算'}</em><b>{KIND_ZH[c.kind]}</b><p>{c.why}</p>
       {c.numbers && <small>{c.numbers.needMin != null && `需要 ${dur(c.numbers.needMin) || '0 分'}`}{c.numbers.needMin != null && c.numbers.haveMin != null && ' · '}{c.numbers.haveMin != null && `只有 ${dur(c.numbers.haveMin) || '0 分'}`}</small>}
     </button>
     {sel === c.id && <div className="cw-fixes">{c.fixes.map(f => <button key={f.id} className="cw-fix" data-kind={f.kind} onClick={() => setPreview({ key: f.id, fixes: [f] })}>{f.label}</button>)}
@@ -58,6 +59,8 @@ export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, busy }
       <span data-sev="hard">红 {hard.length}</span><span data-sev="suspect">黄 {sus.length}</span><span>信息不足 {check.insufficient.length}</span><span>未覆盖 {check.uncovered.length}</span>
       <button className="rh-btn" onClick={onRecheck} disabled={busy}>全部重查</button>
     </div>
+    {onJudge && <div className="cw-judge"><button className="rh-btn" onClick={onJudge} disabled={busy} title="程序判不了的规则，让模型读事件来判；规则和事件没变时不再花钱">让模型判规则</button>
+      <small>{judgeNote ?? (check.uncovered.length ? `${check.uncovered.length} 条规则程序判不了，可以让模型判（花钱，结果标黄色疑似）` : '规则都能由程序判')}</small></div>}
     {auto.length > 1 && <div className="cw-allfix">
       <button className="rh-btn" onClick={() => setPreview({ key: 'all', fixes: auto })}>全部处理（{auto.length} 条，先看预览）</button>
       {preview?.key === 'all' && <FixPreview fixes={preview.fixes} look={look} busy={busy} onAccept={() => void apply(preview.fixes)} onCancel={() => setPreview(null)} />}

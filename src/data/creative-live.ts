@@ -38,6 +38,8 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
       localStorage.setItem(`creative-assistant:${dossierId}:${mode}`, run.id);
       return run;
     },
+    sayAssistant: (id, query) => call('POST', `/v1/kernel/runs/${enc(id)}/messages`, { query }),
+    judgeRules: () => call('POST', `${base}/rules/judge`, {}),
     runs: async () => {
       const page = await call<{ runs: { id: string; mode?: string; state: string }[] }>('GET', `/v1/kernel/dossiers/${enc(dossierId)}/runs`);
       // 内核列表的 mode 是 creative；本机记录启动时选择的具体角色，用于断线恢复。

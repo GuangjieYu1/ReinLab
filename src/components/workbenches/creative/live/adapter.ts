@@ -38,6 +38,10 @@ export interface CreativeAdapter {
   importJob(id: string, action?: 'pause' | 'resume'): Promise<ImportJob>;
   exportWork(id: string, format: 'md' | 'docx'): Promise<void>;
   startAssistant(query: string, mode: 'creative_advisor' | 'creative_writer', workId?: string, sceneId?: string): Promise<{ id: string }>;
+  /** 29：在已有会话里续一句（202）。 */
+  sayAssistant(runId: string, query: string): Promise<{ id: string; state: string }>;
+  /** 29：让模型判自然语言规则；结果并进 check（kind rule_model，黄色疑似）。 */
+  judgeRules(): Promise<{ judged: number; skipped: number; cost: { value: number | null; known: boolean }; check: CheckRun }>;
   runs(): Promise<{ runs: { id: string; mode?: string; state: string }[] }>;
   runEvents(id: string, after: number): Promise<{ events: { seq: number; action: string; payload: Record<string, any> }[]; hasMore?: boolean }>;
   runState(id: string): Promise<{ state: string }>;
