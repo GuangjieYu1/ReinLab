@@ -989,6 +989,9 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
     const proposals: string[] = [];
     let finalText = '';
     let lastToolText = '';
+    let nudged = false;
+    let madeWhitebox = false;
+    let madeShots = false;
     for (let step = 0; step < 6; step += 1) {
       const turn = await callChat(deps.chat, {
         system: `${ROLE_PROMPT[role]}\n\n${contextBlock}`,
@@ -1015,10 +1018,25 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
             done: false,
           });
           lastToolText = outcome.text;
+          if (call.name === 'propose_whitebox' && outcome.ok !== false) madeWhitebox = true;
+          if (call.name === 'propose_shots' && outcome.ok !== false) madeShots = true;
           results.push(`【${call.name}】\n${outcome.text}`);
         }
         messages.push({ role: 'user', content: results.join('\n\n') });
         finalText = turn.text;
+        continue;
+      }
+      // 导演：交了白模却没交镜头 → 提醒一次，把镜头表也交上（验收要求同一轮交完）
+      if (
+        role === 'director' &&
+        context.sceneId &&
+        !nudged &&
+        madeWhitebox &&
+        !madeShots
+      ) {
+        nudged = true;
+        messages.push({ role: 'user', content: '白模提议已经交上了。现在把这一场的镜头表也用 propose_shots 交上（每镜 4–10 秒、至少一个人物），不要等作者确认白模。' });
+        madeWhitebox = false;
         continue;
       }
       finalText = turn.text;
