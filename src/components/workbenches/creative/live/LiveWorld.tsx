@@ -9,6 +9,7 @@ import type { MapConfig } from '../../explore/live/adapter';
 import { CreativeError, type CreativeAdapter, type EditFeatures } from './adapter';
 import { bucketOf, positionsAt, trailsAt, type Pos } from './geo';
 import LiveNovel from './LiveNovel';
+import LiveVideo from './LiveVideo';
 import { CreativeAssistant } from './NovelPanels';
 import WorldMap, { type DrawMode, type Ghost, type MapPick } from './WorldMap';
 import { PersonLook, fileUrl, type AssetEvent } from './PersonLook';
@@ -29,7 +30,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const [works, setWorks] = useState<Work[]>([]);
   useEffect(() => { void adapter.works().then(setWorks).catch(() => {}); }, [adapter]);
   const [voided, setVoided] = useState<Proposal[]>([]);
-  const [face, setFace] = useState<'world' | 'novel'>('world');
+  const [face, setFace] = useState<'world' | 'novel' | 'video'>('world');
   const [novelTarget, setNovelTarget] = useState<{ workId: string; chapterId?: string; sceneId?: string }>();
   const [snap, setSnap] = useState<WorldSnapshot | null>(null), [loadErr, setLoadErr] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);        // 正在只读查看的历史版本
@@ -366,10 +367,11 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const empty = snap && !snap.entities.length && !snap.events.length;
   const title = snap?.world.title ?? dossier?.title ?? '世界观';
 
-  if (face === 'novel' && snap) return <LiveNovel adapter={adapter} snapshot={snap} initial={novelTarget} file={file} reduced={reduced} chrome={chrome} dossier={dossier} onWorld={s => { setFace('world'); if (s) pick(s); void reload(); }} />;
+  if (face === 'video' && snap) return <LiveVideo adapter={adapter} snapshot={snap} file={file} reduced={reduced} chrome={chrome} dossier={dossier} onFace={f => { setFace(f); if (f === 'world') void reload(); }} />;
+  if (face === 'novel' && snap) return <LiveNovel adapter={adapter} snapshot={snap} initial={novelTarget} file={file} reduced={reduced} chrome={chrome} dossier={dossier} onWorld={s => { setFace('world'); if (s) pick(s); void reload(); }} onVideo={() => setFace('video')} />;
 
-  return <BenchFrame code="CRTV" section="004" file={file} reduced={reduced} chrome={chrome} face="world" onFace={f => { if (f === 'novel') setFace('novel'); }}
-    faces={[{ id: 'world', label: '世界观', en: 'WORLD', badge: hard }, { id: 'novel', label: '小说', en: 'NOVEL', locked: !snap }, { id: 'video', label: '视频', en: 'VIDEO', locked: true }]}
+  return <BenchFrame code="CRTV" section="004" file={file} reduced={reduced} chrome={chrome} face="world" onFace={f => { if (f === 'novel' || f === 'video') setFace(f); }}
+    faces={[{ id: 'world', label: '世界观', en: 'WORLD', badge: hard }, { id: 'novel', label: '小说', en: 'NOVEL', locked: !snap }, { id: 'video', label: '视频', en: 'VIDEO', locked: !snap }]}
     strip={<>《{title}》 <i>·</i> 人物 {persons.length} <i>·</i> 事件 {snap?.events.length ?? 0} <i>·</i> 红 {hard} · 黄 {sus}</>}
     shutterLines={f => [`> open world · ${title}`, `> face · ${f.en.toLowerCase()}`, '> ready']}
     status={<><span><i className="en-sq" />《{title}》</span><span>修订 {snap?.world.revision ?? '—'} · v{snap?.world.version.latest ?? 0}{snap?.world.version.draftChanges ? ` ＋${snap.world.version.draftChanges} 处未成版` : ''}</span>

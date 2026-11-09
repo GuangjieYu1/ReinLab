@@ -24,6 +24,7 @@ export function ProposalBar({ proposal, preview: pv, previewError, proposals, bu
   const a = preview.added, people = a.entities.filter(e => e.kind === 'person').length, places = a.entities.filter(e => e.kind === 'place').length;
   const hard = preview.conflictsNew.filter(c => c.severity === 'hard').length, sus = preview.conflictsNew.length - hard;
   const counts = [people && `${people} 人物`, places && `${places} 地点`, a.events.length && `${a.events.length} 事件`, a.relations.length && `${a.relations.length} 关系`, a.rules.length && `${a.rules.length} 规则`,
+    a.prims?.length && `${a.prims.length} 白模部件`, a.shots?.length && `${a.shots.length} 镜头`,
     preview.changed.length && `改 ${preview.changed.length} 处`, preview.removed.length && `去掉 ${preview.removed.length} 处`].filter(Boolean).join(' · ');
   const v = versionOf(proposal, proposals);
   const revise = async () => {
@@ -32,7 +33,7 @@ export function ProposalBar({ proposal, preview: pv, previewError, proposals, bu
   };
   return <div className="cw-pbar" role="region" aria-label="提议">
     <div className="cw-pbar-main">
-      <em>{proposal.runId ? '顾问提议' : '提议'}{v > 1 ? ` · 第 ${v} 版` : ''}</em>
+      <em>{proposal.kind === 'whitebox' || proposal.kind === 'shots' ? '导演提议' : proposal.runId ? '顾问提议' : '提议'}{v > 1 ? ` · 第 ${v} 版` : ''}</em>
       <b>{proposal.title}</b>
       <span>{pv ? counts || '没有看板上能画的改动' : '看板上画不出来'}</span>
       {pv && <span data-sev={hard ? 'hard' : sus ? 'suspect' : undefined}>{preview.conflictsNew.length ? `新冲突 ${preview.conflictsNew.length}${hard ? `（红 ${hard}）` : ''}` : '没有新冲突'}{preview.conflictsGone.length ? ` · 消掉 ${preview.conflictsGone.length}` : ''}</span>}
@@ -42,7 +43,7 @@ export function ProposalBar({ proposal, preview: pv, previewError, proposals, bu
     {ruleJudged > 0 && (preview.added.events.length > 0 || preview.changed.some(c => c.kind === 'event')) && <p className="cw-pbar-vs">接受后事件变了，模型判过的 {ruleJudged} 条规则疑似要重判（检查页点「让模型判规则」）。</p>}
     {pv && (() => { const f = [...new Set((preview.legs ?? []).map(l => l.failure?.replace(/[。.]+$/, '')).filter(Boolean))]; return f.length > 0 && <p className="cw-pbar-warn">路线画不出：{f.join('；')}</p>; })()}
     {preview.unresolved.length > 0 && <p className="cw-pbar-warn">对不上的名字：{preview.unresolved.join('；')}</p>}
-    {sent && <p className="cw-pbar-vs">已经告诉顾问，新版交上来会替换这一条。</p>}
+    {sent && <p className="cw-pbar-vs">已经转达，新版交上来会替换这一条。</p>}
     {open && <div className="cw-pbar-revise"><input autoFocus value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void revise(); }} placeholder="改哪里？比如：让他晚一天出现" />
       <button className="rh-btn is-solid" onClick={() => void revise()} disabled={!text.trim()}>发给顾问</button></div>}
     {err && <p role="alert">{err}</p>}
