@@ -322,7 +322,7 @@ export type RunToolContext = {
 export async function runTool(
   defs: RunToolContext,
   call: ToolCall,
-): Promise<{ text: string; refs: BoardRef[] }> {
+): Promise<{ text: string; refs: BoardRef[]; step?: string; ok?: boolean }> {
   const { client, account, dossier, context, role } = defs;
   const worldState = await loadWorld(client, account, dossier);
   const world =
@@ -428,7 +428,7 @@ export async function runTool(
             world.entities.find((item) => item.name === name || (item.aliases ?? []).includes(name))?.id ?? null,
         },
       );
-      const created = await createProposal(defs, world, {
+      const proposed = await createProposal(defs, world, {
         kind: 'itinerary',
         title: String(call.input.title ?? '提议'),
         summary: String(call.input.summary ?? ''),
@@ -436,7 +436,7 @@ export async function runTool(
         doubts: ops.doubts,
         ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
       });
-      return { text: created.text, refs: created.refs };
+      return proposed;
     }
     case 'propose_text_edit': {
       if (!context.workId) return { text: '当前没有打开的作品，改不了正文。', refs: [] };
@@ -505,7 +505,7 @@ async function createProposal(
     doubts: string[];
     supersedes?: string;
   },
-): Promise<{ text: string; refs: BoardRef[] }> {
+): Promise<{ text: string; refs: BoardRef[]; step?: string; ok?: boolean }> {
   const { client, account, dossier } = defs;
   const state = await loadWorld(client, account, dossier, { lock: true });
   // 时间先用同一个解析器过一遍：认不出就不进待确认，把原因回给模型当场改
@@ -520,6 +520,8 @@ async function createProposal(
       const parsed = parseStoryTime(time, context);
       if (!parsed.ok)
         return {
+          ok: false,
+          step: `提议没交成：「${time}」认不出`,
           text: `这条提议没交成：「${op.event.title ?? '事件'}」的${field}时间「${time}」认不出。可以写 1684-05-03 11:00（T 分隔也行）、1684-05-03 午时、第 3 日 08:00，或相对参照「出城后三天」。改好再交一次。`,
           refs: [],
         };
@@ -595,6 +597,8 @@ async function createProposal(
     }
   }
   return {
+    ok: true,
+    step: '交了提议，画在看板上',
     text: `已交一条设定提议（${proposal.id.slice(0, 8)}）：${proposal.title}。它进了待确认，作者接受才入账。${superseded ? '上一版已经作废（被新版替代）。' : ''}`,
     refs,
   };
@@ -673,6 +677,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
     const messages: ChatMessage[] = [...history];
     const proposals: string[] = [];
     let finalText = '';
+    let lastToolText = '';
     for (let step = 0; step < 6; step += 1) {
       const turn = await callChat(deps.chat, {
         system: `${ROLE_PROMPT[role]}\n\n${contextBlock}`,
@@ -689,14 +694,16 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
           );
           // 看板「正在看」：每次读工具推一条，refs 是这次读到的东西，step 服务端写（契约 §11.4）
           const focus = focusStep(call.name, call.input);
+          // 交提议失败时 step 写真实原因（不能一律写「交了提议」）
           await pushFocus(deps.db, account, dossier, {
             runId,
             mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
-            step: focus.step,
+            step: outcome.step ?? focus.step,
             refs: outcome.refs.length ? outcome.refs : focus.refs,
-            proposalId: defs_proposalId(call, proposals),
+            proposalId: outcome.ok === false ? null : defs_proposalId(call, proposals),
             done: false,
           });
+          lastToolText = outcome.text;
           results.push(`【${call.name}】\n${outcome.text}`);
         }
         messages.push({ role: 'user', content: results.join('\n\n') });
@@ -706,6 +713,8 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       finalText = turn.text;
       break;
     }
+    // 模型没给正文（比如最后只调了工具就停）：把工具的结果/拒绝原因当回复，别让作者看到空白
+    if (!finalText.trim() && lastToolText.trim()) finalText = lastToolText.trim();
     if (!finalText.trim()) finalText = '这一步没有写出回复。';
     await say('assistant', finalText, `${keyBase}-assistant`);
     await pushFocus(deps.db, account, dossier, {

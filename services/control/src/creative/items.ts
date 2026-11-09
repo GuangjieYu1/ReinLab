@@ -60,6 +60,8 @@ export function titleOf(kind: ItemKind, value: AnyItem): string {
 /** 字段名 → 人话。没登记的按原名给，不编。 */
 const FIELD_LABELS: Record<string, string> = {
   name: '名称',
+  title: '标题',
+  what: '经过',
   aliases: '别名',
   summary: '简介',
   kind: '种类',

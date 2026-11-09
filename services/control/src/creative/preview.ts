@@ -102,8 +102,23 @@ function compareVersions(previous: CreativeDocument, next: CreativeDocument): It
       fields: changedFields(old.value as never, item.value as never),
     });
   }
+  // 名字/标题改过的那一条：按种类把剩下的「新增」和「删除」成对合成 update（不然会读成加一条、删一条）
+  const pairedAdds = new Set<string>();
   for (const [key, item] of previousMap) {
     if (nextMap.has(key)) continue;
+    const partner = changes.find(
+      (change) =>
+        change.change === 'add' &&
+        change.kind === item.kind &&
+        !pairedAdds.has(change.itemId),
+    );
+    if (partner) {
+      pairedAdds.add(partner.itemId);
+      partner.change = 'update';
+      partner.before = item.value;
+      partner.fields = changedFields(item.value, partner.after as never);
+      continue;
+    }
     changes.push({
       itemId: item.value.id,
       kind: item.kind,
@@ -159,6 +174,8 @@ export async function previewOf(
   const covered = new Set(newLegs.map((leg) => `${leg.fromEventId}→${leg.toEventId}`));
   for (const event of added.events) {
     if (event.kind !== 'travel' || !event.travel?.fromId || !event.travel?.toId) continue;
+    // 标准 legs 里已经有「上一处 → 这条出行事件」的那一段，就不再补一段（否则画两遍）
+    if (legs.some((leg) => leg.toEventId === event.id || leg.fromEventId === event.id)) continue;
     const pair = `${event.id}→${event.id}`;
     if (covered.has(pair)) continue;
     const modeId = event.travel.modeId ?? applied.modes[0]?.id ?? null;
@@ -166,8 +183,16 @@ export async function previewOf(
       client,
       { account, dossier, document: applied },
       {
-        from: { placeId: event.travel.fromId, point: pointOf(applied.entities.find((item) => item.id === event.travel!.fromId)?.place?.geo), label: '起点' },
-        to: { placeId: event.travel.toId, point: pointOf(applied.entities.find((item) => item.id === event.travel!.toId)?.place?.geo), label: '终点' },
+        from: {
+          placeId: event.travel.fromId,
+          point: pointOf(applied.entities.find((item) => item.id === event.travel!.fromId)?.place?.geo),
+          label: applied.entities.find((item) => item.id === event.travel!.fromId)?.name ?? '起点',
+        },
+        to: {
+          placeId: event.travel.toId,
+          point: pointOf(applied.entities.find((item) => item.id === event.travel!.toId)?.place?.geo),
+          label: applied.entities.find((item) => item.id === event.travel!.toId)?.name ?? '终点',
+        },
         modeId,
         at: event.start?.t ?? 0,
       },

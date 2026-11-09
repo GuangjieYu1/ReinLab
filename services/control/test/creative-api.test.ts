@@ -1625,8 +1625,8 @@ describe("1C：版本差异、影响清单、设定组合", () => {
     expect(started.status).toBe(202);
     expect((await started.json()).state).toBe("running");
     let scan: any = null;
-    for (let index = 0; index < 100; index += 1) {
-      await new Promise((done) => setTimeout(done, 100));
+    for (let index = 0; index < 200; index += 1) {
+      await new Promise((done) => setTimeout(done, 150));
       scan = (await (await api(`${worldPath}/impact?from=${vTo - 1}&to=${vTo}`)).json()).maybeScan;
       if (scan.state === "done" || scan.state === "failed") break;
     }
@@ -2017,7 +2017,7 @@ describe("1D：提议在看板上的虚影", () => {
       entities: [{ name: "老船夫", kind: "person", aliases: ["船夫"], summary: "渡口撑船" }],
       events: [
         {
-          title: "张三搭老船夫的船",
+          title: "张三搭老船夫的船（改）",
           what: "过河往西",
           kind: "travel",
           participants: [{ name: "张三", as: "actor" }, { name: "老船夫", as: "actor" }],
@@ -2043,6 +2043,12 @@ describe("1D：提议在看板上的虚影", () => {
     const preview = await (await api(`/v1/creative/worlds/${dossier}/proposals/${proposal.id}/preview`)).json();
     expect(Array.isArray(preview.vsPrevious)).toBe(true);
     expect(preview.vsPrevious.length).toBeGreaterThan(0);
+    // 同一条事件改了标题/时间：应该合成一条 update，不是「加一条 + 删一条」
+    const eventChanges = preview.vsPrevious.filter((item: any) => item.kind === "event");
+    expect(eventChanges.some((item: any) => item.change === "update")).toBe(true);
+    expect(
+      eventChanges.some((item: any) => item.change === "add") && eventChanges.some((item: any) => item.change === "remove"),
+    ).toBe(false);
   });
 
   it("重名不整批 409：照样出预览，写进 unresolved", async () => {
@@ -2181,7 +2187,7 @@ describe("1D：提议在看板上的虚影", () => {
                 },
               },
             ]
-          : [{ type: "text", text: "时间写法我改一下再交。" }];
+          : [{ type: "text", text: "" }];
       return new Response(JSON.stringify({ content, usage: { input_tokens: 200, output_tokens: 60 } }), { status: 200 });
     };
     const started = await api("/v1/kernel/runs", {
@@ -2198,6 +2204,15 @@ describe("1D：提议在看板上的虚影", () => {
     const after = (await (await api(`/v1/creative/worlds/${dossier}/proposals?limit=200`)).json()).proposals;
     expect(after.some((item: any) => item.title === "时间写错了的提议")).toBe(false);
     expect(after.length).toBe(before);
+    // 看板那一步要说「没交成」，对话里也要把原因写出来
+    const focus = (await admin.query("select data from creative_event where dossier_id=$1 and type='creative.focus' order by at", [dossier])).rows
+      .map((row) => row.data)
+      .filter((data: any) => data.runId === id);
+    expect(focus.some((item: any) => String(item.step).includes("没交成"))).toBe(true);
+    expect(focus.every((item: any) => item.proposalId !== null || !String(item.step).includes("交了提议"))).toBe(true);
+    const reply = (await admin.query("select payload from event where run_id=$1 and action='assistant/message' order by seq desc limit 1", [id])).rows[0];
+    const text = (reply?.payload?.message?.content ?? []).map((block: any) => block.text).join("");
+    expect(text).toContain("没交成");
   });
 
   it("出行事件带 from/to：travel 填 id，预览按路网画路线", async () => {
@@ -2276,11 +2291,10 @@ describe("1D：提议在看板上的虚影", () => {
     expect(event.travel.toId).toBeTruthy();
     expect(event.placeId).toBe(event.travel.toId);
     const preview = await (await api(`/v1/creative/worlds/${dossier}/proposals/${proposal.id}/preview`)).json();
-    expect(preview.legs.length).toBeGreaterThanOrEqual(1);
-    // 新事件带出的那一段（测试环境没有路网，kind 可能是 none，但路段要连到这条新事件）
+    expect(preview.legs.length).toBe(1);
+    // 标准 legs 已经有「上一处 → 这条出行事件」，就不该再补一段（否则画两遍）
+    expect(preview.legs.some((leg: any) => String(leg.id).startsWith("leg_preview_"))).toBe(false);
     expect(preview.legs.some((leg: any) => String(leg.toEventId).startsWith("pv:") || String(leg.fromEventId).startsWith("pv:"))).toBe(true);
-    // 单条出行事件自己也要能带出一段（起点/终点写在 travel 里）
-    expect(preview.legs.some((leg: any) => String(leg.id).startsWith("leg_preview_"))).toBe(true);
   });
 
   it("看板「正在看」：读工具推 creative.focus，一轮结束推 done", async () => {
