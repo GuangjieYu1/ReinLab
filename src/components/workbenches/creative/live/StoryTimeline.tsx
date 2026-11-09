@@ -6,7 +6,7 @@ type Flag = 'hard' | 'suspect';
 const SPEEDS: [string, number][] = [['10 分/秒', 10], ['1 小时/秒', 60], ['6 小时/秒', 360], ['1 天/秒', 1440]];
 
 /** 下方的故事时间轴：每个人物一行（Campfire 式），事件是块，红黄挂在块上；拖动或播放。 */
-export default function StoryTimeline({ persons, events, span, t, onT, flags, selEvent, onPickEvent, selPerson, onPickPerson, pos, live, onLive }: {
+export default function StoryTimeline({ persons, events, span, t, onT, flags, selEvent, onPickEvent, selPerson, onPickPerson, pos, live, onLive, marks }: {
   persons: Entity[]; events: WorldEvent[]; span: [number, number] | null;
   t: number; onT: (t: number) => void;
   flags: Map<string, Flag>; selEvent: string | null; onPickEvent: (id: string) => void;
@@ -14,7 +14,10 @@ export default function StoryTimeline({ persons, events, span, t, onT, flags, se
   pos: Map<string, Pos>; reduced?: boolean;
   /** 地图是否在看「这一刻」；拖动或播放时打开，「全部路线」关掉。 */
   live: boolean; onLive: (on: boolean) => void;
+  /** 1D：虚影（提议里的新人物、新事件、改后的事件）、被替代的旧块、AI 正在看的事件。 */
+  marks?: { ghost: Set<string>; old: Set<string>; hi: Set<string>; ai: Set<string> };
 }) {
+  const mk = marks ?? { ghost: new Set<string>(), old: new Set<string>(), hi: new Set<string>(), ai: new Set<string>() };
   const full: [number, number] = span ? [span[0] - (span[1] - span[0]) * 0.03, span[1] + (span[1] - span[0]) * 0.03 + 1] : [0, 1];
   const [win, setWin] = useState<[number, number]>(full);
   const spanKey = span ? `${span[0]}-${span[1]}` : '';
@@ -64,7 +67,7 @@ export default function StoryTimeline({ persons, events, span, t, onT, flags, se
   const many = persons.length > 6;
   const [who, setWho] = useState<'window' | 'all'>('window'), [q, setQ] = useState('');
   const inWin = (id: string) => byPerson(id).some(e => e.start.t != null && e.start.t <= v1 && (e.end.t ?? e.start.t) >= v0);
-  const shown = !many ? persons : persons.filter(p => p.id === selPerson || ((who === 'all' || inWin(p.id)) && (!q.trim() || p.name.includes(q.trim()) || p.aliases.some(a => a.includes(q.trim())))));
+  const shown = !many ? persons : persons.filter(p => p.id === selPerson || mk.ghost.has(p.id) || ((who === 'all' || inWin(p.id)) && (!q.trim() || p.name.includes(q.trim()) || p.aliases.some(a => a.includes(q.trim())))));
   const now = nowLabel(events, t);
   const edge = (m: number) => { const n = nowLabel(events, m); return n ? `${n.label}${n.plus ? ` ＋${n.plus}` : ''}` : ''; };
   const zoomTo = (id: string) => {
@@ -90,19 +93,20 @@ export default function StoryTimeline({ persons, events, span, t, onT, flags, se
     <div className="cw-tl-body" onWheel={wheel}>
       <div className="cw-tl-names">{shown.map(p => {
         const ps = pos.get(p.id);
-        return <button key={p.id} aria-current={selPerson === p.id || undefined} onClick={() => onPickPerson(p.id)} data-state={ps?.state}>
+        return <button key={p.id} aria-current={selPerson === p.id || undefined} onClick={() => onPickPerson(p.id)} data-state={ps?.state} data-ghost={mk.ghost.has(p.id) || undefined}>
           <b>{p.name}</b><small>{ps?.state === 'unknown' ? `位置未定${ps.why ? ` · ${ps.why}` : ''}` : ps?.state === 'dead' ? '已故' : ps?.state === 'move' ? (ps.routeKind === 'inferred' ? '在路上 · 推断路线' : '在路上') : ps?.state === 'at' ? '在场' : '—'}</small></button>;
       })}{!persons.length ? <p className="cw-empty-row">还没有人物</p> : !shown.length && <p className="cw-empty-row">这段时间没有人有事件</p>}</div>
       <div className="cw-tl-track" ref={track} onPointerDown={drag}>
         <div className="cw-tl-edges rh-micro"><span>{edge(v0)}</span><span>{edge(v1)}</span></div>
         {shown.map(p => {
           const evs = byPerson(p.id), loose = evs.filter(e => e.start.t == null);
-          return <div key={p.id} className="cw-tl-row" data-sel={selPerson === p.id || undefined} data-dead={pos.get(p.id)?.state === 'dead' || undefined}>
+          return <div key={p.id} className="cw-tl-row" data-ghost={mk.ghost.has(p.id) || undefined} data-sel={selPerson === p.id || undefined} data-dead={pos.get(p.id)?.state === 'dead' || undefined}>
             {evs.filter(e => e.start.t != null).map(e => {
               const a = e.start.t!, b = Math.max(a, e.end.t ?? a), l = x(a), r = x(b);
               if (r < -5 || l > 105) return null;
               const f = flags.get(e.id);
-              return <button key={e.id} className="cw-tl-ev" data-flag={f} data-sel={selEvent === e.id || undefined} data-narr={e.narrative !== 'fact' ? e.narrative : undefined}
+              return <button key={e.id} className="cw-tl-ev" data-flag={f} data-sel={selEvent === e.id || undefined}
+                data-ghost={mk.ghost.has(e.id) || undefined} data-old={mk.old.has(e.id) || undefined} data-hi={mk.hi.has(e.id) || undefined} data-ai={mk.ai.has(e.id) || undefined} data-narr={e.narrative !== 'fact' ? e.narrative : undefined}
                 data-gap={e.gaps.length > 0 || undefined} style={{ left: `${l}%`, width: `max(10px, ${r - l}%)` }} title={`${e.title} · ${e.start.label}${e.end.t != null && e.end.t !== a ? ` → ${e.end.label}` : ''}`}
                 onClick={() => onPickEvent(e.id)}><span>{e.title}</span></button>;
             })}

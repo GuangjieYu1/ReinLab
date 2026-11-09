@@ -103,7 +103,10 @@ type AdvisorPayload = {
 const asText = (value: unknown, max: number): string => clip(value ?? '', max).trim();
 
 /** 模型输出 → 一批 op（实体、事件、规则）。事件里的人物/地点按名字引用，接受时再解析。 */
-export function advisorOps(payload: AdvisorPayload): { ops: CreativeOp[]; doubts: string[] } {
+export function advisorOps(
+  payload: AdvisorPayload,
+  options: { placeIdOf?: (name: string) => string | null } = {},
+): { ops: CreativeOp[]; doubts: string[] } {
   const ops: CreativeOp[] = [];
   const doubts = (Array.isArray(payload.doubts) ? payload.doubts : []).map((item) => asText(item, 300)).filter(Boolean);
   for (const item of Array.isArray(payload.entities) ? payload.entities : []) {
@@ -146,18 +149,28 @@ export function advisorOps(payload: AdvisorPayload): { ops: CreativeOp[]; doubts
       })
       .filter((participant) => participant.entityName);
     if (!participants.length) continue;
+    const kind = (['stay', 'travel', 'interaction', 'birth', 'death', 'other'].includes(asText(row.kind, 16))
+      ? asText(row.kind, 16)
+      : 'stay') as 'stay' | 'travel' | 'interaction' | 'birth' | 'death' | 'other';
+    // 出行事件：起点/终点按名字对上现有地点就填 id（预览才能按路网画路线）
+    const fromName = asText(row.from ?? row.fromName, 60);
+    const toName = asText(row.to ?? row.toName, 60);
+    const fromId = fromName ? (options.placeIdOf?.(fromName) ?? null) : null;
+    const toId = toName ? (options.placeIdOf?.(toName) ?? null) : null;
+    const travel =
+      kind === 'travel' && (fromId || toId || fromName || toName)
+        ? { fromId, toId, modeId: null }
+        : null;
     ops.push({
       op: 'event.add',
       event: {
         title,
         what: asText(row.what, 500) || title,
-        kind: (['stay', 'travel', 'interaction', 'birth', 'death', 'other'].includes(asText(row.kind, 16))
-          ? asText(row.kind, 16)
-          : 'stay') as 'stay',
+        kind,
         participants,
-        placeId: null,
-        ...(row.place ? { placeName: asText(row.place, 60) } : {}),
-        travel: null,
+        placeId: kind === 'travel' && toId ? toId : null,
+        ...((row.place ?? row.placeName) ? { placeName: asText(row.place ?? row.placeName, 60) } : {}),
+        travel,
         narrative: (['fact', 'hearsay', 'dream', 'hypothetical', 'flashback'].includes(asText(row.narrative, 16))
           ? asText(row.narrative, 16)
           : 'fact') as 'fact',
@@ -299,7 +312,9 @@ export async function advise(
   });
   const parsed = extractJson(result.text) as AdvisorPayload | null;
   if (!parsed) throw new ApiFailure('ADVISOR_UNREADABLE', 503, '模型没有给出能用的提议。');
-  const { ops, doubts } = advisorOps(parsed);
+  const { ops, doubts } = advisorOps(parsed, {
+    placeIdOf: (name) => world.entities.find((item) => item.name === name || (item.aliases ?? []).includes(name))?.id ?? null,
+  });
   if (!ops.length) {
     // 没有可入账的东西：照实说，不当成系统故障（会话里显示成一句正常的答复）。
     const reason = doubts.length ? doubts.join('；') : '模型没有给出能入账的设定。';

@@ -307,6 +307,12 @@ export type Proposal = {
    */
   ops: CreativeOp[];
   origin: CreativeProvenance;
+  /** 1D：交这条提议的会话（看板卡片「改一下」续在这个会话里）。 */
+  runId?: string | null;
+  /** 1D：这一版替代了哪条旧提议（旧提议作废，原因「被新版替代」）。 */
+  supersedes?: string | null;
+  /** 「让助手改」时模型判断这段不用改：after 和原文一字不差，前端显示「这段不用改」+ 一键 dismiss。 */
+  unchanged?: boolean;
   doubts: string[];
   dependsOn: string[];
   conflicts: CreativeConflict[];
@@ -576,6 +582,47 @@ export type ImpactReport = {
   toVersion: number;
   items: ImpactItem[];
   maybeScan: { state: 'none' | 'running' | 'done' | 'failed'; cost: CreativeCny; error?: string | null };
+};
+
+// ── 提议在看板上的虚影（1D，契约 §11.2）──────────
+/** 提议采纳以后看板上的样子：只算，不落库。按作品看时按作品的实际设定算。 */
+export type ProposalPreview = {
+  proposalId: string;
+  baseRevision: number;
+  workId?: string | null;
+  /** 新加的条目；id 是预览用临时 id（`pv:` 开头，同一提议同一修订下稳定）。 */
+  added: { entities: Entity[]; events: WorldEvent[]; relations: Relation[]; rules: WorldRule[] };
+  /** 改已有条目：复用 1C 的 ItemChange（前后对照）。 */
+  changed: ItemChange[];
+  removed: { kind: ItemChange['kind']; id: string; title: string }[];
+  /** 新事件带出来的行程，按路网算；算不出来 path 为 null，绝不画直线。 */
+  legs: CreativeRouteLeg[];
+  /** 受影响人物采纳后的轨迹（含新人物），时间轴和播放用。 */
+  tracks: Track[];
+  /** 只列采纳后新出现的冲突，和消失的冲突 id。 */
+  conflictsNew: CreativeConflict[];
+  conflictsGone: string[];
+  /** 名字解析不到的（entityName / placeName），人话。 */
+  unresolved: string[];
+  /** 这一版替代了旧版时：和旧版比变了什么（条目级）。 */
+  vsPrevious?: ItemChange[] | null;
+};
+
+/** 看板上的一处东西。 */
+export type BoardRef =
+  | { kind: 'entity' | 'event' | 'relation' | 'rule' | 'leg'; id: string }
+  | { kind: 'scene'; workId: string; sceneId: string; para?: number };
+
+/** AI 正在看 / 正在做什么（事件流 creative.focus）。 */
+export type BoardFocus = {
+  runId: string;
+  mode: 'creative_advisor' | 'creative_writer';
+  /** 人话，20 字以内。 */
+  step: string;
+  refs: BoardRef[];
+  /** 交了提议时带上，前端据此取预览。 */
+  proposalId?: string | null;
+  done?: boolean;
 };
 
 // ── 快照 ──────────────────────────────────────────

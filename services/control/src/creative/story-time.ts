@@ -100,10 +100,15 @@ export function labelFor(t: number, calendar: string | undefined, calendars: Cal
 }
 
 /** 公历 iso-ish：`1684-04-21`、`1684-4-21 8:05`、`1684/04/21 08:00`。 */
-const ABSOLUTE = /^(\d{1,6})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2}))?$/;
+const ABSOLUTE = /^(\d{1,6})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
 /** 自定义纪元日：`第 3 日 08:00` / `D3 08:00` / `D3 8:05`。 */
 const CUSTOM_DAY = /^(?:第\s*(\d{1,6})\s*日|D\s*(\d{1,6}))(?:\s*(\d{1,2}):(\d{1,2}))?$/;
 const UNKNOWN = /^(未定|未知|待定|unknown|\?|—|-)$/i;
+/** 十二时辰：`1684-05-03 午时`、`1684-05-03 辰时初`、`1684-05-03 午正`。 */
+const SHICHEN = /^(\d{1,6})[-/](\d{1,2})[-/](\d{1,2})\s*(子|丑|寅|卯|辰|巳|午|未|申|酉|戌|亥)\s*时?\s*(初|正)?$/;
+const SHICHEN_START: Record<string, number> = {
+  子: 23, 丑: 1, 寅: 3, 卯: 5, 辰: 7, 巳: 9, 午: 11, 未: 13, 申: 15, 酉: 17, 戌: 19, 亥: 21,
+};
 const RANGE = /^(.+?)\s*(?:至|到|~|—|\.\.)\s*(.+)$/;
 
 const CN_DIGITS: Record<string, number> = {
@@ -379,7 +384,23 @@ export function parseStoryTime(input: string, context: StoryTimeContext): ParseR
 
   const absolute = (
     raw: string,
-  ): { t: number; calendar: string } | { error: string } => {
+  ): { t: number; calendar: string; range?: [number, number]; label?: string } | { error: string } => {
+    const shichen = SHICHEN.exec(raw);
+    if (shichen) {
+      const year = Number(shichen[1]);
+      const month = Number(shichen[2]);
+      const day = Number(shichen[3]);
+      if (month < 1 || month > 12 || day < 1 || day > 31) return { error: '日期不成立，请按 1684-04-21 写。' };
+      // 一个时辰两小时；「初」是第一小时，「正」是第二小时
+      const half = shichen[5] === '正' ? 1 : 0;
+      const span = shichen[5] ? 1 : 2;
+      const startHour = (SHICHEN_START[shichen[4]]! + half) % 24;
+      const endHour = (startHour + span) % 24;
+      const gregorianId = context.calendars.find((item) => item.kind === 'gregorian')?.id ?? calendarId;
+      const t0 = gregorianToT(year, month, day, startHour, 0);
+      const t1 = endHour > startHour ? gregorianToT(year, month, day, endHour, 0) : t0 + 60;
+      return { t: t0, calendar: gregorianId, range: [t0, t1], label: `${gregorianLabel(t0)}–${gregorianLabel(t1).slice(-5)}` };
+    }
     const custom = CUSTOM_DAY.exec(raw);
     if (custom) {
       const day = Number(custom[1] ?? custom[2]);
@@ -486,6 +507,20 @@ export function parseStoryTime(input: string, context: StoryTimeContext): ParseR
       },
     };
 
+  if (parsed.range) {
+    return {
+      ok: true,
+      value: {
+        t: parsed.range[0],
+        range: parsed.range,
+        label: parsed.label ?? `${labelFor(parsed.range[0], parsed.calendar, context.calendars)} – ${labelFor(parsed.range[1], parsed.calendar, context.calendars)}`,
+        original: text,
+        calendar: parsed.calendar,
+        relative: null,
+        certainty: 'range',
+      },
+    };
+  }
   return {
     ok: true,
     value: {

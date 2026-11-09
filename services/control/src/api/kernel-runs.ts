@@ -10,7 +10,13 @@ import { runUsage } from "../run/usage";
 import { createCreativeRun, runCreativeSession } from "../creative/assistant-run";
 import { runTurn } from "../creative/assistant-session";
 
-const MessageBody = z.object({ query: z.string().min(1).max(4000) }).strict();
+const MessageBody = z
+  .object({
+    query: z.string().min(1).max(4000),
+    /** 1D：作者在看板虚影上点「改一下」时带上是哪条提议。 */
+    about: z.object({ proposalId: z.string().uuid() }).strict().optional(),
+  })
+  .strict();
 
 const Create = z
   .object({
@@ -454,6 +460,12 @@ export function registerKernelRuns(
           [account, id],
         )
       ).rows[0];
+      if (run && parsed.data.about)
+        await client.query("update run set input = jsonb_set(input, '{about}', to_jsonb($3::text)) where account_id=$1 and id=$2", [
+          account,
+          id,
+          parsed.data.about.proposalId,
+        ]);
       return run ?? null;
     });
     if (!row || row.mode !== "creative")

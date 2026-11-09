@@ -28,6 +28,7 @@ import {
 import { impactOf } from '../creative/impact';
 import { beginScan, runScan, type ScanDeps } from '../creative/scan';
 import { judgeRules, type JudgeDeps } from '../creative/rule-judge';
+import { previewOf } from '../creative/preview';
 import { readEffectiveSnapshot } from '../creative/work-service';
 import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
 import { advise } from '../creative/advisor';
@@ -504,6 +505,21 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       });
     return response;
   });
+
+  /** 1D：提议采纳以后看板上的样子（只算不落库，按提议+修订缓存）。 */
+  app.get('/v1/creative/worlds/:dossierId/proposals/:proposalId/preview', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const workId = c.req.query('workId') ?? null;
+      const body: unknown = await previewOf(
+        client,
+        c.get('accountId'),
+        c.req.param('dossierId'),
+        c.req.param('proposalId'),
+        workId,
+      );
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
 
   /** 29 号：让模型判自然语言规则（结果标「疑似」，按事件指纹缓存，不重复花钱）。 */
   app.post('/v1/creative/worlds/:dossierId/rules/judge', async (c) => {

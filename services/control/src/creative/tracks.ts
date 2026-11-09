@@ -21,6 +21,7 @@ export function buildTracks(
   legs: CreativeRouteLeg[],
   range: TrackRange,
   entityIds?: string[],
+  options?: { /** 预览用：提议带来的死后事件也照常排进轨迹（冲突照样报）。 */ ignoreDeath?: boolean },
 ): Track[] {
   const tracks: Track[] = [];
   for (const entity of document.entities) {
@@ -55,7 +56,7 @@ export function buildTracks(
 
     const deathEventId = entity.person?.died ?? null;
     const deathEvent = deathEventId ? document.events.find((event) => event.id === deathEventId) : undefined;
-    const deathT = deathEvent ? boundsOf(deathEvent.start).start : null;
+    const deathT = options?.ignoreDeath ? null : deathEvent ? boundsOf(deathEvent.start).start : null;
 
     const clipped: Track['spans'] = [];
     for (const span of spans) {

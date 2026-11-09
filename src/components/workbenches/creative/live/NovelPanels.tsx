@@ -50,10 +50,12 @@ export function ProposalCard({ proposal: p, busy, decide, acceptText, source }: 
     {p.dependsOn.length > 0 && <p>依赖提议：{p.dependsOn.join('、')}（请先处理依赖项）</p>}
     {p.conflicts.map(c => <p key={c.id} className="cw-flag" data-sev={c.severity}>{c.severity === 'hard' ? '确定冲突' : '疑似冲突'}：{c.why}</p>)}
     {p.kind === 'itinerary' && <details><summary>人物、事件与路线</summary>{p.ops.map((op, i) => <p key={i}>{op.op === 'entity.add' ? `${({ person: '人物', place: '地点', item: '物件', org: '组织' } as Record<string, string>)[(op.entity as { kind?: string }).kind ?? ''] ?? '设定'}：${op.entity.name}` : op.op === 'event.add' ? `事件：${op.event.title} · ${op.event.what ?? ''}` : op.op === 'route.draw' ? '路线：已附行程路径' : op.op === 'relation.add' ? '人物关系：随提议一并提交' : '关联设定修改'}</p>)}{!p.conflicts.length && <p>本次硬检查未报告冲突；请同时核对疑点。</p>}</details>}
-    {edit && <>{edit.mode === 'continue' || !edit.before ? <p className="cn-diff-note"><span className="rh-micro">{edit.mode === 'continue' ? '接在本场末尾' : '起稿'}</span></p> : <DiffView before={edit.before} after={after} />}
+    {edit && p.unchanged && <p className="cn-diff-note"><span className="rh-micro">助手看过，这段不用改</span></p>}
+    {edit && !p.unchanged && <>{edit.mode === 'continue' || !edit.before ? <p className="cn-diff-note"><span className="rh-micro">{edit.mode === 'continue' ? '接在本场末尾' : '起稿'}</span></p> : <DiffView before={edit.before} after={after} />}
       <details className="cn-diff-edit" open={after !== edit.after}><summary>改一改再接受</summary><textarea aria-label="修改后正文" value={after} onChange={e => setAfter(e.target.value)} rows={7} disabled={!pending(p)} /></details></>}
     {pending(p) ? <div className="cw-row">
-      {edit ? <button className="rh-btn" disabled={busy} onClick={() => acceptText(p, after === edit.after ? undefined : after)}>接受{after !== edit.after ? '修改后的正文' : '改稿'}</button>
+      {edit && p.unchanged ? <button className="rh-btn" disabled={busy} onClick={() => acceptText(p)}>这里不用改</button>
+        : edit ? <button className="rh-btn" disabled={busy} onClick={() => acceptText(p, after === edit.after ? undefined : after)}>接受{after !== edit.after ? '修改后的正文' : '改稿'}</button>
         : p.candidates?.length ? p.candidates.map((c, i) => <button key={i} className="rh-btn" disabled={busy} title={c.why} onClick={() => decide(p, 'accepted', i)}>选择：{c.label}</button>)
         : <button className="rh-btn" disabled={busy} onClick={() => decide(p, 'accepted')}>接受</button>}
       <button className="rh-btn" disabled={busy} onClick={() => decide(p, 'rejected')}>拒绝</button><button className="rh-btn" disabled={busy} onClick={() => decide(p, 'deferred')}>暂缓</button>
@@ -97,14 +99,24 @@ export function OutlineEditor({ work, snap, save, busy, onDirty }: { work: Work;
   </div>;
 }
 
-export function CreativeAssistant({ adapter, workId, sceneId, onUpdate, initialMode = 'creative_writer' }: { initialMode?: 'creative_writer' | 'creative_advisor'; adapter: CreativeAdapter; workId?: string; sceneId?: string; onUpdate: () => void }) {
+export function CreativeAssistant({ adapter, workId, sceneId, onUpdate, onBoard, initialMode = 'creative_writer' }: { initialMode?: 'creative_writer' | 'creative_advisor'; adapter: CreativeAdapter; workId?: string; sceneId?: string; onUpdate: () => void;
+  /** 1D：顾问交了提议，回复下挂「在看板上看」，点了在世界观面画虚影。 */ onBoard?: (proposalId: string) => void }) {
   const [mode, setMode] = useState<'creative_writer' | 'creative_advisor'>(initialMode);
   const [events, setEvents] = useState<DockEvent[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const epoch = useRef(0), running = useRef(false), update = useRef(onUpdate); update.current = onUpdate;
+  const board = useRef(onBoard); board.current = onBoard;
+  // 这个会话交过的提议：挂在对话末尾，作者一点就画到看板上
+  const chips = async (id: string) => {
+    if (!board.current) return;
+    const { proposals } = await adapter.proposals({ status: 'pending', limit: '20' }).catch(() => ({ proposals: [] as Proposal[] }));
+    const mine = proposals.filter(p => p.runId === id && !['route', 'text_edit'].includes(p.kind));
+    setEvents(xs => [...xs, ...mine.filter(p => !xs.some(x => x.id === `board:${p.id}`)).map(p => ({ id: `board:${p.id}`, kind: 'card' as const,
+      body: <button className="cw-link cw-board-chip" onClick={() => board.current?.(p.id)}>在看板上看《{p.title}》 ↗</button> }))]);
+  };
   // 29：同一个会话里续着聊；「新会话」才另开一个 run
   const runId = useRef<string | null>(null);
   const follow = async (id: string, token: number) => {
-    let after = 0;
+    let after = 0, last = false;
     while (epoch.current === token) {
       try {
         const page = await adapter.runEvents(id, after);
@@ -122,7 +134,9 @@ export function CreativeAssistant({ adapter, workId, sceneId, onUpdate, initialM
         const status = await adapter.runState(id);
         if (epoch.current !== token) return;
         setError('');
-        if (['completed', 'failed', 'cancelled', 'interrupted'].includes(status.state)) { setBusy(false); running.current = false; update.current(); return; }
+        // 结束前最后一句回复可能刚好晚于上一次取事件：看到结束后再取一遍再停
+        if (['completed', 'failed', 'cancelled', 'interrupted'].includes(status.state) && !last) { last = true; continue; }
+        if (['completed', 'failed', 'cancelled', 'interrupted'].includes(status.state)) { setBusy(false); running.current = false; update.current(); void chips(id); return; }
         setBusy(true); running.current = true;
       } catch (e) { if (epoch.current === token) setError(`会话连接中断，正在重连：${(e as Error).message}`); }
       await new Promise(r => setTimeout(r, 1500));

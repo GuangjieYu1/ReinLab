@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  CheckRun, CreativeConflict, CreativeOp, CreativeRouteLeg, Fix, LngLat, Proposal, Track, Work, WorldSnapshot,
+  BoardFocus, CheckRun, CreativeConflict, CreativeOp, CreativeRouteLeg, Entity, Fix, LngLat, Proposal, ProposalPreview, Track, Work, WorldEvent, WorldSnapshot,
 } from '../../../../../packages/contracts/src/creative';
 import BenchFrame from '../../BenchFrame';
 import Explorer, { Tree, type ExplorerSection, type ExplorerView } from '../../engineering/Explorer';
@@ -10,7 +10,8 @@ import { CreativeError, type CreativeAdapter, type EditFeatures } from './adapte
 import { bucketOf, positionsAt, trailsAt, type Pos } from './geo';
 import LiveNovel from './LiveNovel';
 import { CreativeAssistant } from './NovelPanels';
-import WorldMap, { type DrawMode, type MapPick } from './WorldMap';
+import WorldMap, { type DrawMode, type Ghost, type MapPick } from './WorldMap';
+import { ProposalBar, GhostConflicts } from './Board';
 import StoryTimeline from './StoryTimeline';
 import { CheckPanel, Detail, KIND_ZH, ProposalList, submitChunks, type Sel } from './Panels';
 import { ImpactPanel, VersionsPanel } from './Impact';
@@ -38,6 +39,11 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const [sel, setSel] = useState<Sel | null>(null), [selConfRaw, setSelConf] = useState<CreativeConflict | null>(null);
   const [tab, setTab] = useState<Tab>('check'), [form, setForm] = useState<FormKind | null>(null);
   const [draw, setDraw] = useState<DrawMode | null>(null);
+  // 1D：画在看板上的那条提议、它的预览；AI 正在看什么
+  const [ghostId, setGhostId] = useState<string | null>(null), [preview, setPreview] = useState<ProposalPreview | null>(null), [pvErr, setPvErr] = useState('');
+  const [aiFocus, setAiFocus] = useState<BoardFocus | null>(null), [allConf, setAllConf] = useState(false);
+  // 设定提议（新的在前）：按作品看时快照里不带提议，所以单独取
+  const [advProps, setAdvProps] = useState<Proposal[]>([]);
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState<string | null>(null);
   const [cost, setCost] = useState<{ value: number | null; known: boolean } | null>(null);
   const [focus, setFocus] = useState<{ coords: LngLat[]; n: number } | null>(null);
@@ -54,13 +60,22 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
     catch (e) { setLoadErr((e as Error).message); return null; }
   }, [adapter, viewing, asWork]);
   useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => { adapter.proposals({ status: 'pending', limit: '60' }).then(r => setAdvProps(r.proposals.filter(p => !['route', 'text_edit'].includes(p.kind))), () => {}); }, [adapter, snap?.world.revision, ghostId]);
+  // 提议预览：换了提议、世界改了、换了按哪部作品看，都重取；已处理（409）就收起
+  useEffect(() => {
+    if (!ghostId) { setPreview(null); return; }
+    let off = false;
+    setPvErr('');
+    adapter.preview(ghostId, asWork).then(pv => { if (!off) setPreview(pv); }, e => { if (!off) { setPreview(null); if ((e as CreativeError).code === 'PROPOSAL_SETTLED') setGhostId(null); else setPvErr((e as Error).message); } });
+    return () => { off = true; };
+  }, [adapter, ghostId, asWork, snap?.world.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { adapter.mapConfig().then(setCfg, () => setCfg(null)); }, [adapter]);
   // 时间范围按事件自己算（最早开始到最晚结束）；服务端的 timeSpan 只在没有带时间的事件时兜底
   const span = useMemo<[number, number] | null>(() => {
-    const ts = (snap?.events ?? []).flatMap(e => [e.start.t, e.end.t]).filter((x): x is number => x != null);
+    const ts = [...(snap?.events ?? []), ...(preview?.added.events ?? [])].flatMap(e => [e.start.t, e.end.t]).filter((x): x is number => x != null);
     const a = ts.length ? Math.min(...ts) : snap?.world.timeSpan?.from.t, b = ts.length ? Math.max(...ts) : snap?.world.timeSpan?.to.t;
     return a != null && b != null ? [a, Math.max(a + 1, b)] : null;
-  }, [snap?.events, snap?.world.timeSpan?.from.t, snap?.world.timeSpan?.to.t]);
+  }, [snap?.events, preview, snap?.world.timeSpan?.from.t, snap?.world.timeSpan?.to.t]);
   // 地图两种看法：静态 = 全部事件路线的总和；拖时间轴或播放 = 这一刻谁在哪、在发生什么
   const [live, setLive] = useState(false);
   useEffect(() => { if (span && (t < span[0] - 1e6 || t === 0)) setT(span[0]); }, [span]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -90,6 +105,17 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
     const stop = adapter.subscribe(cursor, ev => {
       if (ev.type === 'creative.check') setSnap(s => s ? { ...s, check: ev.data as CheckRun } : s);
       else if (ev.type === 'creative.usage') setCost(ev.data.cost);
+      else if (ev.type === 'creative.focus') {
+        const f = ev.data;
+        // 一轮里看过的东西一直亮着（步骤一两秒就换，只亮当前的话看不见）；结束后留几秒再收
+        const merge = (cur: BoardFocus | null, step: string) => {
+          const prev = cur?.runId === f.runId ? cur.refs : [], key = (r: BoardFocus["refs"][number]) => JSON.stringify(r), seen = new Set(prev.map(key));
+          return { ...f, step, refs: [...prev, ...f.refs.filter(r => !seen.has(key(r)))] };
+        };
+        if (f.done) { setAiFocus(cur => cur?.runId === f.runId ? merge(cur, '看完了') : cur); window.setTimeout(() => setAiFocus(cur => cur?.runId === f.runId ? null : cur), 4000); }
+        else setAiFocus(cur => merge(cur, f.step));
+        if (f.proposalId) { setGhostId(f.proposalId); soon(); }
+      }
       else if (ev.type === 'creative.version') { const n = ev.data.n; void adapter.works().then(ws => { setWorks(ws); const old = ws.filter(w => (w.setting?.baseVersion ?? w.baseVersion) < n).length; if (old) { setNotice(`已存为 v${n}。有 ${old} 部作品还基于旧版本，可以在右栏「影响」里看各自受什么影响。`); setTab('impact'); } }).catch(() => {}); }
       else if (ev.type === 'creative.network') { setSnap(s => s ? { ...s, world: { ...s.world, network: ev.data } } : s); if (ev.data.state !== 'importing') soon(); }
       else soon();
@@ -142,6 +168,75 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const pos = useMemo(() => positionsAt(tracks, legs, t), [tracks, legs, t]);
   const posMap = useMemo(() => new Map<string, Pos>(pos.map(p => [p.entityId, p])), [pos]);
   const people = pos.map(p => ({ ...p, name: look.entities.get(p.entityId)?.name ?? '?' }));
+  const ghostProp = ghostId ? advProps.find(p => p.id === ghostId) ?? snap?.proposals.find(p => p.id === ghostId) ?? null : null;
+  // ── 1D 虚影：从预览里摆出地图和时间轴要画的东西（只是查表、按时间取点）──
+  const board = useMemo(() => {
+    if (!preview || !snap) return null;
+    const ents = new Map<string, Entity>([...snap.entities, ...preview.added.entities].map(e => [e.id, e]));
+    const pointOf = (id?: string | null): LngLat | null => { const g = id ? ents.get(id)?.place?.geo : null; return g?.type === 'Point' ? g.coordinates as LngLat : null; };
+    const hi = new Set((preview.vsPrevious ?? []).map(c => c.itemId));
+    const byTitle = new Map((preview.vsPrevious ?? []).map(c => [c.title, true]));
+    const isHi = (id: string, title: string) => hi.has(id) || byTitle.has(title);
+    const flag = new Map<string, 'hard' | 'suspect'>(); for (const c of preview.conflictsNew) for (const id of [...c.eventIds, ...c.entityIds]) if (flag.get(id) !== 'hard') flag.set(id, c.severity);
+    const changedEv = preview.changed.filter(c => c.kind === 'event' && c.after).map(c => ({ ...(c.after as WorldEvent), id: `${c.itemId}#pv` }));
+    const ghostEvents: WorldEvent[] = [...preview.added.events, ...changedEv];
+    const newPersons = preview.added.entities.filter(e => e.kind === 'person');
+    const gLegs = new Map(preview.legs.map(l => [l.id, l]));
+    const g: Ghost = {
+      places: [
+        ...preview.added.entities.filter(e => e.kind === 'place').flatMap(e => { const at = pointOf(e.id); return at ? [{ id: e.id, name: e.name, at, hi: isHi(e.id, e.name) }] : []; }),
+        ...preview.changed.filter(c => c.kind === 'entity').flatMap(c => { const a = (c.after as Entity | null)?.place?.geo; return a?.type === 'Point' ? [{ id: c.itemId, name: c.title, at: a.coordinates as LngLat, hi: true }] : []; }),
+      ],
+      moves: preview.changed.filter(c => c.kind === 'entity').flatMap(c => { const a = (c.after as Entity | null)?.place?.geo, b = (c.before as Entity | null)?.place?.geo; return a?.type === 'Point' && b?.type === 'Point' ? [{ from: b.coordinates as LngLat, to: a.coordinates as LngLat }] : []; }),
+      events: ghostEvents.flatMap(e => { const at = pointOf(e.placeId); return at ? [{ id: e.id, title: e.title, at, flag: flag.get(e.id) ?? flag.get(e.id.replace('#pv', '')), hi: isHi(e.id, e.title) }] : []; }),
+      legs: preview.legs.map(l => ({ id: l.id, coords: (l.path?.coordinates ?? []) as LngLat[] })),
+      people: [],
+    };
+    // 人物：静态时新人物摆在他第一次出现的地方；看「这一刻」时按预览轨迹取点（老人物只在位置和现在不一样时画虚影）
+    const gpos = positionsAt(preview.tracks, new Map([...legs, ...gLegs]), t);
+    for (const tr of preview.tracks) {
+      const isNew = tr.entityId.startsWith('pv:'), name = ents.get(tr.entityId)?.name ?? '?';
+      let at: LngLat | null = null;
+      if (live) { const p = gpos.find(x => x.entityId === tr.entityId); at = p?.at ?? null;
+        if (!isNew) { const real = posMap.get(tr.entityId)?.at; if (at && real && Math.abs(at[0] - real[0]) + Math.abs(at[1] - real[1]) < 1e-6) at = null; } }
+      else if (isNew) { const first = tr.spans.find(x => x.kind === 'at' && x.at) as { at: LngLat } | undefined; at = first?.at ?? null; }
+      if (at) g.people.push({ id: tr.entityId, name, at, flag: flag.get(tr.entityId), hi: isHi(tr.entityId, name) });
+    }
+    // 兜底：正在发生的虚影事件，参与的人画在事件地点（轨迹没覆盖到时，比如提议让死后的人出场）
+    if (live) for (const e of ghostEvents) {
+      const at = pointOf(e.placeId), a0 = e.start.t, b0 = e.end.t ?? a0;
+      if (!at || a0 == null || t < a0 || t > b0!) continue;
+      for (const pt of e.participants) {
+        const id = pt.entityId || `name:${pt.entityName}`; if (g.people.some(x => x.id === id)) continue;
+        const ent = ents.get(pt.entityId); if (ent && ent.kind !== 'person') continue;
+        const name = ent?.name ?? pt.entityName ?? '?';
+        g.people.push({ id, name, at, flag: flag.get(e.id.replace('#pv', '')) ?? flag.get(e.id) ?? flag.get(pt.entityId), hi: isHi(e.id, e.title) });
+      }
+    }
+    const marks = { ghost: new Set([...ghostEvents.map(e => e.id), ...newPersons.map(p => p.id)]), old: new Set(preview.changed.filter(c => c.kind === 'event').map(c => c.itemId)),
+      hi: new Set(ghostEvents.filter(e => isHi(e.id, e.title)).map(e => e.id)), ai: new Set<string>() };
+    return { g, ghostEvents, newPersons, marks };
+  }, [preview, snap, legs, t, live, posMap]);
+  // 新打开一条提议：地图飞到虚影的范围（同一条提议只飞一次）
+  const flown = useRef<string | null>(null);
+  useEffect(() => {
+    if (!board || !preview || flown.current === preview.proposalId) return;
+    flown.current = preview.proposalId;
+    const g = board.g, cs = [...g.places.map(x => x.at), ...g.events.map(x => x.at), ...g.people.map(x => x.at), ...g.legs.flatMap(l => l.coords), ...g.moves.flatMap(m => [m.from, m.to])];
+    if (cs.length) setFocus({ coords: cs, n: Date.now() });
+  }, [board, preview]);
+  // AI 正在看：refs → 地图上的点和线、时间轴上的事件
+  const aiMarks = useMemo(() => {
+    if (!aiFocus || !snap) return null;
+    const points: LngLat[] = [], lines: LngLat[][] = [], evIds = new Set<string>();
+    const placeAt = (id?: string | null): LngLat[] => { const g = id ? look.entities.get(id)?.place?.geo : null; return g?.type === 'Point' ? [g.coordinates as LngLat] : []; };
+    for (const r of aiFocus.refs) {
+      if (r.kind === 'event') { evIds.add(r.id); points.push(...placeAt(look.events.get(r.id)?.placeId).slice(0, 1)); }
+      else if (r.kind === 'entity') { const e = look.entities.get(r.id); if (e?.kind === 'person') { const p = posMap.get(r.id); if (p?.at ?? p?.last) points.push((p.at ?? p.last)!); } else points.push(...placeAt(r.id).slice(0, 1)); }
+      else if (r.kind === 'leg') { const c = (legs.get(r.id)?.path?.coordinates ?? []) as LngLat[]; if (c.length) lines.push(c); }
+    }
+    return { points, lines, evIds };
+  }, [aiFocus, snap, look, posMap, legs]); // eslint-disable-line react-hooks/exhaustive-deps
   const moment = useMemo(() => live ? { trails: trailsAt(tracks, legs, t) } : null, [live, tracks, legs, t]);
   // 事件章：静态时全画；看「这一刻」时，已发生的淡、正在发生的亮并挂标题、还没发生的不画
   const mapEvents = useMemo(() => (snap?.events ?? []).flatMap(e => {
@@ -287,10 +382,14 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
           : !snap ? <div className="cw-blank"><p>载入中…</p></div>
           : <div className="cw-stage">
             <WorldMap cfg={cfg} real={realMap} network={netGeo}
-              places={places} edits={edits} legs={[...legs.values()]} people={people} moment={moment} events={mapEvents} portraits={portraits}
+              places={places} edits={edits} legs={[...legs.values()]} people={people} moment={moment} events={mapEvents} portraits={portraits} ghost={board?.g ?? null} ai={aiMarks}
               sel={{ entityId: sel?.kind === 'person' ? sel.id : undefined, placeId: sel?.kind === 'place' ? sel.id : undefined, legIds: sel?.kind === 'leg' ? [sel.id] : undefined }}
               flags={{ legs: flags.legs, people: flags.people }} hiLegs={new Set(selConf?.legIds ?? [])} focus={focus} draw={draw}
               onPick={onMapPick} onView={b => { bbox.current = b; }} />
+            {aiFocus && <div className="cw-ai-step" role="status"><i />{aiFocus.mode === 'creative_writer' ? '写作助手' : '顾问'} · {aiFocus.step}</div>}
+            {ghostProp && (preview?.proposalId === ghostProp.id || pvErr) && <ProposalBar proposal={ghostProp} preview={preview?.proposalId === ghostProp.id ? preview : null} previewError={pvErr} proposals={[...advProps, ...snap.proposals]} ruleJudged={snap.check?.conflicts.filter(c => c.kind === 'rule_model').length ?? 0} busy={busy || readOnly}
+              onDecide={d => { decide(ghostProp, d); setGhostId(null); }} onClose={() => setGhostId(null)}
+              onRevise={text => ghostProp.runId ? adapter.sayAssistant(ghostProp.runId, text, { proposalId: ghostProp.id }).then(() => setNotice(null)) : Promise.reject(Error('这条提议不是在顾问对话里交的，没法续着改。'))} />}
             {feed.length > 0 && <ol className="cw-feed" aria-live="polite">{feed.map(f => <li key={f.id} data-now={f.now || undefined} data-kind={f.kind}>
               <time>{f.when}</time><span>{f.text}{f.hearsay && <small>（传闻 / 非实写）</small>}</span></li>)}</ol>}
             {empty && !draw && <div className="cw-guide" data-has-net={!!netGeo || undefined}><b>{netGeo ? '路网已经导入，还没有人物和地点' : '这是一个空世界观'}</b>
@@ -298,9 +397,10 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
               <div className="cw-row">{!realMap && <button className="rh-btn is-solid" onClick={() => setBasemap('real')}>用真实地图</button>}
                 <button className={`rh-btn${realMap ? ' is-solid' : ''}`} onClick={() => openForm({ kind: 'entity', entityKind: 'person' })}>建第一个人物</button><button className="rh-btn" onClick={() => openForm({ kind: 'entity', entityKind: 'place' })}>建一个地点</button>
                 {realMap && <button className="rh-btn" onClick={importOsm}>按当前视野导入路网</button>}</div></div>}
-            <StoryTimeline persons={persons} events={snap.events} span={span} t={t} onT={setT} flags={flags.events}
-              selEvent={sel?.kind === 'event' ? sel.id : null} onPickEvent={id => pick({ kind: 'event', id })}
-              selPerson={sel?.kind === 'person' ? sel.id : null} onPickPerson={id => pick({ kind: 'person', id })} pos={posMap} reduced={reduced} live={live} onLive={setLive} />
+            <StoryTimeline persons={board ? [...persons, ...board.newPersons] : persons} events={board ? [...snap.events, ...board.ghostEvents] : snap.events} span={span} t={t} onT={setT} flags={flags.events}
+              selEvent={sel?.kind === 'event' ? sel.id : null} onPickEvent={id => { const ge = board?.ghostEvents.find(e => e.id === id); if (ge) { if (ge.start.t != null) { setT(ge.start.t); setLive(true); } return; } pick({ kind: 'event', id }); }}
+              selPerson={sel?.kind === 'person' ? sel.id : null} onPickPerson={id => pick({ kind: 'person', id })} pos={posMap} reduced={reduced} live={live} onLive={setLive}
+              marks={board || aiMarks ? { ...(board?.marks ?? { ghost: new Set(), old: new Set(), hi: new Set() }), ai: aiMarks?.evIds ?? new Set() } : undefined} />
           </div>}
       </section>
       <aside className="cw-side" aria-label="检查与待确认">
@@ -314,12 +414,15 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
         </nav>
         <div className="cw-side-body">
           {!snap ? null
+            : tab === 'check' && preview && ghostProp && !allConf ? <GhostConflicts title={ghostProp.title} preview={preview} look={look} onAll={() => setAllConf(true)} />
             : tab === 'check' ? <CheckPanel check={snap.check} look={look} sel={selConf?.id ?? null} onSel={pickConflict} onApply={applyFixes} onRecheck={recheck} onJudge={readOnly ? undefined : judge} judgeNote={judgeNote} busy={busy || readOnly} />
-            : tab === 'props' ? <><button className="rh-btn" onClick={() => setFace('novel')}>小说提议、候选与正文改稿 →</button><ProposalList voided={voided} proposals={snap.proposals.filter(p => p.kind === 'route')} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} /></>
+            : tab === 'props' ? <><button className="rh-btn" onClick={() => setFace('novel')}>小说提议、候选与正文改稿 →</button>
+              {(() => { const adv = advProps; return adv.length > 0 && <div className="cw-pane cw-advlist"><span className="rh-micro">设定提议 · {adv.length} · 点一条画在看板上</span>
+                {adv.slice(0, 30).map(p => <button key={p.id} aria-current={ghostId === p.id || undefined} onClick={() => { setAllConf(false); setGhostId(p.id); }}><b>{p.title}</b><small>{p.runId ? '顾问' : '导入 / 其他'} · {p.ops.length} 项</small></button>)}</div>; })()}<ProposalList voided={voided} proposals={snap.proposals.filter(p => p.kind === 'route')} legs={legs} look={look} onDecide={decide} onRedraw={redraw} onDraw={drawRoute} onFocusLeg={id => fly((legs.get(id)?.path?.coordinates ?? []) as LngLat[])} busy={busy || readOnly} /></>
             : tab === 'impact' ? <ImpactPanel adapter={adapter} snap={snap} works={works} onOpenScene={ref => { setNovelTarget(ref); setFace('novel'); }}
                 onWorksChanged={() => void adapter.works().then(setWorks)}
                 onEditItem={c => { setAsWork(null); setViewing(null); const ent = snap.entities.find(e => e.id === c.itemId); const s: Sel | null = c.kind === 'event' ? { kind: 'event', id: c.itemId } : ent ? { kind: ent.kind === 'place' ? 'place' : 'person', id: c.itemId } : c.kind === 'rule' ? { kind: 'rule', id: c.itemId } : c.kind === 'mode' ? { kind: 'mode', id: c.itemId } : c.kind === 'edit' ? { kind: 'edit', id: c.itemId } : null; if (s) { setSel(s); editSel(s); setNotice('改完存成新版本，影响清单会按新版本重算。'); } }} />
-            : tab === 'assistant' ? <CreativeAssistant adapter={adapter} onUpdate={() => void reload()} initialMode="creative_advisor" />
+            : tab === 'assistant' ? <CreativeAssistant adapter={adapter} onUpdate={() => void reload()} initialMode="creative_advisor" onBoard={id => { setAllConf(false); setGhostId(id); }} />
             : tab === 'form' && form ? formFor(form)
             : sel ? <Detail works={works} onOpenWork={ref => { setNovelTarget(ref); setFace('novel'); }} sel={sel} look={look} legs={legs} edits={snap.edits} modes={snap.modes} conflicts={conflicts} onPick={pick} onEdit={readOnly ? () => {} : editSel} onRemove={readOnly ? () => {} : removeSel} onDraw={drawRoute} onRedraw={id => redraw(id)} />
             : <p className="cw-muted cw-pane">在地图、时间轴或左栏里点一个东西看详情。</p>}

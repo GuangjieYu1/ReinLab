@@ -38,7 +38,8 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
       localStorage.setItem(`creative-assistant:${dossierId}:${mode}`, run.id);
       return run;
     },
-    sayAssistant: (id, query) => call('POST', `/v1/kernel/runs/${enc(id)}/messages`, { query }),
+    sayAssistant: (id, query, about) => call('POST', `/v1/kernel/runs/${enc(id)}/messages`, { query, ...(about ? { about } : {}) }),
+    preview: (pid, workId) => call('GET', `${base}/proposals/${enc(pid)}/preview${workId ? `?workId=${enc(workId)}` : ''}`),
     judgeRules: () => call('POST', `${base}/rules/judge`, {}),
     runs: async () => {
       const page = await call<{ runs: { id: string; mode?: string; state: string }[] }>('GET', `/v1/kernel/dossiers/${enc(dossierId)}/runs`);

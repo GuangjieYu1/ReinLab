@@ -157,4 +157,22 @@ describe("故事时间换算", () => {
     expect(gregorianLabel(gregorianToT(1684, 4, 21))).toBe("1684-04-21");
     expect(gregorianLabel(gregorianToT(1684, 4, 21, 8, 5))).toBe("1684-04-21 08:05");
   });
+
+  it("认 T 分隔和十二时辰（清代常用的写法）", () => {
+    const context = {
+      calendars: [{ id: "gregorian", kind: "gregorian", name: "公历" }],
+      events: [],
+      defaultCalendar: "gregorian",
+    } as unknown as Parameters<typeof parseStoryTime>[1];
+    const t = parseStoryTime("1684-05-03T11:00", context);
+    expect(t.ok).toBe(true);
+    expect(t.ok && t.value.label).toBe("1684-05-03 11:00");
+    const noon = parseStoryTime("1684-05-03 午时", context);
+    expect(noon.ok).toBe(true);
+    expect(noon.ok && noon.value.label).toBe("1684-05-03 11:00–13:00");
+    const morning = parseStoryTime("1684-05-03 辰时初", context);
+    expect(morning.ok).toBe(true);
+    expect(morning.ok && morning.value.label).toBe("1684-05-03 07:00–08:00");
+    expect(parseStoryTime("1684-05-03 十一点", context).ok).toBe(false);
+  });
 });

@@ -367,6 +367,11 @@ export async function runGenerate(
         if (job.mode === 'continue' && !addition)
           throw new ApiFailure('GENERATE_EMPTY', 503, '模型只重复了原文，没有给出新增内容。请再试一次或换个提示。');
         const text = job.mode === 'rewrite' ? addition : job.mode === 'continue' ? `${target.text.trim()}\n\n${addition}`.trim() : addition;
+        // 「让助手改」时模型判断这段不用改：按原文一字不差标出来（不出无意义的改稿卡片）
+        const unchanged =
+          job.syncItem !== undefined &&
+          target.text.trim() !== '' &&
+          addition.replace(/\s+/g, '') === target.text.replace(/\s+/g, '');
         const proposal: Proposal = {
           id: randomUUID(),
           batchId: job.syncItem ? `sync_${job.syncItem}` : `generate_${job.id}`,
@@ -386,6 +391,7 @@ export async function runGenerate(
             },
           ] as unknown as Proposal['ops'],
           origin: { basis: 'inferred', by: 'writer', why: why || '按本场目标生成' },
+          ...(unchanged ? { unchanged: true } : {}),
           doubts: [],
           dependsOn: [],
           conflicts: [],

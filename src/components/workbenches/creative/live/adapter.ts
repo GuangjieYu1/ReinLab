@@ -1,6 +1,6 @@
 // 创作台真实模式的数据边界（design/prd/20-creative-contract.md §2、22-creative-1a-frontend-brief.md）。
 // 页面只认这个接口；冲突、路程、故事时间换算都由服务端算，前端不推断。
-import type { CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GenerateJob, GeoJSON, ImpactReport, ImportJob, ItemChange, NetworkStatus, Proposal, TextEdit, Track, Work, WorkOp, WorldSnapshot, WorldVersion } from '../../../../../packages/contracts/src/creative';
+import type { CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GenerateJob, GeoJSON, ImpactReport, ImportJob, ItemChange, NetworkStatus, Proposal, TextEdit, Track, Work, WorkOp, WorldSnapshot, WorldVersion, BoardFocus, ProposalPreview } from '../../../../../packages/contracts/src/creative';
 import type { MapConfig } from '../../explore/live/adapter';
 
 /** edits/geojson 返回的要素集合（geometry 可能为 null：目标对不上，待确认）。 */
@@ -21,6 +21,7 @@ export type CreativeStreamEvent =
   | { seq: number; type: 'creative.network'; data: NetworkStatus }
   | { seq: number; type: 'creative.version'; data: WorldVersion }
   | { seq: number; type: 'creative.impact'; data: ImpactReport['maybeScan'] }
+  | { seq: number; type: 'creative.focus'; data: BoardFocus }
   | { seq: number; type: 'creative.usage'; data: { cost: { value: number | null; known: boolean } } };
 
 export interface CreativeAdapter {
@@ -39,7 +40,9 @@ export interface CreativeAdapter {
   exportWork(id: string, format: 'md' | 'docx'): Promise<void>;
   startAssistant(query: string, mode: 'creative_advisor' | 'creative_writer', workId?: string, sceneId?: string): Promise<{ id: string }>;
   /** 29：在已有会话里续一句（202）。 */
-  sayAssistant(runId: string, query: string): Promise<{ id: string; state: string }>;
+  sayAssistant(runId: string, query: string, about?: { proposalId: string }): Promise<{ id: string; state: string }>;
+  /** 1D：提议采纳后看板的样子（只算不落库）。 */
+  preview(proposalId: string, workId?: string | null): Promise<ProposalPreview>;
   /** 29：让模型判自然语言规则；结果并进 check（kind rule_model，黄色疑似）。 */
   judgeRules(): Promise<{ judged: number; skipped: number; cost: { value: number | null; known: boolean }; check: CheckRun }>;
   runs(): Promise<{ runs: { id: string; mode?: string; state: string }[] }>;
