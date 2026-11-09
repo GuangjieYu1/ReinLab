@@ -60,7 +60,7 @@ export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, onJudg
       <button className="rh-btn" onClick={onRecheck} disabled={busy}>全部重查</button>
     </div>
     {onJudge && <div className="cw-judge"><button className="rh-btn" onClick={onJudge} disabled={busy} title="程序判不了的规则，让模型读事件来判；规则和事件没变时不再花钱">让模型判规则</button>
-      <small>{judgeNote ?? (check.uncovered.length ? `${check.uncovered.length} 条规则程序判不了，可以让模型判（花钱，结果标黄色疑似）` : '规则都能由程序判')}</small></div>}
+      <small>{judgeNote ?? (check.uncovered.length ? `${check.uncovered.length} 条规则程序判不了，可以让模型判（花钱，结果标黄色疑似）` : (check.conflicts.some(c => c.kind === 'rule_model') ? '自然语言规则模型已判过；改了规则或事件再点会重判' : '没有要模型判的规则'))}</small></div>}
     {auto.length > 1 && <div className="cw-allfix">
       <button className="rh-btn" onClick={() => setPreview({ key: 'all', fixes: auto })}>全部处理（{auto.length} 条，先看预览）</button>
       {preview?.key === 'all' && <FixPreview fixes={preview.fixes} look={look} busy={busy} onAccept={() => void apply(preview.fixes)} onCancel={() => setPreview(null)} />}
