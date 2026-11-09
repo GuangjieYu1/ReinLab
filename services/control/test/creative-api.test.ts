@@ -1733,3 +1733,96 @@ describe("29 号：同一会话续一句", () => {
     expect(flat).toContain("第二句");
   });
 });
+
+describe("C2：场景靠 eventIds 引用时，「让助手改」整场替换", () => {
+  it("没有正文标注段号 → before 是整场原文、range 为空，接受后替换原文、待同步减 1", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "场景引用测试" }),
+    });
+    const work = await created.json();
+    const snapshot = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const event = snapshot.events[0];
+    // 正文里不写地名/人名，只靠 eventIds 引用
+    const outlined = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "试", pov: "三", ending: "试",
+              chapters: [{ id: "c1", title: "第一章", scenes: [{ id: "s1", title: "出门", goal: "试", eventIds: [event.id], targetWords: 300 }] }],
+            },
+          },
+          { op: "outline.confirm" },
+          { op: "text.set", sceneId: "s1", baseTextVersion: 0, text: "第一段：天没亮他就出了门。\n\n第二段：路上没有人。" },
+        ],
+      }),
+    });
+    expect(outlined.status).toBe(200);
+    // 改这条事件，存新版本
+    const before = (await (await api(`/v1/creative/worlds/${dossierA}`)).json()).world.revision;
+    const changed = await api(`/v1/creative/worlds/${dossierA}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: before,
+        ops: [{ op: "event.update", id: event.id, patch: { start: { input: "1684-04-21 05:00" } } }],
+      }),
+    });
+    expect(changed.status).toBe(200);
+    const saved = await api(`/v1/creative/worlds/${dossierA}/versions`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ summary: "场景引用测试版" }),
+    });
+    const toVersion = (await saved.json()).n;
+    const followed = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 2, ops: [{ op: "setting.follow", itemId: event.id, toVersion }] }),
+    });
+    expect(followed.status).toBe(200);
+    const followBody = await followed.json();
+    expect(followBody.work.setting.pendingSync).toBe(1);
+
+    writerModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({ content: [{ type: "text", text: JSON.stringify({ text: "第一段：他提前一个时辰出了门。\n\n第二段：路上还是没有人。", why: "按新时间改" }) }], usage: { input_tokens: 800, output_tokens: 200 } }),
+        { status: 200 },
+      );
+    const suggested = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: followBody.revision, ops: [{ op: "sync.suggest", itemId: event.id, sceneIds: ["s1"] }] }),
+    });
+    expect(suggested.status).toBe(200);
+    const suggestBody = await suggested.json();
+    let proposal: any = null;
+    for (let index = 0; index < 120; index += 1) {
+      await new Promise((done) => setTimeout(done, 200));
+      const list = await (await api(`/v1/creative/worlds/${dossierA}/proposals?kind=text_edit&limit=20`)).json();
+      proposal = list.proposals.find((item: any) => item.batchId === `sync_${event.id}` && item.status === "pending");
+      if (proposal) break;
+    }
+    expect(proposal).toBeTruthy();
+    const edit = proposal.ops[0];
+    expect(edit.mode).toBe("rewrite");
+    expect(edit.before).toBe("第一段：天没亮他就出了门。\n\n第二段：路上没有人。");
+    expect(edit.range).toBeNull();
+
+    const accepted = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: suggestBody.revision, ops: [{ op: "text.accept", proposalId: proposal.id }] }),
+    });
+    expect(accepted.status).toBe(200);
+    const body = await accepted.json();
+    expect(body.work.chapters[0].scenes[0].text).toBe("第一段：他提前一个时辰出了门。\n\n第二段：路上还是没有人。");
+    expect(body.work.setting.pendingSync).toBe(0);
+  });
+});

@@ -267,6 +267,7 @@ const recordUsage = async (
   db: import('../db/database').Database,
   account: string,
   dossier: string,
+  runId: string,
   deps: ChatDeps,
   usage: { inputTokens: number | null; outputTokens: number | null },
 ): Promise<void> => {
@@ -277,8 +278,8 @@ const recordUsage = async (
   await db.withAccount(account, async (client) => {
     await client.query(
       `insert into usage_record(id,account_id,dossier_id,run_id,provider,model,known,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_cny,purpose)
-       values(gen_random_uuid(),$1,$2,null,$3,$4,$5,$6,$7,null,null,$8,'creative_assistant')`,
-      [account, dossier, deps.provider ?? 'deepseek-official', deps.model, known, known ? usage.inputTokens : null, known ? usage.outputTokens : null, cost === null ? null : cost.toFixed(6)],
+       values(gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,null,null,$9,'creative_assistant')`,
+      [account, dossier, runId, deps.provider ?? 'deepseek-official', deps.model, known, known ? usage.inputTokens : null, known ? usage.outputTokens : null, cost === null ? null : cost.toFixed(6)],
     );
   });
 };
@@ -549,7 +550,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
         messages,
         tools,
       });
-      await recordUsage(deps.db, account, dossier, deps.chat, turn.usage);
+      await recordUsage(deps.db, account, dossier, runId, deps.chat, turn.usage);
       if (turn.toolCalls.length) {
         messages.push({ role: 'assistant', content: turn.text || '（调用工具）' });
         const results: string[] = [];

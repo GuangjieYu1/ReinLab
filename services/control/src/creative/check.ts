@@ -537,7 +537,8 @@ export function mergeRuleJudgements(document: CreativeDocument, check: CheckRun)
     ...check,
     conflicts: merged,
     // 被模型判不了的规则仍留在未覆盖里，其余从「未覆盖」里拿掉（已经被判过）
-    uncovered: check.uncovered.filter((item) => !judged.some((judgement) => item.why.includes(judgement.ruleId))),
+    // 判过的规则从「未覆盖」里拿掉；未覆盖只留连模型都判不了的
+    uncovered: check.uncovered.filter((item) => !judged.some((judgement) => judgement.ruleId === item.ruleId)),
   };
 }
 
