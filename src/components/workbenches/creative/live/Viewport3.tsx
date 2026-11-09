@@ -58,13 +58,16 @@ const MATERIALS: [RegExp, RGB][] = [
   [/布|帘|幡|旗|灯笼/, [176, 62, 50]],
   [/屋|房|铺|排/, [168, 150, 128]],
 ];
-export const matOf = (label?: string | null): RGB => MATERIALS.find(([re]) => label && re.test(label))?.[1] ?? [194, 190, 182];
-const isWall = (p: WhiteboxPrim) => /墙|壁|隔断/.test(p.label ?? '') || (p.kind === 'box' && p.s[1] > 2 && Math.min(p.s[0], p.s[2]) < .4);
+const BY_MATERIAL: Record<NonNullable<WhiteboxPrim['material']>, RGB> = { plaster: [222, 212, 192], wood: [152, 106, 66], stone: [146, 146, 140], tile: [78, 72, 70], water: [72, 122, 158], plant: [88, 124, 72], cloth: [176, 62, 50], brick: [126, 124, 118] };
+const hex = (c?: string | null): RGB | null => { const m = c && /^#?([0-9a-f]{6})$/i.exec(c.trim()); if (!m) return null; const n = parseInt(m[1], 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+/** 颜色：部件自带 color > material > 按名字认。 */
+export const matOf = (label?: string | null, p?: Pick<WhiteboxPrim, 'material' | 'color'>): RGB => hex(p?.color) ?? (p?.material ? BY_MATERIAL[p.material] : null) ?? MATERIALS.find(([re]) => label && re.test(label))?.[1] ?? [194, 190, 182];
+const isWall = (p: WhiteboxPrim) => !p.outside && (/墙|壁|隔断/.test(p.label ?? '') || p.material === 'plaster' || (p.kind === 'box' && p.s[1] > 2 && Math.min(p.s[0], p.s[2]) < .4));
 const isRoof = (p: WhiteboxPrim) => /顶棚|屋顶|屋面/.test(p.label ?? '');
 const isGround = (p: WhiteboxPrim) => p.s[1] <= .06;
 
 function primFaces(p: WhiteboxPrim, m: Mark, alpha?: number): Face[] {
-  const col = matOf(p.label);
+  const col = matOf(p.label, p);
   const fs = p.kind === 'box' ? solid(p.c, p.rotY ?? 0, [[-p.s[0] / 2, -p.s[2] / 2], [p.s[0] / 2, -p.s[2] / 2], [p.s[0] / 2, p.s[2] / 2], [-p.s[0] / 2, p.s[2] / 2]], p.s[1], col, m)
     : solid(p.c, p.rotY ?? 0, circle(p.s[0], p.kind === 'cylinder' ? 18 : Math.max(3, p.sides ?? 6)), p.s[1], col, m);
   return fs.map(f => ({ ...f, alpha, ground: isGround(p) }));

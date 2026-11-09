@@ -64,13 +64,14 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   // 提议预览（虚影）
   useEffect(() => {
     if (!ghostId) { setPreview(null); setPvErr(''); return; } let off = false; setPvErr('');
-    adapter.preview(ghostId, workId || null).then(p => { if (!off) setPreview(p); }, e => { if (off) return; setPreview(null); if ((e as CreativeError).code === 'PROPOSAL_SETTLED') setGhostId(null); else setPvErr((e as Error).message); });
+    const kind = props2.find(p => p.id === ghostId)?.kind; // 白模归地点，不按作品算
+    adapter.preview(ghostId, kind === 'whitebox' ? null : workId || null).then(p => { if (!off) setPreview(p); }, e => { if (off) return; setPreview(null); if ((e as CreativeError).code === 'PROPOSAL_SETTLED') setGhostId(null); else setPvErr((e as Error).message); });
     return () => { off = true; };
   }, [adapter, ghostId, workId, snap.world.revision]);
 
   // 同一轮导演交的另一条（白模 ↔ 镜头表）：一起画成虚影，镜头才有场景
   const mate = useMemo(() => { const g = props2.find(p => p.id === ghostId); return g?.runId ? props2.find(p => p.runId === g.runId && p.id !== g.id && p.kind !== g.kind) ?? null : null; }, [props2, ghostId]);
-  useEffect(() => { if (!mate) { setPv2(null); return; } let off = false; adapter.preview(mate.id, workId || null).then(p => { if (!off) setPv2(p); }, () => { if (!off) setPv2(null); }); return () => { off = true; }; }, [adapter, mate?.id, workId, snap.world.revision]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!mate) { setPv2(null); return; } let off = false; adapter.preview(mate.id, mate.kind === 'whitebox' ? null : workId || null).then(p => { if (!off) setPv2(p); }, () => { if (!off) setPv2(null); }); return () => { off = true; }; }, [adapter, mate?.id, workId, snap.world.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   // ── 派生 ──
   const scene = work?.chapters.flatMap(c => c.scenes).find(s => s.id === sceneId);
   const paras = useMemo(() => (scene?.text ?? '').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean), [scene?.text]);
@@ -197,7 +198,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
         </div> : <p className="cw-pane cw-muted">点一个镜头看详情。</p>)}
         <div hidden={tab !== 'director'}><CreativeAssistant adapter={adapter} workId={workId || undefined} sceneId={sceneId || undefined} placeId={placeId || undefined} initialMode="creative_director" modes={['creative_director']}
           onUpdate={() => { void loadShots(); void loadWb(); void loadProps(); }} onBoard={id => setGhostId(id)} /></div>
-        {tab === 'props' && <div className="cw-pane">{props2.map(p => <button key={p.id} className="lv-prop" data-on={p.id === ghostId || undefined} onClick={() => setGhostId(p.id)}><b>{p.title}</b><small>{p.kind === 'whitebox' ? '白模' : '镜头表'} · {p.ops.length} 项</small></button>)}{!props2.length && <p className="cw-muted">没有待确认的白模或镜头提议。</p>}</div>}
+        {tab === 'props' && <div className="cw-pane">{props2.map(p => <button key={p.id} className="lv-prop" data-on={p.id === ghostId || undefined} onClick={() => setGhostId(p.id)}><b>{p.title}</b><small>{p.kind === 'whitebox' ? '白模' : '镜头表'} · {p.ops.length} 项 · {(() => { const o = p.ops[0] as { placeId?: string; shot?: { placeId?: string } }; const id = o?.placeId ?? o?.shot?.placeId; return snap.entities.find(e => e.id === id)?.name ?? '地点未定'; })()}</small></button>)}{!props2.length && <p className="cw-muted">没有待确认的白模或镜头提议。</p>}</div>}
       </div></aside>
     </div>
   </BenchFrame>;

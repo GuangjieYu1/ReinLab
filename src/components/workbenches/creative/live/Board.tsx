@@ -42,7 +42,7 @@ export function ProposalBar({ proposal, preview: pv, previewError, proposals, bu
     {v > 1 && preview.vsPrevious && <p className="cw-pbar-vs">比上一版：{preview.vsPrevious.length ? changeLine(preview.vsPrevious) : '看板上没有变化'}</p>}
     {ruleJudged > 0 && (preview.added.events.length > 0 || preview.changed.some(c => c.kind === 'event')) && <p className="cw-pbar-vs">接受后事件变了，模型判过的 {ruleJudged} 条规则疑似要重判（检查页点「让模型判规则」）。</p>}
     {pv && (() => { const f = [...new Set((preview.legs ?? []).map(l => l.failure?.replace(/[。.]+$/, '')).filter(Boolean))]; return f.length > 0 && <p className="cw-pbar-warn">路线画不出：{f.join('；')}</p>; })()}
-    {preview.unresolved.length > 0 && <p className="cw-pbar-warn">对不上的名字：{preview.unresolved.join('；')}</p>}
+    {preview.unresolved.length > 0 && <p className="cw-pbar-warn">{proposal.kind === 'whitebox' || proposal.kind === 'shots' ? '对不上（接受会被拒）' : '对不上的名字'}：{preview.unresolved.join('；')}</p>}
     {sent && <p className="cw-pbar-vs">已经转达，新版交上来会替换这一条。</p>}
     {open && <div className="cw-pbar-revise"><input autoFocus value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void revise(); }} placeholder="改哪里？比如：让他晚一天出现" />
       <button className="rh-btn is-solid" onClick={() => void revise()} disabled={!text.trim()}>发给顾问</button></div>}

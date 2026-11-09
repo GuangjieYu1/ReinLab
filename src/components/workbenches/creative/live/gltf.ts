@@ -10,7 +10,7 @@ export async function exportGlb(name: string, placeId: string, room: { outline: 
   const scene = new THREE.Scene(); scene.name = name; scene.userData = { placeId };
   for (const p of prims) {
     const geo = p.kind === 'box' ? new THREE.BoxGeometry(p.s[0], p.s[1], p.s[2]) : new THREE.CylinderGeometry(p.s[0], p.s[0], p.s[1], p.kind === 'cylinder' ? 24 : Math.max(3, p.sides ?? 6));
-    const [r, g, b] = matOf(p.label), m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: new THREE.Color(r / 255, g / 255, b / 255), roughness: .9 })); m.name = p.label || p.id;
+    const [r, g, b] = matOf(p.label, p), m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: new THREE.Color(r / 255, g / 255, b / 255), roughness: .9 })); m.name = p.label || p.id;
     m.position.set(p.c[0], p.c[1] + p.s[1] / 2, p.c[2]); m.rotation.y = ((p.rotY ?? 0) * Math.PI) / 180;
     m.userData = { primId: p.id, placeId, entityId: p.entityId ?? null, label: p.label ?? null };
     scene.add(m);
