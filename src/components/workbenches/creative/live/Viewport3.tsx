@@ -1,11 +1,12 @@
 // MVP-3 白模视口（契约 §13.6）：Canvas 2D 软渲染（透视投影 + 背面剔除 + 画家算法），沿用示例视口的做法。
 // 坐标：米；x 向右、y 向上、z 向镜头外。白模部件 c 是底面中心；box 的 s 是长宽高；cylinder / prism 的 s 是 [半径, 高, 0]。
-// 人偶只画躯干和头（Seedance 经验：画四肢会僵），高矮按 person.body。facing：度，0 = 朝 -z，顺时针（从上往下看）。
+// 人偶画长袍、躯干、头、发髻，不画四肢（Seedance 经验：画四肢会僵），高矮按 person.body，衣服颜色取立绘。部件按名字认材质上色。facing：度，0 = 朝 -z，顺时针（从上往下看）。
 // 同一个 drawScene 既画屏幕上的视口，也画「录预演」的离屏画面，保证录到的就是看到的。
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import type { Shot, V3, WhiteboxPrim } from '../../../../../packages/contracts/src/creative';
 
-export type Doll = { id: string; name: string; at: V3; to?: V3 | null; facing: number; heightM: number; build: 'slim' | 'average' | 'heavy' | null; ghost?: boolean; hi?: boolean; ai?: boolean };
+export type Doll = { id: string; name: string; at: V3; to?: V3 | null; facing: number; heightM: number; build: 'slim' | 'average' | 'heavy' | null; ghost?: boolean; hi?: boolean; ai?: boolean;
+  /** 衣服颜色（取立绘主色；没有立绘按人分一个固定色）。 */ color?: [number, number, number] };
 export type Cam = Shot['camera'];
 export type Mark = { ghost?: boolean; hi?: boolean; ai?: boolean };
 type View = { eye: V3; target: V3; fov: number };
@@ -25,71 +26,119 @@ export function camAt(c: Cam, t: number): View {
   const k = smooth(t); return { eye: lerp3(c.eye, c.end.eye, k), target: lerp3(c.target, c.end.target, k), fov: c.fov };
 }
 
-type Face = { pts: V3[]; n: V3; g: number; m: Mark; doll?: boolean };
-function solid(c: V3, rotY: number, ring: [number, number][], h: number, g: number, m: Mark, doll?: boolean): Face[] {
-  const r = (rotY * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r);
+type RGB = [number, number, number];
+type Face = { pts: V3[]; n: V3; col: RGB; m: Mark; alpha?: number; doll?: boolean; ground?: boolean };
+function solid(c: V3, rotY: number, ring: [number, number][], h: number, col: RGB, m: Mark, o: { top?: number; doll?: boolean } = {}): Face[] {
+  const r = (rotY * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r), k = o.top ?? 1;
   const T = (x: number, y: number, z: number): V3 => [c[0] + x * cs + z * sn, c[1] + y, c[2] - x * sn + z * cs];
-  const A = ring.map(([x, z]) => T(x, 0, z)), B = ring.map(([x, z]) => T(x, h, z));
-  const faces: Face[] = [{ pts: A, n: [0, -1, 0], g, m, doll }, { pts: B, n: [0, 1, 0], g, m, doll }];
+  const A = ring.map(([x, z]) => T(x, 0, z)), B = ring.map(([x, z]) => T(x * k, h, z * k));
+  const faces: Face[] = [{ pts: A, n: [0, -1, 0], col, m, doll: o.doll }, { pts: B, n: [0, 1, 0], col, m, doll: o.doll }];
   const cen = add(c, [0, h / 2, 0]);
   for (let i = 0; i < A.length; i++) {
     const j = (i + 1) % A.length, pts = [A[i], A[j], B[j], B[i]];
     let n = norm(cross(sub(pts[1], pts[0]), sub(pts[2], pts[0])));
     const fc = mul(pts.reduce((s, v) => add(s, v), [0, 0, 0] as V3), 1 / 4); if (dot(n, sub(fc, cen)) < 0) n = mul(n, -1);
-    faces.push({ pts, n, g, m, doll });
+    faces.push({ pts, n, col, m, doll: o.doll });
   }
   return faces;
 }
 const circle = (r: number, n: number): [number, number][] => Array.from({ length: n }, (_, i) => { const a = (i / n) * Math.PI * 2; return [Math.cos(a) * r, Math.sin(a) * r]; });
-function primFaces(p: WhiteboxPrim, m: Mark): Face[] {
-  const g = p.label && /地面|地板|台阶|石阶/.test(p.label) ? .42 : .62;
-  if (p.kind === 'box') { const [w, h, d] = p.s; return solid(p.c, p.rotY ?? 0, [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]], h, g, m); }
-  return solid(p.c, p.rotY ?? 0, circle(p.s[0], p.kind === 'cylinder' ? 18 : Math.max(3, p.sides ?? 6)), p.s[1], g, m);
+
+/** 按部件名认材质上色（契约里还没有材质字段，先按名字里的字认）。 */
+const MATERIALS: [RegExp, RGB][] = [
+  [/河|水面|池|井/, [72, 122, 158]],
+  [/城墙|垛|城楼|城门洞|墙身/, [126, 124, 118]],
+  [/顶棚|屋顶|屋面|檐|瓦/, [78, 72, 70]],
+  [/石|阶|街|路|地坪|巷/, [146, 146, 140]],
+  [/门|窗|框|槛/, [128, 66, 46]],
+  [/墙|壁|隔断/, [222, 212, 192]],
+  [/柜|桌|椅|凳|床|架|案|箱|榻|台(?!阶)/, [152, 106, 66]],
+  [/地面|地板|楼板/, [176, 140, 98]],
+  [/树|草|花|竹|苔/, [88, 124, 72]],
+  [/布|帘|幡|旗|灯笼/, [176, 62, 50]],
+  [/屋|房|铺|排/, [168, 150, 128]],
+];
+export const matOf = (label?: string | null): RGB => MATERIALS.find(([re]) => label && re.test(label))?.[1] ?? [194, 190, 182];
+const isWall = (p: WhiteboxPrim) => /墙|壁|隔断/.test(p.label ?? '') || (p.kind === 'box' && p.s[1] > 2 && Math.min(p.s[0], p.s[2]) < .4);
+const isRoof = (p: WhiteboxPrim) => /顶棚|屋顶|屋面/.test(p.label ?? '');
+const isGround = (p: WhiteboxPrim) => p.s[1] <= .06;
+
+function primFaces(p: WhiteboxPrim, m: Mark, alpha?: number): Face[] {
+  const col = matOf(p.label);
+  const fs = p.kind === 'box' ? solid(p.c, p.rotY ?? 0, [[-p.s[0] / 2, -p.s[2] / 2], [p.s[0] / 2, -p.s[2] / 2], [p.s[0] / 2, p.s[2] / 2], [-p.s[0] / 2, p.s[2] / 2]], p.s[1], col, m)
+    : solid(p.c, p.rotY ?? 0, circle(p.s[0], p.kind === 'cylinder' ? 18 : Math.max(3, p.sides ?? 6)), p.s[1], col, m);
+  return fs.map(f => ({ ...f, alpha, ground: isGround(p) }));
 }
 const RADIUS = { slim: .16, average: .2, heavy: .25 } as const;
-/** 人偶：躯干（腰到肩）+ 头；不画四肢。 */
+const SKIN: RGB = [226, 192, 162], HAIR: RGB = [42, 38, 36];
+/** 人偶：长袍（到脚）+ 躯干 + 头 + 发髻；不画四肢（Seedance 经验：画四肢会僵）。衣服颜色取立绘。 */
 function dollFaces(d: Doll, at: V3): Face[] {
-  const H = d.heightM || 1.7, r = RADIUS[d.build ?? 'average'], m: Mark = { ghost: d.ghost, hi: d.hi, ai: d.ai };
-  return [...solid([at[0], H * .48, at[2]], d.facing, circle(r, 10), H * .34, .7, m, true), ...solid([at[0], H * .87, at[2]], d.facing, circle(H * .065, 10), H * .13, .78, m, true)];
+  const H = d.heightM || 1.7, r = RADIUS[d.build ?? 'average'], m: Mark = { ghost: d.ghost, hi: d.hi, ai: d.ai }, cloth = d.color ?? [120, 128, 120];
+  const dark: RGB = [cloth[0] * .8, cloth[1] * .8, cloth[2] * .8];
+  return [
+    ...solid([at[0], 0, at[2]], d.facing, circle(r * 1.35, 12), H * .5, dark, m, { top: 1 / 1.35, doll: true }),
+    ...solid([at[0], H * .5, at[2]], d.facing, circle(r, 12), H * .32, cloth, m, { top: .92, doll: true }),
+    ...solid([at[0], H * .84, at[2]], d.facing, circle(H * .062, 12), H * .12, SKIN, m, { doll: true }),
+    ...solid([at[0], H * .95, at[2]], d.facing, circle(H * .066, 12), H * .05, HAIR, m, { top: .6, doll: true }),
+  ];
 }
 const dollAt = (d: Doll, t: number): V3 => d.to ? lerp3(d.at, d.to, smooth(t)) : d.at;
 
 export type Scene3 = { room: { outline: [number, number][]; height: number } | null; prims: (WhiteboxPrim & Mark)[]; dolls: Doll[] };
 
-/** 画一帧。overlay 只在屏幕上画（机位小部件、标注）；录预演时不画。 */
-export function drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, view: View, sc: Scene3, o: { labels: boolean; t: number; editCam?: Cam | null; selDoll?: string | null; frame?: boolean }) {
-  const bg = ctx.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#1c1a1b'); bg.addColorStop(1, '#0d0b0e'); ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+/** 画一帧。overlay 只在屏幕上画（机位小部件、标注）；录预演时不画。cutaway：编辑视角把挡视线的墙和顶棚变半透明。 */
+export function drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, view: View, sc: Scene3, o: { labels: boolean; t: number; editCam?: Cam | null; selDoll?: string | null; frame?: boolean; cutaway?: boolean }) {
+  const bg = ctx.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#3a3d42'); bg.addColorStop(.55, '#2a2b2e'); bg.addColorStop(1, '#1e1d1c'); ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
   const f = norm(sub(view.target, view.eye)); let r = cross(f, [0, 1, 0]); if (Math.hypot(...r) < 1e-6) r = [1, 0, 0]; r = norm(r); const u = cross(r, f);
   const F = (h / 2) / Math.tan((view.fov * Math.PI / 180) / 2), cx = w / 2, cy = h / 2;
   const toCam = (p: V3): V3 => { const d = sub(p, view.eye); return [dot(d, r), dot(d, u), dot(d, f)]; };
   const proj = (q: V3) => [cx + q[0] / q[2] * F, cy - q[1] / q[2] * F] as [number, number];
   const P2 = (p: V3) => { const q = toCam(p); return q[2] > .05 ? proj(q) : null; };
   const seg = (a: V3, b: V3, style: string, width = 1) => { let A = toCam(a), B = toCam(b); const near = .05; if (A[2] < near && B[2] < near) return; if (A[2] < near) A = lerp3(A, B, (near - A[2]) / (B[2] - A[2])); if (B[2] < near) B = lerp3(B, A, (near - B[2]) / (A[2] - B[2])); const p = proj(A), q = proj(B); ctx.strokeStyle = style; ctx.lineWidth = width; ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); };
-  // 地面网格
-  for (let i = -12; i <= 12; i++) { const s = i % 5 === 0 ? '#34312f' : '#221f20'; seg([i, 0, -12], [i, 0, 12], s); seg([-12, 0, i], [12, 0, i], s); }
-  // 房间轮廓：地面和顶上两圈线 + 竖边（不画墙面，好看见里面）
+  // 近平面裁剪后的多边形
+  const clip = (q: V3[]): V3[] => { const near = .05, out: V3[] = []; for (let i = 0; i < q.length; i++) { const A = q[i], B = q[(i + 1) % q.length]; if (A[2] >= near) out.push(A); if ((A[2] >= near) !== (B[2] >= near)) out.push(lerp3(A, B, (near - A[2]) / (B[2] - A[2]))); } return out; };
+  const L = norm([-.45, .85, .4]);
+  const paint = (q: V3[], col: RGB, n: V3, alpha = 1, edge = 'rgba(30,26,22,.35)', lw = 1) => {
+    const c = clip(q); if (c.length < 3) return;
+    const k = .5 + .5 * Math.max(0, dot(n, L)) + (n[1] > .9 ? .08 : 0);
+    ctx.beginPath(); c.forEach((v, i) => { const p = proj(v); if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath();
+    ctx.globalAlpha = alpha; ctx.fillStyle = `rgb(${Math.min(255, Math.round(col[0] * k))},${Math.min(255, Math.round(col[1] * k))},${Math.min(255, Math.round(col[2] * k))})`; ctx.fill();
+    ctx.globalAlpha = Math.min(1, alpha + .2); ctx.lineWidth = lw; ctx.strokeStyle = edge; ctx.stroke(); ctx.globalAlpha = 1;
+  };
+  // 地面网格（淡）
+  for (let i = -12; i <= 12; i++) { const s = i % 5 === 0 ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.035)'; seg([i, 0, -12], [i, 0, 12], s); seg([-12, 0, i], [12, 0, i], s); }
+  // 房间地面先铺满（木地板色），再画轮廓
   if (sc.room) {
     const ol = sc.room.outline, H = sc.room.height;
-    ol.forEach((a, i) => { const b = ol[(i + 1) % ol.length]; seg([a[0], 0, a[1]], [b[0], 0, b[1]], 'rgba(120,170,220,.75)', 1.5); seg([a[0], H, a[1]], [b[0], H, b[1]], 'rgba(120,170,220,.35)'); seg([a[0], 0, a[1]], [a[0], H, a[1]], 'rgba(120,170,220,.3)'); });
+    paint(ol.map(([x, z]) => toCam([x, 0, z])), [150, 118, 84], [0, 1, 0], 1, 'rgba(0,0,0,0)');
+    ol.forEach((a, i) => { const b = ol[(i + 1) % ol.length]; seg([a[0], .005, a[1]], [b[0], .005, b[1]], 'rgba(120,170,220,.8)', 1.5); seg([a[0], H, a[1]], [b[0], H, b[1]], 'rgba(120,170,220,.3)'); });
   }
-  const faces: Face[] = [];
-  sc.prims.forEach(p => faces.push(...primFaces(p, { ghost: p.ghost, hi: p.hi, ai: p.ai })));
+  // 剖开：编辑视角下，墙心在房间中心靠镜头这一侧的墙、以及顶棚，半透明
+  const ctr: V3 = sc.room ? [sc.room.outline.reduce((s, p) => s + p[0], 0) / sc.room.outline.length, 0, sc.room.outline.reduce((s, p) => s + p[1], 0) / sc.room.outline.length] : [0, 0, 0];
+  const toEye = norm([view.eye[0] - ctr[0], 0, view.eye[2] - ctr[2]]);
+  const see = (p: WhiteboxPrim) => !o.cutaway ? undefined : isRoof(p) ? .12 : isWall(p) && dot([p.c[0] - ctr[0], 0, p.c[2] - ctr[2]], toEye) > .5 ? .18 : undefined;
+  // 贴地的薄片（地面、街面、河面）先画，免得按深度排序时盖住站在上面的东西
+  const ground: Face[] = [], faces: Face[] = [];
+  sc.prims.forEach(p => (isGround(p) ? ground : faces).push(...primFaces(p, { ghost: p.ghost, hi: p.hi, ai: p.ai }, see(p))));
   sc.dolls.forEach(d => faces.push(...dollFaces(d, dollAt(d, o.t))));
-  const L = norm([-.5, .8, .45]);
-  const vis = faces.map(fc => { const q = fc.pts.map(toCam); if (q.some(v => v[2] < .05)) return null; const fcen = mul(fc.pts.reduce((s, v) => add(s, v), [0, 0, 0] as V3), 1 / fc.pts.length); if (!fc.m.ghost && dot(fc.n, sub(view.eye, fcen)) <= 0) return null; return { fc, q, z: q.reduce((s, v) => s + v[2], 0) / q.length }; }).filter(Boolean) as { fc: Face; q: V3[]; z: number }[];
-  vis.sort((a, b) => b.z - a.z);
-  for (const { fc, q } of vis) {
-    const shade = .35 + .65 * Math.max(0, dot(fc.n, L)), lum = fc.g * shade;
-    ctx.beginPath(); q.forEach((v, i) => { const p = proj(v); if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath();
-    if (fc.m.ghost) { ctx.fillStyle = 'rgba(255,122,26,.14)'; ctx.fill(); ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(255,140,60,.9)'; ctx.lineWidth = 1.2; ctx.stroke(); ctx.setLineDash([]); continue; }
-    ctx.fillStyle = fc.doll ? `rgb(${Math.round(60 + lum * 170)},${Math.round(58 + lum * 160)},${Math.round(56 + lum * 150)})` : `rgb(${Math.round(30 + lum * 205)},${Math.round(28 + lum * 200)},${Math.round(28 + lum * 192)})`;
-    ctx.fill(); ctx.lineWidth = fc.m.hi || fc.m.ai ? 1.8 : 1; ctx.strokeStyle = fc.m.hi || fc.m.ai ? '#ff7a1a' : 'rgba(236,235,231,.2)'; ctx.stroke();
-  }
+  const draw = (list: Face[], sort: boolean) => {
+    const vis = list.map(fc => { const q = fc.pts.map(toCam); if (q.every(v => v[2] < .05)) return null; const fcen = mul(fc.pts.reduce((s, v) => add(s, v), [0, 0, 0] as V3), 1 / fc.pts.length); if (!fc.m.ghost && dot(fc.n, sub(view.eye, fcen)) <= 0) return null; return { fc, q, z: q.reduce((s, v) => s + v[2], 0) / q.length }; }).filter(Boolean) as { fc: Face; q: V3[]; z: number }[];
+    if (sort) vis.sort((a, b) => b.z - a.z);
+    for (const { fc, q } of vis) {
+      if (fc.m.ghost) { const c = clip(q); if (c.length < 3) continue; ctx.beginPath(); c.forEach((v, i) => { const p = proj(v); if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath(); ctx.fillStyle = 'rgba(255,122,26,.14)'; ctx.fill(); ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(255,140,60,.9)'; ctx.lineWidth = 1.2; ctx.stroke(); ctx.setLineDash([]); continue; }
+      const mark = fc.m.hi || fc.m.ai;
+      paint(q, fc.col, fc.n, fc.alpha ?? 1, mark ? '#ff7a1a' : fc.doll ? 'rgba(20,18,16,.45)' : 'rgba(30,26,22,.35)', mark ? 2 : 1);
+    }
+  };
+  draw(ground, true); draw(faces, true);
   if (o.labels) {
     ctx.font = '500 11px "IBM Plex Mono", "Noto Sans SC", monospace';
-    sc.dolls.forEach(d => { const at = dollAt(d, o.t), p = P2([at[0], (d.heightM || 1.7) + .15, at[2]]); if (!p) return; ctx.fillStyle = d.id === o.selDoll || d.hi || d.ai ? '#ff7a1a' : d.ghost ? 'rgba(255,160,90,.95)' : '#ecebe7'; ctx.fillText(d.name + (d.ghost ? ' · 提议' : ''), p[0] + 6, p[1]);
-      if (d.to) { ctx.setLineDash([3, 3]); seg([d.at[0], .02, d.at[2]], [d.to[0], .02, d.to[2]], 'rgba(255,122,26,.7)'); ctx.setLineDash([]); } });
-    sc.prims.filter(p => p.label).forEach(p => { const q = P2([p.c[0], p.c[1] + (p.kind === 'box' ? p.s[1] : p.s[1]), p.c[2]]); if (!q) return; ctx.fillStyle = p.ghost ? 'rgba(255,160,90,.85)' : p.hi ? '#ff7a1a' : 'rgba(154,151,146,.85)'; ctx.fillText(p.label!, q[0] + 4, q[1] - 3); });
+    sc.dolls.forEach(d => { const at = dollAt(d, o.t), p = P2([at[0], (d.heightM || 1.7) + .15, at[2]]);
+      // 地上一道短线：朝向
+      const a = (d.facing * Math.PI) / 180; seg([at[0], .01, at[2]], [at[0] + Math.sin(a) * .5, .01, at[2] - Math.cos(a) * .5], 'rgba(255,214,150,.9)', 2);
+      if (d.to) { ctx.setLineDash([3, 3]); seg([d.at[0], .02, d.at[2]], [d.to[0], .02, d.to[2]], 'rgba(255,122,26,.8)'); ctx.setLineDash([]); }
+      if (!p) return; ctx.fillStyle = d.id === o.selDoll || d.hi || d.ai ? '#ff7a1a' : d.ghost ? 'rgba(255,160,90,.95)' : '#f4f1ea'; ctx.fillText(d.name + (d.ghost ? ' · 提议' : ''), p[0] + 6, p[1]); });
+    sc.prims.filter(p => p.label).forEach(p => { const q = P2([p.c[0], p.c[1] + p.s[1], p.c[2]]); if (!q) return; ctx.fillStyle = p.ghost ? 'rgba(255,160,90,.85)' : p.hi ? '#ff7a1a' : 'rgba(236,232,224,.7)'; ctx.fillText(p.label!, q[0] + 4, q[1] - 3); });
   }
   if (o.editCam) {
     const e = o.editCam, ff = norm(sub(e.target, e.eye)); let rr = cross(ff, [0, 1, 0]); rr = norm(Math.hypot(...rr) < 1e-6 ? [1, 0, 0] : rr); const uu = cross(rr, ff);
@@ -146,7 +195,7 @@ export const Viewport3 = forwardRef<ViewportHandle, {
     if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
     const ctx = c.getContext('2d')!; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const view = viewOf(); last.current = { view, F: (h / 2) / Math.tan((view.fov * Math.PI / 180) / 2), cx: w / 2, cy: h / 2 };
-    drawScene(ctx, w, h, view, p.scene, { labels: true, t: p.t, editCam: p.mode === 'editor' ? p.cam : null, selDoll: p.selDoll, frame: p.mode === 'camera' });
+    drawScene(ctx, w, h, view, p.scene, { labels: true, t: p.t, editCam: p.mode === 'editor' ? p.cam : null, selDoll: p.selDoll, frame: p.mode === 'camera', cutaway: p.mode === 'editor' });
   };
   const request = () => { cancelAnimationFrame(raf.current); raf.current = requestAnimationFrame(draw); };
   useEffect(request);

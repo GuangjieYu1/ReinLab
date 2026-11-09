@@ -2,17 +2,15 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { WhiteboxPrim } from '../../../../../packages/contracts/src/creative';
-import type { Doll } from './Viewport3';
+import { matOf, type Doll } from './Viewport3';
 
 const RADIUS = { slim: .16, average: .2, heavy: .25 } as const;
 
 export async function exportGlb(name: string, placeId: string, room: { outline: [number, number][]; height: number } | null, prims: WhiteboxPrim[], dolls: Doll[]) {
   const scene = new THREE.Scene(); scene.name = name; scene.userData = { placeId };
-  const mat = new THREE.MeshStandardMaterial({ color: 0xd8d6d0, roughness: .9 });
-  const dollMat = new THREE.MeshStandardMaterial({ color: 0xb9b4aa, roughness: .9 });
   for (const p of prims) {
     const geo = p.kind === 'box' ? new THREE.BoxGeometry(p.s[0], p.s[1], p.s[2]) : new THREE.CylinderGeometry(p.s[0], p.s[0], p.s[1], p.kind === 'cylinder' ? 24 : Math.max(3, p.sides ?? 6));
-    const m = new THREE.Mesh(geo, mat); m.name = p.label || p.id;
+    const [r, g, b] = matOf(p.label), m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: new THREE.Color(r / 255, g / 255, b / 255), roughness: .9 })); m.name = p.label || p.id;
     m.position.set(p.c[0], p.c[1] + p.s[1] / 2, p.c[2]); m.rotation.y = ((p.rotY ?? 0) * Math.PI) / 180;
     m.userData = { primId: p.id, placeId, entityId: p.entityId ?? null, label: p.label ?? null };
     scene.add(m);
@@ -24,6 +22,7 @@ export async function exportGlb(name: string, placeId: string, room: { outline: 
   }
   for (const d of dolls) {
     const H = d.heightM || 1.7, r = RADIUS[d.build ?? 'average'], g = new THREE.Group(); g.name = d.name;
+    const dollMat = new THREE.MeshStandardMaterial({ color: d.color ? new THREE.Color(d.color[0] / 255, d.color[1] / 255, d.color[2] / 255) : 0xb9b4aa, roughness: .9 });
     g.userData = { entityId: d.id, heightM: H, build: d.build };
     const torso = new THREE.Mesh(new THREE.CylinderGeometry(r, r, H * .34, 12), dollMat); torso.position.y = H * .48 + H * .17; torso.name = `${d.name}·躯干`;
     const head = new THREE.Mesh(new THREE.CylinderGeometry(H * .065, H * .065, H * .13, 12), dollMat); head.position.y = H * .87 + H * .065; head.name = `${d.name}·头`;

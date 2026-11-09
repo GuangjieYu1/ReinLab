@@ -91,7 +91,8 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   useEffect(() => { const op = ghostProp?.ops.find(o => 'placeId' in o && o.op.startsWith('whitebox')) as { placeId?: string } | undefined; if (op?.placeId) setPlaceId(op.placeId); }, [ghostProp?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (shot?.placeId && shot.placeId !== placeId) setPlaceId(shot.placeId); }, [shot?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const person = (id: string) => snap.entities.find(e => e.id === id);
-  const dolls: Doll[] = (shot?.cast ?? []).map(c => { const p = person(c.entityId); return { id: c.entityId, name: p?.name ?? '未知', at: c.at, to: c.to, facing: c.facing, heightM: p?.person?.body?.heightM ?? 1.7, build: p?.person?.body?.build ?? null, ghost: isGhost(shot!.id), hi: hiIds.has(shot!.id), ai: aiIds.has(c.entityId) }; });
+  const cloth = useClothColors(snap.entities.filter(e => e.kind === 'person').map(e => ({ id: e.id, portrait: e.person?.portrait?.url ?? null })));
+  const dolls: Doll[] = (shot?.cast ?? []).map(c => { const p = person(c.entityId); return { id: c.entityId, name: p?.name ?? '未知', at: c.at, to: c.to, facing: c.facing, heightM: p?.person?.body?.heightM ?? 1.7, build: p?.person?.body?.build ?? null, color: cloth[c.entityId], ghost: isGhost(shot!.id), hi: hiIds.has(shot!.id), ai: aiIds.has(c.entityId) }; });
   const mark = (p: WhiteboxPrim, m: Mark) => ({ ...p, ...m, hi: m.hi || hiIds.has(p.id), ai: aiIds.has(p.id) });
   const scene3: Scene3 = { room, prims: [...(wb?.prims ?? []).map(p => mark(p, {})), ...ghostPrims.map(p => mark(p, { ghost: true }))], dolls };
   const cleanScene: Scene3 = { room: null, prims: (wb?.prims ?? []), dolls: dolls.map(d => ({ ...d, ghost: false, hi: false, ai: false })) };
@@ -124,7 +125,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
     try { const r = await recordShot(cleanSceneFor(s), s.camera, s.durationSec, x => setRec({ id: s.id, t: x })); await adapter.uploadPreview(s.id, r.video, r.poster); await loadShots(); }
     finally { setRec(null); }
   });
-  const cleanSceneFor = (s: Shot): Scene3 => ({ ...cleanScene, dolls: s.cast.map(c => { const p = person(c.entityId); return { id: c.entityId, name: p?.name ?? '', at: c.at, to: c.to, facing: c.facing, heightM: p?.person?.body?.heightM ?? 1.7, build: p?.person?.body?.build ?? null }; }) });
+  const cleanSceneFor = (s: Shot): Scene3 => ({ ...cleanScene, dolls: s.cast.map(c => { const p = person(c.entityId); return { id: c.entityId, name: p?.name ?? '', at: c.at, to: c.to, facing: c.facing, heightM: p?.person?.body?.heightM ?? 1.7, build: p?.person?.body?.build ?? null, color: cloth[c.entityId] }; }) });
   const decide = (p: Proposal, d: 'accepted' | 'rejected') => act(async () => { await ops([{ op: 'proposal.decide', id: p.id, decision: d }]); setGhostId(null); await Promise.all([loadShots(), loadWb(), loadProps()]); });
   const glb = () => act(async () => { const place = snap.entities.find(e => e.id === placeId); await exportGlb(`${place?.name ?? '白模'}-白模-v${wb?.version ?? 0}`, placeId, room, wb?.prims ?? [], dolls.filter(d => !d.ghost)); });
 
@@ -202,3 +203,28 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   </BenchFrame>;
 }
 const fmt = (v: V3) => `(${v.map(x => Math.round(x * 10) / 10).join(', ')})`;
+
+/** 人偶衣服颜色：取选用立绘中段（身体）不太亮的像素的平均色；没有立绘按人分一个固定色。 */
+const PALETTE: [number, number, number][] = [[98, 120, 138], [146, 92, 74], [104, 124, 92], [128, 104, 140], [150, 128, 84], [86, 108, 116]];
+function useClothColors(people: { id: string; portrait?: string | null }[]) {
+  const [cols, setCols] = useState<Record<string, [number, number, number]>>({});
+  const key = people.map(p => `${p.id}:${p.portrait ?? ''}`).join('|');
+  useEffect(() => {
+    let off = false;
+    people.forEach((p, i) => {
+      const fallback = PALETTE[[...p.id].reduce((a, c) => a + c.charCodeAt(0), i) % PALETTE.length];
+      if (!p.portrait) { setCols(c => ({ ...c, [p.id]: fallback })); return; }
+      const img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        if (off) return; const W = 48, H = 72, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d')!; g.drawImage(img, 0, 0, W, H);
+        const d = g.getImageData(W * .3, H * .35, W * .4, H * .4).data; let r = 0, gg = 0, b = 0, n = 0;
+        for (let k = 0; k < d.length; k += 4) { const l = (d[k] + d[k + 1] + d[k + 2]) / 3; if (l > 205 || l < 25) continue; r += d[k]; gg += d[k + 1]; b += d[k + 2]; n++; }
+        setCols(cur => ({ ...cur, [p.id]: n ? [r / n, gg / n, b / n] : fallback }));
+      };
+      img.onerror = () => { if (!off) setCols(cur => ({ ...cur, [p.id]: fallback })); };
+      img.src = fileUrl(p.portrait);
+    });
+    return () => { off = true; };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return cols;
+}
