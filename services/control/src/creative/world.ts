@@ -245,6 +245,9 @@ export type ApplyOptions = {
   ids?: () => string;
   /** 处理结果的时间：作废、接受、拒绝都要记下是什么时候。 */
   at?: string;
+  /** 预览用：名字解析不到的跳过并记下来，不整批报错（契约 §11 的 unresolved）。 */
+  tolerant?: boolean;
+  unresolved?: Set<string>;
 };
 
 function summaryOf(op: CreativeOp, document: CreativeDocument): string {
@@ -345,6 +348,18 @@ export function applyOps(
   const at = options.at ?? new Date().toISOString();
   /** 这一批里刚建出来的实体 id：同批的后续操作按名字引用时要优先认它们。 */
   const createdHere = new Set<string>();
+  /** 预览：解析不到的名字记在这里，不抛错。 */
+  const unresolved = options.unresolved ?? new Set<string>();
+  const tolerant = options.tolerant === true;
+  const resolveSoft = <T,>(name: string | undefined, run: () => T, fallback: T): T => {
+    try {
+      return run();
+    } catch (error) {
+      if (!tolerant) throw error;
+      if (name) unresolved.add(name);
+      return fallback;
+    }
+  };
 
   for (const op of ops) {
     const summary = summaryOf(op, next);
@@ -387,7 +402,10 @@ export function applyOps(
           };
           if (!place.parentId) {
             const parentName = (entity as { parentName?: string }).parentName;
-            if (parentName) place.parentId = entityByName(next, parentName, createdHere).id;
+            if (parentName)
+              place.parentId = tolerant
+                ? resolveSoft(parentName, () => entityByName(next, parentName, createdHere).id, null)
+                : entityByName(next, parentName, createdHere).id;
           }
           if (!PLACE_LEVELS.includes(place.level))
             throw fail('INVALID_INPUT', 400, '地点层级只能是世界、区域、城市、建筑、楼层、房间或场所。');
@@ -464,11 +482,17 @@ export function applyOps(
         if (!input.title?.trim()) throw fail('INVALID_INPUT', 400, '事件要有标题。');
         if (!input.participants?.length)
           throw fail('INVALID_INPUT', 400, '事件至少要有一个参与者。');
-        const participants = input.participants.map((participant) =>
-          resolveParticipant(next, participant, createdHere),
-        );
+        const participants = input.participants
+          .map((participant) => {
+            if (!tolerant) return resolveParticipant(next, participant, createdHere);
+            const resolved = resolveSoft(participant.entityName, () => resolveParticipant(next, participant, createdHere), null);
+            return resolved;
+          })
+          .filter((item): item is { entityId: string; as: Participation } => item !== null);
+        const placeName = input.placeName;
         const placeId =
-          input.placeId ?? (input.placeName ? entityByName(next, input.placeName, createdHere).id : null);
+          input.placeId ??
+          (placeName ? resolveSoft(placeName, () => entityByName(next, placeName, createdHere).id, null) : null);
         if (placeId) findEntity(next, placeId);
         const start = parseInput(next, input.start, '开始时间');
         const end = parseInput(next, input.end, '结束时间');
@@ -502,11 +526,16 @@ export function applyOps(
         delete patch.end;
         delete patch.gaps;
         if (Array.isArray(patch.participants))
-          patch.participants = (patch.participants as { entityId?: string; entityName?: string; as: Participation }[]).map(
-            (participant) => resolveParticipant(next, participant, createdHere),
-          );
+          patch.participants = (patch.participants as { entityId?: string; entityName?: string; as: Participation }[])
+            .map((participant) => {
+              if (!tolerant) return resolveParticipant(next, participant, createdHere);
+              return resolveSoft(participant.entityName, () => resolveParticipant(next, participant, createdHere), null);
+            })
+            .filter((item): item is { entityId: string; as: Participation } => item !== null);
         if (typeof patch.placeName === 'string' && !patch.placeId)
-          patch.placeId = entityByName(next, patch.placeName, createdHere).id;
+          patch.placeId = tolerant
+            ? resolveSoft(patch.placeName, () => entityByName(next, patch.placeName as string, createdHere).id, null)
+            : entityByName(next, patch.placeName, createdHere).id;
         if (typeof patch.placeId === 'string') findEntity(next, patch.placeId);
         const merged: WorldEvent = {
           ...next.events[index],

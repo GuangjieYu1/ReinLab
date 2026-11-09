@@ -8,12 +8,13 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import type { CreativeDocument } from './world';
-import type { Proposal } from '@reinlab/contracts';
+import type { BoardRef, Proposal } from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { appendEvent } from '../ledger';
 import { appendEvents } from './events';
 import { advisorOps } from './advisor';
 import { loadWorld } from './service';
+import { focusStep } from './preview';
 import { effectiveWorldOf } from './effective';
 import { diffDocuments } from './items';
 import { runCheck } from './check';
@@ -205,6 +206,7 @@ const TOOLS_ADVISOR: ToolDef[] = [
           },
         },
         doubts: { type: 'array', items: { type: 'string' } },
+        supersedes: { type: 'string' },
       },
       required: ['title'],
       additionalProperties: false,
@@ -305,12 +307,18 @@ export type RunToolContext = {
   dossier: string;
   context: SessionContext;
   role: 'advisor' | 'writer';
+  runId: string;
+  /** 作者在看板虚影上点「改一下」时带的提议 id：交新版时默认替代它。 */
+  about?: string;
   /** 本轮新建的提议 id（回复里可以引用）。 */
   proposals: string[];
 };
 
-/** 执行一轮里的一个工具调用。写工具只交提议。 */
-export async function runTool(defs: RunToolContext, call: ToolCall): Promise<string> {
+/** 执行一轮里的一个工具调用。写工具只交提议。返回给模型的文字 + 看板上要描亮的 refs。 */
+export async function runTool(
+  defs: RunToolContext,
+  call: ToolCall,
+): Promise<{ text: string; refs: BoardRef[] }> {
   const { client, account, dossier, context, role } = defs;
   const worldState = await loadWorld(client, account, dossier);
   const world =
@@ -322,41 +330,53 @@ export async function runTool(defs: RunToolContext, call: ToolCall): Promise<str
 
   switch (call.name) {
     case 'world_snapshot':
-      return digestOf(world);
+      return { text: digestOf(world), refs: [] };
     case 'event_search': {
       const query = String(call.input.query ?? '');
       const hits = world.events.filter((event) => `${event.title} ${event.what}`.includes(query)).slice(0, 20);
-      return hits.length
-        ? hits.map((event) => `- ${event.id}｜${event.title}｜${event.start?.label ?? '时间未定'}｜${clip(event.what, 120)}`).join('\n')
-        : '没有找到相关事件。';
+      return {
+        text: hits.length
+          ? hits.map((event) => `- ${event.id}｜${event.title}｜${event.start?.label ?? '时间未定'}｜${clip(event.what, 120)}`).join('\n')
+          : '没有找到相关事件。',
+        refs: hits.map((event) => ({ kind: 'event' as const, id: event.id })),
+      };
     }
     case 'check_run': {
       const legs = await buildLegs(client, { account, dossier, document: world });
       const check = runCheck({ document: world, legs, revision: worldState.revision, now: new Date().toISOString() });
-      return JSON.stringify(
+      return {
+        text: JSON.stringify(
         {
           确定: check.conflicts.filter((item) => item.severity === 'hard').map((item) => ({ why: item.why, kind: item.kind })),
           疑似: check.conflicts.filter((item) => item.severity === 'suspect').map((item) => ({ why: item.why, kind: item.kind })),
           信息不足: check.insufficient.map((item) => `${item.eventId}：${(item.gaps ?? []).join('；') || '缺信息'}`),
           未覆盖: check.uncovered.map((item) => item.why),
         },
-        null,
-        1,
-      );
+          null,
+          1,
+        ),
+        refs: check.conflicts.flatMap((item) => item.eventIds.map((id) => ({ kind: 'event' as const, id }))).slice(0, 20),
+      };
     }
     case 'work_scene': {
-      if (!context.workId) return '当前没有打开的作品。';
+      if (!context.workId) return { text: '当前没有打开的作品。', refs: [] };
       const work = (
         await client.query<{ document: WorkDocument }>(
           'select document from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3',
           [account, dossier, context.workId],
         )
       ).rows[0]?.document;
-      if (!work) return '没有这部作品。';
+      if (!work) return { text: '没有这部作品。', refs: [] };
       const sceneId = String(call.input.sceneId ?? context.sceneId ?? '');
       const scene = work.chapters.flatMap((chapter) => chapter.scenes).find((item) => item.id === sceneId);
-      if (!scene) return '没有这一场。';
-      return `# ${scene.title}\n目标：${scene.goal || '未写'}\n引用事件：${scene.eventIds.join('、') || '无'}\n\n${scene.text}`;
+      if (!scene) return { text: '没有这一场。', refs: [] };
+      return {
+        text: `# ${scene.title}\n目标：${scene.goal || '未写'}\n引用事件：${scene.eventIds.join('、') || '无'}\n\n${scene.text}`,
+        refs: [
+          { kind: 'scene' as const, workId: context.workId!, sceneId },
+          ...scene.eventIds.map((id) => ({ kind: 'event' as const, id })),
+        ],
+      };
     }
     case 'version_diff': {
       const from = Number(call.input.from);
@@ -369,20 +389,23 @@ export async function runTool(defs: RunToolContext, call: ToolCall): Promise<str
       ).rows;
       const a = rows.find((row) => Number(row.n) === from)?.world;
       const b = rows.find((row) => Number(row.n) === to)?.world;
-      if (!a || !b) return '没有这两个版本。';
-      return diffDocuments(a, b)
-        .map((item) => `- ${item.title}｜${item.change}${item.fields.length ? `｜改了：${item.fields.join('、')}` : ''}`)
-        .join('\n');
+      if (!a || !b) return { text: '没有这两个版本。', refs: [] };
+      return {
+        text: diffDocuments(a, b)
+          .map((item) => `- ${item.title}｜${item.change}${item.fields.length ? `｜改了：${item.fields.join('、')}` : ''}`)
+          .join('\n'),
+        refs: [],
+      };
     }
     case 'read_file': {
       const root = defs.client ? process.cwd() : process.cwd();
       const target = resolve(root, String(call.input.path ?? ''));
-      if (!target.startsWith(root)) return '只能读工作区里的文件。';
+      if (!target.startsWith(root)) return { text: '只能读工作区里的文件。', refs: [] };
       try {
         const content = await readFile(target, 'utf8');
-        return clip(content, 20_000);
+        return { text: clip(content, 20_000), refs: [] };
       } catch {
-        return '读不到这个文件。';
+        return { text: '读不到这个文件。', refs: [] };
       }
     }
     case 'propose_setting': {
@@ -395,16 +418,18 @@ export async function runTool(defs: RunToolContext, call: ToolCall): Promise<str
         rules: (call.input.rules as unknown[]) ?? [],
         doubts: (call.input.doubts as unknown[]) ?? [],
       });
-      return await createProposal(defs, world, {
+      const created = await createProposal(defs, world, {
         kind: 'itinerary',
         title: String(call.input.title ?? '提议'),
         summary: String(call.input.summary ?? ''),
         ops: ops.ops,
         doubts: ops.doubts,
+        ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
       });
+      return { text: created.text, refs: created.refs };
     }
     case 'propose_text_edit': {
-      if (!context.workId) return '当前没有打开的作品，改不了正文。';
+      if (!context.workId) return { text: '当前没有打开的作品，改不了正文。', refs: [] };
       const sceneId = String(call.input.sceneId ?? '');
       const workRow = (
         await client.query<{ revision: number; document: WorkDocument }>(
@@ -412,11 +437,11 @@ export async function runTool(defs: RunToolContext, call: ToolCall): Promise<str
           [account, dossier, context.workId],
         )
       ).rows[0];
-      if (!workRow) return '没有这部作品。';
+      if (!workRow) return { text: '没有这部作品。', refs: [] };
       const { scene } = sceneOf(workRow.document, sceneId);
       const mode = String(call.input.mode ?? 'rewrite') as 'draft' | 'continue' | 'complete' | 'rewrite';
       const after = clip(call.input.after ?? '', 200_000);
-      if (!after) return '没有给正文。';
+      if (!after) return { text: '没有给正文。', refs: [] };
       const before = String(call.input.before ?? '');
       const proposal: Proposal = {
         id: randomUUID(),
@@ -448,10 +473,13 @@ export async function runTool(defs: RunToolContext, call: ToolCall): Promise<str
       );
       await appendEvents(client, { account, dossier }, [{ type: 'creative.proposal', data: proposal }]);
       defs.proposals.push(proposal.id);
-      return `已交一条改稿提议（${proposal.id.slice(0, 8)}）：${proposal.title}，作者在待确认里接受才落笔。`;
+      return {
+        text: `已交一条改稿提议（${proposal.id.slice(0, 8)}）：${proposal.title}，作者在待确认里接受才落笔。`,
+        refs: [{ kind: 'scene' as const, workId: context.workId, sceneId }],
+      };
     }
     default:
-      return '没有这个工具。';
+      return { text: '没有这个工具。', refs: [] };
   }
 }
 
@@ -459,8 +487,15 @@ export async function runTool(defs: RunToolContext, call: ToolCall): Promise<str
 async function createProposal(
   defs: RunToolContext,
   world: CreativeDocument,
-  input: { kind: Proposal['kind']; title: string; summary: string; ops: unknown[]; doubts: string[] },
-): Promise<string> {
+  input: {
+    kind: Proposal['kind'];
+    title: string;
+    summary: string;
+    ops: unknown[];
+    doubts: string[];
+    supersedes?: string;
+  },
+): Promise<{ text: string; refs: BoardRef[] }> {
   const { client, account, dossier } = defs;
   const state = await loadWorld(client, account, dossier, { lock: true });
   const proposal: Proposal = {
@@ -470,12 +505,27 @@ async function createProposal(
     summary: input.summary,
     ops: input.ops as unknown as Proposal['ops'],
     origin: { basis: 'inferred', by: 'advisor' },
+    runId: defs.runId,
+    ...(input.supersedes ? { supersedes: input.supersedes } : {}),
     doubts: input.doubts,
     dependsOn: [],
     conflicts: [],
     status: 'pending',
   };
-  const next: CreativeDocument = { ...state.document, proposals: [...state.document.proposals, proposal] };
+  // 改版：旧版作废，原因「被新版替代」（契约 §11.2）
+  const superseded = input.supersedes
+    ? state.document.proposals.find((item) => item.id === input.supersedes)
+    : undefined;
+  const proposals = state.document.proposals.map((item) =>
+    superseded && item.id === superseded.id && (item.status === 'pending' || item.status === 'deferred')
+      ? {
+          ...item,
+          status: 'rejected' as const,
+          resolution: { decision: 'rejected' as const, reason: '被新版替代', at: new Date().toISOString(), by: 'agent' as const },
+        }
+      : item,
+  );
+  const next: CreativeDocument = { ...state.document, proposals: [...proposals, proposal] };
   await client.query(
     'update creative_world set revision=$3, document=$4::jsonb, updated_at=now() where account_id=$1 and dossier_id=$2',
     [account, dossier, state.revision + 1, JSON.stringify(next)],
@@ -485,8 +535,24 @@ async function createProposal(
     { type: 'creative.op', data: { revision: state.revision + 1, applied: [] } },
   ]);
   defs.proposals.push(proposal.id);
-  return `已交一条设定提议（${proposal.id.slice(0, 8)}）：${proposal.title}。它进了待确认，作者接受才入账。`;
+  return {
+    text: `已交一条设定提议（${proposal.id.slice(0, 8)}）：${proposal.title}。它进了待确认，作者接受才入账。${superseded ? '上一版已经作废（被新版替代）。' : ''}`,
+    refs: [],
+  };
 }
+
+const pushFocus = async (
+  db: import('../db/database').Database,
+  account: string,
+  dossier: string,
+  data: import('@reinlab/contracts').BoardFocus,
+): Promise<void> => {
+  await db.withAccount(account, (client) => appendEvents(client, { account, dossier }, [{ type: 'creative.focus', data }]));
+};
+
+/** 交提议之后那条 focus 带 proposalId（其余工具不带）。 */
+const defs_proposalId = (call: { name: string }, proposals: string[]): string | null =>
+  call.name.startsWith('propose_') && proposals.length ? (proposals.at(-1) ?? null) : null;
 
 /** 跑一轮：读历史 + 上下文 → 循环调用工具 → 落一条 assistant/message。 */
 export async function runTurn(deps: SessionRunDeps, account: string, runId: string, query: string): Promise<void> {
@@ -509,6 +575,8 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
     workId: meta.input.workId ? String(meta.input.workId) : null,
     sceneId: meta.input.sceneId ? String(meta.input.sceneId) : null,
   };
+  const aboutRaw = meta.input.about;
+  const about = typeof aboutRaw === 'string' && aboutRaw ? aboutRaw : undefined;
   const say = async (who: 'user' | 'assistant', text: string, key: string) => {
     await deps.db.withAccount(account, (client) =>
       appendEvent(client, account, {
@@ -539,7 +607,9 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       `当前档案：${dossier}${context.workId ? `｜作品：${context.workId}${context.sceneId ? `｜场景：${context.sceneId}` : ''}` : ''}`,
       context.workId ? '（这部作品用的是它自己实际用的设定，不是世界观草稿）' : '（当前是世界观草稿）',
       `最近检查：确定冲突 ${check.conflicts.filter((item) => item.severity === 'hard').length} 条，疑似 ${check.conflicts.filter((item) => item.severity === 'suspect').length} 条，未覆盖 ${check.uncovered.length} 条。`,
+      about ? `作者在看板上要改的是这条提议：${about}（交新版时会被它替代）。` : '',
       '要读设定/正文/检查/版本差异用工具；交提议用 propose 工具。回复用 Markdown，简洁。',
+      '提议的明细作者会在看板上看到，回复里不复述明细，只说一两句要点和拿不准的地方。',
     ].join('\n');
     const messages: ChatMessage[] = [...history];
     const proposals: string[] = [];
@@ -555,13 +625,20 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
         messages.push({ role: 'assistant', content: turn.text || '（调用工具）' });
         const results: string[] = [];
         for (const call of turn.toolCalls) {
-          const result = await deps.db.withAccount(account, (client) =>
-            runTool(
-              { client, account, dossier, context, role, proposals },
-              call,
-            ),
+          const outcome = await deps.db.withAccount(account, (client) =>
+            runTool({ client, account, dossier, context, role, runId, ...(about ? { about } : {}), proposals }, call),
           );
-          results.push(`【${call.name}】\n${result}`);
+          // 看板「正在看」：每次读工具推一条，refs 是这次读到的东西，step 服务端写（契约 §11.4）
+          const focus = focusStep(call.name, call.input);
+          await pushFocus(deps.db, account, dossier, {
+            runId,
+            mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
+            step: focus.step,
+            refs: outcome.refs.length ? outcome.refs : focus.refs,
+            proposalId: defs_proposalId(call, proposals),
+            done: false,
+          });
+          results.push(`【${call.name}】\n${outcome.text}`);
         }
         messages.push({ role: 'user', content: results.join('\n\n') });
         finalText = turn.text;
@@ -572,6 +649,13 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
     }
     if (!finalText.trim()) finalText = '这一步没有写出回复。';
     await say('assistant', finalText, `${keyBase}-assistant`);
+    await pushFocus(deps.db, account, dossier, {
+      runId,
+      mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
+      step: '完成',
+      refs: [],
+      done: true,
+    });
     await deps.db.withAccount(account, async (client) => {
       await client.query("update run set state='completed', ended_at=now(), input=jsonb_set(input,'{turn}', to_jsonb(coalesce((input->>'turn')::int,0)+1)) where account_id=$1 and id=$2", [account, runId]);
     });
@@ -592,6 +676,13 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
         await client.query("update run set state='completed', ended_at=now() where account_id=$1 and id=$2", [account, runId]);
       })
       .catch(() => undefined);
+    await pushFocus(deps.db, account, dossier, {
+      runId,
+      mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
+      step: '完成',
+      refs: [],
+      done: true,
+    }).catch(() => undefined);
   }
 }
 

@@ -156,7 +156,7 @@ export function advisorOps(payload: AdvisorPayload): { ops: CreativeOp[]; doubts
           : 'stay') as 'stay',
         participants,
         placeId: null,
-        ...(row.place ? { placeName: asText(row.place, 60) } : {}),
+        ...((row.place ?? row.placeName) ? { placeName: asText(row.place ?? row.placeName, 60) } : {}),
         travel: null,
         narrative: (['fact', 'hearsay', 'dream', 'hypothetical', 'flashback'].includes(asText(row.narrative, 16))
           ? asText(row.narrative, 16)
