@@ -18,6 +18,8 @@ import { focusStep } from './preview';
 import { effectiveWorldOf } from './effective';
 import { diffDocuments } from './items';
 import { runCheck } from './check';
+import { parseStoryTime } from './story-time';
+import { timeContext } from './world';
 import { buildLegs } from './routing';
 import { clip } from './text';
 import { paragraphsOf, sceneOf, wordsOf, type WorkDocument } from './work';
@@ -176,6 +178,8 @@ const TOOLS_ADVISOR: ToolDef[] = [
               kind: { type: 'string', enum: ['stay', 'travel', 'interaction', 'birth', 'death', 'other'] },
               participants: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, as: { type: 'string' } }, required: ['name'], additionalProperties: false } },
               placeName: { type: 'string' },
+              from: { type: 'string', description: '出行事件的起点地名（会按名字对上现有地点）' },
+              to: { type: 'string', description: '出行事件的终点地名（会按名字对上现有地点）' },
               start: { type: 'string' },
               end: { type: 'string' },
               narrative: { type: 'string', enum: ['fact', 'hearsay', 'dream', 'hypothetical', 'flashback'] },
@@ -409,7 +413,8 @@ export async function runTool(
       }
     }
     case 'propose_setting': {
-      const ops = advisorOps({
+      const ops = advisorOps(
+        {
         kind: 'itinerary',
         title: String(call.input.title ?? ''),
         summary: String(call.input.summary ?? ''),
@@ -417,7 +422,12 @@ export async function runTool(
         events: (call.input.events as unknown[]) ?? [],
         rules: (call.input.rules as unknown[]) ?? [],
         doubts: (call.input.doubts as unknown[]) ?? [],
-      });
+        },
+        {
+          placeIdOf: (name) =>
+            world.entities.find((item) => item.name === name || (item.aliases ?? []).includes(name))?.id ?? null,
+        },
+      );
       const created = await createProposal(defs, world, {
         kind: 'itinerary',
         title: String(call.input.title ?? '提议'),
@@ -498,6 +508,23 @@ async function createProposal(
 ): Promise<{ text: string; refs: BoardRef[] }> {
   const { client, account, dossier } = defs;
   const state = await loadWorld(client, account, dossier, { lock: true });
+  // 时间先用同一个解析器过一遍：认不出就不进待确认，把原因回给模型当场改
+  const context = timeContext(state.document);
+  for (const op of input.ops as { op?: string; event?: { title?: string; start?: { input?: string }; end?: { input?: string } } }[]) {
+    if (op.op !== 'event.add' || !op.event) continue;
+    for (const [field, time] of [
+      ['开始', op.event.start?.input],
+      ['结束', op.event.end?.input],
+    ] as const) {
+      if (!time) continue;
+      const parsed = parseStoryTime(time, context);
+      if (!parsed.ok)
+        return {
+          text: `这条提议没交成：「${op.event.title ?? '事件'}」的${field}时间「${time}」认不出。可以写 1684-05-03 11:00（T 分隔也行）、1684-05-03 午时、第 3 日 08:00，或相对参照「出城后三天」。改好再交一次。`,
+          refs: [],
+        };
+    }
+  }
   const proposal: Proposal = {
     id: randomUUID(),
     kind: input.kind,

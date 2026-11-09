@@ -22,9 +22,17 @@ import { loadWorld } from './service';
 import { effectiveWorldOf } from './effective';
 import { applyOps, type CreativeDocument } from './world';
 import { changedFields, diffDocuments, itemMapOf, titleOf } from './items';
-import { buildLegs } from './routing';
+import { buildLegs, routeOnNetwork } from './routing';
 import { runCheck } from './check';
 import { buildTracks } from './tracks';
+
+const pointOf = (geo: unknown): [number, number] | null => {
+  if (!geo || typeof geo !== 'object') return null;
+  const coordinates = (geo as { coordinates?: unknown }).coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+  const [lng, lat] = coordinates;
+  return typeof lng === 'number' && typeof lat === 'number' ? [lng, lat] : null;
+};
 
 const CACHE = new Map<string, ProposalPreview>();
 const CACHE_LIMIT = 64;
@@ -147,6 +155,38 @@ export async function previewOf(
     (leg) =>
       !baseLegIds.has(leg.id) || touchedEvents.has(leg.fromEventId) || touchedEvents.has(leg.toEventId),
   );
+  // 出行事件自带起点/终点时，预览按路网补一段（单条出行事件没有「上一条事件」，标准 legs 里不会生成）
+  const covered = new Set(newLegs.map((leg) => `${leg.fromEventId}→${leg.toEventId}`));
+  for (const event of added.events) {
+    if (event.kind !== 'travel' || !event.travel?.fromId || !event.travel?.toId) continue;
+    const pair = `${event.id}→${event.id}`;
+    if (covered.has(pair)) continue;
+    const modeId = event.travel.modeId ?? applied.modes[0]?.id ?? null;
+    const routed = await routeOnNetwork(
+      client,
+      { account, dossier, document: applied },
+      {
+        from: { placeId: event.travel.fromId, point: pointOf(applied.entities.find((item) => item.id === event.travel!.fromId)?.place?.geo), label: '起点' },
+        to: { placeId: event.travel.toId, point: pointOf(applied.entities.find((item) => item.id === event.travel!.toId)?.place?.geo), label: '终点' },
+        modeId,
+        at: event.start?.t ?? 0,
+      },
+    );
+    newLegs.push({
+      id: `leg_preview_${event.id.slice(3)}`,
+      entityId: event.participants[0]?.entityId ?? '',
+      fromEventId: event.id,
+      toEventId: event.id,
+      modeId,
+      kind: routed.kind,
+      path: routed.path,
+      distanceKm: routed.distanceKm,
+      durationMin: routed.durationMin,
+      failure: routed.failure,
+      inferred: null,
+    });
+    covered.add(pair);
+  }
 
   const personIds = new Set<string>([
     ...added.entities.filter((item) => item.kind === 'person').map((item) => item.id),

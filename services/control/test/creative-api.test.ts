@@ -2149,6 +2149,140 @@ describe("1D：提议在看板上的虚影", () => {
     expect(focus[0].refs.some((ref: any) => ref.kind === "entity")).toBe(true);
   });
 
+  it("时间认不出就不交提议，把原因回给模型", async () => {
+    const before = (await (await api(`/v1/creative/worlds/${dossier}/proposals?limit=200`)).json()).proposals.length;
+    let call = 0;
+    chatModelHolder.current = async () => {
+      call += 1;
+      const content =
+        call === 1
+          ? [
+              {
+                type: "tool_use",
+                id: "bad-time",
+                name: "propose_setting",
+                input: {
+                  title: "时间写错了的提议",
+                  entities: [],
+                  events: [
+                    {
+                      title: "错时间的事",
+                      what: "试试",
+                      kind: "stay",
+                      participants: [{ name: "张三", as: "actor" }],
+                      placeName: "城门",
+                      start: "1684-05-03 十一点",
+                      end: "1684-05-03 12:00",
+                      narrative: "fact",
+                    },
+                  ],
+                  rules: [],
+                  doubts: [],
+                },
+              },
+            ]
+          : [{ type: "text", text: "时间写法我改一下再交。" }];
+      return new Response(JSON.stringify({ content, usage: { input_tokens: 200, output_tokens: 60 } }), { status: 200 });
+    };
+    const started = await api("/v1/kernel/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ dossierId: dossier, query: "加一条事", mode: "creative_advisor" }),
+    });
+    const { id } = await started.json();
+    for (let index = 0; index < 120; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const state = (await admin.query("select state from run where id=$1", [id])).rows[0]?.state;
+      if (state === "completed") break;
+    }
+    const after = (await (await api(`/v1/creative/worlds/${dossier}/proposals?limit=200`)).json()).proposals;
+    expect(after.some((item: any) => item.title === "时间写错了的提议")).toBe(false);
+    expect(after.length).toBe(before);
+  });
+
+  it("出行事件带 from/to：travel 填 id，预览按路网画路线", async () => {
+    const world = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    const exists = world.entities.some((item: any) => item.name === "渡口");
+    if (!exists)
+      await api(`/v1/creative/worlds/${dossier}/ops`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: JSON.stringify({
+          baseRevision: world.world.revision,
+          ops: [
+            {
+              op: "entity.add",
+              entity: {
+                kind: "place",
+                name: "渡口",
+                aliases: [],
+                place: { level: "site", parentId: null, geo: { type: "Point", coordinates: [120.62, 31.32] }, geoCertainty: "exact", connects: [] },
+              },
+            },
+          ],
+        }),
+      });
+    // 先有一条「在城门」的事，行程才有起点
+    const state = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    const person = state.entities.find((item: any) => item.name === "张三");
+    const gate = state.entities.find((item: any) => item.name === "城门");
+    const hasPrior = state.events.some((item: any) => item.title === "张三在城门等消息");
+    if (!hasPrior)
+      await api(`/v1/creative/worlds/${dossier}/ops`, {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: JSON.stringify({
+          baseRevision: state.world.revision,
+          ops: [
+            {
+              op: "event.add",
+              event: {
+                title: "张三在城门等消息",
+                what: "在城门等",
+                kind: "stay",
+                participants: [{ entityId: person.id, as: "actor" }],
+                placeId: gate.id,
+                travel: null,
+                narrative: "fact",
+                start: { input: "1684-04-26 07:00" },
+                end: { input: "1684-04-26 07:40" },
+              },
+            },
+          ],
+        }),
+      });
+    const { proposal } = await runOnce("让他从城门走到渡口", {
+      title: "从城门走到渡口",
+      entities: [],
+      events: [
+        {
+          title: "张三走到渡口",
+          what: "走过去",
+          kind: "travel",
+          participants: [{ name: "张三", as: "actor" }],
+          from: "城门",
+          to: "渡口",
+          start: "1684-04-26 08:00",
+          end: "1684-04-26 08:40",
+          narrative: "fact",
+        },
+      ],
+      rules: [],
+      doubts: [],
+    });
+    expect(proposal).toBeTruthy();
+    const event = proposal.ops[0].event;
+    expect(event.travel.fromId).toBeTruthy();
+    expect(event.travel.toId).toBeTruthy();
+    expect(event.placeId).toBe(event.travel.toId);
+    const preview = await (await api(`/v1/creative/worlds/${dossier}/proposals/${proposal.id}/preview`)).json();
+    expect(preview.legs.length).toBeGreaterThanOrEqual(1);
+    // 新事件带出的那一段（测试环境没有路网，kind 可能是 none，但路段要连到这条新事件）
+    expect(preview.legs.some((leg: any) => String(leg.toEventId).startsWith("pv:") || String(leg.fromEventId).startsWith("pv:"))).toBe(true);
+    // 单条出行事件自己也要能带出一段（起点/终点写在 travel 里）
+    expect(preview.legs.some((leg: any) => String(leg.id).startsWith("leg_preview_"))).toBe(true);
+  });
+
   it("看板「正在看」：读工具推 creative.focus，一轮结束推 done", async () => {
     let searchCall = 0;
     chatModelHolder.current = async () => {
