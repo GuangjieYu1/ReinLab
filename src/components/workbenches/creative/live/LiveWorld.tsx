@@ -40,7 +40,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const [tab, setTab] = useState<Tab>('check'), [form, setForm] = useState<FormKind | null>(null);
   const [draw, setDraw] = useState<DrawMode | null>(null);
   // 1D：画在看板上的那条提议、它的预览；AI 正在看什么
-  const [ghostId, setGhostId] = useState<string | null>(null), [preview, setPreview] = useState<ProposalPreview | null>(null);
+  const [ghostId, setGhostId] = useState<string | null>(null), [preview, setPreview] = useState<ProposalPreview | null>(null), [pvErr, setPvErr] = useState('');
   const [aiFocus, setAiFocus] = useState<BoardFocus | null>(null), [allConf, setAllConf] = useState(false);
   // 设定提议（新的在前）：按作品看时快照里不带提议，所以单独取
   const [advProps, setAdvProps] = useState<Proposal[]>([]);
@@ -65,7 +65,8 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   useEffect(() => {
     if (!ghostId) { setPreview(null); return; }
     let off = false;
-    adapter.preview(ghostId, asWork).then(pv => { if (!off) { setPreview(pv); setNotice(n => n?.startsWith('提议预览没取到') ? null : n); } }, e => { if (!off) { setPreview(null); if ((e as CreativeError).code === 'PROPOSAL_SETTLED') setGhostId(null); else setNotice(`提议预览没取到：${(e as Error).message}`); } });
+    setPvErr('');
+    adapter.preview(ghostId, asWork).then(pv => { if (!off) setPreview(pv); }, e => { if (!off) { setPreview(null); if ((e as CreativeError).code === 'PROPOSAL_SETTLED') setGhostId(null); else setPvErr((e as Error).message); } });
     return () => { off = true; };
   }, [adapter, ghostId, asWork, snap?.world.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { adapter.mapConfig().then(setCfg, () => setCfg(null)); }, [adapter]);
@@ -106,8 +107,13 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
       else if (ev.type === 'creative.usage') setCost(ev.data.cost);
       else if (ev.type === 'creative.focus') {
         const f = ev.data;
-        if (f.done) window.setTimeout(() => setAiFocus(cur => cur?.runId === f.runId ? null : cur), 1200);
-        else setAiFocus(f);
+        // 一轮里看过的东西一直亮着（步骤一两秒就换，只亮当前的话看不见）；结束后留几秒再收
+        const merge = (cur: BoardFocus | null, step: string) => {
+          const prev = cur?.runId === f.runId ? cur.refs : [], key = (r: BoardFocus["refs"][number]) => JSON.stringify(r), seen = new Set(prev.map(key));
+          return { ...f, step, refs: [...prev, ...f.refs.filter(r => !seen.has(key(r)))] };
+        };
+        if (f.done) { setAiFocus(cur => cur?.runId === f.runId ? merge(cur, '看完了') : cur); window.setTimeout(() => setAiFocus(cur => cur?.runId === f.runId ? null : cur), 4000); }
+        else setAiFocus(cur => merge(cur, f.step));
         if (f.proposalId) { setGhostId(f.proposalId); soon(); }
       }
       else if (ev.type === 'creative.version') { const n = ev.data.n; void adapter.works().then(ws => { setWorks(ws); const old = ws.filter(w => (w.setting?.baseVersion ?? w.baseVersion) < n).length; if (old) { setNotice(`已存为 v${n}。有 ${old} 部作品还基于旧版本，可以在右栏「影响」里看各自受什么影响。`); setTab('impact'); } }).catch(() => {}); }
@@ -381,7 +387,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
               flags={{ legs: flags.legs, people: flags.people }} hiLegs={new Set(selConf?.legIds ?? [])} focus={focus} draw={draw}
               onPick={onMapPick} onView={b => { bbox.current = b; }} />
             {aiFocus && <div className="cw-ai-step" role="status"><i />{aiFocus.mode === 'creative_writer' ? '写作助手' : '顾问'} · {aiFocus.step}</div>}
-            {ghostProp && preview && <ProposalBar proposal={ghostProp} preview={preview} proposals={[...advProps, ...snap.proposals]} ruleJudged={snap.check?.conflicts.filter(c => c.kind === 'rule_model').length ?? 0} busy={busy || readOnly}
+            {ghostProp && (preview || pvErr) && <ProposalBar proposal={ghostProp} preview={preview} previewError={pvErr} proposals={[...advProps, ...snap.proposals]} ruleJudged={snap.check?.conflicts.filter(c => c.kind === 'rule_model').length ?? 0} busy={busy || readOnly}
               onDecide={d => { decide(ghostProp, d); setGhostId(null); }} onClose={() => setGhostId(null)}
               onRevise={text => ghostProp.runId ? adapter.sayAssistant(ghostProp.runId, text, { proposalId: ghostProp.id }).then(() => setNotice(null)) : Promise.reject(Error('这条提议不是在顾问对话里交的，没法续着改。'))} />}
             {feed.length > 0 && <ol className="cw-feed" aria-live="polite">{feed.map(f => <li key={f.id} data-now={f.now || undefined} data-kind={f.kind}>

@@ -13,12 +13,14 @@ function versionOf(p: Proposal, all: Proposal[]) {
   return n;
 }
 
-export function ProposalBar({ proposal, preview, proposals, busy, onDecide, onClose, onRevise, ruleJudged = 0 }: {
-  proposal: Proposal; preview: ProposalPreview; proposals: Proposal[]; busy: boolean;
+export function ProposalBar({ proposal, preview: pv, previewError, proposals, busy, onDecide, onClose, onRevise, ruleJudged = 0 }: {
+  proposal: Proposal; preview: ProposalPreview | null; proposals: Proposal[]; busy: boolean;
+  /** 预览没取到的原因：照样给接受 / 拒绝 / 改一下，只是看板上画不出来。 */ previewError?: string;
   /** 现在有几条「模型判的规则疑似」：提议动了事件，接受后它们要重判。 */ ruleJudged?: number;
   onDecide: (d: 'accepted' | 'rejected') => void; onClose: () => void; onRevise: (text: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false), [text, setText] = useState(''), [err, setErr] = useState(''), [sent, setSent] = useState(false);
+  const preview: ProposalPreview = pv ?? { added: { entities: [], events: [], relations: [], rules: [] }, changed: [], removed: [], conflictsNew: [], conflictsGone: [], unresolved: [] } as unknown as ProposalPreview;
   const a = preview.added, people = a.entities.filter(e => e.kind === 'person').length, places = a.entities.filter(e => e.kind === 'place').length;
   const hard = preview.conflictsNew.filter(c => c.severity === 'hard').length, sus = preview.conflictsNew.length - hard;
   const counts = [people && `${people} 人物`, places && `${places} 地点`, a.events.length && `${a.events.length} 事件`, a.relations.length && `${a.relations.length} 关系`, a.rules.length && `${a.rules.length} 规则`,
@@ -32,9 +34,10 @@ export function ProposalBar({ proposal, preview, proposals, busy, onDecide, onCl
     <div className="cw-pbar-main">
       <em>{proposal.runId ? '顾问提议' : '提议'}{v > 1 ? ` · 第 ${v} 版` : ''}</em>
       <b>{proposal.title}</b>
-      <span>{counts || '没有看板上能画的改动'}</span>
-      <span data-sev={hard ? 'hard' : sus ? 'suspect' : undefined}>{preview.conflictsNew.length ? `新冲突 ${preview.conflictsNew.length}${hard ? `（红 ${hard}）` : ''}` : '没有新冲突'}{preview.conflictsGone.length ? ` · 消掉 ${preview.conflictsGone.length}` : ''}</span>
+      <span>{pv ? counts || '没有看板上能画的改动' : '看板上画不出来'}</span>
+      {pv && <span data-sev={hard ? 'hard' : sus ? 'suspect' : undefined}>{preview.conflictsNew.length ? `新冲突 ${preview.conflictsNew.length}${hard ? `（红 ${hard}）` : ''}` : '没有新冲突'}{preview.conflictsGone.length ? ` · 消掉 ${preview.conflictsGone.length}` : ''}</span>}
     </div>
+    {!pv && previewError && <p className="cw-pbar-warn">预览没取到：{previewError.replace(/[。.]+$/, "")}。可以点「改一下…」让顾问重交，或者直接拒绝。</p>}
     {v > 1 && preview.vsPrevious && <p className="cw-pbar-vs">比上一版：{preview.vsPrevious.length ? changeLine(preview.vsPrevious) : '看板上没有变化'}</p>}
     {ruleJudged > 0 && (preview.added.events.length > 0 || preview.changed.some(c => c.kind === 'event')) && <p className="cw-pbar-vs">接受后事件变了，模型判过的 {ruleJudged} 条规则疑似要重判（检查页点「让模型判规则」）。</p>}
     {preview.unresolved.length > 0 && <p className="cw-pbar-warn">对不上的名字：{preview.unresolved.join('；')}</p>}
