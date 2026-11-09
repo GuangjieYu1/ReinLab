@@ -810,3 +810,156 @@ export type AssetImage = {
 5. 只重出侧面：其余三格沿用，新版写「只重出了侧面」。
 6. 故意让一格失败（DSH 留一个办法，例如外貌写进会被平台拒的内容，或者断网取回）：格子写人话原因；「待保存」的能只重试取回、不再花钱。
 7. 花费：每张图都进 `usage_record`，账本能按版本加出总数。5 个人物各出一套，总花费写进账本。
+
+## 13. MVP-3 · 从小说场景到成片：白模、镜头、Seedance（2026-11-10）
+
+**为什么做。** 全链路的最后一段：「小说 → 出图 → **白模 → 视频**」。作者挑一场正文，分镜导演在看板上搭出这场的房间白模、摆好人物和机位、列出镜头；作者在三维视口里看着改；每个镜头真出视频候选，选好拼成一段成片，能下载。
+
+**取向照 1D / MVP-2**：导演的产出是看板上的变化——白模、人偶、机位、镜头条先以虚影出现，作者接受才落账；出片时镜头格子当场「排队 → 出片中 → 片」，新候选和当前选用并排。
+
+### 13.1 分两半交，验收也分两半
+
+- **3A 白模和镜头（不花出片的钱）**：房间几何、白模、人物体型、镜头表、机位、分镜导演模式、白模预演片段、glTF 导出。
+- **3B 真出片（花钱）**：Seedance 候选、选用、拼成片、下载、改设定后镜头标旧。
+
+### 13.2 定下的几件事（我按惯例选的，有异议再改）
+
+1. **白模归地点**（房间这一层），有版本；镜头归作品的某一场，引用白模的明确版本和人物形象的明确版本。改白模、换立绘不自动改已有镜头，只标「依据旧了」。
+2. **房间几何**：轮廓（米，局部坐标）、层高、原点锚到底图的经纬度、朝向。室外场景就把那块地方当一个「房间」，没墙。
+3. **人物体型**：人物加身高（米）和体型（瘦 / 中等 / 壮），人偶按它摆。人偶只画躯干和头，不画四肢（Seedance 的经验：四肢会僵）。
+4. **分镜导演是 DSH 的第三个模式** `creative_director`，和顾问、写作助手同一套（会话、续一句、focus、提议、改一下）。它只能交提议（白模、镜头表），作者接受才入账；它**不能自己出片**，出片由作者点。
+5. **送给 Seedance 的东西**：用「全模态参考」——人物三视图当参考图（每人 1–3 张，总共不超过 9 张），白模预演片段当参考视频（管机位和走位），提示词由服务端按镜头的动作、对白、光线、画风拼。参考视频如果平台只认公网地址、本机传不上去，退一步：用白模预演的首帧当参考图 + 提示词写运镜，并在交付单里写清楚。
+6. **白模预演片段由前端渲染**：三维视口按镜头机位录一段（和镜头一样长），传给后端存成资产。后端不跑三维渲染。
+7. **成片拼接在服务端**（ffmpeg），只做按顺序硬切拼接，不做转场、配乐、字幕。平台自带的声音保留；不做配音。
+8. **默认 720p、每镜 5 秒**，作者可以改成 480p 草稿或 4–10 秒；每次点「出片」只出一个候选。
+
+### 13.3 类型（追加到 `packages/contracts/src/creative.ts`）
+
+```ts
+export type V3 = [number, number, number];   // 米；x 向右、y 向上、z 向镜头外（three.js 习惯）
+
+/** Entity.place 追加（level 为 room 时用；室外场景也可以用）。 */
+room?: {
+  outline: [number, number][];   // 局部坐标 (x, z)，米，首尾不重复
+  height: number;                // 层高，米
+  origin: LngLat | null;         // 局部原点锚在底图上的经纬度
+  heading: number;               // 局部 -z 指向的方位角，度（0 = 北）
+} | null;
+
+/** Entity.person 追加 */
+body?: { heightM: number | null; build: 'slim' | 'average' | 'heavy' | null } | null;
+
+/** 白模：归地点，有版本。 */
+export type WhiteboxPrim = {
+  id: string;
+  kind: 'box' | 'cylinder' | 'prism';
+  c: V3;                         // 底面中心
+  s: V3;                         // box: 长宽高；cylinder / prism: [半径, 高, 0]
+  sides?: number;                // prism 的棱数
+  rotY?: number;                 // 绕 y 转，度
+  label?: string;                // 「柜台」「门」「窗」
+  entityId?: string | null;      // 物件在世界观里有条目就挂上
+};
+export type Whitebox = { placeId: string; version: number; prims: WhiteboxPrim[]; updatedAt: string };
+
+/** 一个镜头：归作品的一场。 */
+export type Shot = {
+  id: string;
+  n: number;                     // 场内顺序
+  workId: string; sceneId: string;
+  para?: number | null;          // 对应正文第几段（看板上和正文互相跳）
+  durationSec: number;           // 4–10
+  placeId: string; whiteboxVersion: number;
+  cast: { entityId: string; assetVersionId: string | null; at: V3; facing: number; pose: 'stand' | 'sit' | 'walk'; to?: V3 | null }[];
+  camera: { eye: V3; target: V3; fov: number; end?: { eye: V3; target: V3 } | null };
+  action: string;                // 这一镜发生什么（人话）
+  dialogue?: string | null;
+  light?: string | null;         // 「黄昏」「烛光」
+  /** 依据旧了：白模或人物形象出了新版、正文这段改了。前端照显示。 */
+  stale?: string[];
+};
+
+/** 镜头的一个出片候选。 */
+export type ShotTake = {
+  id: string; shotId: string; n: number; createdAt: string;
+  state: 'queued' | 'generating' | 'unsaved' | 'saved' | 'failed';
+  url?: string | null; posterUrl?: string | null;
+  durationSec: number; resolution: '480p' | '720p';
+  /** 出片依据：镜头的样子、白模版本、用了哪些参考图、预演片段、拼好的提示词。 */
+  basis: { shotHash: string; whiteboxVersion: number; refImages: { assetVersionId: string; view: PersonView }[]; previewId: string | null; mode: 'reference_video' | 'reference_image_only'; prompt: string };
+  provider: string; model: string;
+  taskId?: string | null; failure?: string | null;
+  cost: CreativeCny | null;
+};
+
+/** 一场的成片。 */
+export type SceneCut = {
+  workId: string; sceneId: string;
+  shots: { shotId: string; takeId: string | null }[];   // 每镜选用的候选
+  file?: { state: 'building' | 'saved' | 'failed'; url?: string | null; durationSec?: number; failure?: string | null } | null;
+};
+```
+
+提议追加两种 `kind`：`whitebox`（ops 是 `whitebox.prim.add / update / remove`）和 `shots`（ops 是 `shot.add / update / remove / reorder`），走 1D 的预览、改一下、`supersedes`。
+
+### 13.4 接口
+
+**3A**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/v1/creative/worlds/:id/places/:pid/whitebox?version=` | → `Whitebox`（没有就 `prims: []`, `version: 0`） |
+| POST | `/v1/creative/worlds/:id/ops` | 已有。追加 `whitebox.prim.add / update / remove`（带 `placeId`）、`shot.add / update / remove / reorder`；`entity.update` 能改 `place.room`、`person.body` |
+| GET | `/v1/creative/worlds/:id/works/:wid/scenes/:sid/shots` | → `{ shots: Shot[]; cut: SceneCut }` |
+| POST | `.../shots/:shotId/preview` | 前端上传白模预演片段（`video/webm` 或 `mp4`）和首帧（png）→ `{ previewId, url, posterUrl }`；同一镜头新传的覆盖旧的引用，旧文件留着 |
+| POST | `/v1/kernel/runs` | 已有。`mode: 'creative_director'`，带 `workId`、`sceneId` |
+| GET | `/v1/creative/worlds/:id/proposals/:pid/preview` | 已有。`whitebox` / `shots` 提议的预览：`added / changed / removed` 里带 prims 和 shots（复用 `ItemChange`，kind 加 `prim`、`shot`） |
+
+**3B**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `.../shots/:shotId/takes` | 出一个候选。body `{ resolution?: '480p' \| '720p'; durationSec?: number; note?: string }`。没有预演片段时 422 `PREVIEW_MISSING`「先在视口里录一段预演」；镜头里有人物没选用形象时照出，`basis.refImages` 里少那个人并在返回里写一句 |
+| POST | `.../takes/:takeId/retry` | 只重新取回 `unsaved`，不重新付费 |
+| PUT | `.../shots/:shotId/selected` | `{ takeId }` |
+| POST | `.../scenes/:sid/cut` | 按镜头顺序拼选用的候选 → `SceneCut.file` 变 `building`，好了 `saved`；有镜头没选用就 422 `CUT_INCOMPLETE` 并列出哪几镜 |
+| GET | `/v1/creative/assets/files/:fileId` | 已有。视频、海报、预演片段、成片都走这里；`?download=1` 带人话文件名（「阊门夜行-出城-镜03-候选2.mp4」） |
+
+### 13.5 事件（追加）
+
+| `type` | `data` | 前端 |
+|---|---|---|
+| `creative.whitebox` | `Whitebox` | 视口重画 |
+| `creative.shot` | `{ workId, sceneId, shots: Shot[] }` | 镜头条、视口机位重画 |
+| `creative.take` | `ShotTake` | 镜头格子换状态 / 出片 |
+| `creative.cut` | `SceneCut` | 成片进度、好了能播能下 |
+| `creative.focus` | 已有 | 导演读到的场景段落、人物、白模部件、镜头，视口和镜头条上描一圈 |
+| `creative.usage` | 已有 | 每个候选出完记一条 `purpose: 'creative_video'`，按官方价算已知；没出成的记 0 并注明 |
+
+### 13.6 页面（Claude 实现，「03 视频」解锁）
+
+- **布局**：左边场景正文（当前段落高亮），中间三维视口（白模 + 人偶 + 当前镜头机位视锥），下面镜头条（每镜一格：海报 / 状态 / 时长 / 对白），右边详情和导演对话。
+- **视口**：拖人偶、拖机位、切到机位视角；「录预演」按当前镜头机位从 `camera` 运到 `end`，录成和镜头一样长的片段上传。白模和人偶的颜色按 1D：提议是虚影（虚线、半透明橙），改动的描橙边。
+- **导演**：对话框里说「把这一场拆成镜头」，导演读正文和设定时视口、正文上逐个亮起它在看的东西；交上白模和镜头表后虚影出现，提议条「接受 / 拒绝 / 改一下 / 先收起」。
+- **出片**：镜头格子里「出片」→ 当场「排队 → 出片中 → 片」；候选并排，新候选和当前选用对比，点「用这一条」；可以和预演片段并排对比。
+- **成片**：所有镜头都选好了，「拼成片」→ 进度 → 能播、能下载。
+- **标旧**：镜头 `stale` 有内容时格子角上标「依据旧了：沈砚出了第 5 版立绘」，点开能「按新的重出」。
+- **glTF**：视口「导出白模」，前端用 three.js 导出（人偶一起，带地点和人物 ID）。
+
+### 13.7 验收（真实页面）
+
+**3A**
+1. 选《阊门夜行》（或现有作品）里发生在悦来客栈的一场，2–3 个人物；没有就先用写作助手补一场。
+2. 导演里说「把这一场拆成镜头」：导演工作时，正文段落、人物、房间逐个亮起；交上白模和 4–6 个镜头的提议，视口和镜头条上是虚影；接受后变实。
+3. 「改一下：第 3 镜换成从柜台后面拍」：交第 2 版，只有第 3 镜描橙边。
+4. 拖动人偶、改机位，刷新后还在；人偶高矮按人物身高。
+5. 每镜「录预演」：片段长度对、机位按设定运动，刷新后能播。
+6. 导出 glTF，能在别的查看器里打开（人工看一眼）。
+
+**3B**
+7. 对一镜出片：格子当场换状态；出完能播；刷新、重启控制面后还在。
+8. 片子里的人物看得出是立绘那个人（人眼看，写进记录）；机位大致跟预演一致。
+9. 再出一个候选并排，选用其中一个。
+10. 全部镜头选好后拼成片，能播、能下载；长度等于各镜之和。
+11. 给沈砚出新版立绘并选用：用到他的镜头标「依据旧了」。
+12. 花费：每个候选一条 `creative_video`，按官方价记已知；拼片不花钱。账本加出总数。
