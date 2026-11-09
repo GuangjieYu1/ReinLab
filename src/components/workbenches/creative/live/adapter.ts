@@ -1,6 +1,6 @@
 // 创作台真实模式的数据边界（design/prd/20-creative-contract.md §2、22-creative-1a-frontend-brief.md）。
 // 页面只认这个接口；冲突、路程、故事时间换算都由服务端算，前端不推断。
-import type { CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GenerateJob, GeoJSON, ImpactReport, ImportJob, ItemChange, NetworkStatus, Proposal, TextEdit, Track, Work, WorkOp, WorldSnapshot, WorldVersion, BoardFocus, ProposalPreview } from '../../../../../packages/contracts/src/creative';
+import type { CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GenerateJob, GeoJSON, ImpactReport, ImportJob, ItemChange, NetworkStatus, Proposal, TextEdit, Track, Work, WorkOp, WorldSnapshot, WorldVersion, BoardFocus, ProposalPreview, PersonAsset, PersonAssetVersion, PersonView } from '../../../../../packages/contracts/src/creative';
 import type { MapConfig } from '../../explore/live/adapter';
 
 /** edits/geojson 返回的要素集合（geometry 可能为 null：目标对不上，待确认）。 */
@@ -22,6 +22,7 @@ export type CreativeStreamEvent =
   | { seq: number; type: 'creative.version'; data: WorldVersion }
   | { seq: number; type: 'creative.impact'; data: ImpactReport['maybeScan'] }
   | { seq: number; type: 'creative.focus'; data: BoardFocus }
+  | { seq: number; type: 'creative.asset'; data: { entityId: string; assetId: string; version: PersonAssetVersion } }
   | { seq: number; type: 'creative.usage'; data: { cost: { value: number | null; known: boolean } } };
 
 export interface CreativeAdapter {
@@ -45,6 +46,11 @@ export interface CreativeAdapter {
   preview(proposalId: string, workId?: string | null): Promise<ProposalPreview>;
   /** 29：让模型判自然语言规则；结果并进 check（kind rule_model，黄色疑似）。 */
   judgeRules(): Promise<{ judged: number; skipped: number; cost: { value: number | null; known: boolean }; check: CheckRun }>;
+  /** MVP-2 人物形象（契约 §12.3）。 */
+  asset(entityId: string): Promise<PersonAsset>;
+  drawAsset(entityId: string, req: { views?: PersonView[]; note?: string; from?: string }): Promise<{ asset: PersonAsset; version: PersonAssetVersion }>;
+  assetVersion(entityId: string, versionId: string, action: 'retry' | 'stop'): Promise<unknown>;
+  selectAsset(entityId: string, versionId: string | null): Promise<unknown>;
   runs(): Promise<{ runs: { id: string; mode?: string; state: string }[] }>;
   runEvents(id: string, after: number): Promise<{ events: { seq: number; action: string; payload: Record<string, any> }[]; hasMore?: boolean }>;
   runState(id: string): Promise<{ state: string }>;

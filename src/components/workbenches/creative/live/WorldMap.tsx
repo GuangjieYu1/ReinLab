@@ -191,7 +191,7 @@ export default function WorldMap(p: Props) {
       const sel = q.sel.entityId === x.entityId, pic = q.portraits?.get(x.entityId);
       return [{ type: 'Feature', geometry: { type: 'Point', coordinates: at },
       properties: { id: x.entityId, label: x.at ? (x.routeKind === 'inferred' ? `${x.name} · 推断` : x.name) : `${x.name} · ?`, sel, inferred: x.routeKind === 'inferred', faded: !x.at,
-        icon: `av:${x.entityId}:${sel ? 1 : 0}:${x.name.slice(0, 1)}${pic ? ':p' : ''}`,
+        icon: `av:${x.entityId}:${sel ? 1 : 0}:${x.name.slice(0, 1)}${pic ? `:p:${pic.slice(-12)}` : ''}`, // 换了立绘 id 就变，图标重画
         ...(q.flags.people.has(x.entityId) ? { flag: q.flags.people.get(x.entityId) } : {}) } }]; }) });
     const g = q.ghost, pt = (c: LngLat) => ({ type: 'Point', coordinates: c });
     set('cw-ghost', !g ? EMPTY : { type: 'FeatureCollection', features: [

@@ -117,9 +117,10 @@ export type Sel =
   | { kind: 'event'; id: string } | { kind: 'person'; id: string } | { kind: 'place'; id: string }
   | { kind: 'leg'; id: string } | { kind: 'edit'; id: string } | { kind: 'mode'; id: string } | { kind: 'rule'; id: string };
 
-export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, conflicts, onPick, onEdit, onRemove, onDraw, onRedraw }: {
+export function Detail({ works = [], onOpenWork, extra, sel, look, legs, edits, modes, conflicts, onPick, onEdit, onRemove, onDraw, onRedraw }: {
   works?: import('../../../../../packages/contracts/src/creative').Work[];
   onOpenWork?: (ref: { workId: string; chapterId?: string; sceneId?: string }) => void;
+  /** MVP-2：人物卡的形象区，放在简介下面。 */ extra?: React.ReactNode;
   sel: Sel; look: Lookup; legs: Map<string, CreativeRouteLeg>; edits: MapEdit[]; modes: TransportMode[]; conflicts: CreativeConflict[];
   onPick: (s: Sel) => void; onEdit: (s: Sel) => void; onRemove: (s: Sel) => void; onDraw: (legId: string) => void; onRedraw: (legId: string) => void;
 }) {
@@ -156,6 +157,7 @@ export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, 
     return <div className="cw-pane cw-detail">
       <span className="rh-micro">{sel.kind === 'person' ? '人物' : `地点 · ${LEVEL_ZH[e.place?.level ?? 'site']}`}{e.aliases.length ? ` · 又名 ${e.aliases.join('、')}` : ''}</span><h3>{e.name}</h3>{ov(e as never)}{e.summary && <p>{e.summary}</p>}
       {flagsOf(c => c.entityIds.includes(e.id))}
+      {extra}
       {e.place && <dl>
         <div><dt>上级</dt><dd>{e.place.parentId ? <button className="cw-link" onClick={() => onPick({ kind: 'place', id: e.place!.parentId! })}>{name(e.place.parentId)}</button> : '—'}</dd></div>
         {kids.length > 0 && <div><dt>下级</dt><dd>{kids.map(k => <button key={k.id} className="cw-link" onClick={() => onPick({ kind: 'place', id: k.id })}>{k.name}</button>)}</dd></div>}

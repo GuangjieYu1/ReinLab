@@ -11,6 +11,7 @@ import { bucketOf, positionsAt, trailsAt, type Pos } from './geo';
 import LiveNovel from './LiveNovel';
 import { CreativeAssistant } from './NovelPanels';
 import WorldMap, { type DrawMode, type Ghost, type MapPick } from './WorldMap';
+import { PersonLook, fileUrl, type AssetEvent } from './PersonLook';
 import { ProposalBar, GhostConflicts } from './Board';
 import StoryTimeline from './StoryTimeline';
 import { CheckPanel, Detail, KIND_ZH, ProposalList, submitChunks, type Sel } from './Panels';
@@ -41,6 +42,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const [draw, setDraw] = useState<DrawMode | null>(null);
   // 1D：画在看板上的那条提议、它的预览；AI 正在看什么
   const [ghostId, setGhostId] = useState<string | null>(null), [preview, setPreview] = useState<ProposalPreview | null>(null), [pvErr, setPvErr] = useState('');
+  const [assetEv, setAssetEv] = useState<AssetEvent | null>(null), [drawing, setDrawing] = useState<Set<string>>(new Set());
   const [aiFocus, setAiFocus] = useState<BoardFocus | null>(null), [allConf, setAllConf] = useState(false);
   // 设定提议（新的在前）：按作品看时快照里不带提议，所以单独取
   const [advProps, setAdvProps] = useState<Proposal[]>([]);
@@ -105,6 +107,12 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
     const stop = adapter.subscribe(cursor, ev => {
       if (ev.type === 'creative.check') setSnap(s => s ? { ...s, check: ev.data as CheckRun } : s);
       else if (ev.type === 'creative.usage') setCost(ev.data.cost);
+      else if (ev.type === 'creative.asset') {
+        const d = ev.data, on = Object.values(d.version.views).some(x => x && (x.state === 'queued' || x.state === 'generating'));
+        setAssetEv({ entityId: d.entityId, version: d.version, n: ev.seq });
+        setDrawing(cur => { const n = new Set(cur); if (on) n.add(d.entityId); else n.delete(d.entityId); return n; });
+        if (!on) soon();
+      }
       else if (ev.type === 'creative.focus') {
         const f = ev.data;
         // 一轮里看过的东西一直亮着（步骤一两秒就换，只亮当前的话看不见）；结束后留几秒再收
@@ -227,8 +235,11 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   }, [board, preview]);
   // AI 正在看：refs → 地图上的点和线、时间轴上的事件
   const aiMarks = useMemo(() => {
-    if (!aiFocus || !snap) return null;
+    if ((!aiFocus && !drawing.size) || !snap) return null;
     const points: LngLat[] = [], lines: LngLat[][] = [], evIds = new Set<string>();
+    // MVP-2：正在出形象的人物，头像外圈同样转橙
+    for (const id of drawing) { const p = posMap.get(id); if (p?.at ?? p?.last) points.push((p.at ?? p.last)!); }
+    if (!aiFocus) return { points, lines, evIds };
     const placeAt = (id?: string | null): LngLat[] => { const g = id ? look.entities.get(id)?.place?.geo : null; return g?.type === 'Point' ? [g.coordinates as LngLat] : []; };
     for (const r of aiFocus.refs) {
       if (r.kind === 'event') { evIds.add(r.id); points.push(...placeAt(look.events.get(r.id)?.placeId).slice(0, 1)); }
@@ -236,7 +247,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
       else if (r.kind === 'leg') { const c = (legs.get(r.id)?.path?.coordinates ?? []) as LngLat[]; if (c.length) lines.push(c); }
     }
     return { points, lines, evIds };
-  }, [aiFocus, snap, look, posMap, legs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [aiFocus, drawing, snap, look, posMap, legs]); // eslint-disable-line react-hooks/exhaustive-deps
   const moment = useMemo(() => live ? { trails: trailsAt(tracks, legs, t) } : null, [live, tracks, legs, t]);
   // 事件章：静态时全画；看「这一刻」时，已发生的淡、正在发生的亮并挂标题、还没发生的不画
   const mapEvents = useMemo(() => (snap?.events ?? []).flatMap(e => {
@@ -245,7 +256,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
     const state: 'all' | 'past' | 'now' | 'future' = !live ? 'all' : a == null ? 'future' : t < a ? 'future' : t <= b! ? 'now' : 'past';
     return [{ id: e.id, title: e.title, at: g.coordinates as LngLat, state, flag: flags.events.get(e.id), hearsay: e.narrative !== 'fact' }];
   }), [snap?.events, look, live, t, flags.events]);
-  const portraits = useMemo(() => new Map(persons.flatMap(p => p.person?.portrait?.url ? [[p.id, p.person.portrait.url] as [string, string]] : [])), [persons]);
+  const portraits = useMemo(() => new Map(persons.flatMap(p => p.person?.portrait?.url ? [[p.id, fileUrl(p.person.portrait.url)] as [string, string]] : [])), [persons]);
   // 地图上方的播报：最近发生的三件事（事件 + 从这一刻起的关系），正在发生的亮着
   const feed = useMemo(() => {
     if (!live || !snap) return [];
@@ -424,7 +435,10 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
                 onEditItem={c => { setAsWork(null); setViewing(null); const ent = snap.entities.find(e => e.id === c.itemId); const s: Sel | null = c.kind === 'event' ? { kind: 'event', id: c.itemId } : ent ? { kind: ent.kind === 'place' ? 'place' : 'person', id: c.itemId } : c.kind === 'rule' ? { kind: 'rule', id: c.itemId } : c.kind === 'mode' ? { kind: 'mode', id: c.itemId } : c.kind === 'edit' ? { kind: 'edit', id: c.itemId } : null; if (s) { setSel(s); editSel(s); setNotice('改完存成新版本，影响清单会按新版本重算。'); } }} />
             : tab === 'assistant' ? <CreativeAssistant adapter={adapter} onUpdate={() => void reload()} initialMode="creative_advisor" onBoard={id => { setAllConf(false); setGhostId(id); }} />
             : tab === 'form' && form ? formFor(form)
-            : sel ? <Detail works={works} onOpenWork={ref => { setNovelTarget(ref); setFace('novel'); }} sel={sel} look={look} legs={legs} edits={snap.edits} modes={snap.modes} conflicts={conflicts} onPick={pick} onEdit={readOnly ? () => {} : editSel} onRemove={readOnly ? () => {} : removeSel} onDraw={drawRoute} onRedraw={id => redraw(id)} />
+            : sel ? <><Detail extra={sel.kind === 'person' && look.entities.get(sel.id) ? <PersonLook entity={look.entities.get(sel.id)!} artStyle={snap.world.artStyle} adapter={adapter} readOnly={readOnly} ev={assetEv}
+              onSaveLook={async v => { const e = look.entities.get(sel.id)!; await send([{ op: 'entity.update', id: e.id, patch: { person: { ...(e.person ?? {}), look: v || null } } }]); }}
+              onSaveStyle={v => send([{ op: 'world.set', patch: { artStyle: v || null } }])} /> : null} works={works} onOpenWork={ref => { setNovelTarget(ref); setFace('novel'); }} sel={sel} look={look} legs={legs} edits={snap.edits} modes={snap.modes} conflicts={conflicts} onPick={pick} onEdit={readOnly ? () => {} : editSel} onRemove={readOnly ? () => {} : removeSel} onDraw={drawRoute} onRedraw={id => redraw(id)} />
+</>
             : <p className="cw-muted cw-pane">在地图、时间轴或左栏里点一个东西看详情。</p>}
         </div>
         {selConf && tab !== 'check' && <button className="cw-confbar" data-sev={selConf.severity} onClick={() => setTab('check')}>{selConf.severity === 'hard' ? '确定冲突' : '疑似'} · {KIND_ZH[selConf.kind] ?? ''} · 回到检查</button>}
