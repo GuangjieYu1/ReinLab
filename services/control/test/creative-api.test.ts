@@ -1641,6 +1641,86 @@ describe("1C：版本差异、影响清单、设定组合", () => {
   });
 });
 
+describe("复验：跨版本跟着改也能标待同步（从 baseVersion 起算）", () => {
+  it("条目在中间某版改、目标版是再下一版时，确定受影响的场景照样标待同步", async () => {
+    const worldPath = `/v1/creative/worlds/${dossierA}`;
+    const snapshot = await (await api(worldPath)).json();
+    const place = snapshot.entities.find((item: any) => item.name === "青州城");
+    const created = await api(`${worldPath}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "跨版本测试" }),
+    });
+    const work = await created.json();
+    expect(work.baseVersion).toBeGreaterThanOrEqual(2);
+    const base = work.baseVersion;
+    await api(`${worldPath}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "试", pov: "三", ending: "试",
+              chapters: [{ id: "c1", title: "第一章", scenes: [{ id: "s1", title: "城门口", goal: "试", eventIds: [], targetWords: 300 }] }],
+            },
+          },
+          { op: "outline.confirm" },
+          { op: "text.set", sceneId: "s1", baseTextVersion: 0, text: "青州城的城门还没有开，雨一直下。" },
+        ],
+      }),
+    });
+    // v3：挪青州城；v4：挪另一个地点（目标版不是条目改的那一版）
+    let current = (await (await api(worldPath)).json()).world.revision;
+    await api(`${worldPath}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: current,
+        ops: [{ op: "entity.update", id: place.id, patch: { place: { ...place.place, geo: { type: "Point", coordinates: [118.4, 36.9] } } } }],
+      }),
+    });
+    const v3 = await (await api(`${worldPath}/versions`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ summary: "v3：青州城挪位置" }),
+    })).json();
+    const other = (await (await api(worldPath)).json()).entities.find((item: any) => item.kind === "place" && item.id !== place.id);
+    current = (await (await api(worldPath)).json()).world.revision;
+    await api(`${worldPath}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: current,
+        ops: [{ op: "entity.update", id: other.id, patch: { summary: `改简介 ${Date.now()}` } }],
+      }),
+    });
+    const v4 = await (await api(`${worldPath}/versions`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ summary: "v4：另一个地点改简介" }),
+    })).json();
+    expect(v4.n).toBeGreaterThan(v3.n);
+    expect(base).toBeLessThan(v3.n);
+
+    const followed = await api(`${worldPath}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 2, ops: [{ op: "setting.follow", itemId: place.id, toVersion: v4.n }] }),
+    });
+    expect(followed.status).toBe(200);
+    const body = await followed.json();
+    expect(body.work.setting.picks.some((pick: any) => pick.itemId === place.id && pick.fromVersion === v4.n)).toBe(true);
+    // 条目在 v3 改的，从 baseVersion 算到 v4 必须能标出来
+    expect(body.work.setting.pendingSync).toBeGreaterThanOrEqual(1);
+    const detail = await (await api(`${worldPath}/works/${work.id}`)).json();
+    const marks = detail.chapters.flatMap((chapter: any) => chapter.scenes).flatMap((scene: any) => scene.marks);
+    expect(marks.some((mark: any) => mark.kind === "sync" && mark.refId === place.id)).toBe(true);
+  });
+});
+
 describe("29 号：模型判自然语言规则", () => {
   const worldPath = `/v1/creative/worlds/${dossierA}`;
   let ruleId = "";

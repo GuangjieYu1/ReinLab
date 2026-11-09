@@ -300,7 +300,9 @@ async function applySettingOp(
   switch (op.op) {
     case 'setting.follow': {
       const { change } = await itemChangeBetween(client, account, dossier, document.baseVersion, op.toVersion, op.itemId);
-      const scenes = await scenesAffectedBy(client, account, dossier, workId, op.itemId, op.toVersion);
+      // 从作品的 baseVersion 起算（复验：条目在 v3 改、目标 v4 时不能漏）
+      const fromVersion = document.baseVersion > 0 ? document.baseVersion : 1;
+      const scenes = await scenesAffectedBy(client, account, dossier, workId, op.itemId, fromVersion, op.toVersion);
       const next = followItem(state, { itemId: op.itemId, toVersion: op.toVersion, scenes, at });
       return withSetting(
         next,
@@ -396,7 +398,15 @@ async function applySettingOp(
       };
     }
     case 'sync.suggest': {
-      const { change } = await itemChangeBetween(client, account, dossier, document.baseVersion, Math.max(1, document.baseVersion), op.itemId);
+      const pick = state.picks.find((item) => item.itemId === op.itemId);
+      const { change } = await itemChangeBetween(
+        client,
+        account,
+        dossier,
+        document.baseVersion,
+        Math.max(1, pick?.fromVersion ?? document.baseVersion),
+        op.itemId,
+      );
       // 每场只改「标了待同步」的那一段（验收 C2）
       const syncParas: Record<string, number> = {};
       for (const sceneId of op.sceneIds) {

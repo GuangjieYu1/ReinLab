@@ -135,9 +135,15 @@ export async function computeImpact(input: ImpactInput): Promise<ImpactReport> {
   const items: ImpactItem[] = [];
   for (const change of changes) {
     const sure: ImpactItem['sure'] = [];
+    const refIdOf = (ref: ImpactRef) =>
+      (ref as { sceneId?: string }).sceneId ?? (ref as { eventId?: string }).eventId ?? (ref as { legId?: string }).legId ?? '';
     const pushRef = (ref: ImpactRef & { why: string }) => {
-      const key = JSON.stringify([ref.kind, (ref as { sceneId?: string }).sceneId ?? (ref as { eventId?: string }).eventId ?? (ref as { legId?: string }).legId, ref.why]);
-      if (sure.some((item) => JSON.stringify([item.kind, (item as { sceneId?: string }).sceneId ?? (item as { eventId?: string }).eventId ?? (item as { legId?: string }).legId, item.why]) === key)) return;
+      // 同一处只留一行；不同理由并进同一行，不重复显示（复验第二条）
+      const existing = sure.find((item) => item.kind === ref.kind && refIdOf(item) === refIdOf(ref) && (ref.kind !== 'scene' || (item as { workId?: string }).workId === (ref as { workId?: string }).workId));
+      if (existing) {
+        if (!existing.why.includes(ref.why)) existing.why = `${existing.why}；${ref.why}`;
+        return;
+      }
       sure.push(ref);
     };
 
@@ -328,9 +334,11 @@ export async function scenesAffectedBy(
   dossier: string,
   workId: string,
   itemId: string,
+  fromVersion: number,
   toVersion: number,
 ): Promise<{ sceneId: string; para?: number }[]> {
-  const report = await impactOf(client, account, dossier, Math.max(1, toVersion - 1), toVersion);
+  // 从作品的 baseVersion 算到目标版（不是 toVersion-1）：条目可能在中间某版改的，算相邻两版会漏
+  const report = await impactOf(client, account, dossier, Math.max(1, fromVersion), Math.max(1, toVersion));
   const item = report.items.find((entry) => entry.change.itemId === itemId);
   if (!item) return [];
   const seen = new Set<string>();
