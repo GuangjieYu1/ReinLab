@@ -535,9 +535,41 @@ async function createProposal(
     { type: 'creative.op', data: { revision: state.revision + 1, applied: [] } },
   ]);
   defs.proposals.push(proposal.id);
+  // 看板先描一下这条提议动到的现有条目（新条目还没有真 id，等预览画虚影）
+  const refs: BoardRef[] = [];
+  const seen = new Set<string>();
+  const byName = (name?: string | null): string =>
+    name ? String(state.document.entities.find((item) => item.name === name || (item.aliases ?? []).includes(name))?.id ?? '') : '';
+  const addRef = (kind: BoardRef['kind'], id: string) => {
+    if (!id || id.startsWith('pv:') || seen.has(`${kind}:${id}`)) return;
+    seen.add(`${kind}:${id}`);
+    refs.push({ kind, id } as BoardRef);
+  };
+  for (const op of proposal.ops as unknown as Record<string, unknown>[]) {
+    const opKind = String(op.op ?? '');
+    if (opKind === 'entity.add') {
+      const entity = op.entity as { place?: { parentId?: string | null } } | undefined;
+      if (entity?.place?.parentId) addRef('entity', entity.place.parentId);
+      continue;
+    }
+    if (opKind.startsWith('entity.')) addRef('entity', String(op.id ?? ''));
+    else if (opKind.startsWith('event.')) addRef('event', String(op.id ?? ''));
+    else if (opKind.startsWith('relation.')) addRef('relation', String(op.id ?? ''));
+    else if (opKind.startsWith('rule.')) addRef('rule', String((op.rule as { id?: string } | undefined)?.id ?? op.id ?? ''));
+    if (opKind === 'event.add' || opKind === 'event.update') {
+      const event = (op.event ?? op.patch ?? {}) as {
+        participants?: { entityId?: string; entityName?: string }[];
+        placeId?: string | null;
+        placeName?: string | null;
+      };
+      const placeId = event.placeId || byName(event.placeName);
+      if (placeId) addRef('entity', placeId);
+      for (const participant of event.participants ?? []) addRef('entity', participant.entityId || byName(participant.entityName));
+    }
+  }
   return {
     text: `已交一条设定提议（${proposal.id.slice(0, 8)}）：${proposal.title}。它进了待确认，作者接受才入账。${superseded ? '上一版已经作废（被新版替代）。' : ''}`,
-    refs: [],
+    refs,
   };
 }
 

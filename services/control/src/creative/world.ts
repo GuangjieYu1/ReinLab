@@ -382,6 +382,11 @@ export function applyOps(
         const duplicated = next.entities.find(
           (item) => item.name === op.entity.name.trim() || (item.aliases ?? []).includes(op.entity.name!.trim()),
         );
+        // 预览：重名不整批报错，记进 unresolved（接受前要合并或改名），其余照画
+        if (duplicated && tolerant) {
+          unresolved.add(`${op.entity.name.trim()}（已存在，接受前要合并或改名）`);
+          continue;
+        }
         if (duplicated)
           throw fail(
             'ENTITY_EXISTS',

@@ -2045,6 +2045,110 @@ describe("1D：提议在看板上的虚影", () => {
     expect(preview.vsPrevious.length).toBeGreaterThan(0);
   });
 
+  it("重名不整批 409：照样出预览，写进 unresolved", async () => {
+    const { proposal } = await runOnce("再加一个张三", {
+      title: "再加一个张三（重名）",
+      summary: "名字撞上了已有的张三。",
+      entities: [{ name: "张三", kind: "person", aliases: [], summary: "想再建一个同名的人" }],
+      events: [
+        {
+          title: "张三在城门站了一会儿",
+          what: "站了一会儿",
+          kind: "stay",
+          participants: [{ name: "张三", as: "actor" }],
+          placeName: "城门",
+          start: "1684-04-23 09:00",
+          end: "1684-04-23 09:10",
+          narrative: "fact",
+        },
+      ],
+      rules: [],
+      doubts: [],
+    });
+    expect(proposal).toBeTruthy();
+    const preview = await api(`/v1/creative/worlds/${dossier}/proposals/${proposal.id}/preview`);
+    expect(preview.status).toBe(200);
+    const body = await preview.json();
+    expect(body.unresolved.some((item: string) => item.includes("张三") && item.includes("已存在"))).toBe(true);
+    expect(body.added.events).toHaveLength(1);
+  });
+
+  it("规则判定不进 conflictsGone（接受后要重判，不算被提议修好）", async () => {
+    const world = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    await api(`/v1/creative/worlds/${dossier}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: world.world.revision,
+        ops: [{ op: "rule.set", rule: { id: "rule_test_curfew", text: "夜里城门不开。", machine: null } }],
+      }),
+    });
+    judgeModelHolder.current = async () =>
+      new Response(JSON.stringify({ content: [{ type: "text", text: JSON.stringify({ violations: [] }) }], usage: { input_tokens: 300, output_tokens: 40 } }), {
+        status: 200,
+      });
+    const judged = await api(`/v1/creative/worlds/${dossier}/rules/judge`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect(judged.status).toBe(200);
+    const { proposal } = await runOnce("加一条夜里的事", {
+      title: "夜里多一条巡夜",
+      summary: "试规则判定。",
+      entities: [],
+      events: [
+        {
+          title: "巡夜",
+          what: "城门巡夜",
+          kind: "stay",
+          participants: [{ name: "张三", as: "actor" }],
+          placeName: "城门",
+          start: "1684-04-24 22:00",
+          end: "1684-04-24 22:30",
+          narrative: "fact",
+        },
+      ],
+      rules: [],
+      doubts: [],
+    });
+    const preview = await (await api(`/v1/creative/worlds/${dossier}/proposals/${proposal.id}/preview`)).json();
+    const all = [...preview.conflictsNew, ...preview.conflictsGone];
+    expect(all.some((item: any) => (typeof item === "string" ? false : item.kind === "rule_model"))).toBe(false);
+  });
+
+  it("交提议那条 focus 带上动到的条目", async () => {
+    const { runId } = await runOnce("加一条城门口的事", {
+      title: "城门口的事（focus refs）",
+      summary: "试 focus refs。",
+      entities: [],
+      events: [
+        {
+          title: "城门口等消息",
+          what: "等消息",
+          kind: "stay",
+          participants: [{ name: "张三", as: "actor" }],
+          placeName: "城门",
+          start: "1684-04-25 09:00",
+          end: "1684-04-25 09:10",
+          narrative: "fact",
+        },
+      ],
+      rules: [],
+      doubts: [],
+    });
+    let focus: any[] = [];
+    for (let index = 0; index < 120; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const events = await admin.query("select data from creative_event where dossier_id=$1 and type='creative.focus' order by at", [dossier]);
+      focus = events.rows.map((row) => row.data).filter((data: any) => data.runId === runId && data.proposalId);
+      if (focus.length) break;
+    }
+    expect(focus.length).toBeGreaterThan(0);
+    expect(focus[0].refs.length).toBeGreaterThan(0);
+    expect(focus[0].refs.some((ref: any) => ref.kind === "entity")).toBe(true);
+  });
+
   it("看板「正在看」：读工具推 creative.focus，一轮结束推 done", async () => {
     let searchCall = 0;
     chatModelHolder.current = async () => {

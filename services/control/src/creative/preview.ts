@@ -157,15 +157,21 @@ export async function previewOf(
   ]);
   const range = timeRange(applied);
   const tracks: Track[] = personIds.size
-    ? buildTracks(applied, legs, range, [...personIds].filter((id) => !id.startsWith('pv:') || true))
+    ? buildTracks(applied, legs, range, [...personIds], { ignoreDeath: true })
     : [];
 
   const baseCheck = runCheck({ document: base, legs: baseLegs, revision: worldState.revision, now: new Date().toISOString() });
   const appliedCheck = runCheck({ document: applied, legs, revision: worldState.revision, now: new Date().toISOString() });
   const baseIds = conflictIds(baseCheck);
   const appliedIds = conflictIds(appliedCheck);
-  const conflictsNew: CreativeConflict[] = appliedCheck.conflicts.filter((item) => !baseIds.has(item.id));
-  const conflictsGone = [...baseIds].filter((id) => !appliedIds.has(id));
+  // 规则判定（rule_model）按「事件 + 规则」指纹缓存，事件一变就失效：它不算「被这条提议修好了」，
+  // 也不该在虚影里当成新冲突（接受后需要重判）。预览里两边都不列。
+  const conflictsNew: CreativeConflict[] = appliedCheck.conflicts.filter(
+    (item) => !baseIds.has(item.id) && item.kind !== 'rule_model',
+  );
+  const conflictsGone = [...baseIds].filter(
+    (id) => !appliedIds.has(id) && baseCheck.conflicts.find((item) => item.id === id)?.kind !== 'rule_model',
+  );
 
   const diff = diffDocuments(base, applied);
   const changed = diff.filter((item) => item.change === 'update');
@@ -198,7 +204,10 @@ export async function previewOf(
     tracks,
     conflictsNew,
     conflictsGone,
-    unresolved: unresolved.map((name) => `「${name}」还没有入账，接受后需要先建出来`),
+    // 已经是整句话（重名那类）就原样给；只是名字的才包一层
+    unresolved: unresolved.map((name) =>
+      name.includes('（') ? name : `「${name}」还没有入账，接受后需要先建出来`,
+    ),
     vsPrevious,
   };
   CACHE.set(key, preview);
