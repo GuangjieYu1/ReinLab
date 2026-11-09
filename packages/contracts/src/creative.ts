@@ -329,6 +329,8 @@ export type Proposal = {
   /** 「让助手改」时模型判断这段不用改：after 和原文一字不差，前端显示「这段不用改」+ 一键 dismiss。 */
   unchanged?: boolean;
   doubts: string[];
+  /** 白模布局里没满足的摆放要求（人话）。 */
+  unmet?: string[];
   dependsOn: string[];
   conflicts: CreativeConflict[];
   candidates?: { label: string; ops: CreativeOp[]; why: string }[];
@@ -642,6 +644,8 @@ export type ProposalPreview = {
   conflictsGone: string[];
   /** 名字解析不到的（entityName / placeName），人话。 */
   unresolved: string[];
+  /** 白模摆放里没满足的要求（人话）。 */
+  unmet?: string[];
   /** 这一版替代了旧版时：和旧版比变了什么（条目级）。 */
   vsPrevious?: ItemChange[] | null;
 };
@@ -720,6 +724,49 @@ export type WhiteboxPrim = {
   color?: string | null;
   /** 本来就在房间外面（门外街面这类），不按轮廓校验。 */
   outside?: boolean;
+  /** 这件是房间壳生成的 / 求解器摆的 / 作者拖过的。 */
+  from?: 'shell' | 'layout' | 'author';
+  /** 对应的 LayoutItem.key（求解器摆的件才有）。 */
+  key?: string;
+};
+
+// ── 白模布局（契约 §13.8）────────────────────────
+export type Side = 'north' | 'south' | 'east' | 'west';
+
+/** 墙上的开口：门、窗。at 是这面墙从西/北端算起的位置（0–1 的中点比例）。 */
+export type Opening = {
+  kind: 'door' | 'window';
+  wall: Side | number;
+  at: number;
+  width: number;
+  height: number;
+  sill?: number;
+  label?: string;
+};
+
+/** 物件之间的关系（软约束尽量满足；硬约束见契约 §13.8）。 */
+export type Relation3 =
+  | { type: 'wall'; side?: Side | 'any' }
+  | { type: 'middle' }
+  | { type: 'corner'; sides?: [Side, Side] }
+  | { type: 'near' | 'far'; of: string }
+  | { type: 'front' | 'behind' | 'beside'; of: string }
+  | { type: 'align'; of: string }
+  | { type: 'face'; of: string | 'door' | Side }
+  | { type: 'on'; of: string };
+
+/** 导演交的一件东西：只给尺寸和关系，不给坐标。 */
+export type LayoutItem = {
+  key: string;
+  label: string;
+  kind: 'box' | 'cylinder';
+  /** box：宽（东西向）× 高 × 深；cylinder：[半径, 高, 0]。 */
+  size: [number, number, number];
+  material?: WhiteboxPrim['material'];
+  color?: string | null;
+  relations: Relation3[];
+  outside?: boolean;
+  entityId?: string | null;
 };
 
 export type Whitebox = { placeId: string; version: number; prims: WhiteboxPrim[]; updatedAt: string };

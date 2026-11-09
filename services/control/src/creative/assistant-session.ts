@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import type { CreativeDocument } from './world';
-import type { BoardRef, CreativeOp, Proposal } from '@reinlab/contracts';
+import type { BoardRef, CreativeOp, LayoutItem, Opening, Proposal, WhiteboxPrim } from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { appendEvent } from '../ledger';
 import { appendEvents } from './events';
@@ -16,6 +16,7 @@ import { advisorOps } from './advisor';
 import { loadWorld } from './service';
 import { focusStep } from './preview';
 import { selectedVersions } from './asset-query';
+import { buildShell, solveLayout } from './whitebox-layout';
 import { effectiveWorldOf } from './effective';
 import { diffDocuments } from './items';
 import { runCheck } from './check';
@@ -241,51 +242,88 @@ const TOOLS_DIRECTOR: ToolDef[] = [
   ...TOOLS_READ,
   {
     name: 'propose_whitebox',
-    description: '交一条白模提议（这个房间的部件：墙、柜台、门、桌……），进待确认。',
+    description:
+      '交一条白模提议：只给房间开口和「放什么、多大、和谁什么关系」，坐标由服务端求解器算（不要自己写坐标）。墙/地面/顶棚由服务端按 room 生成。',
     input_schema: {
       type: 'object',
       properties: {
         placeId: { type: 'string' },
         note: { type: 'string' },
-        prims: {
+        room: {
+          type: 'object',
+          description: '房间没有几何时一起交：轮廓（局部 x/z，米，逆时针或顺时针都行）和层高',
+          properties: {
+            outline: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
+            height: { type: 'number' },
+          },
+          required: ['outline', 'height'],
+          additionalProperties: false,
+        },
+        openings: {
           type: 'array',
           items: {
             type: 'object',
             properties: {
-              kind: { type: 'string', enum: ['box', 'cylinder', 'prism'] },
-              c: {
-                type: 'array',
-                items: { type: 'number' },
-                minItems: 3,
-                maxItems: 3,
-                description: '底面中心（米，局部坐标）：y 一般是 0；不要写成几何中心',
-              },
-              s: {
-                type: 'array',
-                items: { type: 'number' },
-                minItems: 3,
-                maxItems: 3,
-                description: 'box：长宽高；cylinder/prism：[半径, 高, 0]（半径不是直径）',
-              },
-              sides: { type: 'number' },
-              rotY: { type: 'number' },
+              kind: { type: 'string', enum: ['door', 'window'] },
+              wall: { type: ['string', 'number'] },
+              at: { type: 'number' },
+              width: { type: 'number' },
+              height: { type: 'number' },
+              sill: { type: 'number' },
               label: { type: 'string' },
-              material: { type: 'string', enum: ['plaster', 'wood', 'stone', 'tile', 'water', 'plant', 'cloth', 'brick'] },
-              color: { type: 'string', description: '#rrggbb' },
-              outside: { type: 'boolean', description: '本来就在房间外（门外街面这类）' },
             },
-            required: ['kind', 'c', 's'],
+            required: ['kind', 'wall', 'at', 'width', 'height'],
+            additionalProperties: false,
+          },
+        },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string' },
+              label: { type: 'string' },
+              kind: { type: 'string', enum: ['box', 'cylinder'] },
+              size: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 3,
+                maxItems: 3,
+                description: 'box：宽（东西向）× 高 × 深；cylinder：[半径, 高, 0]',
+              },
+              material: { type: 'string', enum: ['plaster', 'wood', 'stone', 'tile', 'water', 'plant', 'cloth', 'brick'] },
+              color: { type: 'string' },
+              outside: { type: 'boolean' },
+              relations: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    type: {
+                      type: 'string',
+                      enum: ['wall', 'middle', 'corner', 'near', 'far', 'front', 'behind', 'beside', 'align', 'face', 'on'],
+                    },
+                    side: { type: 'string' },
+                    sides: { type: 'array', items: { type: 'string' } },
+                    of: { type: 'string' },
+                  },
+                  required: ['type'],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ['key', 'label', 'kind', 'size', 'relations'],
             additionalProperties: false,
           },
         },
       },
-      required: ['placeId', 'prims'],
+      required: ['placeId', 'items'],
       additionalProperties: false,
     },
   },
   {
     name: 'propose_shots',
-    description: '交一条镜头表提议（这一场拆成几镜），进待确认。',
+    description: '交一条镜头表提议（这一场拆成几镜），进待确认。不需要等白模被接受——同一轮里可以先交白模再立刻交镜头。',
     input_schema: {
       type: 'object',
       properties: {
@@ -633,32 +671,43 @@ export async function runTool(
     }
     case 'propose_whitebox': {
       if (!call.input.placeId) return { text: '要指定是哪个地点。', refs: [] };
-      const prims = (call.input.prims as Record<string, unknown>[]) ?? [];
-      // 先在交提议时按房间几何校验：不合规的当场退回给模型，不进待确认
-      const place = world.entities.find((item) => item.id === call.input.placeId);
-      const room = place?.place?.room ?? null;
-      const problems: string[] = [];
-      for (const prim of prims) {
-        try {
-          validatePrim(room, prim as never, Boolean(prim.outside));
-        } catch (error) {
-          problems.push(String((error as Error).message));
-        }
-      }
-      if (problems.length)
+      const placeId = String(call.input.placeId);
+      const place = world.entities.find((item) => item.id === placeId);
+      const roomInput = call.input.room as { outline?: [number, number][]; height?: number } | undefined;
+      const room = (roomInput?.outline && roomInput.height
+        ? { outline: roomInput.outline, height: roomInput.height }
+        : place?.place?.room) ?? null;
+      if (!room) {
         return {
-          text: `白模没交成，${problems.length} 个部件几何不对：\n- ${problems.slice(0, 4).join('\n- ')}\n改好再交（c 是底面中心，y 一般 0；圆柱 s=[半径,高,0]；超出层高或房间轮廓的会被拒）。`,
+          text: '这个地点还没有房间几何（place.room）。可以在这次提议里带 room: { outline, height }，或者先让作者定房间。',
           refs: [],
           ok: false,
-          step: '白模几何不对，退回了',
+          step: '房间没几何',
         };
-      const ops = prims.map((prim) => ({ op: 'whitebox.prim.add', placeId: String(call.input.placeId), prim }));
+      }
+      const openings = (call.input.openings as Opening[]) ?? [];
+      const items = (call.input.items as LayoutItem[]) ?? [];
+      const shell = buildShell(room, openings);
+      // 改版：上一版里没提到的件保持原坐标，当成固定障碍
+      const aboutId = call.input.supersedes ? String(call.input.supersedes) : defs.about;
+      const previous = aboutId ? worldState.document.proposals.find((item: Proposal) => item.id === aboutId) : undefined;
+      const changedKeys = new Set(items.map((item) => item.key));
+      const prevPrims = (previous?.ops ?? [])
+        .filter((op) => op.op === 'whitebox.prim.add')
+        .map((op) => (op as unknown as { prim: WhiteboxPrim }).prim)
+        .filter((prim) => prim?.key && !changedKeys.has(prim.key));
+      const fixed = prevPrims.length ? prevPrims : [];
+      const solved = solveLayout(room, items, fixed, shell);
+      const ops: unknown[] = [];
+      if (roomInput?.outline && roomInput.height)
+        ops.push({ op: 'entity.update', id: placeId, patch: { place: { ...(place?.place ?? {}), room: { ...room, origin: place?.place?.room?.origin ?? null, heading: place?.place?.room?.heading ?? 0 } } } });
+      for (const prim of [...shell, ...fixed, ...solved.prims]) ops.push({ op: 'whitebox.prim.add', placeId, prim });
       const proposed = await createProposal(defs, world, {
         kind: 'whitebox',
-        title: `白模：${prims.length} 个部件`,
+        title: `白模：${shell.length} 个壳件 + ${solved.prims.length + fixed.length} 件摆设`,
         summary: String(call.input.note ?? ''),
         ops,
-        doubts: [],
+        doubts: solved.unmet,
         ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
       });
       return proposed;
@@ -933,6 +982,8 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       about ? `作者在看板上要改的是这条提议：${about}（交新版时会被它替代）。` : '',
       '要读设定/正文/检查/版本差异用工具；交提议用 propose 工具。回复用 Markdown，简洁。',
       '提议的明细作者会在看板上看到，回复里不复述明细，只说一两句要点和拿不准的地方。',
+      '白模和镜头可以在同一轮一起交，不要等作者确认白模再交镜头。',
+      '白模只给尺寸和关系，坐标由服务端求解器算，不要自己写坐标。',
     ].join('\n');
     const messages: ChatMessage[] = [...history];
     const proposals: string[] = [];
@@ -974,6 +1025,8 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       break;
     }
     // 模型没给正文（比如最后只调了工具就停）：把工具的结果/拒绝原因当回复，别让作者看到空白
+    // 「（调用工具）」这类占位字也算空：把最后一次工具的结果/退回原因当回复
+    if (/^[（(]\s*调用工具\s*[)）]$/.test(finalText.trim())) finalText = '';
     if (!finalText.trim() && lastToolText.trim()) finalText = lastToolText.trim();
     if (!finalText.trim()) finalText = '这一步没有写出回复。';
     await say('assistant', finalText, `${keyBase}-assistant`);

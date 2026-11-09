@@ -35,6 +35,7 @@ import type {
 } from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { boundsOf, parseStoryTime, type StoryTimeContext } from './story-time';
+import { insideRoom } from './whitebox-layout';
 
 export type RoutePathEntry = { legId: string; path: GeoJSON.LineString };
 
@@ -360,20 +361,8 @@ export function validatePrim(room: { outline: [number, number][]; height: number
     throw fail('PRIM_TOO_TALL', 422, `这个部件高到 ${top.toFixed(2)} 米，超过层高 ${room.height} 米；c 是底面中心（y 一般是 0）。`);
   if (outside || prim.outside) return;
   // 按「底面中心」判：贴墙的墙心本来就压着轮廓线，按四角判会把正常墙体当成出界
-  if (!insideOutline(room.outline, prim.c[0], prim.c[2]))
+  if (!insideRoom(room.outline, prim.c[0], prim.c[2]))
     throw fail('PRIM_OUTSIDE_ROOM', 422, '这个部件出了房间轮廓；本来就在室外（门外街面）的部件请标 outside: true。');
-}
-
-/** 点在不在房间轮廓里（射线法；轮廓是局部坐标 x/z）。 */
-function insideOutline(outline: [number, number][], x: number, z: number): boolean {
-  if (!outline.length) return true;
-  let inside = false;
-  for (let i = 0, j = outline.length - 1; i < outline.length; j = i, i += 1) {
-    const [xi, zi] = outline[i]!;
-    const [xj, zj] = outline[j]!;
-    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
-  }
-  return inside;
 }
 
 /** MVP-3：某个地点当前的白模。 */
@@ -832,11 +821,15 @@ export function applyOps(
             }
             throw error;
           }
-          prims.push(prim);
+          // 同一个 key 再交一次 = 改这件（改版合并、作者拖过都靠它，不会越堆越多）
+          const sameKey = prim.key ? prims.findIndex((item) => item.key === prim.key) : -1;
+          if (sameKey >= 0) prims[sameKey] = { ...prims[sameKey], ...prim } as WhiteboxPrim;
+          else prims.push(prim);
         } else if (op.op === 'whitebox.prim.update') {
           const index = prims.findIndex((item) => item.id === op.id);
           if (index < 0) throw fail('PRIM_NOT_FOUND', 404, '白模里没有这个部件。');
-          prims[index] = { ...prims[index], ...op.patch };
+          const touched = Boolean(op.patch.c || op.patch.s || op.patch.rotY);
+          prims[index] = { ...prims[index], ...op.patch, ...(touched && prims[index].from !== 'shell' ? { from: 'author' as const } : {}) };
         } else {
           const index = prims.findIndex((item) => item.id === op.id);
           if (index < 0) throw fail('PRIM_NOT_FOUND', 404, '白模里没有这个部件。');

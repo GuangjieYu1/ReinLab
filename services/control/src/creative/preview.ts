@@ -54,15 +54,21 @@ function applyProposal(base: CreativeDocument, proposal: Proposal): {
   return { document: outcome.next, unresolved: [...unresolved] };
 }
 
-const addedOf = (document: CreativeDocument) => ({
+const primIdsOf = (document: CreativeDocument) =>
+  new Set(((document.whiteboxes ?? []) as { prims: { id: string }[] }[]).flatMap((box) => box.prims.map((prim) => prim.id)));
+const shotIdsOf = (document: CreativeDocument) => new Set(((document.shots ?? []) as { id: string }[]).map((shot) => shot.id));
+
+const addedOf = (document: CreativeDocument, base: CreativeDocument) => ({
+  _basePrimIds: primIdsOf(base),
+  _baseShotIds: shotIdsOf(base),
   entities: document.entities.filter((item) => item.id.startsWith('pv:')),
   events: document.events.filter((item) => item.id.startsWith('pv:')),
   relations: document.relations.filter((item) => item.id.startsWith('pv:')),
   rules: document.rules.filter((item) => item.id.startsWith('pv:')),
   prims: ((document.whiteboxes ?? []) as { prims: WhiteboxPrim[] }[])
     .flatMap((box) => box.prims)
-    .filter((prim) => prim.id.startsWith('pv:')),
-  shots: ((document.shots ?? []) as Shot[]).filter((shot) => shot.id.startsWith('pv:')),
+    .filter((prim) => !primIdsOf(base).has(prim.id)),
+  shots: ((document.shots ?? []) as Shot[]).filter((shot) => !shotIdsOf(base).has(shot.id)),
 });
 
 const timeRange = (document: CreativeDocument) => {
@@ -161,7 +167,7 @@ export async function previewOf(
     ? (await effectiveWorldOf(client, account, dossier, workId)).document
     : worldState.document;
   const { document: applied, unresolved } = applyProposal(base, proposal);
-  const added = addedOf(applied);
+  const added = addedOf(applied, base);
 
   const baseLegs = await buildLegs(client, { account, dossier, document: base });
   const legs = await buildLegs(client, { account, dossier, document: applied });
@@ -278,6 +284,7 @@ export async function previewOf(
     conflictsNew,
     conflictsGone,
     // 已经是整句话（重名那类）就原样给；只是名字的才包一层
+    ...(proposal.unmet?.length ? { unmet: proposal.unmet } : {}),
     unresolved: unresolved.map((name) =>
       name.includes('（') ? name : `「${name}」还没有入账，接受后需要先建出来`,
     ),
