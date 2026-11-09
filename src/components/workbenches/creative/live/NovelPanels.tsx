@@ -116,7 +116,7 @@ export function CreativeAssistant({ adapter, workId, sceneId, onUpdate, onBoard,
   // 29：同一个会话里续着聊；「新会话」才另开一个 run
   const runId = useRef<string | null>(null);
   const follow = async (id: string, token: number) => {
-    let after = 0;
+    let after = 0, last = false;
     while (epoch.current === token) {
       try {
         const page = await adapter.runEvents(id, after);
@@ -134,6 +134,8 @@ export function CreativeAssistant({ adapter, workId, sceneId, onUpdate, onBoard,
         const status = await adapter.runState(id);
         if (epoch.current !== token) return;
         setError('');
+        // 结束前最后一句回复可能刚好晚于上一次取事件：看到结束后再取一遍再停
+        if (['completed', 'failed', 'cancelled', 'interrupted'].includes(status.state) && !last) { last = true; continue; }
         if (['completed', 'failed', 'cancelled', 'interrupted'].includes(status.state)) { setBusy(false); running.current = false; update.current(); void chips(id); return; }
         setBusy(true); running.current = true;
       } catch (e) { if (epoch.current === token) setError(`会话连接中断，正在重连：${(e as Error).message}`); }
