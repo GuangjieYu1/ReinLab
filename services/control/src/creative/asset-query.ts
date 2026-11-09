@@ -2,6 +2,26 @@
 import type pg from 'pg';
 import type { PersonAsset } from '@reinlab/contracts';
 
+/** 每人物当前选用的是哪一版（算镜头是否依据旧了）。 */
+export async function selectedVersions(
+  client: pg.PoolClient,
+  account: string,
+  dossier: string,
+): Promise<Map<string, { entityId: string; versionId: string | null; versionN: number | null }>> {
+  const rows = (
+    await client.query<{ entity_id: string; document: PersonAsset }>(
+      'select entity_id, document from creative_person_asset where account_id=$1 and dossier_id=$2',
+      [account, dossier],
+    )
+  ).rows;
+  const map = new Map<string, { entityId: string; versionId: string | null; versionN: number | null }>();
+  for (const row of rows) {
+    const version = row.document.versions.find((item) => item.id === row.document.selectedVersionId);
+    map.set(row.entity_id, { entityId: row.entity_id, versionId: row.document.selectedVersionId, versionN: version?.n ?? null });
+  }
+  return map;
+}
+
 /** 文件名要用：这张图属于哪个人物、哪个视图、第几版。 */
 export async function describeFile(
   client: pg.PoolClient,

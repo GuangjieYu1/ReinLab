@@ -27,9 +27,11 @@ const Create = z
     // assist = 非研究台的最小侧边会话；explore = 探索台的旅拍规划会话；
     // swarm = 研究台群研的负责人会话（澄清阶段）。
     // creative_advisor / creative_writer：创作台的设定顾问与写作助手（1B 契约 §5.2）。
-    mode: z.enum(["assist", "explore", "swarm", "creative_advisor", "creative_writer"]).optional(),
+    mode: z.enum(["assist", "explore", "swarm", "creative_advisor", "creative_writer", "creative_director"]).optional(),
     /** 写作助手要指定作品与场景。 */
     workId: z.string().uuid().optional(),
+    /** 分镜导演用：这一场所在的房间。 */
+    placeId: z.string().min(1).max(64).optional(),
     sceneId: z.string().min(1).max(64).optional(),
     /** 这一轮随消息带上的参考图（探索台）。 */
     refIds: z.array(z.string().min(1).max(200)).max(20).optional(),
@@ -63,9 +65,12 @@ export function registerKernelRuns(
   app.post("/v1/kernel/runs", async (c) => {
     const account = c.get("accountId");
     let created: string | undefined;
-    let creativeMode: "creative_advisor" | "creative_writer" | undefined;
+    let creativeMode: "creative_advisor" | "creative_writer" | "creative_director" | undefined;
     let lastInput:
-      | { newSession?: boolean; mode?: "assist" | "explore" | "swarm" | "creative_advisor" | "creative_writer" }
+      | {
+          newSession?: boolean;
+          mode?: "assist" | "explore" | "swarm" | "creative_advisor" | "creative_writer" | "creative_director";
+        }
       | undefined;
     const response = await mutate(c, dependencies.db, Create, async (client, input) => {
       const dossier = (
@@ -76,7 +81,11 @@ export function registerKernelRuns(
       ).rows[0];
       if (!dossier) throw new ApiFailure("DOSSIER_NOT_FOUND", 404, "档案不存在。");
       // 创作台的会话：建 run 行，真正回答在事务外跑（页面按 runId 订阅同一条事件流）。
-      if (input.mode === "creative_advisor" || input.mode === "creative_writer") {
+      if (
+        input.mode === "creative_advisor" ||
+        input.mode === "creative_writer" ||
+        input.mode === "creative_director"
+      ) {
         if (!dependencies.creative)
           throw new ApiFailure("CREATIVE_ASSISTANT_UNAVAILABLE", 503, "创作台助手尚未就绪。");
         const runId = await createCreativeRun(client, account, {
@@ -85,6 +94,7 @@ export function registerKernelRuns(
           query: input.query,
           ...(input.workId ? { workId: input.workId } : {}),
           ...(input.sceneId ? { sceneId: input.sceneId } : {}),
+          ...(input.placeId ? { placeId: input.placeId } : {}),
         });
         created = runId;
         creativeMode = input.mode;

@@ -123,6 +123,8 @@ export async function createApp(options: {
   const smallBody = bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge });
   // 照片续传是分块流式接收：tus 自己按 8 MB 分片处理，这里不能再按整包截断。
   const isUploadsPath = (pathname: string) => /^\/v1\/explore\/uploads(\/|$)/.test(pathname);
+  // 分镜预演是 multipart（视频 + 首帧），bodyLimit 会吃掉 multipart 流，这里整段跳过、由路由自己限量。
+  const isShotPreviewPath = (pathname: string) => /^\/v1\/creative\/worlds\/[^/]+\/shots\/[^/]+\/preview$/.test(pathname);
   // 创作台上传 Azgaar 导出的 GeoJSON：整份文件一次收，上限 8 MB（其余接口仍 1 MB）。
   const isCreativeAssetPath = (pathname: string) => /^\/v1\/creative\/worlds\/[^/]+\/assets$/.test(pathname);
   // 参考图、计划书地图快照（自身上限 4 MB）要能收几 MB 的图；其余接口仍然只收 1MB。
@@ -130,6 +132,7 @@ export async function createApp(options: {
   app.use("/v1/*", (c, next) => {
     const pathname = new URL(c.req.url).pathname;
     if (isUploadsPath(pathname)) return next();
+    if (c.req.method === "POST" && isShotPreviewPath(pathname)) return next();
     if (c.req.method === "POST" && /^\/v1\/explore\/plans\/[^/]+\/(refs|snapshots)$/.test(pathname))
       return imageBody(c, next);
     if (c.req.method === "POST" && isCreativeAssetPath(pathname)) return imageBody(c, next);

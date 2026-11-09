@@ -17,7 +17,12 @@ export const assetRoot = (): string =>
   process.env.REINLAB_CREATIVE_ASSETS ?? join(homedir(), '.local/state/reinlab/creative-assets');
 
 const extOf = (mime: string): string =>
-  mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'bin';
+  mime === 'image/png' ? 'png'
+  : mime === 'image/jpeg' ? 'jpg'
+  : mime === 'image/webp' ? 'webp'
+  : mime === 'video/mp4' ? 'mp4'
+  : mime === 'video/webm' ? 'webm'
+  : 'bin';
 
 export async function saveImage(
   client: pg.PoolClient,

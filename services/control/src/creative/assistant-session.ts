@@ -96,9 +96,11 @@ export async function callChat(
   };
 }
 
-const ROLE_PROMPT: Record<'advisor' | 'writer', string> = {
+const ROLE_PROMPT: Record<'advisor' | 'writer' | 'director', string> = {
   advisor: `你是这部小说的设定顾问。你只交提议，作者在待确认里接受才入账。
 底线：只用给到的设定和原文里已有的东西；缺什么就照实说缺什么，并把它写成「还不确定的」。不要替作者拍板历史事实。`,
+  director: `你是这部小说的分镜导演。你只交提议（白模、镜头表），作者接受才入账；你不能自己出片。
+底线：每镜 4–10 秒；人物站位要在房间轮廓里；机位不要穿墙；回复里不复述镜头明细。`,
   writer: `你是这部小说的写作助手。你只交正文改稿提议，作者接受才落笔。
 底线：只改指定的那一段或那一场，不要替下一场收尾、不要跳到别的时间线；设定里没有的地点人物时间不要编，非写不可就写得含糊并在 why 里说明。`,
 };
@@ -234,6 +236,91 @@ const TOOLS_ADVISOR: ToolDef[] = [
   },
 ];
 
+const TOOLS_DIRECTOR: ToolDef[] = [
+  ...TOOLS_READ,
+  {
+    name: 'propose_whitebox',
+    description: '交一条白模提议（这个房间的部件：墙、柜台、门、桌……），进待确认。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        placeId: { type: 'string' },
+        note: { type: 'string' },
+        prims: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['box', 'cylinder', 'prism'] },
+              c: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+              s: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+              sides: { type: 'number' },
+              rotY: { type: 'number' },
+              label: { type: 'string' },
+            },
+            required: ['kind', 'c', 's'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['placeId', 'prims'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'propose_shots',
+    description: '交一条镜头表提议（这一场拆成几镜），进待确认。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note: { type: 'string' },
+        shots: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              n: { type: 'number' },
+              para: { type: 'number' },
+              durationSec: { type: 'number' },
+              action: { type: 'string' },
+              dialogue: { type: 'string' },
+              light: { type: 'string' },
+              camera: {
+                type: 'object',
+                properties: {
+                  eye: { type: 'array', items: { type: 'number' } },
+                  target: { type: 'array', items: { type: 'number' } },
+                  fov: { type: 'number' },
+                },
+                required: ['eye', 'target'],
+                additionalProperties: false,
+              },
+              cast: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    entityId: { type: 'string' },
+                    at: { type: 'array', items: { type: 'number' } },
+                    facing: { type: 'number' },
+                    pose: { type: 'string', enum: ['stand', 'sit', 'walk'] },
+                  },
+                  required: ['entityId', 'at'],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ['action', 'camera'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['shots'],
+      additionalProperties: false,
+    },
+  },
+];
+
 const TOOLS_WRITER: ToolDef[] = [
   ...TOOLS_READ,
   {
@@ -258,6 +345,8 @@ export type SessionContext = {
   dossierId: string;
   workId: string | null;
   sceneId: string | null;
+  /** 分镜导演用：这一场所在的房间（地点）。 */
+  placeId?: string | null;
 };
 
 /** 把世界观摘要成工具输出（给模型读，不是给页面）。 */
@@ -326,7 +415,7 @@ export type RunToolContext = {
   account: string;
   dossier: string;
   context: SessionContext;
-  role: 'advisor' | 'writer';
+  role: 'advisor' | 'writer' | 'director';
   runId: string;
   /** 作者在看板虚影上点「改一下」时带的提议 id：交新版时默认替代它。 */
   about?: string;
@@ -517,6 +606,77 @@ export async function runTool(
         refs: [{ kind: 'scene' as const, workId: context.workId, sceneId }],
       };
     }
+    case 'propose_whitebox': {
+      if (!call.input.placeId) return { text: '要指定是哪个地点。', refs: [] };
+      const prims = (call.input.prims as Record<string, unknown>[]) ?? [];
+      const ops = prims.map((prim) => ({ op: 'whitebox.prim.add', placeId: String(call.input.placeId), prim }));
+      const proposed = await createProposal(defs, world, {
+        kind: 'whitebox',
+        title: `白模：${prims.length} 个部件`,
+        summary: String(call.input.note ?? ''),
+        ops,
+        doubts: [],
+        ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
+      });
+      return proposed;
+    }
+    case 'propose_shots': {
+      if (!context.workId || !context.sceneId) return { text: '分镜要先打开一场正文（workId + sceneId）。', refs: [] };
+      const workRow = (
+        await client.query<{ document: WorkDocument }>(
+          'select document from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3',
+          [account, dossier, context.workId],
+        )
+      ).rows[0];
+      const scene = workRow?.document.chapters.flatMap((chapter) => chapter.scenes).find((item) => item.id === context.sceneId);
+      const box = (world.whiteboxes ?? []) as { placeId: string; version: number }[];
+      if (!context.placeId) return { text: '这一场还没有房间（地点），先定房间再拆镜头。', refs: [] };
+      const currentBox = box.filter((item) => item.placeId === context.placeId).sort((a, b) => a.version - b.version).at(-1);
+      const rows = (call.input.shots as Record<string, unknown>[]) ?? [];
+      const ops = rows.map((row, index) => {
+        const camera = (row.camera ?? {}) as { eye?: number[]; target?: number[]; fov?: number };
+        const cast = ((row.cast as Record<string, unknown>[]) ?? []).map((member) => ({
+          entityId: String(member.entityId ?? ''),
+          assetVersionId: null,
+          at: (member.at as [number, number, number]) ?? [0, 0, 0],
+          facing: Number(member.facing ?? 0),
+          pose: (['stand', 'sit', 'walk'].includes(String(member.pose)) ? String(member.pose) : 'stand') as 'stand',
+          to: null,
+        }));
+        const paragraph = (scene?.text ?? '').split(/\n\s*\n/)[Number(row.para ?? 0)] ?? '';
+        return {
+          op: 'shot.add',
+          shot: {
+            n: Number(row.n ?? index + 1),
+            workId: context.workId,
+            sceneId: context.sceneId,
+            para: Number(row.para ?? 0),
+            durationSec: Math.min(10, Math.max(4, Number(row.durationSec ?? 5))),
+            placeId: context.placeId!,
+            whiteboxVersion: currentBox?.version ?? 0,
+            cast,
+            camera: {
+              eye: (camera.eye as [number, number, number]) ?? [0, 1.6, 3],
+              target: (camera.target as [number, number, number]) ?? [0, 1.2, 0],
+              fov: Number(camera.fov ?? 45),
+            },
+            action: String(row.action ?? ''),
+            dialogue: row.dialogue ? String(row.dialogue) : null,
+            light: row.light ? String(row.light) : null,
+            basisText: paragraph.trim() || null,
+          },
+        };
+      });
+      const proposed = await createProposal(defs, world, {
+        kind: 'shots',
+        title: `镜头表：${rows.length} 镜`,
+        summary: String(call.input.note ?? ''),
+        ops,
+        doubts: [],
+        ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
+      });
+      return proposed;
+    }
     default:
       return { text: '没有这个工具。', refs: [] };
   }
@@ -661,11 +821,13 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
     return row;
   });
   const dossier = meta.dossier_id;
-  const role: 'advisor' | 'writer' = meta.input.creativeMode === 'creative_writer' ? 'writer' : 'advisor';
+  const role: 'advisor' | 'writer' | 'director' =
+    meta.input.creativeMode === 'creative_writer' ? 'writer' : meta.input.creativeMode === 'creative_director' ? 'director' : 'advisor';
   const context: SessionContext = {
     dossierId: dossier,
     workId: meta.input.workId ? String(meta.input.workId) : null,
     sceneId: meta.input.sceneId ? String(meta.input.sceneId) : null,
+    ...(meta.input.placeId ? { placeId: String(meta.input.placeId) } : {}),
   };
   const aboutRaw = meta.input.about;
   const about = typeof aboutRaw === 'string' && aboutRaw ? aboutRaw : undefined;
@@ -686,7 +848,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
   const keyBase = `turn-${(meta.input as { turn?: number }).turn ?? Date.now()}`;
   await say('user', query, `${keyBase}-user`);
 
-  const tools = role === 'advisor' ? TOOLS_ADVISOR : TOOLS_WRITER;
+  const tools = role === 'advisor' ? TOOLS_ADVISOR : role === 'director' ? TOOLS_DIRECTOR : TOOLS_WRITER;
   try {
     const history = await deps.db.withAccount(account, (client) => readHistory(client, account, runId));
     const worldState = await deps.db.withAccount(account, (client) => loadWorld(client, account, dossier));
@@ -726,7 +888,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
           // 交提议失败时 step 写真实原因（不能一律写「交了提议」）
           await pushFocus(deps.db, account, dossier, {
             runId,
-            mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
+            mode: role === 'director' ? 'creative_director' : role === 'advisor' ? 'creative_advisor' : 'creative_writer',
             step: outcome.step ?? focus.step,
             refs: outcome.refs.length ? outcome.refs : focus.refs,
             proposalId: outcome.ok === false ? null : defs_proposalId(call, proposals),
@@ -748,7 +910,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
     await say('assistant', finalText, `${keyBase}-assistant`);
     await pushFocus(deps.db, account, dossier, {
       runId,
-      mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
+      mode: role === 'director' ? 'creative_director' : role === 'advisor' ? 'creative_advisor' : 'creative_writer',
       step: '完成',
       refs: [],
       done: true,
@@ -775,7 +937,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       .catch(() => undefined);
     await pushFocus(deps.db, account, dossier, {
       runId,
-      mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
+      mode: role === 'director' ? 'creative_director' : role === 'advisor' ? 'creative_advisor' : 'creative_writer',
       step: '完成',
       refs: [],
       done: true,

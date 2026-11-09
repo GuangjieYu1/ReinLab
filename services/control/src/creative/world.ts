@@ -10,6 +10,9 @@
 
 import { randomUUID } from 'node:crypto';
 import type {
+  Shot,
+  Whitebox,
+  WhiteboxPrim,
   CreativeAppliedOp,
   CreativeBasemap,
   Calendar,
@@ -48,6 +51,14 @@ export type CreativeDocument = {
   basemap: CreativeBasemap;
   /** MVP-2：画风（同一世界观共用）。 */
   artStyle?: string | null;
+  /** MVP-3：每个地点的白模（历史版本也在，按 version 取）。 */
+  whiteboxes?: { placeId: string; version: number; prims: unknown[]; updatedAt: string }[];
+  /** MVP-3：镜头（归作品的某一场）。 */
+  shots?: unknown[];
+  /** MVP-3：每个镜头的出片候选与预演。 */
+  takes?: unknown[];
+  /** MVP-3：每场的成片。 */
+  cuts?: unknown[];
   calendars: Calendar[];
   entities: Entity[];
   relations: Relation[];
@@ -336,6 +347,36 @@ export function voidRouteProposals(
   return voided;
 }
 
+/** MVP-3：某个地点当前的白模。 */
+export function currentWhitebox(document: CreativeDocument, placeId: string): Whitebox | undefined {
+  return ((document.whiteboxes ?? []) as Whitebox[])
+    .filter((box) => box.placeId === placeId)
+    .sort((a, b) => a.version - b.version)
+    .at(-1);
+}
+
+/** 写白模：同一批只升一次版本，之后的改动叠在同一版上。 */
+function writeWhitebox(
+  document: CreativeDocument,
+  placeId: string,
+  prims: WhiteboxPrim[],
+  at: string,
+  bumped: Set<string>,
+): void {
+  const boxes = (document.whiteboxes ?? []) as Whitebox[];
+  if (bumped.has(placeId)) {
+    const last = currentWhitebox(document, placeId);
+    if (last) {
+      last.prims = prims;
+      last.updatedAt = at;
+      return;
+    }
+  }
+  const version = (currentWhitebox(document, placeId)?.version ?? 0) + 1;
+  document.whiteboxes = [...boxes, { placeId, version, prims, updatedAt: at }];
+  bumped.add(placeId);
+}
+
 /** 一个批次的纯计算：要么全成，要么抛错（调用方回滚事务）。 */
 export function applyOps(
   document: CreativeDocument,
@@ -350,6 +391,8 @@ export function applyOps(
   const at = options.at ?? new Date().toISOString();
   /** 这一批里刚建出来的实体 id：同批的后续操作按名字引用时要优先认它们。 */
   const createdHere = new Set<string>();
+  /** MVP-3：这一批已经升过版本的地点（同一批的多次部件改动叠在一版上）。 */
+  const bumpedWhiteboxes = new Set<string>();
   /** 预览：解析不到的名字记在这里，不抛错。 */
   const unresolved = options.unresolved ?? new Set<string>();
   const tolerant = options.tolerant === true;
@@ -737,6 +780,64 @@ export function applyOps(
         event.gaps = gapsOf(event, next);
         touchedEvents.add(event.id);
         push({ event });
+        break;
+      }
+      // ── MVP-3：白模与镜头 ──
+      case 'whitebox.prim.add':
+      case 'whitebox.prim.update':
+      case 'whitebox.prim.remove': {
+        const placeId = op.placeId;
+        const before = currentWhitebox(next, placeId);
+        const prims: WhiteboxPrim[] = JSON.parse(JSON.stringify(before?.prims ?? []));
+        if (op.op === 'whitebox.prim.add') {
+          const prim = { ...op.prim, id: (op.prim as { id?: string }).id ?? ids() } as WhiteboxPrim;
+          prims.push(prim);
+        } else if (op.op === 'whitebox.prim.update') {
+          const index = prims.findIndex((item) => item.id === op.id);
+          if (index < 0) throw fail('PRIM_NOT_FOUND', 404, '白模里没有这个部件。');
+          prims[index] = { ...prims[index], ...op.patch };
+        } else {
+          const index = prims.findIndex((item) => item.id === op.id);
+          if (index < 0) throw fail('PRIM_NOT_FOUND', 404, '白模里没有这个部件。');
+          prims.splice(index, 1);
+        }
+        writeWhitebox(next, placeId, prims, at, bumpedWhiteboxes);
+        push({ placeId, version: currentWhitebox(next, placeId)!.version });
+        break;
+      }
+      case 'shot.add': {
+        const shot = { ...op.shot, id: (op.shot as { id?: string }).id ?? ids() } as Shot;
+        next.shots = [...((next.shots ?? []) as Shot[]), shot];
+        push({ shot });
+        break;
+      }
+      case 'shot.update': {
+        const list = (next.shots ?? []) as Shot[];
+        const index = list.findIndex((item) => item.id === op.id);
+        if (index < 0) throw fail('SHOT_NOT_FOUND', 404, '没有这个镜头。');
+        list[index] = { ...list[index], ...op.patch };
+        next.shots = list;
+        push({ shot: list[index] });
+        break;
+      }
+      case 'shot.remove': {
+        const list = ((next.shots ?? []) as Shot[]).filter((item) => item.id !== op.id);
+        if (list.length === ((next.shots ?? []) as Shot[]).length) throw fail('SHOT_NOT_FOUND', 404, '没有这个镜头。');
+        next.shots = list;
+        push({ id: op.id });
+        break;
+      }
+      case 'shot.reorder': {
+        const list = (next.shots ?? []) as Shot[];
+        const sceneIds = new Set(op.order);
+        const ordered = op.order.map((id, index) => {
+          const shot = list.find((item) => item.id === id);
+          if (!shot) throw fail('SHOT_NOT_FOUND', 404, '排序里有不存在的镜头。');
+          return { ...shot, n: index + 1 };
+        });
+        const rest = list.filter((item) => item.sceneId !== list.find((shot) => sceneIds.has(shot.id))?.sceneId);
+        next.shots = [...rest, ...ordered];
+        push({ sceneId: op.sceneId });
         break;
       }
       case 'world.set': {

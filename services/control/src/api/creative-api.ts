@@ -31,9 +31,12 @@ import { impactOf } from '../creative/impact';
 import { beginScan, runScan, type ScanDeps } from '../creative/scan';
 import { judgeRules, type JudgeDeps } from '../creative/rule-judge';
 import { previewOf } from '../creative/preview';
+import { shotsOfScene } from '../creative/shots';
+import { appendEvents } from '../creative/events';
+import type { WorkDocument } from '../creative/work';
 import { readAsset, retryUnsaved, runAssetVersion, selectVersion, startAssetVersion, stopAssetVersion } from '../creative/asset-service';
-import { readImage } from '../creative/image/store';
-import { describeFile } from '../creative/asset-query';
+import { readImage, saveImage } from '../creative/image/store';
+import { describeFile, selectedVersions } from '../creative/asset-query';
 import type { ImageProvider } from '../creative/image/provider';
 import { readEffectiveSnapshot } from '../creative/work-service';
 import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
@@ -512,6 +515,92 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
         );
       });
     return response;
+  });
+
+  // ── MVP-3：白模与镜头（契约 §13.4）──────────────────
+  app.get('/v1/creative/worlds/:dossierId/places/:placeId/whitebox', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const state = await loadWorld(client, c.get('accountId'), c.req.param('dossierId'));
+      const placeId = c.req.param('placeId');
+      const boxes = (state.document.whiteboxes ?? []) as { placeId: string; version: number; prims: unknown[]; updatedAt: string }[];
+      const wanted = c.req.query('version');
+      const box = wanted
+        ? boxes.find((item) => item.placeId === placeId && item.version === Number(wanted))
+        : boxes.filter((item) => item.placeId === placeId).sort((a, b) => a.version - b.version).at(-1);
+      const body = box ?? { placeId, version: 0, prims: [], updatedAt: new Date(0).toISOString() };
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
+
+  app.get('/v1/creative/worlds/:dossierId/works/:workId/scenes/:sceneId/shots', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const account = c.get('accountId');
+      const dossier = c.req.param('dossierId');
+      const state = await loadWorld(client, account, dossier);
+      const workRow = (
+        await client.query<{ document: WorkDocument }>(
+          'select document from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3',
+          [account, dossier, c.req.param('workId')],
+        )
+      ).rows[0];
+      const selected = await selectedVersions(client, account, dossier);
+      const sceneId = c.req.param('sceneId');
+      const shots = shotsOfScene(state.document, workRow?.document ?? null, c.req.param('workId'), sceneId, selected);
+      const cut = ((state.document.cuts ?? []) as Record<string, unknown>[]).find(
+        (item) => item.workId === c.req.param('workId') && item.sceneId === sceneId,
+      );
+      return c.json({ shots, cut: cut ?? { workId: c.req.param('workId'), sceneId, shots: [] } });
+    }),
+  );
+
+  /** 前端录的白模预演：视频 + 首帧，存成资产（和出图同一套存储）。 */
+  app.post('/v1/creative/worlds/:dossierId/shots/:shotId/preview', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const shotId = c.req.param('shotId');
+    const form = await c.req.parseBody();
+    const video = form.video;
+    const poster = form.poster;
+    if (!(video instanceof File)) throw new ApiFailure('INVALID_INPUT', 400, '要带一段预演视频（字段名 video）。');
+    if (video.size > 100 * 1024 * 1024) throw new ApiFailure('TOO_LARGE', 413, '预演片段太大了（上限 100 MB）。');
+    const videoBytes = new Uint8Array(await video.arrayBuffer());
+    const videoMime = video.type || 'video/webm';
+    let posterBytes: Uint8Array | null = null;
+    let posterMime = 'image/png';
+    if (poster instanceof File) {
+      posterBytes = new Uint8Array(await poster.arrayBuffer());
+      posterMime = poster.type || 'image/png';
+    }
+    const result = await database.withAccount(account, async (client) => {
+      const state = await loadWorld(client, account, dossier, { lock: true });
+      const list = (state.document.shots ?? []) as { id: string; preview?: unknown }[];
+      const shot = list.find((item) => item.id === shotId);
+      if (!shot) throw new ApiFailure('SHOT_NOT_FOUND', 404, '没有这个镜头。');
+      const file = await saveImage(client, { account, dossier, bytes: videoBytes, mime: videoMime, width: null, height: null });
+      const posterFile = posterBytes
+        ? await saveImage(client, { account, dossier, bytes: posterBytes, mime: posterMime, width: null, height: null })
+        : null;
+      const previewId = `pv_${file.fileId.slice(0, 12)}`;
+      (shot as { preview?: unknown }).preview = {
+        previewId,
+        url: file.url,
+        posterUrl: posterFile?.url ?? null,
+        at: new Date().toISOString(),
+        mime: videoMime,
+      };
+      const revision = state.revision + 1;
+      await client.query('update creative_world set revision=$3, document=$4::jsonb, updated_at=now() where account_id=$1 and dossier_id=$2', [
+        account,
+        dossier,
+        revision,
+        JSON.stringify(state.document),
+      ]);
+      await appendEvents(client, { account, dossier }, [
+        { type: 'creative.shot', data: { workId: (shot as { workId?: string }).workId, sceneId: (shot as { sceneId?: string }).sceneId, shots: [shot] } },
+      ]);
+      return { previewId, url: file.url, posterUrl: posterFile?.url ?? null };
+    });
+    return c.json(result, 201);
   });
 
   // ── MVP-2：人物形象（契约 §12.3）──────────────────

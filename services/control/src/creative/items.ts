@@ -9,9 +9,9 @@
 import type { CreativeDocument } from './world';
 import type { ItemChange, ItemKind } from '@reinlab/contracts';
 
-export const ITEM_KINDS: ItemKind[] = ['entity', 'relation', 'event', 'mode', 'rule', 'edit'];
+export const ITEM_KINDS: ItemKind[] = ['entity', 'relation', 'event', 'mode', 'rule', 'edit', 'prim', 'shot'];
 
-const ARRAY_FIELD: Record<ItemKind, keyof CreativeDocument> = {
+const ARRAY_FIELD: Partial<Record<ItemKind, keyof CreativeDocument>> = {
   entity: 'entities',
   relation: 'relations',
   event: 'events',
@@ -20,14 +20,22 @@ const ARRAY_FIELD: Record<ItemKind, keyof CreativeDocument> = {
   edit: 'edits',
 };
 
+/** 白模部件散在每个地点的白模里；镜头是单独一张表。 */
+const primsOf = (document: CreativeDocument): AnyItem[] =>
+  ((document.whiteboxes ?? []) as { prims: AnyItem[] }[]).flatMap((box) => box.prims);
+const shotsOf = (document: CreativeDocument): AnyItem[] => (document.shots ?? []) as AnyItem[];
+
 type AnyItem = { id: string } & Record<string, unknown>;
 
 export type ItemRecord = { kind: ItemKind; value: AnyItem };
 
 export function itemsOf(document: CreativeDocument): ItemRecord[] {
   const out: ItemRecord[] = [];
-  for (const kind of ITEM_KINDS)
-    for (const value of document[ARRAY_FIELD[kind]] as unknown as AnyItem[]) out.push({ kind, value });
+  for (const kind of ITEM_KINDS) {
+    const field = ARRAY_FIELD[kind];
+    const list = kind === 'prim' ? primsOf(document) : kind === 'shot' ? shotsOf(document) : ((document[field!] ?? []) as unknown as AnyItem[]);
+    for (const value of list) out.push({ kind, value });
+  }
   return out;
 }
 
@@ -36,6 +44,8 @@ export function itemMapOf(document: CreativeDocument): Map<string, ItemRecord> {
 }
 
 const KIND_LABEL: Record<ItemKind, string> = {
+  prim: '白模部件',
+  shot: '镜头',
   entity: '实体',
   relation: '关系',
   event: '事件',
@@ -48,6 +58,8 @@ const ENTITY_KIND_LABEL: Record<string, string> = { person: '人物', place: '�
 
 /** 给人看的标题。 */
 export function titleOf(kind: ItemKind, value: AnyItem): string {
+  if (kind === 'prim') return `${String(value.label ?? value.kind ?? '部件')}（白模部件）`;
+  if (kind === 'shot') return `第 ${String(value.n ?? '?')} 镜${value.action ? `：${String(value.action).slice(0, 12)}` : ''}`;
   if (kind === 'entity')
     return `${String(value.name ?? value.id)}（${ENTITY_KIND_LABEL[String(value.kind)] ?? '实体'}）`;
   if (kind === 'event') return `${String(value.title ?? value.id)}（事件）`;
@@ -150,13 +162,35 @@ export function diffDocuments(from: CreativeDocument, to: CreativeDocument): Ite
     }
   }
   // 事件和实体在前：作者最关心它们
-  const order: Record<ItemKind, number> = { event: 0, entity: 1, mode: 2, rule: 3, edit: 4, relation: 5 };
+  const order: Record<ItemKind, number> = { event: 0, entity: 1, mode: 2, rule: 3, edit: 4, relation: 5, prim: 6, shot: 7 };
   return changes.sort((x, y) => order[x.kind] - order[y.kind] || x.title.localeCompare(y.title));
 }
 
 /** 把一条条目的某一版内容写进文档（value=null 表示这一版里没有它，即删除）。 */
 export function putItem(document: CreativeDocument, kind: ItemKind, itemId: string, value: AnyItem | null): void {
-  const field = ARRAY_FIELD[kind];
+  if (kind === 'prim' || kind === 'shot') {
+    const boxes = (document.whiteboxes ?? []) as { prims: AnyItem[] }[];
+    if (kind === 'shot') {
+      const list = shotsOf(document);
+      const index = list.findIndex((item) => item.id === itemId);
+      if (value === null) {
+        if (index >= 0) list.splice(index, 1);
+      } else if (index >= 0) list[index] = value;
+      else list.push(value);
+      document.shots = list as never;
+      return;
+    }
+    for (const box of boxes) {
+      const index = box.prims.findIndex((item) => item.id === itemId);
+      if (index < 0) continue;
+      if (value === null) box.prims.splice(index, 1);
+      else box.prims[index] = value;
+      return;
+    }
+    if (value) boxes.push({ prims: [value] } as never);
+    return;
+  }
+  const field = ARRAY_FIELD[kind]!;
   const list = document[field] as unknown as AnyItem[];
   const index = list.findIndex((item) => item.id === itemId);
   if (value === null) {

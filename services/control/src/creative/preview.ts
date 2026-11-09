@@ -9,6 +9,8 @@
 import type pg from 'pg';
 import type {
   BoardRef,
+  Shot,
+  WhiteboxPrim,
   CheckRun,
   CreativeConflict,
   CreativeRouteLeg,
@@ -57,6 +59,10 @@ const addedOf = (document: CreativeDocument) => ({
   events: document.events.filter((item) => item.id.startsWith('pv:')),
   relations: document.relations.filter((item) => item.id.startsWith('pv:')),
   rules: document.rules.filter((item) => item.id.startsWith('pv:')),
+  prims: ((document.whiteboxes ?? []) as { prims: WhiteboxPrim[] }[])
+    .flatMap((box) => box.prims)
+    .filter((prim) => prim.id.startsWith('pv:')),
+  shots: ((document.shots ?? []) as Shot[]).filter((shot) => shot.id.startsWith('pv:')),
 });
 
 const timeRange = (document: CreativeDocument) => {
@@ -262,6 +268,8 @@ export async function previewOf(
       events: added.events,
       relations: added.relations,
       rules: added.rules,
+      prims: added.prims,
+      shots: added.shots,
     },
     changed,
     removed,
