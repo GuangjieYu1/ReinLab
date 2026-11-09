@@ -347,6 +347,35 @@ export function voidRouteProposals(
   return voided;
 }
 
+/** 白模部件的几何校验（契约 §13.3：c 是底面中心，cylinder/prism 的 s=[半径,高,0]；不许穿层高、不许出轮廓）。 */
+function validatePrim(room: { outline: [number, number][]; height: number } | null, prim: WhiteboxPrim, outside: boolean): void {
+  if (prim.kind === 'cylinder' || prim.kind === 'prism') {
+    if (Math.abs(prim.s[2]) > 0.001 || prim.s[0] <= 0 || prim.s[1] <= 0)
+      throw fail('INVALID_INPUT', 422, '圆柱/棱柱的 s 要写 [半径, 高, 0]（不是直径，也不要占位 z）。');
+  }
+  if (prim.s.some((value) => !Number.isFinite(value) || value < 0)) throw fail('INVALID_INPUT', 422, '部件的尺寸要是正数。');
+  if (!room) return;
+  const top = prim.c[1] + prim.s[1];
+  if (top > room.height + 0.05)
+    throw fail('PRIM_TOO_TALL', 422, `这个部件高到 ${top.toFixed(2)} 米，超过层高 ${room.height} 米；c 是底面中心（y 一般是 0）。`);
+  if (outside || prim.outside) return;
+  // 按「底面中心」判：贴墙的墙心本来就压着轮廓线，按四角判会把正常墙体当成出界
+  if (!insideOutline(room.outline, prim.c[0], prim.c[2]))
+    throw fail('PRIM_OUTSIDE_ROOM', 422, '这个部件出了房间轮廓；本来就在室外（门外街面）的部件请标 outside: true。');
+}
+
+/** 点在不在房间轮廓里（射线法；轮廓是局部坐标 x/z）。 */
+function insideOutline(outline: [number, number][], x: number, z: number): boolean {
+  if (!outline.length) return true;
+  let inside = false;
+  for (let i = 0, j = outline.length - 1; i < outline.length; j = i, i += 1) {
+    const [xi, zi] = outline[i]!;
+    const [xj, zj] = outline[j]!;
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 /** MVP-3：某个地点当前的白模。 */
 export function currentWhitebox(document: CreativeDocument, placeId: string): Whitebox | undefined {
   return ((document.whiteboxes ?? []) as Whitebox[])
@@ -787,10 +816,13 @@ export function applyOps(
       case 'whitebox.prim.update':
       case 'whitebox.prim.remove': {
         const placeId = op.placeId;
+        const place = next.entities.find((item) => item.id === placeId);
+        if (place && place.kind !== 'place') throw fail('INVALID_INPUT', 400, '白模只能挂在地点上。');
         const before = currentWhitebox(next, placeId);
         const prims: WhiteboxPrim[] = JSON.parse(JSON.stringify(before?.prims ?? []));
         if (op.op === 'whitebox.prim.add') {
           const prim = { ...op.prim, id: (op.prim as { id?: string }).id ?? ids() } as WhiteboxPrim;
+          validatePrim(place?.place?.room ?? null, prim, Boolean(prim.outside));
           prims.push(prim);
         } else if (op.op === 'whitebox.prim.update') {
           const index = prims.findIndex((item) => item.id === op.id);
@@ -802,7 +834,13 @@ export function applyOps(
           prims.splice(index, 1);
         }
         writeWhitebox(next, placeId, prims, at, bumpedWhiteboxes);
-        push({ placeId, version: currentWhitebox(next, placeId)!.version });
+        const box = currentWhitebox(next, placeId)!;
+        // 先接受镜头、后接受白模：同一地点上引用旧版（含 0）的镜头直接升到新版本，不标旧
+        next.shots = ((next.shots ?? []) as Shot[]).map((shot) =>
+          // 只把「还没有白模版本（0）」的镜头直接升到这一版；已经有版本的保持原样，由 stale 提示
+          shot.placeId === placeId && shot.whiteboxVersion === 0 ? { ...shot, whiteboxVersion: box.version } : shot,
+        );
+        push({ placeId, version: box.version });
         break;
       }
       case 'shot.add': {

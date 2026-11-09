@@ -871,6 +871,7 @@ export type Shot = {
   durationSec: number;           // 4–10
   placeId: string; whiteboxVersion: number;
   cast: { entityId: string; assetVersionId: string | null; at: V3; facing: number; pose: 'stand' | 'sit' | 'walk'; to?: V3 | null }[];
+  // facing：度，0 = 朝 -z（镜头外方向），顺时针为正；at 同样是底面中心（y 一般是 0）。
   camera: { eye: V3; target: V3; fov: number; end?: { eye: V3; target: V3 } | null };
   action: string;                // 这一镜发生什么（人话）
   dialogue?: string | null;

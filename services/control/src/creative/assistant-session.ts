@@ -15,6 +15,7 @@ import { appendEvents } from './events';
 import { advisorOps } from './advisor';
 import { loadWorld } from './service';
 import { focusStep } from './preview';
+import { selectedVersions } from './asset-query';
 import { effectiveWorldOf } from './effective';
 import { diffDocuments } from './items';
 import { runCheck } from './check';
@@ -252,11 +253,26 @@ const TOOLS_DIRECTOR: ToolDef[] = [
             type: 'object',
             properties: {
               kind: { type: 'string', enum: ['box', 'cylinder', 'prism'] },
-              c: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
-              s: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+              c: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 3,
+                maxItems: 3,
+                description: '底面中心（米，局部坐标）：y 一般是 0；不要写成几何中心',
+              },
+              s: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 3,
+                maxItems: 3,
+                description: 'box：长宽高；cylinder/prism：[半径, 高, 0]（半径不是直径）',
+              },
               sides: { type: 'number' },
               rotY: { type: 'number' },
               label: { type: 'string' },
+              material: { type: 'string', enum: ['plaster', 'wood', 'stone', 'tile', 'water', 'plant', 'cloth', 'brick'] },
+              color: { type: 'string', description: '#rrggbb' },
+              outside: { type: 'boolean', description: '本来就在房间外（门外街面这类）' },
             },
             required: ['kind', 'c', 's'],
             additionalProperties: false,
@@ -314,6 +330,7 @@ const TOOLS_DIRECTOR: ToolDef[] = [
             additionalProperties: false,
           },
         },
+        emptyShot: { type: 'boolean', description: '明确这些都是空镜（没有人物）' },
       },
       required: ['shots'],
       additionalProperties: false,
@@ -363,6 +380,11 @@ export function digestOf(document: CreativeDocument): string {
   lines.push('## 规则');
   for (const rule of document.rules)
     lines.push(`- ${rule.id}｜${rule.text}${rule.machine ? `（程序可判：${rule.machine.kind}）` : '（自然语言，未翻）'}`);
+  lines.push('## 房间（白模按这个轮廓搭）');
+  for (const place of document.entities.filter((item) => item.kind === 'place' && item.place?.room))
+    lines.push(
+      `- ${place.id}｜${place.name}｜轮廓 ${JSON.stringify(place.place!.room!.outline)}｜层高 ${place.place!.room!.height}｜ø${place.place!.room!.heading}°`,
+    );
   lines.push('## 交通方式');
   for (const mode of document.modes) lines.push(`- ${mode.id}｜${mode.name}｜${mode.kmPerHour} km/h｜${mode.network}`);
   return lines.join('\n');
@@ -430,6 +452,9 @@ export async function runTool(
 ): Promise<{ text: string; refs: BoardRef[]; step?: string; ok?: boolean }> {
   const { client, account, dossier, context, role } = defs;
   const worldState = await loadWorld(client, account, dossier);
+  const selectedVersionIds = new Map(
+    [...(await selectedVersions(client, account, dossier)).values()].map((item) => [item.entityId, item.versionId]),
+  );
   const world =
     context.workId && role !== 'writer'
       ? (await effectiveWorldOf(client, account, dossier, context.workId)).document
@@ -629,15 +654,22 @@ export async function runTool(
         )
       ).rows[0];
       const scene = workRow?.document.chapters.flatMap((chapter) => chapter.scenes).find((item) => item.id === context.sceneId);
+      const roomPlace = world.entities.find((item) => item.id === context.placeId);
+      if (!context.placeId || !roomPlace?.place?.room)
+        return {
+          text: `这一场所在的房间还没有几何（place.room）。先给「${roomPlace?.name ?? '这个地点'}」定轮廓和层高（whitebox 提议里一并写 place.room），再拆镜头。`,
+          refs: [],
+          ok: false,
+          step: '房间没几何，先补房间',
+        };
       const box = (world.whiteboxes ?? []) as { placeId: string; version: number }[];
-      if (!context.placeId) return { text: '这一场还没有房间（地点），先定房间再拆镜头。', refs: [] };
       const currentBox = box.filter((item) => item.placeId === context.placeId).sort((a, b) => a.version - b.version).at(-1);
       const rows = (call.input.shots as Record<string, unknown>[]) ?? [];
       const ops = rows.map((row, index) => {
         const camera = (row.camera ?? {}) as { eye?: number[]; target?: number[]; fov?: number };
         const cast = ((row.cast as Record<string, unknown>[]) ?? []).map((member) => ({
           entityId: String(member.entityId ?? ''),
-          assetVersionId: null,
+          assetVersionId: selectedVersionIds.get(String(member.entityId ?? '')) ?? null,
           at: (member.at as [number, number, number]) ?? [0, 0, 0],
           facing: Number(member.facing ?? 0),
           pose: (['stand', 'sit', 'walk'].includes(String(member.pose)) ? String(member.pose) : 'stand') as 'stand',
@@ -667,11 +699,30 @@ export async function runTool(
           },
         };
       });
+      // 每镜至少一个人物（除非明确是空镜）；改版时只交改了的镜头，其余沿用旧版
+      const emptyShot = Boolean(call.input.emptyShot);
+      const emptied = rows.filter((row) => !((row.cast as unknown[]) ?? []).length);
+      if (emptied.length && !emptyShot)
+        return {
+          text: `有 ${emptied.length} 个镜头没有人物。要么补上 cast（每镜至少一个人），要么明确说明这是空镜（emptyShot）。`,
+          refs: [],
+          ok: false,
+          step: '有镜头没人物',
+        };
+      const prevProposal = defs.about
+        ? worldState.document.proposals.find((item: Proposal) => item.id === defs.about && item.kind === 'shots')
+        : undefined;
+      const prevShots = (prevProposal?.ops ?? [])
+        .filter((op) => op.op === 'shot.add')
+        .map((op) => (op as unknown as { shot: Record<string, unknown> }).shot);
+      const byN = new Map(prevShots.map((shot: Record<string, unknown>) => [Number(shot.n), shot]));
+      for (const op of ops as { op: string; shot: Record<string, unknown> }[]) byN.set(Number(op.shot.n), op.shot);
+      const merged = [...byN.values()].sort((a: Record<string, unknown>, b: Record<string, unknown>) => Number(a.n) - Number(b.n));
       const proposed = await createProposal(defs, world, {
         kind: 'shots',
-        title: `镜头表：${rows.length} 镜`,
+        title: `镜头表：${merged.length} 镜`,
         summary: String(call.input.note ?? ''),
-        ops,
+        ops: merged.map((shot) => ({ op: 'shot.add', shot })),
         doubts: [],
         ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
       });

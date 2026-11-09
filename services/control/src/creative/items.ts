@@ -107,6 +107,20 @@ const FIELD_LABELS: Record<string, string> = {
   passable: '通行性',
   valid: '生效时间',
   needsRemap: '目标是否对不上',
+  cast: '人物',
+  light: '光线',
+  camera: '机位',
+  basisText: '对应原文',
+  durationSec: '时长',
+  action: '动作',
+  dialogue: '对白',
+  eye: '机位位置',
+  fov: '视野',
+  para: '对应段落',
+  whiteboxVersion: '白模版本',
+  material: '材质',
+  color: '颜色',
+  outside: '在房间外',
 };
 
 /** 两个条目里哪些顶层字段变了（人话，去重，按固定顺序）。 */

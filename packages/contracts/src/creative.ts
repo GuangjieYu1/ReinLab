@@ -708,12 +708,18 @@ export type V3 = [number, number, number];
 export type WhiteboxPrim = {
   id: string;
   kind: 'box' | 'cylinder' | 'prism';
+  /** 底面中心（米）：y 通常是 0；box 的 s 是长宽高，cylinder/prism 的 s 是 [半径, 高, 0]。 */
   c: V3;
   s: V3;
   sides?: number;
   rotY?: number;
   label?: string;
   entityId?: string | null;
+  /** 材质（前端按它上色；没有就按名字猜）。 */
+  material?: 'plaster' | 'wood' | 'stone' | 'tile' | 'water' | 'plant' | 'cloth' | 'brick' | null;
+  color?: string | null;
+  /** 本来就在房间外面（门外街面这类），不按轮廓校验。 */
+  outside?: boolean;
 };
 
 export type Whitebox = { placeId: string; version: number; prims: WhiteboxPrim[]; updatedAt: string };

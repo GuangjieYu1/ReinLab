@@ -595,8 +595,14 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
         revision,
         JSON.stringify(state.document),
       ]);
+      // 统一推整场镜头（契约 §13.5：shots: Shot[]）
+      const workId = (shot as { workId?: string }).workId ?? '';
+      const sceneId = (shot as { sceneId?: string }).sceneId ?? '';
+      const sceneShots = ((state.document.shots ?? []) as { workId?: string; sceneId?: string }[])
+        .filter((item) => item.workId === workId && item.sceneId === sceneId)
+        .sort((a, b) => Number((a as { n?: number }).n ?? 0) - Number((b as { n?: number }).n ?? 0));
       await appendEvents(client, { account, dossier }, [
-        { type: 'creative.shot', data: { workId: (shot as { workId?: string }).workId, sceneId: (shot as { sceneId?: string }).sceneId, shots: [shot] } },
+        { type: 'creative.shot', data: { workId, sceneId, shots: sceneShots } },
       ]);
       return { previewId, url: file.url, posterUrl: posterFile?.url ?? null };
     });
