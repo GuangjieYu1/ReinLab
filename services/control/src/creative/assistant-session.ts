@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import type { CreativeDocument } from './world';
-import type { BoardRef, Proposal } from '@reinlab/contracts';
+import type { BoardRef, CreativeOp, Proposal } from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { appendEvent } from '../ledger';
 import { appendEvents } from './events';
@@ -162,6 +162,7 @@ const TOOLS_ADVISOR: ToolDef[] = [
               aliases: { type: 'array', items: { type: 'string' } },
               summary: { type: 'string' },
               parentName: { type: 'string' },
+              look: { type: 'string', description: '人物外貌（自然语言），出形象只从它读' },
               level: { type: 'string', enum: ['world', 'region', 'city', 'site', 'building', 'floor', 'room'] },
             },
             required: ['name', 'kind'],
@@ -185,6 +186,21 @@ const TOOLS_ADVISOR: ToolDef[] = [
               narrative: { type: 'string', enum: ['fact', 'hearsay', 'dream', 'hypothetical', 'flashback'] },
             },
             required: ['title', 'what'],
+            additionalProperties: false,
+          },
+        },
+        updates: {
+          type: 'array',
+          description: '改现有条目的几个字段（比如给已有的人物补外貌），按名字找',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              kind: { type: 'string', enum: ['person', 'place', 'item', 'org'] },
+              look: { type: 'string' },
+              summary: { type: 'string' },
+            },
+            required: ['name'],
             additionalProperties: false,
           },
         },
@@ -428,11 +444,24 @@ export async function runTool(
             world.entities.find((item) => item.name === name || (item.aliases ?? []).includes(name))?.id ?? null,
         },
       );
+      // 改现有条目的字段（比如给已有的人物补外貌）：按名字找到 id，变成 entity.update
+      const updateOps = ((call.input.updates as Record<string, unknown>[]) ?? [])
+        .map((update) => {
+          const name = String(update.name ?? '');
+          const entity = world.entities.find((item) => item.name === name || (item.aliases ?? []).includes(name));
+          if (!entity) return null;
+          const patch: Record<string, unknown> = {};
+          if (typeof update.look === 'string') patch.person = { ...(entity.person ?? {}), look: update.look };
+          if (typeof update.summary === 'string') patch.summary = update.summary;
+          if (!Object.keys(patch).length) return null;
+          return { op: 'entity.update', id: entity.id, patch } as unknown as CreativeOp;
+        })
+        .filter((op): op is CreativeOp => op !== null);
       const proposed = await createProposal(defs, world, {
         kind: 'itinerary',
         title: String(call.input.title ?? '提议'),
         summary: String(call.input.summary ?? ''),
-        ops: ops.ops,
+        ops: [...ops.ops, ...updateOps],
         doubts: ops.doubts,
         ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
       });

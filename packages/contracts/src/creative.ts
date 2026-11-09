@@ -71,6 +71,8 @@ export type World = {
   revision: number;
   version: { latest: number; draftChanges: number };
   basemap: CreativeBasemap;
+  /** MVP-2：画风，同一世界观共用（出图描述由它 + 人物外貌 + 作者备注拼）。 */
+  artStyle?: string | null;
   timeSpan: { from: StoryTime; to: StoryTime } | null;
   calendars: Calendar[];
   network: NetworkStatus;
@@ -102,6 +104,8 @@ export type Entity = {
   };
   /** 出生、死亡也是事件：这里存事件 id。 */
   person?: { born?: string | null; died?: string | null;
+    /** MVP-2：外貌描述，设定的一部分（出图只从它读）。 */
+    look?: string | null;
     /** MVP-2：选用的立绘（稳定资产 ID + 可直接取的图）。地图上用它当头像；没有就用名字首字。 */
     portrait?: { assetId: string; url: string } | null };
   workRefs: { workId: string; chapterId?: string }[];
@@ -379,7 +383,7 @@ export type CreativeOp =
     }
   /** 删约束是明确的设定决定。 */
   | { op: 'constraint.drop'; eventId: string; field: string; reason: string }
-  | { op: 'world.set'; patch: Partial<Pick<World, 'title' | 'basemap'>> }
+  | { op: 'world.set'; patch: Partial<Pick<World, 'title' | 'basemap' | 'artStyle'>> }
   /** 只在作品里落实：`kind:'text_edit'` 的提议用它（契约 §5.1）。世界观账本不执行。 */
   | ({ op: 'text.set' } & TextEdit);
 
@@ -623,6 +627,45 @@ export type BoardFocus = {
   /** 交了提议时带上，前端据此取预览。 */
   proposalId?: string | null;
   done?: boolean;
+};
+
+// ── 人物形象（MVP-2，契约 §12.2）──────────────────
+export type PersonView = 'portrait' | 'front' | 'side' | 'back';
+
+/** 一格图的状态。 */
+export type AssetImage = {
+  state: 'queued' | 'generating' | 'unsaved' | 'saved' | 'failed';
+  /** 只在 saved 时有：走 ReinLab 自己的地址。 */
+  url?: string | null;
+  width?: number | null;
+  height?: number | null;
+  /** 平台任务号：待保存重试取回用。 */
+  taskId?: string | null;
+  /** 人话原因。 */
+  failure?: string | null;
+};
+
+export type PersonAssetVersion = {
+  id: string;
+  n: number;
+  createdAt: string;
+  /** 出图依据：那时的世界修订、look、artStyle、作者备注。 */
+  basis: { revision: number; look: string; artStyle: string | null; note?: string | null };
+  /** 这一版从哪一版改来（只重出某格 / 拿旧版当参考）。 */
+  from?: string | null;
+  views: Partial<Record<PersonView, AssetImage>>;
+  provider: string;
+  model: string;
+  /** 未知就是 null，不记 0。 */
+  cost: CreativeCny | null;
+};
+
+export type PersonAsset = {
+  id: string;
+  entityId: string;
+  selectedVersionId: string | null;
+  /** 新的在前。 */
+  versions: PersonAssetVersion[];
 };
 
 // ── 快照 ──────────────────────────────────────────

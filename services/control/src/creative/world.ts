@@ -46,6 +46,8 @@ export type InferredRoute = {
 export type CreativeDocument = {
   title: string;
   basemap: CreativeBasemap;
+  /** MVP-2：画风（同一世界观共用）。 */
+  artStyle?: string | null;
   calendars: Calendar[];
   entities: Entity[];
   relations: Relation[];
@@ -742,6 +744,8 @@ export function applyOps(
           throw fail('INVALID_INPUT', 400, '世界观要有名字。');
         if (op.patch.title !== undefined) next.title = String(op.patch.title);
         if (op.patch.basemap !== undefined) next.basemap = clone(op.patch.basemap);
+        // MVP-2：画风（同一世界观共用）
+        if (op.patch.artStyle !== undefined) next.artStyle = op.patch.artStyle ? String(op.patch.artStyle) : null;
         push({});
         break;
       }
@@ -793,6 +797,7 @@ export function worldOf(
     revision,
     version: versions,
     basemap: document.basemap,
+    artStyle: document.artStyle ?? null,
     timeSpan,
     calendars: document.calendars,
     network: document.network,

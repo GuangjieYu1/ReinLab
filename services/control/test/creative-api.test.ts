@@ -91,7 +91,12 @@ const api = async (path: string, init: RequestInit = {}, cookie = cookieA) =>
 const ops = async (body: unknown, cookie = cookieA, key = randomUUID()) =>
   api(`/v1/creative/worlds/${dossierA}/ops`, { method: "POST", body: JSON.stringify(body), headers: { "Idempotency-Key": key } }, cookie);
 
-const snapshot = async (cookie = cookieA) => (await api(`/v1/creative/worlds/${dossierA}`, {}, cookie)).json();
+const snapshot = async (cookie = cookieA) => {
+  const res = await api(`/v1/creative/worlds/${dossierA}`, {}, cookie);
+  const body = await res.json();
+  if (process.env.DEBUG_SNAPSHOT) console.log('SNAP', res.status, JSON.stringify(body).slice(0, 300));
+  return body;
+};
 
 beforeAll(async () => {
   await applyMigrations(admin, resolve("infra/supabase/migrations"));
@@ -137,6 +142,19 @@ beforeAll(async () => {
       },
       pricing: { inputPerMillion: 2, outputPerMillion: 8 },
       provider: "test",
+    },
+    imageProvider: {
+      name: "test-ark",
+      model: "test-seedream",
+      available: () => true,
+      generate: async () => {
+        // 1x1 PNG（够验存储、文件接口和快照，不是用来好看的）
+        const png = Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          "base64",
+        );
+        return { bytes: new Uint8Array(png), mime: "image/png", width: 1, height: 1, taskId: `task-${randomUUID().slice(0, 6)}`, cost: { value: null, known: false } };
+      },
     },
     creativeRuleJudge: {
       model: {
@@ -2322,5 +2340,106 @@ describe("1D：提议在看板上的虚影", () => {
     }
     expect(focus.some((item) => item.step.includes("张三"))).toBe(true);
     expect(focus.some((item) => item.done === true && item.step === "完成")).toBe(true);
+  });
+});
+
+describe("MVP-2：人物形象（立绘和三视图）", () => {
+  let dossier = "";
+  let personId = "";
+
+  beforeAll(async () => {
+    const created = await api("/v1/dossiers", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ bench: "creative", title: "MVP-2 出图测试" }),
+    });
+    dossier = (await created.json()).id;
+    const world = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    await api(`/v1/creative/worlds/${dossier}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: world.world.revision,
+        ops: [
+          { op: "world.set", patch: { artStyle: "明清工笔淡彩" } },
+          { op: "entity.add", entity: { kind: "person", name: "沈砚", aliases: [], summary: "落第书生" } },
+        ],
+      }),
+    });
+    const after = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    personId = after.entities.find((item: any) => item.name === "沈砚").id;
+  });
+
+  it("没写外貌出不了图（422 LOOK_MISSING）；世界观画风进快照", async () => {
+    const world = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    expect(world.world.artStyle).toBe("明清工笔淡彩");
+    const denied = await api(`/v1/creative/worlds/${dossier}/entities/${personId}/asset/versions`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({}),
+    });
+    expect(denied.status).toBe(422);
+    expect((await denied.json()).code).toBe("LOOK_MISSING");
+  });
+
+  it("出一版：四格从 queued 到 saved，图存在本机、文件接口能取到", async () => {
+    const world = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    await api(`/v1/creative/worlds/${dossier}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: world.world.revision,
+        ops: [{ op: "entity.update", id: personId, patch: { person: { look: "二十余岁，青衫，瘦，眼神很静" } } }],
+      }),
+    });
+    const started = await api(`/v1/creative/worlds/${dossier}/entities/${personId}/asset/versions`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ note: "要清瘦一点" }),
+    });
+    expect(started.status).toBe(201);
+    const body = await started.json();
+    expect(body.version.views.portrait.state).toBe("queued");
+    expect(Object.keys(body.version.views)).toHaveLength(4);
+
+    let asset: any = null;
+    for (let index = 0; index < 200; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      asset = await (await api(`/v1/creative/worlds/${dossier}/entities/${personId}/asset`)).json();
+      const cells = Object.values(asset.versions[0].views) as any[];
+      if (cells.every((cell) => cell.state === "saved" || cell.state === "failed")) break;
+    }
+    const cells = Object.values(asset.versions[0].views) as any[];
+    expect(cells.every((cell) => cell.state === "saved")).toBe(true);
+    expect(asset.versions[0].provider).toBe("test-ark");
+    const portrait = asset.versions[0].views.portrait;
+    expect(portrait.url).toMatch(/^\/v1\/creative\/assets\/files\//);
+
+    const file = await api(portrait.url);
+    expect(file.status).toBe(200);
+    expect(file.headers.get("content-type")).toBe("image/png");
+    const download = await api(`${portrait.url}?download=1`);
+    expect(download.headers.get("content-disposition")).toContain("attachment");
+
+    const usage = await admin.query(
+      "select count(*)::int n from usage_record where dossier_id=$1 and purpose='creative_image'",
+      [dossier],
+    );
+    expect(usage.rows[0].n).toBeGreaterThanOrEqual(4);
+  });
+
+  it("选用以后快照里 person.portrait 直接可用", async () => {
+    const asset = await (await api(`/v1/creative/worlds/${dossier}/entities/${personId}/asset`)).json();
+    const version = asset.versions[0];
+    const selected = await api(`/v1/creative/worlds/${dossier}/entities/${personId}/asset/selected`, {
+      method: "PUT",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ versionId: version.id }),
+    });
+    expect(selected.status).toBe(200);
+    const world = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    const person = world.entities.find((item: any) => item.id === personId);
+    expect(person.person.portrait.assetId).toBe(asset.id);
+    expect(person.person.portrait.url).toBe(version.views.portrait.url);
   });
 });

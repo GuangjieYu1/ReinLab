@@ -181,6 +181,16 @@ export const AdvisorBody = z
   })
   .strict();
 
+export const AssetVersionBody = z
+  .object({
+    views: z.array(z.enum(['portrait', 'front', 'side', 'back'])).min(1).max(4).optional(),
+    note: z.string().max(500).optional(),
+    from: z.string().min(1).max(64).optional(),
+  })
+  .strict();
+
+export const AssetSelectedBody = z.object({ versionId: z.string().min(1).max(64).nullable() }).strict();
+
 export const ImpactScanBody = z
   .object({
     from: z.number().int().min(1).max(1_000_000),

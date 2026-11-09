@@ -14,6 +14,8 @@ import { mutate, type ApiEnv } from './context';
 import type { Database } from '../db/database';
 import {
   AdvisorBody,
+  AssetSelectedBody,
+  AssetVersionBody,
   AssetBody,
   GenerateBody,
   ImpactScanBody,
@@ -29,6 +31,9 @@ import { impactOf } from '../creative/impact';
 import { beginScan, runScan, type ScanDeps } from '../creative/scan';
 import { judgeRules, type JudgeDeps } from '../creative/rule-judge';
 import { previewOf } from '../creative/preview';
+import { readAsset, retryUnsaved, runAssetVersion, selectVersion, startAssetVersion, stopAssetVersion } from '../creative/asset-service';
+import { readImage } from '../creative/image/store';
+import type { ImageProvider } from '../creative/image/provider';
 import { readEffectiveSnapshot } from '../creative/work-service';
 import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
 import { advise } from '../creative/advisor';
@@ -71,6 +76,8 @@ export type CreativeApiOptions = {
   impactScan?: ScanDeps;
   /** 29 号：自然语言规则判定用的模型通道。 */
   ruleJudge?: JudgeDeps;
+  /** MVP-2：出图的平台（没配时出图返回明确错误，不伪造）。 */
+  imageProvider?: ImageProvider;
   /** 写作助手（按场景生成）；没配就生成直接失败。 */
   writer?: import('../creative/writer').WriterDeps;
   /** 设定顾问；没配就直接说开不了。 */
@@ -505,6 +512,89 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       });
     return response;
   });
+
+  // ── MVP-2：人物形象（契约 §12.3）──────────────────
+  app.get('/v1/creative/worlds/:dossierId/entities/:entityId/asset', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const body: unknown = await readAsset(client, c.get('accountId'), c.req.param('dossierId'), c.req.param('entityId'));
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
+
+  app.post('/v1/creative/worlds/:dossierId/entities/:entityId/asset/versions', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const entityId = c.req.param('entityId');
+    let started: { versionId: string; views?: ('portrait' | 'front' | 'side' | 'back')[] } | null = null;
+    const response = await mutate(c, database, AssetVersionBody, async (client, input) => {
+      const result = await startAssetVersion(client, account, dossier, entityId, {
+        ...(input.views ? { views: input.views } : {}),
+        ...(input.note ? { note: input.note } : {}),
+        ...(input.from ? { from: input.from } : {}),
+      });
+      started = { versionId: result.version.id, ...(input.views ? { views: input.views } : {}) };
+      return { status: 201, body: { asset: result.asset, version: result.version } as unknown as JsonValue };
+    });
+    const job = started as { versionId: string; views?: ('portrait' | 'front' | 'side' | 'back')[] } | null;
+    if (job)
+      void runAssetVersion({ db: database, ...(options.imageProvider ? { provider: options.imageProvider } : {}) }, account, dossier, entityId, job.versionId, {
+        ...(job.views ? { views: job.views } : {}),
+      }).catch((error) => {
+        console.error(JSON.stringify({ code: 'CREATIVE_ASSET_FAILED', message: String((error as Error)?.message ?? error).slice(0, 200) }));
+      });
+    return response;
+  });
+
+  app.post('/v1/creative/worlds/:dossierId/entities/:entityId/asset/versions/:versionId/retry', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const entityId = c.req.param('entityId');
+    const versionId = c.req.param('versionId');
+    const response = await mutate(c, database, z.object({}).strict(), async () => ({ status: 200, body: { retried: true } as JsonValue }));
+    void retryUnsaved({ db: database, ...(options.imageProvider ? { provider: options.imageProvider } : {}) }, account, dossier, entityId, versionId).catch(
+      () => undefined,
+    );
+    return response;
+  });
+
+  app.post('/v1/creative/worlds/:dossierId/entities/:entityId/asset/versions/:versionId/stop', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const body: unknown = await stopAssetVersion(
+        client,
+        c.get('accountId'),
+        c.req.param('dossierId'),
+        c.req.param('entityId'),
+        c.req.param('versionId'),
+      );
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
+
+  app.put('/v1/creative/worlds/:dossierId/entities/:entityId/asset/selected', (c) =>
+    mutate(c, database, AssetSelectedBody, async (client, input) => {
+      const body: unknown = await selectVersion(
+        client,
+        c.get('accountId'),
+        c.req.param('dossierId'),
+        c.req.param('entityId'),
+        input.versionId,
+      );
+      return { status: 200, body: body as JsonValue };
+    }),
+  );
+
+  /** 图片文件：带登录校验；?download=1 给原图下载。 */
+  app.get('/v1/creative/assets/files/:fileId', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const file = await readImage(client, { account: c.get('accountId'), fileId: c.req.param('fileId') });
+      const download = c.req.query('download') === '1';
+      return c.body(new Uint8Array(file.bytes), 200, {
+        'content-type': file.mime,
+        'cache-control': 'private, max-age=31536000, immutable',
+        ...(download ? { 'content-disposition': `attachment; filename="${c.req.param('fileId')}"` } : {}),
+      });
+    }),
+  );
 
   /** 1D：提议采纳以后看板上的样子（只算不落库，按提议+修订缓存）。 */
   app.get('/v1/creative/worlds/:dossierId/proposals/:proposalId/preview', (c) =>
