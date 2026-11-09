@@ -2,6 +2,28 @@
 import type pg from 'pg';
 import type { PersonAsset } from '@reinlab/contracts';
 
+/** 文件名要用：这张图属于哪个人物、哪个视图、第几版。 */
+export async function describeFile(
+  client: pg.PoolClient,
+  account: string,
+  fileId: string,
+): Promise<{ entityId: string; dossierId: string; view: string; versionN: number } | null> {
+  const rows = (
+    await client.query<{ entity_id: string; dossier_id: string; document: PersonAsset }>(
+      'select entity_id, dossier_id, document from creative_person_asset where account_id=$1',
+      [account],
+    )
+  ).rows;
+  for (const row of rows) {
+    for (const version of row.document.versions) {
+      for (const [view, cell] of Object.entries(version.views)) {
+        if (cell?.url && cell.url.endsWith(fileId)) return { entityId: row.entity_id, dossierId: row.dossier_id, view, versionN: version.n };
+      }
+    }
+  }
+  return null;
+}
+
 /** 快照里 person.portrait 要用的：每人物选用版本的立绘。 */
 export async function selectedPortraits(
   client: pg.PoolClient,

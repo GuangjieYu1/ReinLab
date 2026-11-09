@@ -131,11 +131,12 @@ const recordUsage = async (
   dossier: string,
   provider: ImageProvider,
   cost: PersonAssetVersion['cost'],
+  note?: string,
 ) => {
   await db.withAccount(account, async (client) => {
     await client.query(
-      `insert into usage_record(id,account_id,dossier_id,run_id,provider,model,known,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_cny,purpose)
-       values(gen_random_uuid(),$1,$2,null,$3,$4,$5,null,null,null,null,$6,'creative_image')`,
+      `insert into usage_record(id,account_id,dossier_id,run_id,provider,model,known,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_cny,purpose,note)
+       values(gen_random_uuid(),$1,$2,null,$3,$4,$5,null,null,null,null,$6,'creative_image',$7)`,
       [
         account,
         dossier,
@@ -143,6 +144,7 @@ const recordUsage = async (
         provider.model,
         Boolean(cost?.known),
         cost?.known && cost.value !== null ? cost.value.toFixed(6) : null,
+        note ?? null,
       ],
     );
   });
@@ -293,7 +295,8 @@ export async function runAssetVersion(
         ...(pending?.pendingUrl ? { url: pending.pendingUrl } : {}),
         ...(pending?.taskId ? { taskId: pending.taskId } : {}),
       });
-      await recordUsage(deps.db, account, dossier, provider, null);
+      // 没出图不收钱：记 0 并写明
+      await recordUsage(deps.db, account, dossier, provider, { value: 0, known: true }, '平台未收费：这一格没出图');
     }
   }
 }

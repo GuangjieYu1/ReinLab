@@ -25,3 +25,47 @@ describe("开发占位图", () => {
     expect(png.length).toBeGreaterThan(50);
   });
 });
+
+describe("出图的价格与错误人话", () => {
+  it("按张计价：≤261 万像素 0.3，更大 0.6；参考图第 1 张免费", async () => {
+    const { imagePriceOf } = await import("../src/creative/image/ark");
+    expect(imagePriceOf({ width: 1024, height: 1536, references: 1 })).toEqual({ value: 0.3, known: true });
+    expect(imagePriceOf({ width: 2048, height: 2048, references: 0 })).toEqual({ value: 0.6, known: true });
+    expect(imagePriceOf({ width: 1024, height: 1536, references: 2 })).toEqual({ value: 0.32, known: true });
+  });
+
+  it("平台错误码翻成人话，不贴原始 JSON", async () => {
+    const { humanizeError } = await import("../src/creative/image/ark");
+    const raw = '{"error":{"code":"InvalidEndpointOrModel.NotFound","message":"The model ... does not exist"}}';
+    const text = humanizeError(404, raw);
+    expect(text).toContain("模型不存在");
+    expect(text).not.toContain("{");
+    expect(humanizeError(400, '{"error":{"code":"SensitiveContentDetected"}}')).toContain("审核");
+    expect(humanizeError(429, '{}')).toContain("频繁");
+  });
+});
+
+describe("路线推断的触发条件", () => {
+  it("只改外貌不发路线推断；改事件时间才发", async () => {
+    const { routingSignatureOf } = await import("../src/creative/routing");
+    const { emptyDocument } = await import("../src/creative/world");
+    const document = emptyDocument("测试");
+    document.entities = [
+      { id: "p1", kind: "person", name: "沈砚", aliases: [], origin: { basis: "author", by: "user" }, status: "accepted", workRefs: [], person: { look: "青衫" } },
+      { id: "pl1", kind: "place", name: "城门", aliases: [], origin: { basis: "author", by: "user" }, status: "accepted", workRefs: [], place: { level: "city", parentId: null, geo: { type: "Point", coordinates: [120.6, 31.31] }, geoCertainty: "exact", connects: [] } },
+    ];
+    document.events = [
+      {
+        id: "e1", title: "出城", what: "动身", kind: "stay", participants: [{ entityId: "p1", as: "actor" }], placeId: "pl1", travel: null, narrative: "fact",
+        origin: { basis: "author", by: "user" }, status: "accepted", gaps: [], workRefs: [],
+        start: { t: 100, label: "x", certainty: "exact", calendar: "gregorian", relative: null },
+        end: { t: 200, label: "y", certainty: "exact", calendar: "gregorian", relative: null },
+      },
+    ];
+    const before = routingSignatureOf(document);
+    const lookOnly = { ...document, entities: document.entities.map((e) => (e.id === "p1" ? { ...e, person: { look: "白衣" } } : e)) };
+    expect(routingSignatureOf(lookOnly)).toBe(before);
+    const timeChanged = { ...document, events: [{ ...document.events[0], start: { ...document.events[0].start, t: 50 } }] };
+    expect(routingSignatureOf(timeChanged)).not.toBe(before);
+  });
+});

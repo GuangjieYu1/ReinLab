@@ -16,11 +16,45 @@ export type ArkConfig = {
   model?: string;
   size?: string;
   referenceField?: string;
+  /** 官方价：单图 ≤261 万像素的单价（元/张）；更大的按大图价。 */
+  pricePerImage?: number;
+  pricePerLargeImage?: number;
+  /** 参考图：第 1 张免费，第 2 张起每张单价（元）。 */
+  pricePerExtraReference?: number;
 };
 
 const DEFAULT_BASE = 'https://ark.cn-beijing.volces.com/api/v3';
+const LARGE_PIXELS = 2_610_000;
 // 当前账号能用的 Seedream 里最新的一版（4.0 起支持参考图；5.0 pro 出人物更稳）
 const DEFAULT_MODEL = 'doubao-seedream-5-0-pro-260628';
+
+/** 按张计价（官方价）：≤261 万像素一档，更大一档；参考图第 1 张免费，第 2 张起加钱。 */
+export function imagePriceOf(
+  input: { width: number | null; height: number | null; references: number },
+  config?: ArkConfig | null,
+): { value: number; known: true } {
+  const pixels = (input.width ?? 0) * (input.height ?? 0);
+  const unit = pixels > LARGE_PIXELS ? (config?.pricePerLargeImage ?? 0.6) : (config?.pricePerImage ?? 0.3);
+  const extra = Math.max(0, input.references - 1) * (config?.pricePerExtraReference ?? 0.02);
+  return { value: Number((unit + extra).toFixed(6)), known: true };
+}
+
+/** 平台错误码 → 人话（原文不贴给作者）。 */
+export function humanizeError(status: number, body: string): string {
+  const code = /"code"\s*:\s*"([^"]+)"/.exec(body)?.[1] ?? '';
+  if (/Sensitive|sensitive|审核/i.test(`${code} ${body}`)) return '内容审核没通过，换个描述再试';
+  const known: Record<string, string> = {
+    'InvalidEndpointOrModel.NotFound': '模型不存在，或账号没开通这个模型',
+    AuthenticationError: '出图平台的 key 无效或过期',
+    InsufficientBalance: '账号余额不足',
+    QuotaExceeded: '这个账号的出图额度用完了',
+    RateLimitExceeded: '请求太频繁，稍后再试',
+  };
+  if (known[code]) return known[code];
+  if (status === 401 || status === 403) return '出图平台拒绝了这次请求（key 或权限问题）';
+  if (status === 429) return '请求太频繁，稍后再试';
+  return `出图平台返回 ${status}${code ? `（${code}）` : ''}`;
+}
 
 export function createArkProvider(config: ArkConfig | null): ImageProvider {
   const apiKey = config?.apiKey ?? '';
@@ -50,7 +84,11 @@ export function createArkProvider(config: ArkConfig | null): ImageProvider {
         signal: AbortSignal.timeout(300_000),
       });
       const text = await response.text();
-      if (!response.ok) throw new Error(`平台拒绝（${response.status}）：${text.slice(0, 200)}`);
+      if (!response.ok) {
+        // 平台原文只进日志；给作者的是一句人话
+        console.error(JSON.stringify({ code: 'ARK_IMAGE_ERROR', status: response.status, body: text.slice(0, 400) }));
+        throw new Error(humanizeError(response.status, text));
+      }
       let parsed: Record<string, unknown> = {};
       try {
         parsed = JSON.parse(text) as Record<string, unknown>;
@@ -80,7 +118,14 @@ export function createArkProvider(config: ArkConfig | null): ImageProvider {
         }
       } else throw new Error('平台没给图（只有任务号，还没完成）。');
       const mime = mimeOfBytes(bytes);
-      return { bytes, mime, ...imageSizeOf(bytes, mime), taskId, cost: null };
+      const size = imageSizeOf(bytes, mime);
+      return {
+        bytes,
+        mime,
+        ...size,
+        taskId,
+        cost: imagePriceOf({ width: size.width, height: size.height, references: request.reference ? 1 : 0 }, config),
+      };
     },
   };
 }

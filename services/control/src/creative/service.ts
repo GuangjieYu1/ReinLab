@@ -19,7 +19,7 @@ import type {
 import { ApiFailure } from '../api/errors';
 import { runCheck } from './check';
 import { appendEvents, cursorOf } from './events';
-import { buildLegs } from './routing';
+import { buildLegs, routingSignatureOf } from './routing';
 import { buildTracks, type TrackRange } from './tracks';
 import { edgeCount, fetchOsmEdges, importAzgaar, insertEdges, syncEditEdges, type OverpassTransport } from './network';
 import { applyOps, emptyDocument, worldOf, type CreativeDocument } from './world';
@@ -317,7 +317,11 @@ export async function applyBatch(
     legs,
     document: outcome.next,
     redraws: outcome.redraws,
-    missingRoutes: legs.filter((leg) => leg.kind === 'none'),
+    // 只改外貌/简介这类不影响位置和时间的东西时，不触发 AI 路线推断（也不花钱）
+    missingRoutes:
+      routingSignatureOf(state.document) === routingSignatureOf(outcome.next)
+        ? []
+        : legs.filter((leg) => leg.kind === 'none'),
   };
 }
 

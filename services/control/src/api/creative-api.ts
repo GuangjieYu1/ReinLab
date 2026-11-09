@@ -33,6 +33,7 @@ import { judgeRules, type JudgeDeps } from '../creative/rule-judge';
 import { previewOf } from '../creative/preview';
 import { readAsset, retryUnsaved, runAssetVersion, selectVersion, startAssetVersion, stopAssetVersion } from '../creative/asset-service';
 import { readImage } from '../creative/image/store';
+import { describeFile } from '../creative/asset-query';
 import type { ImageProvider } from '../creative/image/provider';
 import { readEffectiveSnapshot } from '../creative/work-service';
 import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
@@ -588,10 +589,29 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     database.withAccount(c.get('accountId'), async (client) => {
       const file = await readImage(client, { account: c.get('accountId'), fileId: c.req.param('fileId') });
       const download = c.req.query('download') === '1';
+      let disposition: string | undefined;
+      if (download) {
+        const fileId = c.req.param('fileId');
+        const info = await describeFile(client, c.get('accountId'), fileId);
+        const ext = file.mime === 'image/jpeg' ? 'jpg' : file.mime === 'image/png' ? 'png' : 'webp';
+        let name = `image-${fileId.slice(0, 8)}`;
+        if (info) {
+          const entity = (
+            await client.query<{ name: string }>(
+              "select item->>'name' name from creative_world, jsonb_array_elements(document->'entities') item where dossier_id=$1 and item->>'id'=$2",
+              [info.dossierId, info.entityId],
+            )
+          ).rows[0]?.name;
+          const viewLabel: Record<string, string> = { portrait: '立绘', front: '正面', side: '侧面', back: '背面' };
+          name = `${entity ?? '人物'}-${viewLabel[info.view] ?? info.view}-第${info.versionN}版`;
+        }
+        const ascii = `${fileId.slice(0, 8)}.${ext}`;
+        disposition = `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(`${name}.${ext}`)}`;
+      }
       return c.body(new Uint8Array(file.bytes), 200, {
         'content-type': file.mime,
         'cache-control': 'private, max-age=31536000, immutable',
-        ...(download ? { 'content-disposition': `attachment; filename="${c.req.param('fileId')}"` } : {}),
+        ...(disposition ? { 'content-disposition': disposition } : {}),
       });
     }),
   );
