@@ -387,7 +387,14 @@ const creativeWriter = writerModel
 const creativeAdvisor = writerModel
   ? { model: writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
   : undefined;
+// 29 号：助手会话（多轮 + 工具），同一条模型通道。
+const creativeAssistant = writerModel
+  ? { ...writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
+  : undefined;
 // 1C 扫正文：读全文找「可能受影响」的段落，同一条模型通道。
+const creativeRuleJudge = writerModel
+  ? { model: writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
+  : undefined;
 const creativeImpactScan = writerModel
   ? { model: writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
   : undefined;
@@ -398,6 +405,8 @@ const app = await createApp({
   ...(creativeWriter ? { creativeWriter } : {}),
   ...(creativeAdvisor ? { creativeAdvisor } : {}),
   ...(creativeImpactScan ? { creativeImpactScan } : {}),
+  ...(creativeAssistant ? { creativeAssistant } : {}),
+  ...(creativeRuleJudge ? { creativeRuleJudge } : {}),
   ...(creativeRoute ? { creativeRouteInference: creativeRoute } : {}),
   session: config.SUPABASE_ANON_KEY
     ? { url: config.SUPABASE_URL, anonKey: config.SUPABASE_ANON_KEY,

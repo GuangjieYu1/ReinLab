@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Mobius } from '../rhine/RhineMark';
 import { SignalDot } from '../rhine/primitives';
+import { RichBlocks } from './richText';
 import './agent-dock.css';
 
 // Agent 坞 · 所有工作台共用（设计语言 §7）。
@@ -81,7 +82,7 @@ export default function AgentDock({ name, target, plan, suggestions, events, bus
 
 function Event({ e }: { e: DockEvent }) {
   if (e.kind === 'user') return <div className="ad-msg is-user rh-enter"><span className="ad-who">你</span><p>{e.text}</p><time className="rh-micro">{e.at}</time></div>;
-  if (e.kind === 'agent') return <div className="ad-msg is-agent rh-enter"><span className="ad-who">AI</span><div>{e.text}</div><time className="rh-micro">{e.at}</time></div>;
+  if (e.kind === 'agent') return <div className="ad-msg is-agent rh-enter"><span className="ad-who">AI</span><div className="ad-rich">{typeof e.text === 'string' ? <RichBlocks text={e.text} /> : e.text}</div><time className="rh-micro">{e.at}</time></div>;
   if (e.kind === 'tool') return (
     <div className="ad-tool rh-enter" data-state={e.state}>
       <span className="ad-tool-k">▸</span><code>{e.action}</code><span>{e.label}</span>

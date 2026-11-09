@@ -8,6 +8,9 @@ import type { Database } from "../db/database";
 import type { KernelService } from "../kernel/service";
 import { runUsage } from "../run/usage";
 import { createCreativeRun, runCreativeSession } from "../creative/assistant-run";
+import { runTurn } from "../creative/assistant-session";
+
+const MessageBody = z.object({ query: z.string().min(1).max(4000) }).strict();
 
 const Create = z
   .object({
@@ -35,6 +38,8 @@ export type KernelRunApiDependencies = {
   creative?: {
     advisor?: import("../creative/advisor").AdvisorDeps;
     writer?: import("../creative/writer").WriterDeps;
+    /** 29 号：多轮会话的模型通道（带工具）。 */
+    chat?: import("../creative/assistant-session").ChatDeps;
   };
   /** 群研的发起走这一档：建 swarm_run 而不是普通精读运行。 */
   swarm?: import("../swarm/service").SwarmService;
@@ -132,7 +137,12 @@ export function registerKernelRuns(
     if (creativeMode) {
       // 创作台会话跑在控制面里：一条消息一条事件，页面照常订阅 /v1/kernel/runs/:id/stream。
       void runCreativeSession(
-        { db: dependencies.db, ...(dependencies.creative?.advisor ? { advisor: dependencies.creative.advisor } : {}), ...(dependencies.creative?.writer ? { writer: dependencies.creative.writer } : {}) },
+        {
+          db: dependencies.db,
+          ...(dependencies.creative?.advisor ? { advisor: dependencies.creative.advisor } : {}),
+          ...(dependencies.creative?.writer ? { writer: dependencies.creative.writer } : {}),
+          ...(dependencies.creative?.chat ? { chat: dependencies.creative.chat } : {}),
+        },
         account,
         created,
       ).catch((error) => {
@@ -429,6 +439,37 @@ export function registerKernelRuns(
       });
     }),
   );
+
+  /** 29 号：续一句——同一会话追加一轮（多轮上下文），回复走同一条事件流。 */
+  app.post("/v1/kernel/runs/:id/messages", async (c) => {
+    const account = c.get("accountId");
+    const id = c.req.param("id");
+    if (!z.string().uuid().safeParse(id).success) throw new ApiFailure("RUN_NOT_FOUND", 404, "运行不存在。");
+    const parsed = MessageBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) throw new ApiFailure("INVALID_INPUT", 400, "请求字段不符合要求，请检查输入。");
+    const row = await dependencies.db.withAccount(account, async (client) => {
+      const run = (
+        await client.query<{ mode: string; state: string }>(
+          "select mode, state from run where account_id=$1 and id=$2",
+          [account, id],
+        )
+      ).rows[0];
+      return run ?? null;
+    });
+    if (!row || row.mode !== "creative")
+      throw new ApiFailure("RUN_NOT_FOUND", 404, "这不是创作台会话。");
+    void runTurn(
+      { db: dependencies.db, ...(dependencies.creative?.chat ? { chat: dependencies.creative.chat } : {}) },
+      account,
+      id,
+      parsed.data.query,
+    ).catch((error) => {
+      console.error(
+        JSON.stringify({ code: "CREATIVE_TURN_FAILED", message: String((error as Error)?.message ?? error).slice(0, 200) }),
+      );
+    });
+    return c.json({ id, state: "running" }, 202);
+  });
 
   app.post("/v1/kernel/runs/:id/cancel", async (c) => {
     const account = c.get("accountId");

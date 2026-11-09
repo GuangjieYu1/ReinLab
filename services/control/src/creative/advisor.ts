@@ -170,7 +170,20 @@ export function advisorOps(payload: AdvisorPayload): { ops: CreativeOp[]; doubts
     const row = item as Record<string, unknown>;
     const text = asText(row.text, 500);
     if (!text) continue;
-    ops.push({ op: 'rule.set', rule: { id: `rule_${randomUUID().slice(0, 8)}`, text, machine: null } });
+    // 能翻成程序可判的形式就翻（验收问题 3）：只认检查器支持的四类，翻不了的留 machine: null，
+    // 由模型在检查时按事件判、标「疑似」。
+    const machineKind = asText((row.machine as Record<string, unknown> | null)?.kind, 20);
+    const machine =
+      machineKind && ['teleport', 'remote_presence', 'resurrection', 'custom'].includes(machineKind)
+        ? {
+            kind: machineKind as 'teleport' | 'remote_presence' | 'resurrection' | 'custom',
+            params: ((row.machine as Record<string, unknown>)?.params ?? {}) as Record<string, unknown>,
+          }
+        : null;
+    const note = asText(row.machineNote, 200);
+    ops.push({ op: 'rule.set', rule: { id: `rule_${randomUUID().slice(0, 8)}`, text, machine } });
+    if (machine) doubts.push(`规则「${clip(text, 40)}」翻成了程序可判的「${machine.kind}」${note ? `：${note}` : ''}。`);
+    else doubts.push(`规则「${clip(text, 40)}」暂时翻不成程序可判的形式：检查时由模型按相关事件判断，结果标「疑似」。`);
   }
   return { ops, doubts };
 }

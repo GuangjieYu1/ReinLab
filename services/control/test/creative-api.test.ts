@@ -63,6 +63,13 @@ const overpass: OverpassTransport = async (_url, body) => {
 const writerModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
   current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
 };
+const judgeModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
+  current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{\"violations\":[]}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+};
+const chatModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
+  current: async () =>
+    new Response(JSON.stringify({ content: [{ type: "text", text: "好。" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+};
 const scanModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
   current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
 };
@@ -128,6 +135,24 @@ beforeAll(async () => {
         model: "test-advisor",
         transport: (input, init) => advisorModelHolder.current(input as string, init as RequestInit),
       },
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+    },
+    creativeRuleJudge: {
+      model: {
+        baseUrl: "https://model.test/anthropic",
+        apiKey: "test-key",
+        model: "test-judge",
+        transport: (input, init) => judgeModelHolder.current(input as string, init as RequestInit),
+      },
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+    },
+    creativeAssistant: {
+      baseUrl: "https://model.test/anthropic",
+      apiKey: "test-key",
+      model: "test-chat",
+      transport: (input, init) => chatModelHolder.current(input as string, init as RequestInit),
       pricing: { inputPerMillion: 2, outputPerMillion: 8 },
       provider: "test",
     },
@@ -1049,28 +1074,30 @@ describe("导入预览分章 + 最后一章暂停落在 done（1B）", () => {
 });
 
 describe("创作台会话走 kernel runs（1B 契约 §5.2「助手」）", () => {
-  it("设定顾问：建 run、写事件、只产出提议", async () => {
-    advisorModelHolder.current = async () =>
-      new Response(
-        JSON.stringify({
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                kind: "entity",
-                title: "加一个船夫",
-                summary: "冬天在渡口撑船的人。",
-                entities: [{ name: "船夫", kind: "person", aliases: ["舟子"], summary: "渡口撑船" }],
-                events: [],
-                rules: [],
-                doubts: [],
-              }),
-            },
-          ],
-          usage: { input_tokens: 500, output_tokens: 200 },
-        }),
-        { status: 200 },
-      );
+  it("设定顾问：建 run、多轮会话、工具交提议（29 号）", async () => {
+    let call = 0;
+    chatModelHolder.current = async () => {
+      call += 1;
+      const content =
+        call === 1
+          ? [
+              {
+                type: "tool_use",
+                id: `tool-${call}`,
+                name: "propose_setting",
+                input: {
+                  title: "加一个船夫",
+                  summary: "冬天在渡口撑船的人。",
+                  entities: [{ name: "船夫", kind: "person", aliases: ["舟子"], summary: "渡口撑船" }],
+                  events: [],
+                  rules: [],
+                  doubts: [],
+                },
+              },
+            ]
+          : [{ type: "text", text: "已经交了一条提议，在待确认里。" }];
+      return new Response(JSON.stringify({ content, usage: { input_tokens: 500, output_tokens: 200 } }), { status: 200 });
+    };
     const started = await api("/v1/kernel/runs", {
       method: "POST",
       headers: { "Idempotency-Key": randomUUID() },
@@ -1104,21 +1131,21 @@ describe("创作台会话走 kernel runs（1B 契约 §5.2「助手」）", () =
   });
 
   it("顾问按底线提不出设定：会话照常完成，回复里说明为什么，不记成失败", async () => {
+    chatModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: "现有设定没有夜间时段，我不凭摘要编一条夜规。\n\n这次没有生成提议。" }],
+          usage: { input_tokens: 300, output_tokens: 120 },
+        }),
+        { status: 200 },
+      );
     advisorModelHolder.current = async () =>
       new Response(
         JSON.stringify({
           content: [
             {
               type: "text",
-              text: JSON.stringify({
-                kind: "event",
-                title: "",
-                summary: "",
-                entities: [],
-                events: [],
-                rules: [],
-                doubts: ["现有设定没有夜间时段，不能凭摘要编一条夜规"],
-              }),
+              text: JSON.stringify({ kind: "event", title: "", summary: "", entities: [], events: [], rules: [], doubts: ["现有设定没有夜间时段"] }),
             },
           ],
           usage: { input_tokens: 300, output_tokens: 120 },
@@ -1611,5 +1638,271 @@ describe("1C：版本差异、影响清单、设定组合", () => {
     expect(item.maybe.length).toBeGreaterThan(0);
     expect(item.maybe[0].quote).toBeTruthy();
     expect(item.maybe[0].why).toBeTruthy();
+  });
+});
+
+describe("复验：跨版本跟着改也能标待同步（从 baseVersion 起算）", () => {
+  it("条目在中间某版改、目标版是再下一版时，确定受影响的场景照样标待同步", async () => {
+    const worldPath = `/v1/creative/worlds/${dossierA}`;
+    const snapshot = await (await api(worldPath)).json();
+    const place = snapshot.entities.find((item: any) => item.name === "青州城");
+    const created = await api(`${worldPath}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "跨版本测试" }),
+    });
+    const work = await created.json();
+    expect(work.baseVersion).toBeGreaterThanOrEqual(2);
+    const base = work.baseVersion;
+    await api(`${worldPath}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "试", pov: "三", ending: "试",
+              chapters: [{ id: "c1", title: "第一章", scenes: [{ id: "s1", title: "城门口", goal: "试", eventIds: [], targetWords: 300 }] }],
+            },
+          },
+          { op: "outline.confirm" },
+          { op: "text.set", sceneId: "s1", baseTextVersion: 0, text: "青州城的城门还没有开，雨一直下。" },
+        ],
+      }),
+    });
+    // v3：挪青州城；v4：挪另一个地点（目标版不是条目改的那一版）
+    let current = (await (await api(worldPath)).json()).world.revision;
+    await api(`${worldPath}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: current,
+        ops: [{ op: "entity.update", id: place.id, patch: { place: { ...place.place, geo: { type: "Point", coordinates: [118.4, 36.9] } } } }],
+      }),
+    });
+    const v3 = await (await api(`${worldPath}/versions`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ summary: "v3：青州城挪位置" }),
+    })).json();
+    const other = (await (await api(worldPath)).json()).entities.find((item: any) => item.kind === "place" && item.id !== place.id);
+    current = (await (await api(worldPath)).json()).world.revision;
+    await api(`${worldPath}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: current,
+        ops: [{ op: "entity.update", id: other.id, patch: { summary: `改简介 ${Date.now()}` } }],
+      }),
+    });
+    const v4 = await (await api(`${worldPath}/versions`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ summary: "v4：另一个地点改简介" }),
+    })).json();
+    expect(v4.n).toBeGreaterThan(v3.n);
+    expect(base).toBeLessThan(v3.n);
+
+    const followed = await api(`${worldPath}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 2, ops: [{ op: "setting.follow", itemId: place.id, toVersion: v4.n }] }),
+    });
+    expect(followed.status).toBe(200);
+    const body = await followed.json();
+    expect(body.work.setting.picks.some((pick: any) => pick.itemId === place.id && pick.fromVersion === v4.n)).toBe(true);
+    // 条目在 v3 改的，从 baseVersion 算到 v4 必须能标出来
+    expect(body.work.setting.pendingSync).toBeGreaterThanOrEqual(1);
+    const detail = await (await api(`${worldPath}/works/${work.id}`)).json();
+    const marks = detail.chapters.flatMap((chapter: any) => chapter.scenes).flatMap((scene: any) => scene.marks);
+    expect(marks.some((mark: any) => mark.kind === "sync" && mark.refId === place.id)).toBe(true);
+  });
+});
+
+describe("29 号：模型判自然语言规则", () => {
+  const worldPath = `/v1/creative/worlds/${dossierA}`;
+  let ruleId = "";
+
+  it("翻不成程序可判的规则，由模型判成「疑似」，并记花费；没变就复用", async () => {
+    const snapshot = await (await api(worldPath)).json();
+    const added = await api(`${worldPath}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: snapshot.world.revision,
+        ops: [{ op: "rule.set", rule: { id: "rule_curfew", text: "苏州城宵禁，入夜城门关闭。", machine: null } }],
+      }),
+    });
+    expect(added.status).toBe(200);
+    ruleId = "rule_curfew";
+    const eventId = snapshot.events[0].id;
+
+    judgeModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ violations: [{ ruleId, eventId, why: "这条事件在入夜后出城，和宵禁对不上", quote: "夜里动身" }] }),
+            },
+          ],
+          usage: { input_tokens: 700, output_tokens: 90 },
+        }),
+        { status: 200 },
+      );
+    const judged = await api(`${worldPath}/rules/judge`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect(judged.status).toBe(200);
+    const body = await judged.json();
+    expect(body.judged).toBeGreaterThanOrEqual(1);
+    expect(body.cost.known).toBe(true);
+    const suspect = body.check.conflicts.find((item: any) => item.kind === "rule_model");
+    expect(suspect?.severity).toBe("suspect");
+    expect(suspect.why).toContain("宵禁");
+    expect(suspect.why).toContain("疑似");
+
+    // 事件和规则没变：第二次不再花钱
+    const again = await api(`${worldPath}/rules/judge`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect((await again.json()).judged).toBe(0);
+  });
+});
+
+describe("29 号：同一会话续一句", () => {
+  it("第二轮能带上第一轮说过的话", async () => {
+    const started = await api("/v1/kernel/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ dossierId: dossierA, query: "第一句：加一个船夫", mode: "creative_advisor" }),
+    });
+    const { id } = await started.json();
+    // 等第一轮结束
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const state = (await admin.query("select state from run where id=$1", [id])).rows[0]?.state;
+      if (state === "completed") break;
+    }
+    const bodies: string[] = [];
+    chatModelHolder.current = async (_url, init) => {
+      bodies.push(String((init as RequestInit).body ?? ""));
+      return new Response(JSON.stringify({ content: [{ type: "text", text: "第二轮回答。" }], usage: { input_tokens: 20, output_tokens: 8 } }), { status: 200 });
+    };
+    const next = await api(`/v1/kernel/runs/${id}/messages`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ query: "第二句：他叫什么？" }),
+    });
+    expect(next.status).toBe(202);
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const count = (await admin.query("select count(*)::int n from event where run_id=$1 and action='assistant/message'", [id])).rows[0]?.n;
+      if (count >= 2) break;
+    }
+    expect(bodies.length).toBeGreaterThan(0);
+    const sent = JSON.parse(bodies[0]) as { messages: { role: string; content: { text: string }[] }[] };
+    const flat = sent.messages.flatMap((message) => message.content.map((block) => block.text)).join("\n");
+    expect(flat).toContain("第一句");
+    expect(flat).toContain("第二句");
+  });
+});
+
+describe("C2：场景靠 eventIds 引用时，「让助手改」整场替换", () => {
+  it("没有正文标注段号 → before 是整场原文、range 为空，接受后替换原文、待同步减 1", async () => {
+    const created = await api(`/v1/creative/worlds/${dossierA}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "场景引用测试" }),
+    });
+    const work = await created.json();
+    const snapshot = await (await api(`/v1/creative/worlds/${dossierA}`)).json();
+    const event = snapshot.events[0];
+    // 正文里不写地名/人名，只靠 eventIds 引用
+    const outlined = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          {
+            op: "outline.set",
+            outline: {
+              logline: "试", pov: "三", ending: "试",
+              chapters: [{ id: "c1", title: "第一章", scenes: [{ id: "s1", title: "出门", goal: "试", eventIds: [event.id], targetWords: 300 }] }],
+            },
+          },
+          { op: "outline.confirm" },
+          { op: "text.set", sceneId: "s1", baseTextVersion: 0, text: "第一段：天没亮他就出了门。\n\n第二段：路上没有人。" },
+        ],
+      }),
+    });
+    expect(outlined.status).toBe(200);
+    // 改这条事件，存新版本
+    const before = (await (await api(`/v1/creative/worlds/${dossierA}`)).json()).world.revision;
+    const changed = await api(`/v1/creative/worlds/${dossierA}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: before,
+        ops: [{ op: "event.update", id: event.id, patch: { start: { input: "1684-04-21 05:00" } } }],
+      }),
+    });
+    expect(changed.status).toBe(200);
+    const saved = await api(`/v1/creative/worlds/${dossierA}/versions`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ summary: "场景引用测试版" }),
+    });
+    const toVersion = (await saved.json()).n;
+    const followed = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: 2, ops: [{ op: "setting.follow", itemId: event.id, toVersion }] }),
+    });
+    expect(followed.status).toBe(200);
+    const followBody = await followed.json();
+    expect(followBody.work.setting.pendingSync).toBe(1);
+
+    writerModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({ content: [{ type: "text", text: JSON.stringify({ text: "第一段：他提前一个时辰出了门。\n\n第二段：路上还是没有人。", why: "按新时间改" }) }], usage: { input_tokens: 800, output_tokens: 200 } }),
+        { status: 200 },
+      );
+    const suggested = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: followBody.revision, ops: [{ op: "sync.suggest", itemId: event.id, sceneIds: ["s1"] }] }),
+    });
+    expect(suggested.status).toBe(200);
+    const suggestBody = await suggested.json();
+    let proposal: any = null;
+    for (let index = 0; index < 120; index += 1) {
+      await new Promise((done) => setTimeout(done, 200));
+      const list = await (await api(`/v1/creative/worlds/${dossierA}/proposals?kind=text_edit&limit=20`)).json();
+      proposal = list.proposals.find((item: any) => item.batchId === `sync_${event.id}` && item.status === "pending");
+      if (proposal) break;
+    }
+    expect(proposal).toBeTruthy();
+    const edit = proposal.ops[0];
+    expect(edit.mode).toBe("rewrite");
+    expect(edit.before).toBe("第一段：天没亮他就出了门。\n\n第二段：路上没有人。");
+    expect(edit.range).toBeNull();
+
+    const accepted = await api(`/v1/creative/worlds/${dossierA}/works/${work.id}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: suggestBody.revision, ops: [{ op: "text.accept", proposalId: proposal.id }] }),
+    });
+    expect(accepted.status).toBe(200);
+    const body = await accepted.json();
+    expect(body.work.chapters[0].scenes[0].text).toBe("第一段：他提前一个时辰出了门。\n\n第二段：路上还是没有人。");
+    expect(body.work.setting.pendingSync).toBe(0);
   });
 });

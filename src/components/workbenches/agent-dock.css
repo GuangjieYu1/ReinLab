@@ -110,3 +110,9 @@
 .rt-photo img { max-width: 100%; max-height: 420px; object-fit: contain; border: 1px solid #141213; background: #e8e6e1; justify-self: start; }
 .ad .rt-photo img { max-height: 180px; }
 .rt-photo figcaption { font: 500 11px/1.4 var(--rh-f-mono); color: #6b6865; }
+/* AI 回复按 Markdown 排：段落、列表、表格 */
+.ad-rich > p { margin:0 0 .55em; } .ad-rich > p:last-child { margin-bottom:0; }
+.ad-rich .rt-list { margin:.2em 0 .6em; padding-left:1.3em; } .ad-rich .rt-list li { margin:.15em 0; }
+.ad-rich .rt-h { margin:.6em 0 .25em; }
+.ad-rich .rt-table { border-collapse:collapse; font-size:.92em; margin:.4em 0; display:block; overflow-x:auto; }
+.ad-rich .rt-table th, .ad-rich .rt-table td { border:1px solid var(--rh-line, #d8d5cf); padding:3px 7px; text-align:left; }

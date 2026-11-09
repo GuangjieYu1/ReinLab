@@ -27,6 +27,7 @@ import {
 } from '../creative/schema';
 import { impactOf } from '../creative/impact';
 import { beginScan, runScan, type ScanDeps } from '../creative/scan';
+import { judgeRules, type JudgeDeps } from '../creative/rule-judge';
 import { readEffectiveSnapshot } from '../creative/work-service';
 import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
 import { advise } from '../creative/advisor';
@@ -67,6 +68,8 @@ export type CreativeApiOptions = {
   importExtraction?: import('../creative/import-job').ImportDeps;
   /** 1C：扫正文的模型通道；没配就扫不了（照实说）。 */
   impactScan?: ScanDeps;
+  /** 29 号：自然语言规则判定用的模型通道。 */
+  ruleJudge?: JudgeDeps;
   /** 写作助手（按场景生成）；没配就生成直接失败。 */
   writer?: import('../creative/writer').WriterDeps;
   /** 设定顾问；没配就直接说开不了。 */
@@ -500,6 +503,20 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
         );
       });
     return response;
+  });
+
+  /** 29 号：让模型判自然语言规则（结果标「疑似」，按事件指纹缓存，不重复花钱）。 */
+  app.post('/v1/creative/worlds/:dossierId/rules/judge', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const result = await judgeRules(database, options.ruleJudge ?? {}, account, dossier);
+    const rechecked = await database.withAccount(account, (client) => recheck(client, account, dossier));
+    return c.json({
+      judged: result.judged,
+      skipped: result.skipped,
+      cost: result.cost,
+      check: rechecked.check,
+    } as unknown as Record<string, unknown>);
   });
 
   /** 按作品看：它实际用的设定组合（check 也按组合算）。 */

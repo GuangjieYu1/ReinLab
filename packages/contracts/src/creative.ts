@@ -101,7 +101,9 @@ export type Entity = {
     osm?: { type: 'node' | 'way' | 'relation'; id: number; version?: number } | null;
   };
   /** 出生、死亡也是事件：这里存事件 id。 */
-  person?: { born?: string | null; died?: string | null };
+  person?: { born?: string | null; died?: string | null;
+    /** MVP-2：选用的立绘（稳定资产 ID + 可直接取的图）。地图上用它当头像；没有就用名字首字。 */
+    portrait?: { assetId: string; url: string } | null };
   workRefs: { workId: string; chapterId?: string }[];
 };
 
@@ -239,7 +241,14 @@ export type Track = {
 };
 
 // ── 检查 ──────────────────────────────────────────
-export type ConflictKind = 'double_location' | 'travel_time' | 'dead_appearance' | 'presence' | 'place_hierarchy';
+export type ConflictKind =
+  | 'double_location'
+  | 'travel_time'
+  | 'dead_appearance'
+  | 'presence'
+  | 'place_hierarchy'
+  /** 29 号：自然语言规则由模型判出来的「疑似」（永远 severity: suspect）。 */
+  | 'rule_model';
 
 export type Fix = {
   id: string;

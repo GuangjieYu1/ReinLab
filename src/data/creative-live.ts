@@ -38,6 +38,8 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
       localStorage.setItem(`creative-assistant:${dossierId}:${mode}`, run.id);
       return run;
     },
+    sayAssistant: (id, query) => call('POST', `/v1/kernel/runs/${enc(id)}/messages`, { query }),
+    judgeRules: () => call('POST', `${base}/rules/judge`, {}),
     runs: async () => {
       const page = await call<{ runs: { id: string; mode?: string; state: string }[] }>('GET', `/v1/kernel/dossiers/${enc(dossierId)}/runs`);
       // 内核列表的 mode 是 creative；本机记录启动时选择的具体角色，用于断线恢复。
@@ -60,6 +62,11 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
     importNetwork: req => call('POST', `${base}/network/import`, req),
     uploadAsset: (name, content) => call('POST', `${base}/assets`, { name, content, format: 'geojson' }),
     saveVersion: summary => call('POST', `${base}/versions`, { summary }),
+    version: n => call('GET', `${base}/versions/${n}`),
+    draftDiff: () => call('GET', `${base}/versions/draft`),
+    impact: (from, to) => call('GET', `${base}/impact?from=${from}&to=${to}`),
+    impactScan: (from, to) => call('POST', `${base}/impact/scan`, { from, to }),
+    effective: workId => call('GET', `${base}/works/${enc(workId)}/effective`),
     mapConfig: () => call('GET', '/v1/explore/map-config'),
     subscribe(after, on, onGap) {
       const ctl = new AbortController();

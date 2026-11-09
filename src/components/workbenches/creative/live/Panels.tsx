@@ -5,7 +5,7 @@ import type {
 import { dur } from './geo';
 
 export const KIND_ZH: Record<ConflictKind, string> = {
-  double_location: '同时异地', travel_time: '路程耗时', dead_appearance: '死后出场', presence: '在场互动', place_hierarchy: '地点层级与连接',
+  double_location: '同时异地', travel_time: '路程耗时', dead_appearance: '死后出场', presence: '在场互动', place_hierarchy: '地点层级与连接', rule_model: '违反规则',
 };
 const BASIS_ZH: Record<string, string> = { explicit: '原文明写', inferred: '推断', unknown: '未知', author: '作者手写' };
 const NARR_ZH: Record<string, string> = { fact: '事实', hearsay: '传闻', dream: '梦境', hypothetical: '假设', flashback: '回忆' };
@@ -34,9 +34,10 @@ function FixPreview({ fixes, look, onAccept, onCancel, busy }: { fixes: Fix[]; l
 }
 
 /* ———— 检查（照 Aeon Timeline：红 / 黄 / 信息不足 / 未覆盖 + 本次查过未发现） ———— */
-export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, busy }: {
+export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, onJudge, judgeNote, busy }: {
   check: CheckRun | null; look: Lookup; sel: string | null; onSel: (c: CreativeConflict | null) => void;
   onApply: (fixes: Fix[]) => Promise<void>; onRecheck: () => void; busy: boolean;
+  /** 29：让模型判自然语言规则（显式按钮，花钱）。 */ onJudge?: () => void; judgeNote?: string | null;
 }) {
   const [preview, setPreview] = useState<{ key: string; fixes: Fix[] } | null>(null);
   if (!check) return <div className="cw-pane"><p className="cw-muted">还没检查过。</p><button className="rh-btn" onClick={onRecheck} disabled={busy}>全部重查</button></div>;
@@ -45,7 +46,7 @@ export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, busy }
   const apply = async (fixes: Fix[]) => { await onApply(fixes); setPreview(null); };
   const conflict = (c: CreativeConflict) => <article key={c.id} className="cw-conf" data-sev={c.severity} data-sel={sel === c.id || undefined}>
     <button className="cw-conf-head" onClick={() => onSel(sel === c.id ? null : c)}>
-      <em>{c.severity === 'hard' ? '确定冲突' : '疑似 · 按推断路线估算'}</em><b>{KIND_ZH[c.kind]}</b><p>{c.why}</p>
+      <em>{c.severity === 'hard' ? '确定冲突' : c.kind === 'rule_model' ? '疑似 · 模型按规则原话判的' : '疑似 · 按推断路线估算'}</em><b>{KIND_ZH[c.kind]}</b><p>{c.why}</p>
       {c.numbers && <small>{c.numbers.needMin != null && `需要 ${dur(c.numbers.needMin) || '0 分'}`}{c.numbers.needMin != null && c.numbers.haveMin != null && ' · '}{c.numbers.haveMin != null && `只有 ${dur(c.numbers.haveMin) || '0 分'}`}</small>}
     </button>
     {sel === c.id && <div className="cw-fixes">{c.fixes.map(f => <button key={f.id} className="cw-fix" data-kind={f.kind} onClick={() => setPreview({ key: f.id, fixes: [f] })}>{f.label}</button>)}
@@ -58,6 +59,8 @@ export function CheckPanel({ check, look, sel, onSel, onApply, onRecheck, busy }
       <span data-sev="hard">红 {hard.length}</span><span data-sev="suspect">黄 {sus.length}</span><span>信息不足 {check.insufficient.length}</span><span>未覆盖 {check.uncovered.length}</span>
       <button className="rh-btn" onClick={onRecheck} disabled={busy}>全部重查</button>
     </div>
+    {onJudge && <div className="cw-judge"><button className="rh-btn" onClick={onJudge} disabled={busy} title="程序判不了的规则，让模型读事件来判；规则和事件没变时不再花钱">让模型判规则</button>
+      <small>{judgeNote ?? (check.uncovered.length ? `${check.uncovered.length} 条规则程序判不了，可以让模型判（花钱，结果标黄色疑似）` : (check.conflicts.some(c => c.kind === 'rule_model') ? '自然语言规则模型已判过；改了规则或事件再点会重判' : '没有要模型判的规则'))}</small></div>}
     {auto.length > 1 && <div className="cw-allfix">
       <button className="rh-btn" onClick={() => setPreview({ key: 'all', fixes: auto })}>全部处理（{auto.length} 条，先看预览）</button>
       {preview?.key === 'all' && <FixPreview fixes={preview.fixes} look={look} busy={busy} onAccept={() => void apply(preview.fixes)} onCancel={() => setPreview(null)} />}
@@ -122,12 +125,16 @@ export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, 
 }) {
   const name = (id: string | null | undefined) => (id && look.entities.get(id)?.name) || '未定';
   const tools = (removable = true) => <div className="cw-row"><button className="rh-btn" onClick={() => onEdit(sel)}>编辑</button>{removable && <button className="rh-btn" onClick={() => onRemove(sel)}>删除</button>}</div>;
+  // 1C：条目被哪些作品改写；按作品看时标出这条用的是基准、采用的新版还是本作品改写
+  const ov = (x: { overriddenBy?: { workId: string; workTitle: string }[]; setting?: string } | undefined) => <>
+    {x?.setting && x.setting !== 'base' && <p className="cw-ov" data-k={x.setting}>{x.setting === 'override' ? '本作品改写' : '采用了新版设定'}</p>}
+    {!!x?.overriddenBy?.length && <p className="cw-ov">被{x.overriddenBy.map(w => `《${w.workTitle}》`).join('、')}改写（只对那部作品生效）</p>}</>;
   const flagsOf = (pred: (c: CreativeConflict) => boolean) => conflicts.filter(pred).map(c => <p key={c.id} className="cw-flag" data-sev={c.severity}>{KIND_ZH[c.kind]} · {c.why}</p>);
   if (sel.kind === 'event') {
     const e = look.events.get(sel.id); if (!e) return <p className="cw-muted">这条事件已经不在了。</p>;
     const time = (s: WorldEvent['start']) => <>{s.label}{s.certainty !== 'exact' && <small> · {s.certainty === 'range' ? '范围' : s.certainty === 'relative' ? '相对' : '未知'}</small>}</>;
     return <div className="cw-pane cw-detail">
-      <span className="rh-micro">事件 · {NARR_ZH[e.narrative]} · {BASIS_ZH[e.origin.basis] ?? e.origin.basis}</span><h3>{e.title}</h3>{e.what && <p>{e.what}</p>}
+      <span className="rh-micro">事件 · {NARR_ZH[e.narrative]} · {BASIS_ZH[e.origin.basis] ?? e.origin.basis}</span><h3>{e.title}</h3>{ov(e as never)}{e.what && <p>{e.what}</p>}
       {flagsOf(c => c.eventIds.includes(e.id))}
       <dl>
         <div><dt>开始</dt><dd>{time(e.start)}</dd></div><div><dt>结束</dt><dd>{time(e.end)}</dd></div>
@@ -147,7 +154,7 @@ export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, 
       .sort((a, b) => (a.start.t ?? Infinity) - (b.start.t ?? Infinity));
     const kids = [...look.entities.values()].filter(x => x.place?.parentId === e.id);
     return <div className="cw-pane cw-detail">
-      <span className="rh-micro">{sel.kind === 'person' ? '人物' : `地点 · ${LEVEL_ZH[e.place?.level ?? 'site']}`}{e.aliases.length ? ` · 又名 ${e.aliases.join('、')}` : ''}</span><h3>{e.name}</h3>{e.summary && <p>{e.summary}</p>}
+      <span className="rh-micro">{sel.kind === 'person' ? '人物' : `地点 · ${LEVEL_ZH[e.place?.level ?? 'site']}`}{e.aliases.length ? ` · 又名 ${e.aliases.join('、')}` : ''}</span><h3>{e.name}</h3>{ov(e as never)}{e.summary && <p>{e.summary}</p>}
       {flagsOf(c => c.entityIds.includes(e.id))}
       {e.place && <dl>
         <div><dt>上级</dt><dd>{e.place.parentId ? <button className="cw-link" onClick={() => onPick({ kind: 'place', id: e.place!.parentId! })}>{name(e.place.parentId)}</button> : '—'}</dd></div>
@@ -176,7 +183,7 @@ export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, 
   if (sel.kind === 'edit') {
     const e = edits.find(x => x.id === sel.id); if (!e) return <p className="cw-muted">这个改造已经不在了。</p>;
     return <div className="cw-pane cw-detail">
-      <span className="rh-micro">改造层 · {EFFECT_ZH[e.effect]}</span><h3>{e.title}</h3>
+      <span className="rh-micro">改造层 · {EFFECT_ZH[e.effect]}</span><h3>{e.title}</h3>{ov(e as never)}
       <dl><div><dt>生效</dt><dd>{e.valid.from?.label ?? '一直'} → {e.valid.to?.label ?? '一直'}</dd></div>
         {e.props?.name && <div><dt>名称</dt><dd>{e.props.name}</dd></div>}
         {e.target?.placeId && <div><dt>对象</dt><dd>{name(e.target.placeId)}</dd></div>}
@@ -185,7 +192,7 @@ export function Detail({ works = [], onOpenWork, sel, look, legs, edits, modes, 
       {tools()}
     </div>;
   }
-  if (sel.kind === 'mode') { const m = modes.find(x => x.id === sel.id); return m ? <div className="cw-pane cw-detail"><span className="rh-micro">交通方式</span><h3>{m.name}</h3><p>{m.kmPerHour} km/小时 · {m.network === 'road' ? '走路网' : m.network === 'water' ? '走水路' : m.network === 'any' ? '不限' : '不走路网'}{m.note ? ` · ${m.note}` : ''}</p>{tools()}</div> : null; }
+  if (sel.kind === 'mode') { const m = modes.find(x => x.id === sel.id); return m ? <div className="cw-pane cw-detail"><span className="rh-micro">交通方式</span><h3>{m.name}</h3>{ov(m as never)}<p>{m.kmPerHour} km/小时 · {m.network === 'road' ? '走路网' : m.network === 'water' ? '走水路' : m.network === 'any' ? '不限' : '不走路网'}{m.note ? ` · ${m.note}` : ''}</p>{tools()}</div> : null; }
   const r = look.rules.get(sel.id);
   return r ? <div className="cw-pane cw-detail"><span className="rh-micro">规则 · {r.machine ? '程序能判' : '自然语言，检查里显示「未覆盖」'}</span><p>{r.text}</p>{tools()}</div> : null;
 }

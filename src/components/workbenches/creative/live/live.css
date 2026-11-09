@@ -25,7 +25,8 @@
 .cw-guide p { margin:0; font:400 13.5px/1.6 var(--rh-f-read); color:var(--rh-ink-2); }
 
 /* 时间轴 */
-.cw-tl { background:var(--rh-paper); max-height:min(38vh, 300px); display:grid; grid-template-rows:auto minmax(0,1fr); }
+.cw-tl { background:var(--rh-paper); max-height:min(38vh, 300px); display:flex; flex-direction:column; }
+.cw-tl > .cw-tl-body { flex:1; }
 .cw-tl-bar { display:flex; align-items:center; gap:10px; padding:6px 12px; border-bottom:1px solid var(--rh-line); }
 .cw-tl-bar select { font:400 12px var(--rh-f-ui); border:1px solid var(--rh-line); background:var(--rh-white); padding:4px; }
 .cw-tl-bar .rh-btn { padding:4px 10px; }
@@ -175,3 +176,65 @@
 .cw-voided p { margin:4px 0 0; }
 /* 架空世界导入了路网时，引导卡挪到左上角，别挡住路 */
 .cw-guide[data-has-net] { top:56px; left:16px; transform:none; max-width:360px; }
+
+/* ── 1C：版本、影响、按作品看（契约 §6.5）── */
+.cw-ov { margin:2px 0; padding:2px 8px; border-left:3px solid var(--rh-accent); background:var(--rh-paper); font:500 12px/1.6 var(--rh-f-ui); color:var(--rh-ink-2); }
+.cw-aswork { font:500 12px/1.4 var(--rh-f-ui); padding:5px 24px 5px 8px; border:1px solid var(--rh-ink); background:var(--rh-white); }
+.ci-versions { display:grid; gap:8px; padding:8px 12px; }
+.ci-vlist { list-style:none; margin:0; padding:0; display:grid; gap:2px; }
+.ci-vlist > li > button { width:100%; display:grid; grid-template-columns:auto 1fr; gap:0 8px; padding:6px 8px; border:0; background:none; text-align:left; cursor:pointer; }
+.ci-vlist > li > button:hover { background:var(--rh-paper-3); }
+.ci-vlist > li[aria-current] > button { background:var(--rh-ink); color:var(--rh-paper); }
+.ci-vlist b { font:700 12px/1.4 var(--rh-f-mono); grid-row:span 2; }
+.ci-vlist span { font:500 12px/1.4 var(--rh-f-ui); } .ci-vlist small { font:400 10.5px/1.4 var(--rh-f-mono); color:var(--rh-ink-4); }
+.ci-vbody, .ci-draft { display:grid; gap:4px; padding:6px 8px 10px; border-left:2px solid var(--rh-line); }
+.ci-change { border:1px solid var(--rh-line); background:var(--rh-white); }
+.ci-change > summary { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; padding:5px 8px; cursor:pointer; list-style:none; font:500 12.5px/1.4 var(--rh-f-ui); }
+.ci-change > summary em { font:700 10.5px/1 var(--rh-f-mono); font-style:normal; padding:2px 4px; border:1px solid var(--rh-ink); }
+.ci-change[data-change=add] > summary em { background:var(--rh-ink); color:var(--rh-paper); }
+.ci-change[data-change=remove] > summary em { border-color:var(--rh-danger); color:var(--rh-danger); }
+.ci-change > summary small { font:400 11px/1.4 var(--rh-f-mono); color:var(--rh-ink-4); }
+.ci-change dl { margin:0; padding:4px 8px 8px; display:grid; gap:4px; }
+.ci-change dl div { display:grid; grid-template-columns:90px 1fr; gap:6px; font:400 12px/1.5 var(--rh-f-ui); }
+.ci-change dt { font:600 11px/1.5 var(--rh-f-mono); color:var(--rh-ink-3); }
+.ci-change dd { margin:0; display:grid; gap:2px; overflow-wrap:anywhere; }
+.ci-change del { color:var(--rh-danger); } .ci-change ins { text-decoration:none; background:var(--rh-accent-wash, #ffe7d1); }
+.ci-impact { gap:12px; }
+.ci-range { display:flex; align-items:center; gap:6px; font:500 12px/1 var(--rh-f-ui); }
+.ci-range select { padding:4px 20px 4px 6px; border:1px solid var(--rh-ink); background:var(--rh-white); }
+.ci-range small { margin-left:auto; color:var(--rh-ink-4); font-family:var(--rh-f-mono); }
+.ci-scan { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 8px; border:1px dashed var(--rh-line); font:400 12px/1.5 var(--rh-f-ui); color:var(--rh-ink-3); }
+.ci-scan[data-state=running] { border-color:var(--rh-accent); }
+.ci-group { display:grid; gap:8px; border-top:3px solid var(--rh-ink); padding-top:8px; }
+.ci-group h4 { margin:0; font:700 14px/1.4 var(--rh-f-ui); }
+.ci-item { display:grid; gap:6px; }
+.ci-refs ul { list-style:none; margin:4px 0 0; padding:0; display:grid; gap:3px; }
+.ci-refs li { display:grid; gap:1px; font:400 12px/1.5 var(--rh-f-ui); }
+.ci-refs li small { color:var(--rh-ink-4); }
+.ci-maybe li { color:var(--rh-ink-3); } .ci-maybe q { font-family:var(--rh-f-read); }
+
+.ci-works { display:grid; gap:4px; }
+.ci-work { display:grid; gap:4px; padding:6px 8px; border:1px solid var(--rh-line); background:var(--rh-white); }
+.ci-work[data-uses=new] { border-left:3px solid var(--rh-ink); } .ci-work[data-uses=override] { border-left:3px solid var(--rh-accent); }
+.ci-work p { margin:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; font:400 12px/1.5 var(--rh-f-ui); }
+.ci-work p b { font-weight:700; } .ci-work p span { color:var(--rh-ink-3); }
+.ci-work p small { margin-left:auto; font:500 11px/1.4 var(--rh-f-mono); color:var(--rh-ink-3); } .ci-work small[data-bad] { color:var(--rh-danger); }
+.ci-acts { display:flex; flex-wrap:wrap; gap:4px; }
+.ci-acts .rh-btn { padding:3px 10px; font-size:11.5px; }
+.cw-aswork { max-width:220px; }
+.cw-legend i.is-now { border-top:3.6px solid var(--rh-orange, #ff7a1a); }
+/* 播放时地图上方的播报 */
+.cw-feed { position:absolute; top:46px; left:50%; transform:translateX(-50%); z-index:3; list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:3px; max-width:min(640px, 80%); pointer-events:none; }
+.cw-feed li { display:flex; gap:10px; align-items:baseline; padding:5px 12px; background:color-mix(in srgb, var(--rh-white) 90%, transparent); border:1px solid var(--rh-line); border-left:3px solid var(--rh-line); font:400 12.5px var(--rh-f-ui); color:var(--rh-muted, #6b6762); }
+.cw-feed li[data-now] { background:var(--rh-ink); color:var(--rh-paper); border-color:var(--rh-ink); border-left-color:#ff7a1a; font-weight:600; }
+.cw-feed li[data-kind="relation"] { border-left-color:#3d6f8e; }
+.cw-feed time { font:500 11px var(--rh-f-mono, monospace); opacity:.75; white-space:nowrap; }
+.cw-feed small { opacity:.7; margin-left:4px; }
+.cw-legend i.is-ev { width:9px; height:9px; border:0; background:var(--rh-ink); transform:rotate(45deg); }
+.cw-tl-who { display:flex; align-items:center; gap:8px; padding:4px 12px; border-bottom:1px solid var(--rh-line); background:var(--rh-white); }
+.cw-tl-who select, .cw-tl-who input { font:400 12px var(--rh-f-ui); border:1px solid var(--rh-line); background:var(--rh-white); padding:3px 6px; }
+.cw-tl-who input { width:120px; }
+.cw-tl-who small { font:400 11px var(--rh-f-mono); color:var(--rh-ink-4); }
+.cw-judge .rh-btn { white-space:nowrap; flex:none; }
+.cw-judge { display:flex; align-items:center; gap:8px; margin:6px 0 10px; }
+.cw-judge small { font:400 11px/1.4 var(--rh-f-ui); color:var(--rh-ink-4); }

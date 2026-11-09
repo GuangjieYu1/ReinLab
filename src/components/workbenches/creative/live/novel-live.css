@@ -79,3 +79,15 @@
 .cn-split li { padding:8px 10px; border:1px solid var(--rh-line); background:var(--rh-white); display:grid; gap:2px; }
 .cn-split li b { font:700 13px/1.4 var(--rh-f-ui); } .cn-split li small { font:400 11px/1 var(--rh-f-mono); color:var(--rh-ink-4); }
 .cn-split li p { margin:2px 0 0; font:400 13px/1.7 var(--rh-f-read); color:var(--rh-ink-3); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+
+/* ── 1C：作品设定组合、待同步 ── */
+.cn .cn-setline { display:block; margin-top:2px; font:500 11px/1.3 var(--rh-f-mono); color:var(--rh-accent); }
+.cn-setting { margin-top:8px; border-top:1px solid var(--rh-line); padding-top:6px; font:400 12px/1.5 var(--rh-f-ui); }
+.cn-setting summary { cursor:pointer; font:600 11px/1.6 var(--rh-f-mono); color:var(--rh-ink-2); }
+.cn-setting ul { list-style:none; margin:2px 0 8px; padding:0; display:grid; gap:4px; }
+.cn-setting li { display:grid; gap:2px; } .cn-setting li small { color:var(--rh-ink-4); }
+.cn-setting .rh-micro { display:block; margin-top:6px; }
+.cn-ovform { display:grid; gap:6px; margin-top:6px; }
+.cn-manuscript .nv-para[data-sync] { box-shadow:inset 3px 0 0 var(--rh-accent); padding-left:10px; }
+.cn-sync { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin:0 0 4px; font:500 12px/1.5 var(--rh-f-ui); color:var(--rh-accent); }
+.cn-sync span { color:var(--rh-ink-2); }

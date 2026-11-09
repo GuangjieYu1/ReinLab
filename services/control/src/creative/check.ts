@@ -22,6 +22,8 @@ import type {
 import { minutesToHuman, overlapOf } from './allen';
 import { boundsOf, labelsOf, narrativeLabel, placeLevelLabel } from './labels';
 import { gapsOf, placeChain, type CreativeDocument } from './world';
+import { fingerprintOf } from './fingerprint';
+import { clip as clipText } from './text';
 
 export type CheckInput = {
   document: CreativeDocument;
@@ -498,7 +500,7 @@ export function runCheck(input: CheckInput): CheckRun {
   const scoped = only
     ? conflicts.filter((item) => !item.eventIds.length || item.eventIds.some((id) => only.has(id)))
     : conflicts;
-  return {
+  return mergeRuleJudgements(document, {
     id: `ck_${hash(String(input.revision) + '|' + input.now)}`,
     at: input.now,
     revision: input.revision,
@@ -506,6 +508,37 @@ export function runCheck(input: CheckInput): CheckRun {
     insufficient,
     uncovered,
     clean: kinds.filter((kind) => checkable.has(kind) && !conflicted.has(kind)),
+  });
+}
+
+/** 29 号：把模型判过的自然语言规则并进检查结果，一律标「疑似」（不算确定冲突）。 */
+export function mergeRuleJudgements(document: CreativeDocument, check: CheckRun): CheckRun {
+  const fingerprint = fingerprintOf(document);
+  const judged = (document.ruleJudgements ?? []).filter((item) => item.fingerprint === fingerprint);
+  if (!judged.length) return check;
+  const extra = judged.flatMap((item) =>
+    item.suspects.map((suspect) => {
+      const rule = document.rules.find((entry) => entry.id === item.ruleId);
+      const event = document.events.find((entry) => entry.id === suspect.eventId);
+      return {
+        id: conflictId('rule_model', [item.ruleId, suspect.eventId]),
+        kind: 'rule_model' as const,
+        severity: 'suspect' as const,
+        entityIds: [] as string[],
+        eventIds: [suspect.eventId],
+        why: `模型判的（疑似）：「${clipText(rule?.text ?? '', 40)}」和「${event?.title ?? suspect.eventId}」可能对不上——${suspect.why}`,
+        fixes: [],
+      };
+    }),
+  );
+  const known = new Set(check.conflicts.map((item) => item.id));
+  const merged = [...check.conflicts, ...extra.filter((item) => !known.has(item.id))];
+  return {
+    ...check,
+    conflicts: merged,
+    // 被模型判不了的规则仍留在未覆盖里，其余从「未覆盖」里拿掉（已经被判过）
+    // 判过的规则从「未覆盖」里拿掉；未覆盖只留连模型都判不了的
+    uncovered: check.uncovered.filter((item) => !judged.some((judgement) => judgement.ruleId === item.ruleId)),
   };
 }
 

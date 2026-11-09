@@ -30,6 +30,8 @@ export type GenerateJobDocument = {
   range?: { para: number; from: number; to: number };
   /** 1C：这次生成是为了把某条设定更新同步到正文（产出提议的 batchId 用 sync_<itemId>）。 */
   syncItem?: string;
+  /** 1C：待同步标注落在第几段（sceneId → 段号），rewrite 只替换这一段。 */
+  syncParas?: Record<string, number>;
   error: string | null;
   cost: Cny;
 };
@@ -187,6 +189,7 @@ export async function startGenerate(
     hint?: string;
     range?: { para: number; from: number; to: number };
     syncItem?: string;
+    syncParas?: Record<string, number>;
   },
 ): Promise<GenerateJobDocument> {
   const work = (
@@ -213,6 +216,7 @@ export async function startGenerate(
     ...(input.hint ? { hint: input.hint } : {}),
     ...(input.range ? { range: input.range } : {}),
     ...(input.syncItem ? { syncItem: input.syncItem } : {}),
+    ...(input.syncParas && Object.keys(input.syncParas).length ? { syncParas: input.syncParas } : {}),
     error: null,
     cost: { value: 0, known: true },
   };
@@ -312,11 +316,23 @@ export async function runGenerate(
         )).rows[0]?.revision ?? 1 };
       });
       const { scene } = sceneOf(loaded.work, sceneId);
+      // 1C「让助手改」：待同步的那一段就是要替换的范围（验收 C2：不能整场追加）
+      const syncPara = job.syncParas?.[sceneId];
+      const syncParagraph = syncPara !== undefined ? paragraphsOf(scene.text)[syncPara] : undefined;
+      const range =
+        job.range ??
+        (syncParagraph !== undefined && syncPara !== undefined ? { para: syncPara, from: 0, to: syncParagraph.length } : undefined);
+      // 场景靠 eventIds 引用（没有正文标注段号）：整场改写——before 就是整场原文，接受时替换整场
+      const wholeScene = job.mode === 'rewrite' && range === undefined && Boolean(scene.text.trim());
       const prompt = [
         sceneContext(loaded.work, loaded.world, sceneId),
         job.mode === 'continue' ? '接在本场正文末尾续写。' : '',
         job.mode === 'complete' ? '把本场补完整（对着目标字数）。' : '',
-        job.mode === 'rewrite' ? `改写这一段（第 ${job.range?.para ?? 0} 段 ${job.range?.from ?? 0}–${job.range?.to ?? 0}）。` : '',
+        job.mode === 'rewrite'
+          ? wholeScene
+            ? '按新设定改写整场，只给改写后的整场正文（不要重复原样的段落）。'
+            : `改写这一段（第 ${range?.para ?? 0} 段 ${range?.from ?? 0}–${range?.to ?? 0}），只给替换这一段的文字。`
+          : '',
         job.mode === 'draft' ? '本场还没有正文，起一稿。' : '',
         job.hint ? `作者的要求：${job.hint}` : '',
       ]
@@ -334,7 +350,8 @@ export async function runGenerate(
       if (!body) throw new ApiFailure('GENERATE_EMPTY', 503, '模型没有给出正文。');
       const why = clip(parsed?.why ?? '', 500);
       // 改写要给出被替换的那一段原话，接受时才能准确替换（不是拿整场的前 400 字顶替）。
-      const before = job.mode === 'rewrite' ? rangeTextOf(scene.text, job.range) : scene.text;
+      const before =
+        job.mode === 'rewrite' ? (range ? rangeTextOf(scene.text, range) : scene.text) : scene.text;
       const cost = costOf(deps, result.usage);
       await database.withAccount(account, async (client) => {
         const work = (
@@ -363,7 +380,7 @@ export async function runGenerate(
               sceneId,
               baseTextVersion: scene.textVersion,
               mode: job.mode,
-              range: job.range ?? null,
+              range: range ?? null,
               before,
               after: text,
             },
