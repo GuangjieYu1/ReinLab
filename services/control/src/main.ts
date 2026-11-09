@@ -38,6 +38,7 @@ import { runWeatherCheck } from "./explore/weather-check";
 import { costOf, recordSpend } from "./budget/spend";
 import { publishAccountEvent } from "./dossier/service";
 import { createArkProvider } from './creative/image/ark';
+import { createPlaceholderProvider } from './creative/image/dev-placeholder';
 
 // dsh will not boot inside Electron. The local stack entry sets
 // REINLAB_LOCAL_STACK=1 so this fails fast with a readable reason, while tests
@@ -389,7 +390,9 @@ const creativeAdvisor = writerModel
   ? { model: writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
   : undefined;
 // MVP-2：火山方舟 Seedream 出图。key 只在进程内存里读；没配就返回明确错误，不伪造。
-const imageProvider = createArkProvider(
+const imageProvider = localSecrets.REINLAB_IMAGE_DEV === 'placeholder'
+  ? createPlaceholderProvider()
+  : createArkProvider(
   localSecrets.ARK_API_KEY
     ? {
         apiKey: localSecrets.ARK_API_KEY,
