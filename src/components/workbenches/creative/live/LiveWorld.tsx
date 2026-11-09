@@ -381,7 +381,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
               flags={{ legs: flags.legs, people: flags.people }} hiLegs={new Set(selConf?.legIds ?? [])} focus={focus} draw={draw}
               onPick={onMapPick} onView={b => { bbox.current = b; }} />
             {aiFocus && <div className="cw-ai-step" role="status"><i />{aiFocus.mode === 'creative_writer' ? '写作助手' : '顾问'} · {aiFocus.step}</div>}
-            {ghostProp && preview && <ProposalBar proposal={ghostProp} preview={preview} proposals={[...advProps, ...snap.proposals]} busy={busy || readOnly}
+            {ghostProp && preview && <ProposalBar proposal={ghostProp} preview={preview} proposals={[...advProps, ...snap.proposals]} ruleJudged={snap.check?.conflicts.filter(c => c.kind === 'rule_model').length ?? 0} busy={busy || readOnly}
               onDecide={d => { decide(ghostProp, d); setGhostId(null); }} onClose={() => setGhostId(null)}
               onRevise={text => ghostProp.runId ? adapter.sayAssistant(ghostProp.runId, text, { proposalId: ghostProp.id }).then(() => setNotice(null)) : Promise.reject(Error('这条提议不是在顾问对话里交的，没法续着改。'))} />}
             {feed.length > 0 && <ol className="cw-feed" aria-live="polite">{feed.map(f => <li key={f.id} data-now={f.now || undefined} data-kind={f.kind}>
