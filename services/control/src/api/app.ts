@@ -86,6 +86,8 @@ export async function createApp(options: {
   creativeAdvisor?: import("../creative/advisor").AdvisorDeps;
   /** 1C：扫正文的模型通道。 */
   creativeImpactScan?: import("../creative/scan").ScanDeps;
+  /** MVP-2：出图的平台（可换）。 */
+  imageProvider?: import("../creative/image/provider").ImageProvider;
   /** 29 号：助手会话的模型通道（带工具、多轮）。 */
   creativeAssistant?: import("../creative/assistant-session").ChatDeps;
   /** 29 号：自然语言规则判定。 */
@@ -227,6 +229,7 @@ export async function createApp(options: {
     ...(options.creativeAdvisor ? { advisor: options.creativeAdvisor } : {}),
     ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
     ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
+    ...(options.imageProvider ? { imageProvider: options.imageProvider } : {}),
     ...(options.creativeOverpass ? { overpass: options.creativeOverpass } : {}),
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
@@ -272,6 +275,7 @@ export async function createApp(options: {
               ...(options.creativeAdvisor ? { advisor: options.creativeAdvisor } : {}),
     ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
     ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
+    ...(options.imageProvider ? { imageProvider: options.imageProvider } : {}),
               ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
               ...(options.creativeAssistant ? { chat: options.creativeAssistant } : {}),
             },

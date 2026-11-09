@@ -5,7 +5,7 @@ import { readEventStream, request } from './research-live';
 
 const enc = encodeURIComponent;
 
-async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+async function call<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
   try { return await request(method, path, body) as T; }
   catch (e) { const x = e as { message?: string; code?: string; detail?: unknown }; throw new CreativeError(x.message ?? '没有成功', x.code ?? 'UNKNOWN', x.detail); }
 }
@@ -40,6 +40,10 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
     },
     sayAssistant: (id, query, about) => call('POST', `/v1/kernel/runs/${enc(id)}/messages`, { query, ...(about ? { about } : {}) }),
     preview: (pid, workId) => call('GET', `${base}/proposals/${enc(pid)}/preview${workId ? `?workId=${enc(workId)}` : ''}`),
+    asset: eid => call('GET', `${base}/entities/${enc(eid)}/asset`),
+    drawAsset: (eid, req) => call('POST', `${base}/entities/${enc(eid)}/asset/versions`, req),
+    assetVersion: (eid, vid, action) => call('POST', `${base}/entities/${enc(eid)}/asset/versions/${enc(vid)}/${action}`, {}),
+    selectAsset: (eid, versionId) => call('PUT', `${base}/entities/${enc(eid)}/asset/selected`, { versionId }),
     judgeRules: () => call('POST', `${base}/rules/judge`, {}),
     runs: async () => {
       const page = await call<{ runs: { id: string; mode?: string; state: string }[] }>('GET', `/v1/kernel/dossiers/${enc(dossierId)}/runs`);

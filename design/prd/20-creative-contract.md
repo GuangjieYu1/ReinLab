@@ -712,3 +712,101 @@ export type BoardFocus = {
 5. 接受：虚影变实，冲突照常重算；拒绝：虚影消失。
 6. 刷新后，从待确认点开这条提议，仍能看到虚影。
 7. 按作品看时问顾问，预览按这部作品的实际设定算。
+
+## 12. MVP-2 · 人物形象：立绘和三视图（2026-11-09）
+
+**为什么做。** 往全链路走的第一段：「小说 → 出图 → 白模 → 视频」里的出图。MVP-3 的白模、镜头都要引用人物的稳定形象，所以形象先要有稳定的资产 ID 和版本。做完以后，活地图上的人物头像从名字首字换成真图。
+
+**取向照 1D**：出图是看板上的一处变化——人物卡上四个格子当场一格格出图，新版先当候选和当前版并排，作者点「用这一版」才换，换了只标出变了的那一格。
+
+### 12.1 定下的几件事（用户没专门定，我按惯例选的，有异议再改）
+
+1. **外貌是设定的一部分。** 人物加一个 `look`（外貌描述，自然语言），和其他设定一样走版本、提议、作品改写；出图只从它读。顾问可以通过提议改 `look`，作者接受后才算数。
+2. **画风归世界观。** 世界观加 `artStyle`（如「明清工笔淡彩」），同一世界观所有人物共用，保证放在一起不违和。作品不单独改画风（MVP-3 的成片再说）。
+3. **一次出一套四张**：立绘 1 张 + 正、侧、背三视图。先出立绘，三视图拿立绘当参考图出，保证是同一个人。作者也可以只重出其中一格。
+4. **出图由作者点，顾问不自己花钱。** 顾问这一批只能提议改 `look`，不能调出图。
+5. **文件存在 ReinLab 自己这里**，不只存平台临时链接；取回失败标「待保存」，可以只重试取回，不重新付费。
+
+### 12.2 类型（追加到 `packages/contracts/src/creative.ts`）
+
+```ts
+/** Entity.person 追加 */
+look?: string | null;            // 外貌描述，设定的一部分
+
+/** CreativeWorld 追加 */
+artStyle?: string | null;        // 画风，同一世界观共用
+
+export type PersonView = 'portrait' | 'front' | 'side' | 'back';
+
+/** 一个人物的形象资产：ID 稳定，重出产生新版本。MVP-3 的白模、镜头引用 (assetId, versionId)。 */
+export type PersonAsset = {
+  id: string;                    // 稳定资产 ID
+  entityId: string;
+  selectedVersionId: string | null;   // 当前选用的；地图头像、MVP-3 默认引用它
+  versions: PersonAssetVersion[];     // 新的在前
+};
+
+export type PersonAssetVersion = {
+  id: string;
+  n: number;                     // 第 n 版
+  createdAt: string;
+  /** 依据：出图时的世界修订、look 和 artStyle 原文，换了设定能看出这版是按旧设定出的。 */
+  basis: { revision: number; look: string; artStyle: string | null; note?: string | null };
+  /** 这一版从哪一版改来（只重出某一格、或拿旧版当参考时）。 */
+  from?: string | null;
+  views: Partial<Record<PersonView, AssetImage>>;
+  provider: string; model: string;    // 例：volcengine-ark / seedream-x.x
+  cost: Cny | null;                   // 未知就是 null，不记 0
+};
+
+export type AssetImage = {
+  state: 'queued' | 'generating' | 'unsaved' | 'saved' | 'failed';
+  url?: string | null;           // 只在 saved 时有，走 ReinLab 自己的地址
+  width?: number; height?: number;
+  taskId?: string | null;        // 平台任务号，「待保存」重试取回用
+  failure?: string | null;       // 人话：「平台拒绝：内容审核未通过」「取回超时」
+};
+```
+
+`Entity.person.portrait`（1C 已留）= 选用版本的立绘：`{ assetId, url }`，后端在快照里直接填好，前端不自己拼。
+
+### 12.3 接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/v1/creative/worlds/:id/entities/:eid/asset` | → `PersonAsset`（没出过图是 `versions: []`） |
+| POST | `/v1/creative/worlds/:id/entities/:eid/asset/versions` | 出一版。body `{ views?: PersonView[]; note?: string; from?: versionId }`。不传 `views` 就是四张全出；`from` + 部分 `views` = 只重出那几格，其余格沿用 `from` 版的图。`look` 为空时 422 `LOOK_MISSING`「先写外貌」。立刻返回新版本（各格 `queued`），之后靠事件更新 |
+| POST | `.../asset/versions/:vid/retry` | 只重试取回 `unsaved` 的格子，不重新付费 |
+| POST | `.../asset/versions/:vid/stop` | 停掉还没开始的格子；已经在出的照常出完（钱已花） |
+| PUT | `.../asset/selected` | `{ versionId }` 用这一版；`null` 取消选用（历史保留） |
+| GET | `/v1/creative/assets/files/:fileId` | 图片文件，带登录校验；`url` 就指这里。下载加 `?download=1` |
+
+设定这边：`entity.update` 能改 `person.look`；`world.update`（或现有世界设置接口）能改 `artStyle`。都走现有的修订、版本、作品改写，不另起。
+
+### 12.4 事件（追加）
+
+| `type` | `data` | 前端 |
+|---|---|---|
+| `creative.asset` | `{ entityId, assetId, version: PersonAssetVersion }` | 人物卡上对应格子换状态 / 出图；选用变了就换地图头像 |
+| `creative.usage` | 已有 | 每张图出完记一次（`purpose: 'creative_image'`），按峰值价估；平台没给用量就记未知 |
+
+### 12.5 页面（Claude 实现）
+
+- **人物卡（左栏点人物 → 详情）**：
+  - 「外貌」一栏可改；「画风」在世界观设置里。
+  - 「形象」区：四格（立绘大、三视图小）。点「出形象」后四格当场变「排队 → 出图中（转圈）→ 图」，失败的格子写原因、给「重试」。
+  - 新版先作为候选和当前版并排，标「第 n 版 · 比当前版：外貌改了 / 只重出了侧面」，点「用这一版」才换；没选用前地图头像不变。
+  - 每格右上「只重出这一格」；历史版本可展开；能下载。
+  - 当前版是按旧外貌出的（`basis.revision` 之后 `look` 又改过），格子上标「外貌已改，这版是旧的」。
+- **地图和时间轴**：人物头像用 `portrait.url`（1C 已经能显示，只差真图）；出图中头像外圈转一圈橙色，出完闪一下。
+- **顾问**：作者问「沈砚长什么样」时，顾问可以交一条改 `look` 的提议，看板上照 1D 画（人物卡外貌一栏虚影显示新旧对照）。
+
+### 12.6 验收（真实页面，真出图）
+
+1. 给世界观写画风，给沈砚写外貌，点「出形象」：四格依次出图，地图上沈砚的头像外圈转；出完后点「用这一版」，地图头像换成立绘。
+2. 刷新、重启控制面后图还在（不是平台临时链接）；能下载原图。
+3. 三视图和立绘是同一个人（同一套衣服、发型、脸）；验收时人看，写进记录。
+4. 改沈砚的外貌（比如「左眉有一道疤」）：当前版标「外貌已改，这版是旧的」；出第 2 版，并排比，选用后头像换。
+5. 只重出侧面：其余三格沿用，新版写「只重出了侧面」。
+6. 故意让一格失败（DSH 留一个办法，例如外貌写进会被平台拒的内容，或者断网取回）：格子写人话原因；「待保存」的能只重试取回、不再花钱。
+7. 花费：每张图都进 `usage_record`，账本能按版本加出总数。5 个人物各出一套，总花费写进账本。

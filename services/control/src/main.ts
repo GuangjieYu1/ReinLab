@@ -37,6 +37,8 @@ import { createWeatherScheduler } from "./explore/schedule";
 import { runWeatherCheck } from "./explore/weather-check";
 import { costOf, recordSpend } from "./budget/spend";
 import { publishAccountEvent } from "./dossier/service";
+import { createArkProvider } from './creative/image/ark';
+import { createPlaceholderProvider } from './creative/image/dev-placeholder';
 
 // dsh will not boot inside Electron. The local stack entry sets
 // REINLAB_LOCAL_STACK=1 so this fails fast with a readable reason, while tests
@@ -387,6 +389,20 @@ const creativeWriter = writerModel
 const creativeAdvisor = writerModel
   ? { model: writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
   : undefined;
+// MVP-2：火山方舟 Seedream 出图。key 只在进程内存里读；没配就返回明确错误，不伪造。
+const imageProvider = localSecrets.REINLAB_IMAGE_DEV === 'placeholder'
+  ? createPlaceholderProvider()
+  : createArkProvider(
+  localSecrets.ARK_API_KEY
+    ? {
+        apiKey: localSecrets.ARK_API_KEY,
+        ...(localSecrets.ARK_BASE_URL ? { baseUrl: localSecrets.ARK_BASE_URL } : {}),
+        ...(localSecrets.ARK_IMAGE_MODEL ? { model: localSecrets.ARK_IMAGE_MODEL } : {}),
+        ...(localSecrets.ARK_IMAGE_SIZE ? { size: localSecrets.ARK_IMAGE_SIZE } : {}),
+      }
+    : null,
+);
+
 // 29 号：助手会话（多轮 + 工具），同一条模型通道。
 const creativeAssistant = writerModel
   ? { ...writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
@@ -406,6 +422,7 @@ const app = await createApp({
   ...(creativeAdvisor ? { creativeAdvisor } : {}),
   ...(creativeImpactScan ? { creativeImpactScan } : {}),
   ...(creativeAssistant ? { creativeAssistant } : {}),
+  imageProvider,
   ...(creativeRuleJudge ? { creativeRuleJudge } : {}),
   ...(creativeRoute ? { creativeRouteInference: creativeRoute } : {}),
   session: config.SUPABASE_ANON_KEY

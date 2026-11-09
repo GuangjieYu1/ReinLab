@@ -19,11 +19,12 @@ import type {
 import { ApiFailure } from '../api/errors';
 import { runCheck } from './check';
 import { appendEvents, cursorOf } from './events';
-import { buildLegs } from './routing';
+import { buildLegs, routingSignatureOf } from './routing';
 import { buildTracks, type TrackRange } from './tracks';
 import { edgeCount, fetchOsmEdges, importAzgaar, insertEdges, syncEditEdges, type OverpassTransport } from './network';
 import { applyOps, emptyDocument, worldOf, type CreativeDocument } from './world';
 import { diffDocuments } from './items';
+import { selectedPortraits } from './asset-query';
 
 export type WorldState = {
   revision: number;
@@ -200,6 +201,15 @@ export async function readSnapshot(
         ).rows[0]?.revision ?? 0,
       )
     : 0;
+  // MVP-2：人物头像用选用版本的立绘（后端直接填好，前端不自己拼）
+  if (typeof version !== 'number') {
+    const portraits = await selectedPortraits(client, account, dossier);
+    if (portraits.size)
+      for (const entity of document.entities) {
+        const portrait = portraits.get(entity.id);
+        if (portrait) entity.person = { ...(entity.person ?? {}), portrait };
+      }
+  }
   // 1C：哪些作品改写了这些条目（世界观面显示「被《X》改写」）；历史版本不挂当前作品的改写。
   const overriddenBy = typeof version === 'number' ? new Map() : await overridesOfWorks(client, account, dossier);
   const items = [
@@ -307,7 +317,11 @@ export async function applyBatch(
     legs,
     document: outcome.next,
     redraws: outcome.redraws,
-    missingRoutes: legs.filter((leg) => leg.kind === 'none'),
+    // 只改外貌/简介这类不影响位置和时间的东西时，不触发 AI 路线推断（也不花钱）
+    missingRoutes:
+      routingSignatureOf(state.document) === routingSignatureOf(outcome.next)
+        ? []
+        : legs.filter((leg) => leg.kind === 'none'),
   };
 }
 

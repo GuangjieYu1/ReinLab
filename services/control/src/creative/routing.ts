@@ -258,6 +258,33 @@ export type LegPlan = {
   modeId: string | null;
 };
 
+/** 路由相关的部分（事件时间/地点、地点坐标与归属、交通方式、改造层、手绘/推断路线）。
+ *  只改外貌、简介这类字段时签名不变——用来避免无谓的 AI 路线推断。 */
+export function routingSignatureOf(document: CreativeDocument): string {
+  const events = document.events
+    .map((event) =>
+      [
+        event.id,
+        event.start?.t ?? '',
+        event.end?.t ?? '',
+        event.placeId ?? '',
+        event.travel ? `${event.travel.fromId ?? ''}>${event.travel.toId ?? ''}@${event.travel.modeId ?? ''}` : '',
+        event.participants.map((item) => item.entityId).join(','),
+      ].join('|'),
+    )
+    .sort()
+    .join(';');
+  const places = document.entities
+    .filter((entity) => entity.kind === 'place')
+    .map((entity) => `${entity.id}|${entity.place?.parentId ?? ''}|${JSON.stringify(entity.place?.geo ?? null)}`)
+    .sort()
+    .join(';');
+  const modes = document.modes.map((mode) => `${mode.id}|${mode.kmPerHour}|${mode.network}`).sort().join(';');
+  const edits = document.edits.map((edit) => `${edit.id}|${JSON.stringify(edit.effect)}|${JSON.stringify(edit.target)}`).sort().join(';');
+  const routes = [...document.manualRoutes.map((item) => `m:${item.legId}`), ...document.inferredRoutes.map((item) => `i:${item.legId}`)].sort().join(';');
+  return [events, places, modes, edits, routes].join('\n--\n');
+}
+
 export function planLegs(document: CreativeDocument): LegPlan[] {
   const plans: LegPlan[] = [];
   for (const entity of document.entities) {
