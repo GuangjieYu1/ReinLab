@@ -38,7 +38,10 @@ export function positionsAt(tracks: Track[], legs: Map<string, CreativeRouteLeg>
     let dead = false;
     for (const s of tr.spans) if (s.kind === 'dead' && t >= s.t0) dead = true;
     if (dead) return { entityId: tr.entityId, state: 'dead', at: null };
-    const s = tr.spans.find(x => x.kind !== 'dead' && t >= x.t0 && t <= (x as { t1: number }).t1);
+    // 同一刻可能有几段重叠（比如一条只精确到月的事件盖住整个月）：在场、在路上优先于位置未定，同类取最短的
+    const rank = (k: string) => k === 'at' ? 0 : k === 'move' ? 1 : 2;
+    const s = tr.spans.filter(x => x.kind !== 'dead' && t >= x.t0 && t <= (x as { t1: number }).t1)
+      .sort((a, b) => rank(a.kind) - rank(b.kind) || ((a as { t1: number }).t1 - a.t0) - ((b as { t1: number }).t1 - b.t0))[0];
     if (!s) return { entityId: tr.entityId, state: 'none', at: null };
     if (s.kind === 'at') return { entityId: tr.entityId, state: 'at', at: s.at, eventId: s.eventId };
     if (s.kind === 'unknown') return { entityId: tr.entityId, state: 'unknown', at: null, why: s.why };

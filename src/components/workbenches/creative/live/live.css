@@ -221,3 +221,4 @@
 .ci-acts { display:flex; flex-wrap:wrap; gap:4px; }
 .ci-acts .rh-btn { padding:3px 10px; font-size:11.5px; }
 .cw-aswork { max-width:220px; }
+.cw-legend i.is-now { border-top:3.6px solid var(--rh-orange, #ff6a13); }

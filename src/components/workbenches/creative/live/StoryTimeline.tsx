@@ -6,12 +6,14 @@ type Flag = 'hard' | 'suspect';
 const SPEEDS: [string, number][] = [['10 分/秒', 10], ['1 小时/秒', 60], ['6 小时/秒', 360], ['1 天/秒', 1440]];
 
 /** 下方的故事时间轴：每个人物一行（Campfire 式），事件是块，红黄挂在块上；拖动或播放。 */
-export default function StoryTimeline({ persons, events, span, t, onT, flags, selEvent, onPickEvent, selPerson, onPickPerson, pos }: {
+export default function StoryTimeline({ persons, events, span, t, onT, flags, selEvent, onPickEvent, selPerson, onPickPerson, pos, live, onLive }: {
   persons: Entity[]; events: WorldEvent[]; span: [number, number] | null;
   t: number; onT: (t: number) => void;
   flags: Map<string, Flag>; selEvent: string | null; onPickEvent: (id: string) => void;
   selPerson: string | null; onPickPerson: (id: string) => void;
   pos: Map<string, Pos>; reduced?: boolean;
+  /** 地图是否在看「这一刻」；拖动或播放时打开，「全部路线」关掉。 */
+  live: boolean; onLive: (on: boolean) => void;
 }) {
   const full: [number, number] = span ? [span[0] - (span[1] - span[0]) * 0.03, span[1] + (span[1] - span[0]) * 0.03 + 1] : [0, 1];
   const [win, setWin] = useState<[number, number]>(full);
@@ -51,7 +53,7 @@ export default function StoryTimeline({ persons, events, span, t, onT, flags, se
   const drag = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('.cw-tl-ev')) return;
     const el = e.currentTarget as HTMLElement; el.setPointerCapture(e.pointerId);
-    onT(atX(e.clientX)); setPlaying(false);
+    onT(atX(e.clientX)); setPlaying(false); onLive(true);
     const move = (ev: PointerEvent) => onT(atX(ev.clientX));
     const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); };
     el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
@@ -63,14 +65,15 @@ export default function StoryTimeline({ persons, events, span, t, onT, flags, se
   const zoomTo = (id: string) => {
     const e = events.find(x => x.id === id); if (!e || e.start.t == null) return;
     const a = e.start.t, b = e.end.t ?? a, pad = Math.max(60, (b - a) * 1.5);
-    setWin([a - pad, b + pad]); onT(a);
+    setWin([a - pad, b + pad]); onT(a); onLive(true);
   };
 
   return <section className="cw-tl" aria-label="故事时间轴">
     <header className="cw-tl-bar">
-      <button className="cw-tl-play" aria-pressed={playing} onClick={() => { if (!playing && t >= v1 - 1) onT(v0); setPlaying(v => !v); }} disabled={!span}>{playing ? '❚❚ 暂停' : '▶ 播放'}</button>
+      <button className="cw-tl-play" aria-pressed={playing} onClick={() => { if (!playing && (t >= v1 - 1 || !live)) onT(Math.max(v0, span?.[0] ?? v0)); if (!playing) onLive(true); setPlaying(v => !v); }} disabled={!span}>{playing ? '❚❚ 暂停' : '▶ 播放'}</button>
       <select value={speed} onChange={e => setSpeed(Number(e.target.value))} aria-label="播放速度">{SPEEDS.map(([l, v]) => <option key={v} value={v}>{l}</option>)}</select>
-      <div className="cw-tl-now">{now ? <><b>{now.label}</b>{now.plus && <span>＋{now.plus}</span>}</> : <span>{span ? '还没有事件开始' : '还没有带时间的事件'}</span>}</div>
+      <button className="rh-btn" aria-pressed={!live} onClick={() => { setPlaying(false); onLive(false); }} disabled={!span} title="地图上画出全部事件路线">全部路线</button>
+      <div className="cw-tl-now">{!live ? <span>地图上是全部路线 · 拖动时间轴或播放，看每个时刻谁在哪</span> : now ? <><b>{now.label}</b>{now.plus && <span>＋{now.plus}</span>}</> : <span>{span ? '还没有事件开始' : '还没有带时间的事件'}</span>}</div>
       <span className="cw-tl-win rh-micro">{span ? `窗口 ${dur(w) || '1 分'}` : ''}</span>
       <button className="rh-btn" onClick={() => setWin(full)} disabled={!span}>全部</button>
       {selEvent && <button className="rh-btn" onClick={() => zoomTo(selEvent)}>放大到选中</button>}
@@ -97,7 +100,7 @@ export default function StoryTimeline({ persons, events, span, t, onT, flags, se
             {loose.length > 0 && <span className="cw-tl-loose">{loose.map(e => <button key={e.id} className="cw-tl-ev" data-flag={flags.get(e.id)} data-sel={selEvent === e.id || undefined} data-gap onClick={() => onPickEvent(e.id)}><span>{e.title} · 时间未定</span></button>)}</span>}
           </div>;
         })}
-        {span && <div className="cw-tl-head" style={{ left: `${x(t)}%` }}><i /></div>}
+        {span && live && <div className="cw-tl-head" style={{ left: `${x(t)}%` }}><i /></div>}
       </div>
     </div>
   </section>;

@@ -55,10 +55,14 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   }, [adapter, viewing, asWork]);
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => { adapter.mapConfig().then(setCfg, () => setCfg(null)); }, [adapter]);
+  // 时间范围按事件自己算（最早开始到最晚结束）；服务端的 timeSpan 只在没有带时间的事件时兜底
   const span = useMemo<[number, number] | null>(() => {
-    const a = snap?.world.timeSpan?.from.t, b = snap?.world.timeSpan?.to.t;
+    const ts = (snap?.events ?? []).flatMap(e => [e.start.t, e.end.t]).filter((x): x is number => x != null);
+    const a = ts.length ? Math.min(...ts) : snap?.world.timeSpan?.from.t, b = ts.length ? Math.max(...ts) : snap?.world.timeSpan?.to.t;
     return a != null && b != null ? [a, Math.max(a + 1, b)] : null;
-  }, [snap?.world.timeSpan?.from.t, snap?.world.timeSpan?.to.t]);
+  }, [snap?.events, snap?.world.timeSpan?.from.t, snap?.world.timeSpan?.to.t]);
+  // 地图两种看法：静态 = 全部事件路线的总和；拖时间轴或播放 = 这一刻谁在哪、在发生什么
+  const [live, setLive] = useState(false);
   useEffect(() => { if (span && (t < span[0] - 1e6 || t === 0)) setT(span[0]); }, [span]); // eslint-disable-line react-hooks/exhaustive-deps
   // 轨迹：世界观改了就重取整段
   useEffect(() => {
@@ -138,6 +142,13 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const pos = useMemo(() => positionsAt(tracks, legs, t), [tracks, legs, t]);
   const posMap = useMemo(() => new Map<string, Pos>(pos.map(p => [p.entityId, p])), [pos]);
   const people = pos.map(p => ({ ...p, name: look.entities.get(p.entityId)?.name ?? '?' }));
+  const moment = useMemo(() => {
+    if (!live) return null;
+    const legIds = new Set(pos.flatMap(p => p.legId ? [p.legId] : []));
+    const evs = (snap?.events ?? []).filter(e => e.start.t != null && e.start.t <= t && t <= (e.end.t ?? e.start.t));
+    const labels = evs.flatMap(e => { const g = e.placeId ? look.entities.get(e.placeId)?.place?.geo : null; return g?.type === 'Point' ? [{ id: e.id, title: e.title, at: g.coordinates as LngLat }] : []; });
+    return { legIds, events: labels };
+  }, [live, pos, snap?.events, t, look]);
   const placeAt = (id: string | null | undefined): LngLat[] => { const g = id ? look.entities.get(id)?.place?.geo : null; return g?.type === 'Point' ? [g.coordinates as LngLat] : g?.type === 'Polygon' ? (g.coordinates[0] as LngLat[]) : []; };
   const fly = (coords: LngLat[]) => { if (coords.length) setFocus({ coords, n: Date.now() }); };
 
@@ -252,7 +263,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
           : !snap ? <div className="cw-blank"><p>载入中…</p></div>
           : <div className="cw-stage">
             <WorldMap cfg={cfg} real={realMap} network={netGeo}
-              places={places} edits={edits} legs={[...legs.values()]} people={people}
+              places={places} edits={edits} legs={[...legs.values()]} people={people} moment={moment}
               sel={{ entityId: sel?.kind === 'person' ? sel.id : undefined, placeId: sel?.kind === 'place' ? sel.id : undefined, legIds: sel?.kind === 'leg' ? [sel.id] : undefined }}
               flags={{ legs: flags.legs, people: flags.people }} hiLegs={new Set(selConf?.legIds ?? [])} focus={focus} draw={draw}
               onPick={onMapPick} onView={b => { bbox.current = b; }} />
@@ -263,7 +274,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
                 {realMap && <button className="rh-btn" onClick={importOsm}>按当前视野导入路网</button>}</div></div>}
             <StoryTimeline persons={persons} events={snap.events} span={span} t={t} onT={setT} flags={flags.events}
               selEvent={sel?.kind === 'event' ? sel.id : null} onPickEvent={id => pick({ kind: 'event', id })}
-              selPerson={sel?.kind === 'person' ? sel.id : null} onPickPerson={id => pick({ kind: 'person', id })} pos={posMap} reduced={reduced} />
+              selPerson={sel?.kind === 'person' ? sel.id : null} onPickPerson={id => pick({ kind: 'person', id })} pos={posMap} reduced={reduced} live={live} onLive={setLive} />
           </div>}
       </section>
       <aside className="cw-side" aria-label="检查与待确认">
