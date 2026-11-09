@@ -670,13 +670,15 @@ export async function runTool(
       };
     }
     case 'propose_whitebox': {
-      if (!call.input.placeId) return { text: '要指定是哪个地点。', refs: [] };
-      const placeId = String(call.input.placeId);
+      // run 带了 placeId 就以它为准，不让模型自己换地点
+      const forcedPlace = context.placeId ?? null;
+      const placeId = forcedPlace ?? (call.input.placeId ? String(call.input.placeId) : '');
+      if (!placeId) return { text: '要指定是哪个地点。', refs: [] };
       const place = world.entities.find((item) => item.id === placeId);
+      const existingRoom = place?.place?.room ?? null;
       const roomInput = call.input.room as { outline?: [number, number][]; height?: number } | undefined;
-      const room = (roomInput?.outline && roomInput.height
-        ? { outline: roomInput.outline, height: roomInput.height }
-        : place?.place?.room) ?? null;
+      // 契约 §13.8：地点已有房间时不许再用提议里的 room 覆盖
+      const room = existingRoom ?? (roomInput?.outline && roomInput.height ? { outline: roomInput.outline, height: roomInput.height } : null);
       if (!room) {
         return {
           text: '这个地点还没有房间几何（place.room）。可以在这次提议里带 room: { outline, height }，或者先让作者定房间。',
@@ -689,7 +691,15 @@ export async function runTool(
       const items = (call.input.items as LayoutItem[]) ?? [];
       const shell = buildShell(room, openings);
       // 改版：上一版里没提到的件保持原坐标，当成固定障碍
-      const aboutId = call.input.supersedes ? String(call.input.supersedes) : defs.about;
+      // 同一轮、同一地点只留一条白模：自动替掉本轮已经交的那条
+      const sameRound = worldState.document.proposals.find(
+        (item: Proposal) =>
+          item.kind === 'whitebox' &&
+          item.runId === defs.runId &&
+          item.status === 'pending' &&
+          item.ops.some((op) => (op as { placeId?: string }).placeId === placeId),
+      );
+      const aboutId = call.input.supersedes ? String(call.input.supersedes) : (defs.about ?? sameRound?.id);
       const previous = aboutId ? worldState.document.proposals.find((item: Proposal) => item.id === aboutId) : undefined;
       const changedKeys = new Set(items.map((item) => item.key));
       const prevPrims = (previous?.ops ?? [])
@@ -699,13 +709,14 @@ export async function runTool(
       const fixed = prevPrims.length ? prevPrims : [];
       const solved = solveLayout(room, items, fixed, shell);
       const ops: unknown[] = [];
-      if (roomInput?.outline && roomInput.height)
-        ops.push({ op: 'entity.update', id: placeId, patch: { place: { ...(place?.place ?? {}), room: { ...room, origin: place?.place?.room?.origin ?? null, heading: place?.place?.room?.heading ?? 0 } } } });
+      // 只在原来没有房间时补；用专门的 op，不动 place 的其他字段
+      if (!existingRoom && roomInput?.outline && roomInput.height)
+        ops.push({ op: 'place.room.set', placeId, room: { ...room, origin: place?.place?.room?.origin ?? null, heading: place?.place?.room?.heading ?? 0 } });
       for (const prim of [...shell, ...fixed, ...solved.prims]) ops.push({ op: 'whitebox.prim.add', placeId, prim });
       const proposed = await createProposal(defs, world, {
         kind: 'whitebox',
         title: `白模：${shell.length} 个壳件 + ${solved.prims.length + fixed.length} 件摆设`,
-        summary: String(call.input.note ?? ''),
+        summary: `${String(call.input.note ?? '')}${existingRoom && roomInput ? '（地点已有房间轮廓，按现有轮廓生成房间壳；提议里的 room 忽略）' : ''}`.trim(),
         ops,
         doubts: solved.unmet,
         ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
@@ -722,7 +733,17 @@ export async function runTool(
       ).rows[0];
       const scene = workRow?.document.chapters.flatMap((chapter) => chapter.scenes).find((item) => item.id === context.sceneId);
       const roomPlace = world.entities.find((item) => item.id === context.placeId);
-      if (!context.placeId || !roomPlace?.place?.room)
+      // 房间还没落账、但本轮刚交的白模提议里带了房间：允许镜头先引用它（白模接受时会把 v0 的镜头升到新版本）
+      const pendingRoom = !roomPlace?.place?.room
+        ? worldState.document.proposals.find(
+            (item: Proposal) =>
+              item.kind === 'whitebox' &&
+              item.status === 'pending' &&
+              item.runId === defs.runId &&
+              item.ops.some((op) => op.op === 'place.room.set' && (op as { placeId?: string }).placeId === context.placeId),
+          )
+        : undefined;
+      if (!context.placeId || (!roomPlace?.place?.room && !pendingRoom))
         return {
           text: `这一场所在的房间还没有几何（place.room）。先给「${roomPlace?.name ?? '这个地点'}」定轮廓和层高（whitebox 提议里一并写 place.room），再拆镜头。`,
           refs: [],
@@ -992,6 +1013,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
     let nudged = false;
     let madeWhitebox = false;
     let madeShots = false;
+    let blockedByShots: string | null = null;
     for (let step = 0; step < 6; step += 1) {
       const turn = await callChat(deps.chat, {
         system: `${ROLE_PROMPT[role]}\n\n${contextBlock}`,
@@ -1020,7 +1042,16 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
           lastToolText = outcome.text;
           if (call.name === 'propose_whitebox' && outcome.ok !== false) madeWhitebox = true;
           if (call.name === 'propose_shots' && outcome.ok !== false) madeShots = true;
+          // 镜头因为「房间没几何」被退回：直接把原因发给作者、结束这一轮（不许再交白模绕圈）
+          if (call.name === 'propose_shots' && outcome.ok === false) {
+            blockedByShots = outcome.text;
+            break;
+          }
           results.push(`【${call.name}】\n${outcome.text}`);
+        }
+        if (blockedByShots) {
+          finalText = blockedByShots;
+          break;
         }
         messages.push({ role: 'user', content: results.join('\n\n') });
         finalText = turn.text;

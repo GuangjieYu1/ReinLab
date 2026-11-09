@@ -398,6 +398,7 @@ export type CreativeOp =
   | { op: 'constraint.drop'; eventId: string; field: string; reason: string }
   | { op: 'world.set'; patch: Partial<Pick<World, 'title' | 'basemap' | 'artStyle'>> }
   // ── MVP-3：白模与镜头（契约 §13.4）──
+  | { op: 'place.room.set'; placeId: string; room: NonNullable<NonNullable<Entity['place']>['room']> }
   | { op: 'whitebox.prim.add'; placeId: string; prim: Omit<WhiteboxPrim, 'id'> & { id?: string } }
   | { op: 'whitebox.prim.update'; placeId: string; id: string; patch: Partial<WhiteboxPrim> }
   | { op: 'whitebox.prim.remove'; placeId: string; id: string }

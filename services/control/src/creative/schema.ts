@@ -68,6 +68,7 @@ export const OpInput = z.discriminatedUnion('op', [
   z.object({ op: z.literal('constraint.drop'), eventId: entityId, field: z.string().min(1).max(32), reason: z.string().min(1).max(500) }).strict(),
   z.object({ op: z.literal('world.set'), patch: record }).strict(),
   // ── MVP-3：白模与镜头（契约 §13.4）──
+  z.object({ op: z.literal('place.room.set'), placeId: z.string().min(1).max(64), room: record }).strict(),
   z.object({ op: z.literal('whitebox.prim.add'), placeId: z.string().min(1).max(64), prim: record }).strict(),
   z.object({ op: z.literal('whitebox.prim.update'), placeId: z.string().min(1).max(64), id: z.string().min(1).max(64), patch: record }).strict(),
   z.object({ op: z.literal('whitebox.prim.remove'), placeId: z.string().min(1).max(64), id: z.string().min(1).max(64) }).strict(),

@@ -801,6 +801,18 @@ export function applyOps(
         break;
       }
       // ── MVP-3：白模与镜头 ──
+      case 'place.room.set': {
+        const place = next.entities.find((item) => item.id === op.placeId);
+        if (!place || place.kind !== 'place') throw fail('ENTITY_NOT_FOUND', 404, '没有这个地点。');
+        const room = op.room;
+        if (!Array.isArray(room.outline) || room.outline.length < 3)
+          throw fail('INVALID_INPUT', 422, '房间轮廓至少要三个点。');
+        if (!(room.height > 0.5 && room.height < 30)) throw fail('INVALID_INPUT', 422, '层高要在 0.5–30 米之间。');
+        // 只补房间，不动 place.geo / level / parentId 这些
+        place.place = { ...(place.place ?? { level: 'room', parentId: null, geo: null, geoCertainty: 'unlocated', connects: [] }), room };
+        push({ placeId: op.placeId });
+        break;
+      }
       case 'whitebox.prim.add':
       case 'whitebox.prim.update':
       case 'whitebox.prim.remove': {
