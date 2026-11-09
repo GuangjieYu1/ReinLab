@@ -14,12 +14,16 @@ export async function describeFile(
       [account],
     )
   ).rows;
+  // 同一个文件会被后续版本沿用：取最早的那一版（真正生成它的那版），文件名才对得上
   for (const row of rows) {
+    let found: { entityId: string; dossierId: string; view: string; versionN: number } | null = null;
     for (const version of row.document.versions) {
       for (const [view, cell] of Object.entries(version.views)) {
-        if (cell?.url && cell.url.endsWith(fileId)) return { entityId: row.entity_id, dossierId: row.dossier_id, view, versionN: version.n };
+        if (cell?.url && cell.url.endsWith(fileId))
+          found = { entityId: row.entity_id, dossierId: row.dossier_id, view, versionN: version.n };
       }
     }
+    if (found) return found;
   }
   return null;
 }
