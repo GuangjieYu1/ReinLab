@@ -24,6 +24,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   const [tab, setTab] = useState<'shot' | 'director' | 'props'>('shot'), [busy, setBusy] = useState(false), [err, setErr] = useState(''), [rec, setRec] = useState<{ id: string; t: number } | null>(null);
   const [props2, setProps2] = useState<Proposal[]>([]), [ghostId, setGhostId] = useState<string | null>(null), [preview, setPreview] = useState<ProposalPreview | null>(null), [pvErr, setPvErr] = useState('');
   const vp = useRef<ViewportHandle>(null);
+  const primDraft = useRef<{ id: string; c: V3 } | null>(null), [primMove, setPrimMove] = useState<{ id: string; c: V3 } | null>(null);
   const [ai, setAi] = useState<BoardFocus | null>(null), [pv2, setPv2] = useState<ProposalPreview | null>(null);
 
   // ── 读 ──
@@ -95,7 +96,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   const cloth = useClothColors(snap.entities.filter(e => e.kind === 'person').map(e => ({ id: e.id, portrait: e.person?.portrait?.url ?? null })));
   const dolls: Doll[] = (shot?.cast ?? []).map(c => { const p = person(c.entityId); return { id: c.entityId, name: p?.name ?? '未知', at: c.at, to: c.to, facing: c.facing, heightM: p?.person?.body?.heightM ?? 1.7, build: p?.person?.body?.build ?? null, color: cloth[c.entityId], ghost: isGhost(shot!.id), hi: hiIds.has(shot!.id), ai: aiIds.has(c.entityId) }; });
   const mark = (p: WhiteboxPrim, m: Mark) => ({ ...p, ...m, hi: m.hi || hiIds.has(p.id), ai: aiIds.has(p.id) });
-  const scene3: Scene3 = { room, prims: [...(wb?.prims ?? []).map(p => mark(p, {})), ...ghostPrims.map(p => mark(p, { ghost: true }))], dolls };
+  const scene3: Scene3 = { room, prims: [...(wb?.prims ?? []).map(p => mark(primMove?.id === p.id ? { ...p, c: primMove.c } : p, {})), ...ghostPrims.map(p => mark(p, { ghost: true }))], dolls };
   const cleanScene: Scene3 = { room: null, prims: (wb?.prims ?? []), dolls: dolls.map(d => ({ ...d, ghost: false, hi: false, ai: false })) };
 
   // 播放预演：机位从起点运到终点
@@ -120,7 +121,11 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   const edit = (f: (s: Shot) => Shot) => { const base = draftRef.current && draftRef.current.id === shot?.id ? draftRef.current : shot; if (!base) return; const next = f(base); draftRef.current = next; setDraft(next); };
   const moveDoll = (id: string, p: V3) => edit(s => ({ ...s, cast: s.cast.map(c => c.entityId === id ? { ...c, at: p } : c) }));
   const moveCam = (which: 'eye' | 'target' | 'end', p: V3) => edit(s => { const c = s.camera; return { ...s, camera: which === 'eye' ? { ...c, eye: p } : which === 'target' ? { ...c, target: p } : { ...c, end: c.end ? { ...c.end, eye: p } : null } }; });
-  const commit = () => { const d = draftRef.current; if (!d || isGhost(d.id)) return; void act(async () => { await ops([{ op: 'shot.update', id: d.id, patch: { cast: d.cast, camera: d.camera } }]); await loadShots(); }); };
+  // 拖家具：放 ref 里，松手提交 whitebox.prim.update；被拒就重取白模（弹回原位）并写原因
+  const movePrim = (id: string, c: V3) => { primDraft.current = { id, c }; setPrimMove({ id, c }); };
+  const commit = () => {
+    const pd = primDraft.current; if (pd) { primDraft.current = null; void act(async () => { try { await ops([{ op: 'whitebox.prim.update', placeId, id: pd.id, patch: { c: pd.c } }]); } finally { setPrimMove(null); await loadWb(); } }); return; }
+    const d = draftRef.current; if (!d || isGhost(d.id)) return; void act(async () => { await ops([{ op: 'shot.update', id: d.id, patch: { cast: d.cast, camera: d.camera } }]); await loadShots(); }); };
   const record = (s: Shot) => act(async () => {
     setSel(s.id); setRec({ id: s.id, t: 0 });
     try { const r = await recordShot(cleanSceneFor(s), s.camera, s.durationSec, x => setRec({ id: s.id, t: x })); await adapter.uploadPreview(s.id, r.video, r.poster); await loadShots(); }
@@ -156,7 +161,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
           <button className="rh-btn" disabled={busy || !wb} onClick={() => void glb()}>导出 glTF</button>
         </header>
         <div className="lv-view">
-          <Viewport3 ref={vp} scene={scene3} cam={shot?.camera ?? null} mode={mode} t={t} selDoll={selDoll} editable={editable} onSelDoll={setSelDoll} onMoveDoll={moveDoll} onMoveCam={moveCam} onCommit={commit} />
+          <Viewport3 ref={vp} scene={scene3} cam={shot?.camera ?? null} mode={mode} t={t} selDoll={selDoll} editable={editable} onSelDoll={setSelDoll} onMoveDoll={moveDoll} onMoveCam={moveCam} onMovePrim={busy || rec ? undefined : movePrim} onCommit={commit} />
           {stepLabel && <div className="cw-ai-step" role="status"><i />{stepLabel}</div>}
           {!wb?.prims.length && !ghostPrims.length && <div className="lv-empty">这个房间还没有白模。去右边「导演」说「把这一场拆成镜头」。</div>}
         </div>
@@ -194,11 +199,11 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
               void act(async () => { await ops([{ op: 'shot.update', id: shot.id, patch: { camera: { ...c, end } } }]); await loadShots(); }); }}>{shot.camera.end ? '去掉运镜' : '加运镜（推近 1.2 米）'}</button>
             {shot.cast.map(c => <button key={c.entityId} className="cw-link" onClick={() => void act(async () => { await ops([{ op: 'shot.update', id: shot.id, patch: { cast: shot.cast.filter(x => x.entityId !== c.entityId) } }]); await loadShots(); })}>移出{person(c.entityId)?.name}</button>)}
           </div>}
-          {editable && <p className="cw-muted">在视口里拖人偶、拖机位（橙点：机位 / 看向 / 终点），松手就存。</p>}
+          {editable && <p className="cw-muted">在视口里拖人偶、拖机位（橙点：机位 / 看向 / 终点）、拖家具（点住它的顶面），松手就存；墙、地面、顶棚是按房间轮廓生成的，不能拖。</p>}
         </div> : <p className="cw-pane cw-muted">点一个镜头看详情。</p>)}
         <div hidden={tab !== 'director'}><CreativeAssistant adapter={adapter} workId={workId || undefined} sceneId={sceneId || undefined} placeId={placeId || undefined} initialMode="creative_director" modes={['creative_director']}
           onUpdate={() => { void loadShots(); void loadWb(); void loadProps(); }} onBoard={id => setGhostId(id)} /></div>
-        {tab === 'props' && <div className="cw-pane">{props2.map(p => <button key={p.id} className="lv-prop" data-on={p.id === ghostId || undefined} onClick={() => setGhostId(p.id)}><b>{p.title}</b><small>{p.kind === 'whitebox' ? '白模' : '镜头表'} · {p.ops.length} 项 · {(() => { const o = p.ops[0] as { placeId?: string; shot?: { placeId?: string } }; const id = o?.placeId ?? o?.shot?.placeId; return snap.entities.find(e => e.id === id)?.name ?? '地点未定'; })()}</small></button>)}{!props2.length && <p className="cw-muted">没有待确认的白模或镜头提议。</p>}</div>}
+        {tab === 'props' && <div className="cw-pane">{props2.map(p => <button key={p.id} className="lv-prop" data-on={p.id === ghostId || undefined} onClick={() => setGhostId(p.id)}><b>{p.title}</b><small>{p.kind === 'whitebox' ? '白模' : '镜头表'} · {p.ops.length} 项 · {(() => { const id = (p.ops as { placeId?: string; shot?: { placeId?: string } }[]).map(o => o.placeId ?? o.shot?.placeId).find(Boolean); return snap.entities.find(e => e.id === id)?.name ?? '地点未定'; })()}</small></button>)}{!props2.length && <p className="cw-muted">没有待确认的白模或镜头提议。</p>}</div>}
       </div></aside>
     </div>
   </BenchFrame>;

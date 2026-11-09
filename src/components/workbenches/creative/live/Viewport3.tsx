@@ -62,8 +62,8 @@ const BY_MATERIAL: Record<NonNullable<WhiteboxPrim['material']>, RGB> = { plaste
 const hex = (c?: string | null): RGB | null => { const m = c && /^#?([0-9a-f]{6})$/i.exec(c.trim()); if (!m) return null; const n = parseInt(m[1], 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
 /** 颜色：部件自带 color > material > 按名字认。 */
 export const matOf = (label?: string | null, p?: Pick<WhiteboxPrim, 'material' | 'color'>): RGB => hex(p?.color) ?? (p?.material ? BY_MATERIAL[p.material] : null) ?? MATERIALS.find(([re]) => label && re.test(label))?.[1] ?? [194, 190, 182];
-const isWall = (p: WhiteboxPrim) => !p.outside && (/墙|壁|隔断/.test(p.label ?? '') || p.material === 'plaster' || (p.kind === 'box' && p.s[1] > 2 && Math.min(p.s[0], p.s[2]) < .4));
-const isRoof = (p: WhiteboxPrim) => /顶棚|屋顶|屋面/.test(p.label ?? '');
+const isWall = (p: WhiteboxPrim) => !p.outside && ((p.from === 'shell' && p.s[1] > 1.5) || /墙|壁|隔断/.test(p.label ?? '') || p.material === 'plaster' || (p.kind === 'box' && p.s[1] > 2 && Math.min(p.s[0], p.s[2]) < .4));
+const isRoof = (p: WhiteboxPrim) => /顶棚|屋顶|屋面|天花/.test(p.label ?? '') || (p.from === 'shell' && p.s[1] <= .3 && p.c[1] > 1.5);
 const isGround = (p: WhiteboxPrim) => p.s[1] <= .06;
 
 function primFaces(p: WhiteboxPrim, m: Mark, alpha?: number): Face[] {
@@ -184,12 +184,13 @@ export type ViewportHandle = { fit: () => void };
 export const Viewport3 = forwardRef<ViewportHandle, {
   scene: Scene3; cam: Cam | null; mode: 'editor' | 'camera'; t: number; selDoll: string | null; editable: boolean;
   onSelDoll: (id: string | null) => void; onMoveDoll: (id: string, p: V3) => void; onMoveCam: (which: 'eye' | 'target' | 'end', p: V3) => void;
+  /** 拖家具（房间壳、虚影不能拖）。 */ onMovePrim?: (id: string, c: V3) => void;
   /** 松手时：拖过人偶或机位就提交一次。 */ onCommit: () => void;
 }>(function Viewport3(props, ref) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const orbit = useRef({ yaw: .55, pitch: .62, dist: 13, target: [0, .8, 0] as V3 });
   const last = useRef<{ view: View; F: number; cx: number; cy: number } | null>(null);
-  const drag = useRef<{ kind: 'orbit' | 'pan' | 'doll' | 'cam'; id?: string; which?: 'eye' | 'target' | 'end'; x: number; y: number; plane?: number; moved?: boolean } | null>(null);
+  const drag = useRef<{ kind: 'orbit' | 'pan' | 'doll' | 'cam' | 'prim'; id?: string; which?: 'eye' | 'target' | 'end'; x: number; y: number; plane?: number; moved?: boolean } | null>(null);
   const P = useRef(props); P.current = props;
   const raf = useRef(0);
   const viewOf = (): View => { const p = P.current, o = orbit.current; return p.mode === 'camera' && p.cam ? camAt(p.cam, p.t) : { eye: add(o.target, [Math.cos(o.pitch) * Math.sin(o.yaw) * o.dist, Math.sin(o.pitch) * o.dist, Math.cos(o.pitch) * Math.cos(o.yaw) * o.dist]), target: o.target, fov: 45 }; };
@@ -221,6 +222,8 @@ export const Viewport3 = forwardRef<ViewportHandle, {
     const p = P.current;
     if (p.mode === 'editor' && p.editable && p.cam) for (const which of ['end', 'eye', 'target'] as const) { const q = which === 'eye' ? p.cam.eye : which === 'target' ? p.cam.target : p.cam.end?.eye; if (!q) continue; const s = screen(q); if (s && Math.hypot(s[0] - x, s[1] - y) < 12) { drag.current = { kind: 'cam', which, x, y, plane: q[1] }; return; } }
     if (p.mode === 'editor') { let best: { id: string; d: number } | null = null; for (const d of p.scene.dolls) { if (d.ghost) continue; const s = screen([d.at[0], (d.heightM || 1.7) * .65, d.at[2]]); if (!s) continue; const dd = Math.hypot(s[0] - x, s[1] - y); if (dd < 28 && (!best || dd < best.d)) best = { id: d.id, d: dd }; } if (best) { p.onSelDoll(best.id); drag.current = { kind: 'doll', id: best.id, x, y }; return; } }
+    // 家具：按顶面中心找最近的一件（房间壳、虚影、贴地薄片不能拖）
+    if (p.mode === 'editor' && p.onMovePrim) { let best: { id: string; d: number; y: number } | null = null; for (const q of p.scene.prims) { if (q.ghost || q.from === 'shell' || q.s[1] <= .06) continue; const s = screen([q.c[0], q.c[1] + q.s[1], q.c[2]]); if (!s) continue; const dd = Math.hypot(s[0] - x, s[1] - y); if (dd < 24 && (!best || dd < best.d)) best = { id: q.id, d: dd, y: q.c[1] }; } if (best) { drag.current = { kind: 'prim', id: best.id, x, y, plane: best.y }; return; } }
     drag.current = { kind: e.shiftKey || e.button === 2 ? 'pan' : 'orbit', x, y };
   };
   const move = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -229,10 +232,11 @@ export const Viewport3 = forwardRef<ViewportHandle, {
     if (d.kind === 'orbit') { o.yaw -= (x - d.x) * .008; o.pitch = Math.max(.08, Math.min(1.5, o.pitch + (y - d.y) * .006)); request(); }
     else if (d.kind === 'pan') { const { L, f } = basis(); const r = norm(cross(f, [0, 1, 0])); const k = o.dist / L.F; o.target = add(o.target, add(mul(r, -(x - d.x) * k), [0, (y - d.y) * k, 0])); request(); }
     else if (d.kind === 'doll' && d.id && p.editable) { const q = onPlane(x, y, 0); if (q) { d.moved = true; p.onMoveDoll(d.id, round([q[0], 0, q[2]])); } }
+    else if (d.kind === 'prim' && d.id) { const q = onPlane(x, y, d.plane ?? 0); if (q) { d.moved = true; p.onMovePrim?.(d.id, round([q[0], d.plane ?? 0, q[2]])); } }
     else if (d.kind === 'cam' && d.which) { const q = onPlane(x, y, d.plane ?? 1.5); if (q) { d.moved = true; p.onMoveCam(d.which, round(q)); } }
     d.x = x; d.y = y;
   };
-  const up = () => { const d = drag.current; drag.current = null; if (d?.moved && (d.kind === 'doll' || d.kind === 'cam')) P.current.onCommit(); };
+  const up = () => { const d = drag.current; drag.current = null; if (d?.moved && (d.kind === 'doll' || d.kind === 'cam' || d.kind === 'prim')) P.current.onCommit(); };
   const wheel = (e: React.WheelEvent) => { if (P.current.mode !== 'editor') return; const o = orbit.current; o.dist = Math.max(3, Math.min(40, o.dist * (1 + e.deltaY * .001))); request(); };
   return <canvas ref={canvas} className="lv-canvas" data-mode={props.mode} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onWheel={wheel} onContextMenu={e => e.preventDefault()} aria-label="白模视口" />;
 });
