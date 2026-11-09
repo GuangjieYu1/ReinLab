@@ -284,6 +284,22 @@ export async function runAssetVersion(
         height: output.height,
         taskId: output.taskId,
       });
+      // 版本花费累加（按张计价；平台没给就是未知）
+      if (output.cost?.known) {
+        await deps.db.withAccount(account, async (client) => {
+          const asset = await readAsset(client, account, dossier, entityId);
+          const next = {
+            ...asset,
+            versions: asset.versions.map((item) => {
+              if (item.id !== versionId) return item;
+              const current = item.cost;
+              const total = current?.known && current.value !== null ? current.value + (output.cost!.value ?? 0) : (output.cost!.value ?? null);
+              return { ...item, cost: { value: total === null ? null : Number(total.toFixed(6)), known: true } };
+            }),
+          };
+          await saveAsset(client, account, dossier, next);
+        });
+      }
       await recordUsage(deps.db, account, dossier, provider, output.cost);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
