@@ -20,7 +20,7 @@ import { effectiveWorldOf } from './effective';
 import { diffDocuments } from './items';
 import { runCheck } from './check';
 import { parseStoryTime } from './story-time';
-import { timeContext } from './world';
+import { timeContext, validatePrim } from './world';
 import { buildLegs } from './routing';
 import { clip } from './text';
 import { paragraphsOf, sceneOf, wordsOf, type WorkDocument } from './work';
@@ -634,6 +634,24 @@ export async function runTool(
     case 'propose_whitebox': {
       if (!call.input.placeId) return { text: '要指定是哪个地点。', refs: [] };
       const prims = (call.input.prims as Record<string, unknown>[]) ?? [];
+      // 先在交提议时按房间几何校验：不合规的当场退回给模型，不进待确认
+      const place = world.entities.find((item) => item.id === call.input.placeId);
+      const room = place?.place?.room ?? null;
+      const problems: string[] = [];
+      for (const prim of prims) {
+        try {
+          validatePrim(room, prim as never, Boolean(prim.outside));
+        } catch (error) {
+          problems.push(String((error as Error).message));
+        }
+      }
+      if (problems.length)
+        return {
+          text: `白模没交成，${problems.length} 个部件几何不对：\n- ${problems.slice(0, 4).join('\n- ')}\n改好再交（c 是底面中心，y 一般 0；圆柱 s=[半径,高,0]；超出层高或房间轮廓的会被拒）。`,
+          refs: [],
+          ok: false,
+          step: '白模几何不对，退回了',
+        };
       const ops = prims.map((prim) => ({ op: 'whitebox.prim.add', placeId: String(call.input.placeId), prim }));
       const proposed = await createProposal(defs, world, {
         kind: 'whitebox',

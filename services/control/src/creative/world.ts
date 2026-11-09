@@ -348,7 +348,7 @@ export function voidRouteProposals(
 }
 
 /** 白模部件的几何校验（契约 §13.3：c 是底面中心，cylinder/prism 的 s=[半径,高,0]；不许穿层高、不许出轮廓）。 */
-function validatePrim(room: { outline: [number, number][]; height: number } | null, prim: WhiteboxPrim, outside: boolean): void {
+export function validatePrim(room: { outline: [number, number][]; height: number } | null, prim: WhiteboxPrim, outside: boolean): void {
   if (prim.kind === 'cylinder' || prim.kind === 'prism') {
     if (Math.abs(prim.s[2]) > 0.001 || prim.s[0] <= 0 || prim.s[1] <= 0)
       throw fail('INVALID_INPUT', 422, '圆柱/棱柱的 s 要写 [半径, 高, 0]（不是直径，也不要占位 z）。');
@@ -822,7 +822,16 @@ export function applyOps(
         const prims: WhiteboxPrim[] = JSON.parse(JSON.stringify(before?.prims ?? []));
         if (op.op === 'whitebox.prim.add') {
           const prim = { ...op.prim, id: (op.prim as { id?: string }).id ?? ids() } as WhiteboxPrim;
-          validatePrim(place?.place?.room ?? null, prim, Boolean(prim.outside));
+          try {
+            validatePrim(place?.place?.room ?? null, prim, Boolean(prim.outside));
+          } catch (error) {
+            // 预览：几何不合规的部件跳过并记进 unresolved，其余照画
+            if (tolerant) {
+              unresolved.add(`${String(prim.label ?? prim.kind)}：${(error as Error).message}`);
+              continue;
+            }
+            throw error;
+          }
           prims.push(prim);
         } else if (op.op === 'whitebox.prim.update') {
           const index = prims.findIndex((item) => item.id === op.id);
