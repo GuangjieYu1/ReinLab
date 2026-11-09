@@ -7,7 +7,7 @@ import Explorer, { Tree, type ExplorerSection, type ExplorerView } from '../../e
 import type { BenchProps } from '../../WorkbenchStudio';
 import type { MapConfig } from '../../explore/live/adapter';
 import { CreativeError, type CreativeAdapter, type EditFeatures } from './adapter';
-import { bucketOf, positionsAt, type Pos } from './geo';
+import { bucketOf, positionsAt, trailsAt, type Pos } from './geo';
 import LiveNovel from './LiveNovel';
 import { CreativeAssistant } from './NovelPanels';
 import WorldMap, { type DrawMode, type MapPick } from './WorldMap';
@@ -142,13 +142,29 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
   const pos = useMemo(() => positionsAt(tracks, legs, t), [tracks, legs, t]);
   const posMap = useMemo(() => new Map<string, Pos>(pos.map(p => [p.entityId, p])), [pos]);
   const people = pos.map(p => ({ ...p, name: look.entities.get(p.entityId)?.name ?? '?' }));
-  const moment = useMemo(() => {
-    if (!live) return null;
-    const legIds = new Set(pos.flatMap(p => p.legId ? [p.legId] : []));
-    const evs = (snap?.events ?? []).filter(e => e.start.t != null && e.start.t <= t && t <= (e.end.t ?? e.start.t));
-    const labels = evs.flatMap(e => { const g = e.placeId ? look.entities.get(e.placeId)?.place?.geo : null; return g?.type === 'Point' ? [{ id: e.id, title: e.title, at: g.coordinates as LngLat }] : []; });
-    return { legIds, events: labels };
-  }, [live, pos, snap?.events, t, look]);
+  const moment = useMemo(() => live ? { trails: trailsAt(tracks, legs, t) } : null, [live, tracks, legs, t]);
+  // 事件章：静态时全画；看「这一刻」时，已发生的淡、正在发生的亮并挂标题、还没发生的不画
+  const mapEvents = useMemo(() => (snap?.events ?? []).flatMap(e => {
+    const g = e.placeId ? look.entities.get(e.placeId)?.place?.geo : null; if (g?.type !== 'Point') return [];
+    const a = e.start.t, b = e.end.t ?? a;
+    const state: 'all' | 'past' | 'now' | 'future' = !live ? 'all' : a == null ? 'future' : t < a ? 'future' : t <= b! ? 'now' : 'past';
+    return [{ id: e.id, title: e.title, kind: e.kind, at: g.coordinates as LngLat, state, flag: flags.events.get(e.id), hearsay: e.narrative !== 'fact' }];
+  }), [snap?.events, look, live, t, flags.events]);
+  const portraits = useMemo(() => new Map(persons.flatMap(p => p.person?.portrait?.url ? [[p.id, p.person.portrait.url] as [string, string]] : [])), [persons]);
+  // 地图上方的播报：最近发生的三件事（事件 + 从这一刻起的关系），正在发生的亮着
+  const feed = useMemo(() => {
+    if (!live || !snap) return [];
+    const name = (id: string, n?: string) => look.entities.get(id)?.name ?? n ?? '?';
+    const items = [
+      ...snap.events.filter(e => e.start.t != null && e.start.t <= t).map(e => {
+        const who = e.participants.map(p => name(p.entityId, p.entityName));
+        const head = who.length > 1 ? `${who.join('与')}：` : who.length ? `${who[0]} · ` : '';
+        return { id: e.id, at: e.start.t!, when: e.start.label, kind: e.kind, text: `${head}${e.title}`, now: t <= (e.end.t ?? e.start.t!), hearsay: e.narrative !== 'fact' };
+      }),
+      ...snap.relations.filter(r => r.from?.t != null && r.from.t <= t).map(r => ({ id: r.id, at: r.from!.t!, when: r.from!.label, kind: 'relation', text: `${name(r.a)}与${name(r.b)}确认关系：${r.label}`, now: t - r.from!.t! < 60, hearsay: false })),
+    ];
+    return items.sort((x, y) => y.at - x.at).slice(0, 3);
+  }, [live, snap, t, look]);
   const placeAt = (id: string | null | undefined): LngLat[] => { const g = id ? look.entities.get(id)?.place?.geo : null; return g?.type === 'Point' ? [g.coordinates as LngLat] : g?.type === 'Polygon' ? (g.coordinates[0] as LngLat[]) : []; };
   const fly = (coords: LngLat[]) => { if (coords.length) setFocus({ coords, n: Date.now() }); };
 
@@ -263,10 +279,12 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
           : !snap ? <div className="cw-blank"><p>载入中…</p></div>
           : <div className="cw-stage">
             <WorldMap cfg={cfg} real={realMap} network={netGeo}
-              places={places} edits={edits} legs={[...legs.values()]} people={people} moment={moment}
+              places={places} edits={edits} legs={[...legs.values()]} people={people} moment={moment} events={mapEvents} portraits={portraits}
               sel={{ entityId: sel?.kind === 'person' ? sel.id : undefined, placeId: sel?.kind === 'place' ? sel.id : undefined, legIds: sel?.kind === 'leg' ? [sel.id] : undefined }}
               flags={{ legs: flags.legs, people: flags.people }} hiLegs={new Set(selConf?.legIds ?? [])} focus={focus} draw={draw}
               onPick={onMapPick} onView={b => { bbox.current = b; }} />
+            {feed.length > 0 && <ol className="cw-feed" aria-live="polite">{feed.map(f => <li key={f.id} data-now={f.now || undefined} data-kind={f.kind}>
+              <time>{f.when}</time><span>{f.text}{f.hearsay && <small>（传闻 / 非实写）</small>}</span></li>)}</ol>}
             {empty && !draw && <div className="cw-guide" data-has-net={!!netGeo || undefined}><b>{netGeo ? '路网已经导入，还没有人物和地点' : '这是一个空世界观'}</b>
               <p>{netGeo ? '图上的细线就是导入的道路。先建地点和人物，给人物加几条带时间和地点的事件，就能沿这些路走。' : realMap ? '把地图移到故事发生的地方，导入那一块的路网；再建人物、地点，给人物加几条带时间和地点的事件，拖时间轴就能看到人物沿路移动。' : '故事发生在真实的地方，就先换成真实地图；架空世界可以上传 Azgaar 导出的道路，或者就在空白纸面上画。'}</p>
               <div className="cw-row">{!realMap && <button className="rh-btn is-solid" onClick={() => setBasemap('real')}>用真实地图</button>}
