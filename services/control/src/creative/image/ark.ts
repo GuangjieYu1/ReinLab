@@ -8,6 +8,7 @@
 
 import type { ImageOutput, ImageProvider, ImageRequest } from './provider';
 import { ImageProviderUnavailable, UnsavedImageError } from './provider';
+import { imageSizeOf, mimeOfBytes } from './size';
 
 export type ArkConfig = {
   apiKey: string;
@@ -18,22 +19,8 @@ export type ArkConfig = {
 };
 
 const DEFAULT_BASE = 'https://ark.cn-beijing.volces.com/api/v3';
-const DEFAULT_MODEL = 'doubao-seedream-3-0-t2i-250415';
-
-const mimeOf = (bytes: Uint8Array): string => {
-  if (bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png';
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
-  if (bytes[0] === 0x52 && bytes[1] === 0x49) return 'image/webp';
-  return 'application/octet-stream';
-};
-
-const sizeOf = (bytes: Uint8Array, mime: string): { width: number | null; height: number | null } => {
-  if (mime === 'image/png' && bytes.length > 24) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    return { width: view.getUint32(16), height: view.getUint32(20) };
-  }
-  return { width: null, height: null };
-};
+// 当前账号能用的 Seedream 里最新的一版（4.0 起支持参考图；5.0 pro 出人物更稳）
+const DEFAULT_MODEL = 'doubao-seedream-5-0-pro-260628';
 
 export function createArkProvider(config: ArkConfig | null): ImageProvider {
   const apiKey = config?.apiKey ?? '';
@@ -70,6 +57,8 @@ export function createArkProvider(config: ArkConfig | null): ImageProvider {
       } catch {
         throw new Error('平台返回读不出来（不是 JSON）。');
       }
+      // 平台若回了用量，记下来（花费按官方价另行估算；不编）
+      if (parsed.usage) console.log(JSON.stringify({ code: 'ARK_IMAGE_USAGE', usage: parsed.usage }));
       const data = Array.isArray(parsed.data) ? (parsed.data as Record<string, unknown>[]) : [];
       const first = data[0] ?? parsed;
       const taskId = String(first.task_id ?? first.id ?? parsed.id ?? '') || null;
@@ -90,8 +79,8 @@ export function createArkProvider(config: ArkConfig | null): ImageProvider {
           );
         }
       } else throw new Error('平台没给图（只有任务号，还没完成）。');
-      const mime = mimeOf(bytes);
-      return { bytes, mime, ...sizeOf(bytes, mime), taskId, cost: null };
+      const mime = mimeOfBytes(bytes);
+      return { bytes, mime, ...imageSizeOf(bytes, mime), taskId, cost: null };
     },
   };
 }
