@@ -75,29 +75,30 @@ describe("版本差异", () => {
 describe("作品的设定组合", () => {
   it("follow 记 picks + decision，并把受影响的场景标成待同步", () => {
     const state = settingStateOf({});
-    const next = followItem(state, { itemId: "pl1", toVersion: 3, scenes: ["s1", "s2"], at: "2026-11-09T00:00:00Z" });
+    const next = followItem(state, { itemId: "pl1", toVersion: 3, scenes: [{ sceneId: "s1" }, { sceneId: "s2", para: 1 }], at: "2026-11-09T00:00:00Z" });
     expect(next.picks).toEqual([{ itemId: "pl1", fromVersion: 3, at: "2026-11-09T00:00:00Z" }]);
     expect(next.decisions[0]).toMatchObject({ itemId: "pl1", toVersion: 3, decision: "follow" });
     expect(next.sync.map((pair) => pair.sceneId)).toEqual(["s1", "s2"]);
+    expect(next.sync[1].para).toBe(1);
     expect(settingOf({ baseVersion: 2, setting: next }).pendingSync).toBe(2);
   });
 
   it("keep 只记决定，并把这条的待同步撤掉", () => {
-    const followed = followItem(settingStateOf({}), { itemId: "pl1", toVersion: 3, scenes: ["s1"], at: "t1" });
+    const followed = followItem(settingStateOf({}), { itemId: "pl1", toVersion: 3, scenes: [{ sceneId: "s1" }], at: "t1" });
     const kept = keepItem(followed, { itemId: "pl1", toVersion: 3, at: "t2" });
     expect(kept.decisions[0].decision).toBe("keep");
     expect(kept.sync).toEqual([]);
   });
 
   it("dismiss 与接受改稿都能把一处待同步消掉，并且不再重复出现", () => {
-    const followed = followItem(settingStateOf({}), { itemId: "pl1", toVersion: 3, scenes: ["s1", "s2"], at: "t1" });
+    const followed = followItem(settingStateOf({}), { itemId: "pl1", toVersion: 3, scenes: [{ sceneId: "s1" }, { sceneId: "s2", para: 2 }], at: "t1" });
     const dismissed = dismissSync(followed, { itemId: "pl1", sceneId: "s1", reason: "这段不用改", at: "t2" });
     expect(dismissed.sync.map((pair) => pair.sceneId)).toEqual(["s2"]);
     expect(dismissed.syncDone[0]).toMatchObject({ sceneId: "s1", via: "dismiss", reason: "这段不用改" });
     const resolved = resolveSync(dismissed, { itemId: "pl1", sceneId: "s2", at: "t3", via: "text_edit" });
     expect(resolved.sync).toEqual([]);
     // 再 follow 一次，处理过的不再冒出来
-    const again = followItem(resolved, { itemId: "pl1", toVersion: 3, scenes: ["s1", "s2"], at: "t4" });
+    const again = followItem(resolved, { itemId: "pl1", toVersion: 3, scenes: [{ sceneId: "s1" }, { sceneId: "s2", para: 2 }], at: "t4" });
     expect(again.sync).toEqual([]);
   });
 

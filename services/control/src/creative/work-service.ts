@@ -314,9 +314,18 @@ async function applySettingOp(
     case 'setting.follow_version': {
       const from = document.baseVersion > 0 ? document.baseVersion : 1;
       const report = await impactOf(client, account, dossier, from, op.toVersion);
-      const scenesByItem = new Map<string, string[]>();
+      const scenesByItem = new Map<string, { sceneId: string; para?: number }[]>();
       for (const item of report.items) {
-        const scenes = [...new Set(item.sure.filter((ref) => ref.kind === 'scene' && (ref as { workId?: string }).workId === workId).map((ref) => (ref as { sceneId: string }).sceneId))];
+        const seen = new Set<string>();
+        const scenes: { sceneId: string; para?: number }[] = [];
+        for (const ref of item.sure) {
+          if (ref.kind !== 'scene' || (ref as { workId?: string }).workId !== workId) continue;
+          const scene = ref as { sceneId: string; para?: number };
+          const key = `${scene.sceneId}:${scene.para ?? ''}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          scenes.push({ sceneId: scene.sceneId, ...(scene.para !== undefined ? { para: scene.para } : {}) });
+        }
         if (scenes.length) scenesByItem.set(item.change.itemId, scenes);
       }
       const decidedItems = new Set(state.decisions.filter((decision) => decision.toVersion === op.toVersion).map((decision) => decision.itemId));
@@ -388,6 +397,12 @@ async function applySettingOp(
     }
     case 'sync.suggest': {
       const { change } = await itemChangeBetween(client, account, dossier, document.baseVersion, Math.max(1, document.baseVersion), op.itemId);
+      // 每场只改「标了待同步」的那一段（验收 C2）
+      const syncParas: Record<string, number> = {};
+      for (const sceneId of op.sceneIds) {
+        const pair = state.sync.find((item) => item.itemId === op.itemId && item.sceneId === sceneId);
+        if (pair?.para !== undefined) syncParas[sceneId] = pair.para;
+      }
       const hint = change
         ? `这条设定变了：${change.title}（改了：${change.fields.join('、') || '内容'}）。请按新设定改这一场，只改需要改的地方，别动别的。`
         : `按新设定重看这一场，只改需要改的地方。`;
@@ -396,6 +411,7 @@ async function applySettingOp(
         mode: 'rewrite',
         hint,
         syncItem: op.itemId,
+        ...(Object.keys(syncParas).length ? { syncParas } : {}),
       });
       return { document, summary: `让助手按新设定改 ${op.sceneIds.length} 场（任务 ${job.id.slice(0, 8)}）`, generateJobId: job.id };
     }

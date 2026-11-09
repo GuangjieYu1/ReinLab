@@ -86,6 +86,10 @@ export async function createApp(options: {
   creativeAdvisor?: import("../creative/advisor").AdvisorDeps;
   /** 1C：扫正文的模型通道。 */
   creativeImpactScan?: import("../creative/scan").ScanDeps;
+  /** 29 号：助手会话的模型通道（带工具、多轮）。 */
+  creativeAssistant?: import("../creative/assistant-session").ChatDeps;
+  /** 29 号：自然语言规则判定。 */
+  creativeRuleJudge?: import("../creative/rule-judge").JudgeDeps;
   /** 创作台路网导入的取数通道；缺省真实 Overpass。 */
   creativeOverpass?: import("../creative/network").OverpassTransport;
   realModelsEnabled?: boolean;
@@ -222,6 +226,7 @@ export async function createApp(options: {
     ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
     ...(options.creativeAdvisor ? { advisor: options.creativeAdvisor } : {}),
     ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
+    ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
     ...(options.creativeOverpass ? { overpass: options.creativeOverpass } : {}),
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
@@ -266,7 +271,9 @@ export async function createApp(options: {
             creative: {
               ...(options.creativeAdvisor ? { advisor: options.creativeAdvisor } : {}),
     ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
+    ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
               ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
+              ...(options.creativeAssistant ? { chat: options.creativeAssistant } : {}),
             },
           }
         : {}),

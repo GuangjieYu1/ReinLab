@@ -5,7 +5,7 @@ import type {
 import { dur } from './geo';
 
 export const KIND_ZH: Record<ConflictKind, string> = {
-  double_location: '同时异地', travel_time: '路程耗时', dead_appearance: '死后出场', presence: '在场互动', place_hierarchy: '地点层级与连接',
+  double_location: '同时异地', travel_time: '路程耗时', dead_appearance: '死后出场', presence: '在场互动', place_hierarchy: '地点层级与连接', rule_model: '规则（模型判的疑似）',
 };
 const BASIS_ZH: Record<string, string> = { explicit: '原文明写', inferred: '推断', unknown: '未知', author: '作者手写' };
 const NARR_ZH: Record<string, string> = { fact: '事实', hearsay: '传闻', dream: '梦境', hypothetical: '假设', flashback: '回忆' };

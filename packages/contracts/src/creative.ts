@@ -241,7 +241,14 @@ export type Track = {
 };
 
 // ── 检查 ──────────────────────────────────────────
-export type ConflictKind = 'double_location' | 'travel_time' | 'dead_appearance' | 'presence' | 'place_hierarchy';
+export type ConflictKind =
+  | 'double_location'
+  | 'travel_time'
+  | 'dead_appearance'
+  | 'presence'
+  | 'place_hierarchy'
+  /** 29 号：自然语言规则由模型判出来的「疑似」（永远 severity: suspect）。 */
+  | 'rule_model';
 
 export type Fix = {
   id: string;

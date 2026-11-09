@@ -54,6 +54,13 @@ export type CreativeDocument = {
   rules: WorldRule[];
   edits: MapEdit[];
   proposals: Proposal[];
+  /** 29 号：自然语言规则由模型判定过结果（按事件指纹缓存），检查时并入「疑似」。 */
+  ruleJudgements?: {
+    ruleId: string;
+    fingerprint: string;
+    at: string;
+    suspects: { eventId: string; why: string; quote?: string }[];
+  }[];
   /** 作者手绘或已确认的路线（正式路线）。 */
   manualRoutes: RoutePathEntry[];
   /** AI 推断出来、作者还没确认的路线：立即参与轨迹和检查，画虚线。 */
@@ -729,16 +736,21 @@ export function worldOf(
   revision: number,
   versions: { latest: number; draftChanges: number },
 ): World {
-  const withTime = document.events.filter(
-    (event) => boundsOf(event.start).start !== null && boundsOf(event.end).end !== null,
-  );
+  const timeOf = (time: { t?: number | null } | undefined, edge: 'start' | 'end'): number | null => {
+    if (!time) return null;
+    if (typeof time.t === 'number') return time.t;
+    const bounds = boundsOf(time as never);
+    return edge === 'start' ? bounds.start : bounds.end;
+  };
+  // 最早开始 → 最晚结束（按事件自己的 t；只有区间型事件没有 t 时才用区间端点）
+  const withTime = document.events
+    .map((event) => ({ event, start: timeOf(event.start, 'start'), end: timeOf(event.end, 'end') }))
+    .filter((item): item is { event: (typeof document.events)[number]; start: number; end: number } => item.start !== null && item.end !== null);
   const timeSpan = withTime.length
-    ? (() => {
-        const sorted = [...withTime].sort((a, b) => boundsOf(a.start).start! - boundsOf(b.start).start!);
-        const first = sorted[0];
-        const last = [...withTime].sort((a, b) => boundsOf(b.end).end! - boundsOf(a.end).end!)[0];
-        return { from: first.start, to: last.end };
-      })()
+    ? {
+        from: withTime.reduce((first, item) => (item.start < first.start ? item : first)).event.start,
+        to: withTime.reduce((last, item) => (item.end > last.end ? item : last)).event.end,
+      }
     : null;
   return {
     id: dossierId,

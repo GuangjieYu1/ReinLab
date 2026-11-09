@@ -289,10 +289,16 @@ export function planLegs(document: CreativeDocument): LegPlan[] {
 /** 每条 leg 的完整投影：手绘 → 推断 → 路网 → none。 */
 export async function buildLegs(
   client: pg.PoolClient,
-  input: { account: string; dossier: string; document: CreativeDocument },
+  input: {
+    account: string;
+    dossier: string;
+    document: CreativeDocument;
+    /** 跨调用共享的路由缓存（影响清单试算同一批文档时用）：键里带坐标和速度，改了地点的不会被误用。 */
+    cache?: Map<string, RoutedLeg>;
+  },
 ): Promise<CreativeRouteLeg[]> {
   const legs: CreativeRouteLeg[] = [];
-  const cache = new Map<string, RoutedLeg>();
+  const cache = input.cache ?? new Map<string, RoutedLeg>();
   for (const plan of planLegs(input.document)) {
     const manual = input.document.manualRoutes.find((item) => item.legId === plan.legId);
     const inferred = input.document.inferredRoutes.find((item) => item.legId === plan.legId);
@@ -335,7 +341,16 @@ export async function buildLegs(
     const fromEntity = input.document.entities.find((item) => item.id === plan.fromEvent.placeId);
     const toEntity = input.document.entities.find((item) => item.id === plan.toEvent.placeId);
     const departure = endT(plan.fromEvent.end) ?? tOf(plan.fromEvent.start) ?? 0;
-    const key = `${plan.fromEvent.placeId}|${plan.toEvent.placeId}|${plan.modeId}|${departure}`;
+    const key = [
+      plan.fromEvent.placeId,
+      plan.toEvent.placeId,
+      plan.modeId,
+      departure,
+      pointOf(fromEntity?.place?.geo)?.join(',') ?? '',
+      pointOf(toEntity?.place?.geo)?.join(',') ?? '',
+      mode?.kmPerHour ?? '',
+      mode?.network ?? '',
+    ].join('|');
     let routed = cache.get(key);
     if (!routed) {
       routed = await routeOnNetwork(client, input, {

@@ -44,22 +44,31 @@ export async function effectiveWorldOf(
   if (!row) throw new ApiFailure('WORK_NOT_FOUND', 404, '找不到这部作品。');
   const state = settingStateOf(row.document);
   const world = await loadWorld(client, account, dossier);
+  const baseVersion = row.document.baseVersion;
+  // 没有 picks/overrides 时也必须从 baseVersion 的快照起算（验收 C3：以前返回的是草稿）
+  const baseRow =
+    baseVersion > 0
+      ? (
+          await client.query<{ world: CreativeDocument }>(
+            'select world from creative_version where account_id=$1 and dossier_id=$2 and n=$3',
+            [account, dossier, baseVersion],
+          )
+        ).rows[0]
+      : undefined;
   if (!state.picks.length && !state.overrides.length) {
-    // 没有 picks/overrides：就是当前草稿，但条目仍要打上「base」，页面按作品看时统一口径。
-    const document = JSON.parse(JSON.stringify(world.document)) as CreativeDocument;
+    const document = JSON.parse(JSON.stringify(baseRow?.world ?? world.document)) as CreativeDocument;
     for (const item of itemMapOf(document).values()) (item.value as Record<string, unknown>).setting = 'base';
     return {
       work: row.document,
       workRevision: Number(row.revision),
       document,
       sources: new Map(),
-      baseVersion: row.document.baseVersion,
+      baseVersion,
       picked: [],
       overridden: [],
     };
   }
 
-  const baseVersion = row.document.baseVersion;
   const wanted = new Set<number>([...state.picks.map((pick) => pick.fromVersion), baseVersion].filter((n) => n > 0));
   const versionRows = (
     await client.query<{ n: number; world: CreativeDocument }>(
@@ -68,7 +77,7 @@ export async function effectiveWorldOf(
     )
   ).rows;
   const versions = new Map<number, CreativeDocument>(versionRows.map((item) => [Number(item.n), item.world]));
-  const base = versions.get(baseVersion) ?? world.document;
+  const base = versions.get(baseVersion) ?? baseRow?.world ?? world.document;
   const built = effectiveDocument({ base, versions, setting: state });
   return {
     work: row.document,

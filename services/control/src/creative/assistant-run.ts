@@ -14,6 +14,7 @@ import { appendEvent } from '../ledger';
 import { advise, type AdvisorDeps } from './advisor';
 import { loadWorld } from './service';
 import { runGenerate, startGenerate, type WriterDeps } from './writer';
+import { runTurn } from './assistant-session';
 
 export type CreativeMode = 'creative_advisor' | 'creative_writer';
 
@@ -21,6 +22,7 @@ export type CreativeRunDeps = {
   db: import('../db/database').Database;
   advisor?: AdvisorDeps;
   writer?: WriterDeps;
+  chat?: import('./assistant-session').ChatDeps;
 };
 
 const ROLE = 'bench-assist';
@@ -77,6 +79,24 @@ const say = async (
 
 /** 跑一条创作台会话：先落用户那句话，再跑顾问/写作助手，最后落回复并收尾。 */
 export async function runCreativeSession(
+  deps: CreativeRunDeps,
+  account: string,
+  runId: string,
+): Promise<void> {
+  // 29 号之后走 assistant-session（多轮 + 工具 + Markdown）；老路径保留给「直接调 /advisor」的页面。
+  const query = await deps.db.withAccount(account, async (client) => {
+    const row = (
+      await client.query<{ input: Record<string, string> }>(
+        'select input from run where account_id=$1 and id=$2',
+        [account, runId],
+      )
+    ).rows[0];
+    return String(row?.input.query ?? '');
+  });
+  await runTurn({ db: deps.db, ...(deps.chat ? { chat: deps.chat } : {}) }, account, runId, query);
+}
+
+async function legacySession(
   deps: CreativeRunDeps,
   account: string,
   runId: string,

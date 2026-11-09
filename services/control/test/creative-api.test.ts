@@ -63,6 +63,13 @@ const overpass: OverpassTransport = async (_url, body) => {
 const writerModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
   current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
 };
+const judgeModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
+  current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{\"violations\":[]}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+};
+const chatModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
+  current: async () =>
+    new Response(JSON.stringify({ content: [{ type: "text", text: "好。" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+};
 const scanModelHolder: { current: (url: string, init: RequestInit) => Promise<Response> } = {
   current: async () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
 };
@@ -128,6 +135,24 @@ beforeAll(async () => {
         model: "test-advisor",
         transport: (input, init) => advisorModelHolder.current(input as string, init as RequestInit),
       },
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+    },
+    creativeRuleJudge: {
+      model: {
+        baseUrl: "https://model.test/anthropic",
+        apiKey: "test-key",
+        model: "test-judge",
+        transport: (input, init) => judgeModelHolder.current(input as string, init as RequestInit),
+      },
+      pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+      provider: "test",
+    },
+    creativeAssistant: {
+      baseUrl: "https://model.test/anthropic",
+      apiKey: "test-key",
+      model: "test-chat",
+      transport: (input, init) => chatModelHolder.current(input as string, init as RequestInit),
       pricing: { inputPerMillion: 2, outputPerMillion: 8 },
       provider: "test",
     },
@@ -1049,28 +1074,30 @@ describe("导入预览分章 + 最后一章暂停落在 done（1B）", () => {
 });
 
 describe("创作台会话走 kernel runs（1B 契约 §5.2「助手」）", () => {
-  it("设定顾问：建 run、写事件、只产出提议", async () => {
-    advisorModelHolder.current = async () =>
-      new Response(
-        JSON.stringify({
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                kind: "entity",
-                title: "加一个船夫",
-                summary: "冬天在渡口撑船的人。",
-                entities: [{ name: "船夫", kind: "person", aliases: ["舟子"], summary: "渡口撑船" }],
-                events: [],
-                rules: [],
-                doubts: [],
-              }),
-            },
-          ],
-          usage: { input_tokens: 500, output_tokens: 200 },
-        }),
-        { status: 200 },
-      );
+  it("设定顾问：建 run、多轮会话、工具交提议（29 号）", async () => {
+    let call = 0;
+    chatModelHolder.current = async () => {
+      call += 1;
+      const content =
+        call === 1
+          ? [
+              {
+                type: "tool_use",
+                id: `tool-${call}`,
+                name: "propose_setting",
+                input: {
+                  title: "加一个船夫",
+                  summary: "冬天在渡口撑船的人。",
+                  entities: [{ name: "船夫", kind: "person", aliases: ["舟子"], summary: "渡口撑船" }],
+                  events: [],
+                  rules: [],
+                  doubts: [],
+                },
+              },
+            ]
+          : [{ type: "text", text: "已经交了一条提议，在待确认里。" }];
+      return new Response(JSON.stringify({ content, usage: { input_tokens: 500, output_tokens: 200 } }), { status: 200 });
+    };
     const started = await api("/v1/kernel/runs", {
       method: "POST",
       headers: { "Idempotency-Key": randomUUID() },
@@ -1104,21 +1131,21 @@ describe("创作台会话走 kernel runs（1B 契约 §5.2「助手」）", () =
   });
 
   it("顾问按底线提不出设定：会话照常完成，回复里说明为什么，不记成失败", async () => {
+    chatModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: "现有设定没有夜间时段，我不凭摘要编一条夜规。\n\n这次没有生成提议。" }],
+          usage: { input_tokens: 300, output_tokens: 120 },
+        }),
+        { status: 200 },
+      );
     advisorModelHolder.current = async () =>
       new Response(
         JSON.stringify({
           content: [
             {
               type: "text",
-              text: JSON.stringify({
-                kind: "event",
-                title: "",
-                summary: "",
-                entities: [],
-                events: [],
-                rules: [],
-                doubts: ["现有设定没有夜间时段，不能凭摘要编一条夜规"],
-              }),
+              text: JSON.stringify({ kind: "event", title: "", summary: "", entities: [], events: [], rules: [], doubts: ["现有设定没有夜间时段"] }),
             },
           ],
           usage: { input_tokens: 300, output_tokens: 120 },
@@ -1611,5 +1638,98 @@ describe("1C：版本差异、影响清单、设定组合", () => {
     expect(item.maybe.length).toBeGreaterThan(0);
     expect(item.maybe[0].quote).toBeTruthy();
     expect(item.maybe[0].why).toBeTruthy();
+  });
+});
+
+describe("29 号：模型判自然语言规则", () => {
+  const worldPath = `/v1/creative/worlds/${dossierA}`;
+  let ruleId = "";
+
+  it("翻不成程序可判的规则，由模型判成「疑似」，并记花费；没变就复用", async () => {
+    const snapshot = await (await api(worldPath)).json();
+    const added = await api(`${worldPath}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: snapshot.world.revision,
+        ops: [{ op: "rule.set", rule: { id: "rule_curfew", text: "苏州城宵禁，入夜城门关闭。", machine: null } }],
+      }),
+    });
+    expect(added.status).toBe(200);
+    ruleId = "rule_curfew";
+    const eventId = snapshot.events[0].id;
+
+    judgeModelHolder.current = async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ violations: [{ ruleId, eventId, why: "这条事件在入夜后出城，和宵禁对不上", quote: "夜里动身" }] }),
+            },
+          ],
+          usage: { input_tokens: 700, output_tokens: 90 },
+        }),
+        { status: 200 },
+      );
+    const judged = await api(`${worldPath}/rules/judge`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect(judged.status).toBe(200);
+    const body = await judged.json();
+    expect(body.judged).toBeGreaterThanOrEqual(1);
+    expect(body.cost.known).toBe(true);
+    const suspect = body.check.conflicts.find((item: any) => item.kind === "rule_model");
+    expect(suspect?.severity).toBe("suspect");
+    expect(suspect.why).toContain("宵禁");
+    expect(suspect.why).toContain("疑似");
+
+    // 事件和规则没变：第二次不再花钱
+    const again = await api(`${worldPath}/rules/judge`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: "{}",
+    });
+    expect((await again.json()).judged).toBe(0);
+  });
+});
+
+describe("29 号：同一会话续一句", () => {
+  it("第二轮能带上第一轮说过的话", async () => {
+    const started = await api("/v1/kernel/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ dossierId: dossierA, query: "第一句：加一个船夫", mode: "creative_advisor" }),
+    });
+    const { id } = await started.json();
+    // 等第一轮结束
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const state = (await admin.query("select state from run where id=$1", [id])).rows[0]?.state;
+      if (state === "completed") break;
+    }
+    const bodies: string[] = [];
+    chatModelHolder.current = async (_url, init) => {
+      bodies.push(String((init as RequestInit).body ?? ""));
+      return new Response(JSON.stringify({ content: [{ type: "text", text: "第二轮回答。" }], usage: { input_tokens: 20, output_tokens: 8 } }), { status: 200 });
+    };
+    const next = await api(`/v1/kernel/runs/${id}/messages`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ query: "第二句：他叫什么？" }),
+    });
+    expect(next.status).toBe(202);
+    for (let index = 0; index < 100; index += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+      const count = (await admin.query("select count(*)::int n from event where run_id=$1 and action='assistant/message'", [id])).rows[0]?.n;
+      if (count >= 2) break;
+    }
+    expect(bodies.length).toBeGreaterThan(0);
+    const sent = JSON.parse(bodies[0]) as { messages: { role: string; content: { text: string }[] }[] };
+    const flat = sent.messages.flatMap((message) => message.content.map((block) => block.text)).join("\n");
+    expect(flat).toContain("第一句");
+    expect(flat).toContain("第二句");
   });
 });

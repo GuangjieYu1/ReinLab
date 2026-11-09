@@ -11,7 +11,7 @@ import type { CreativeDocument } from './world';
 import type { ItemKind, WorkSetting } from '@reinlab/contracts';
 import { ITEM_KINDS, itemMapOf, putItem, titleOf } from './items';
 
-export type SyncPair = { itemId: string; sceneId: string; at: string };
+export type SyncPair = { itemId: string; sceneId: string; para?: number; at: string };
 export type SyncDone = { itemId: string; sceneId: string; at: string; via: 'text_edit' | 'dismiss'; reason?: string };
 
 export type WorkSettingState = {
@@ -53,7 +53,7 @@ const sameDecision = (decision: { itemId: string; toVersion: number }, itemId: s
 /** 跟着改：picks 记一条、decision 记 follow、把确定受影响的场景标成待同步。 */
 export function followItem(
   state: WorkSettingState,
-  input: { itemId: string; toVersion: number; scenes: string[]; at: string },
+  input: { itemId: string; toVersion: number; scenes: { sceneId: string; para?: number }[]; at: string },
 ): WorkSettingState {
   const picks = [...state.picks.filter((pick) => pick.itemId !== input.itemId), { itemId: input.itemId, fromVersion: input.toVersion, at: input.at }];
   const decisions = [
@@ -62,10 +62,10 @@ export function followItem(
   ];
   const done = new Set(state.syncDone.filter((item) => item.itemId === input.itemId).map((item) => item.sceneId));
   const sync = [...state.sync];
-  for (const sceneId of input.scenes) {
-    if (done.has(sceneId)) continue;
-    if (sync.some((pair) => pair.itemId === input.itemId && pair.sceneId === sceneId)) continue;
-    sync.push({ itemId: input.itemId, sceneId, at: input.at });
+  for (const scene of input.scenes) {
+    if (done.has(scene.sceneId)) continue;
+    if (sync.some((pair) => pair.itemId === input.itemId && pair.sceneId === scene.sceneId)) continue;
+    sync.push({ itemId: input.itemId, sceneId: scene.sceneId, ...(scene.para !== undefined ? { para: scene.para } : {}), at: input.at });
   }
   return { ...state, picks, decisions, sync };
 }
@@ -90,7 +90,7 @@ export function keepItem(
 /** 整版跟进：基准版本换成 toVersion，没决定过的条目都按 follow 处理。 */
 export function followVersion(
   state: WorkSettingState,
-  input: { toVersion: number; scenesByItem: Map<string, string[]>; decidedItems: Set<string>; at: string },
+  input: { toVersion: number; scenesByItem: Map<string, { sceneId: string; para?: number }[]>; decidedItems: Set<string>; at: string },
 ): WorkSettingState {
   let next: WorkSettingState = { ...state };
   for (const [itemId, scenes] of input.scenesByItem) {
@@ -142,9 +142,21 @@ export function resolveSync(
   };
 }
 
-/** 某个场景的待同步标记（给 marks 用）。 */
-export function syncItemsOfScene(work: { setting?: Partial<WorkSettingState> }, sceneId: string): string[] {
-  return [...new Set(settingStateOf(work).sync.filter((pair) => pair.sceneId === sceneId).map((pair) => pair.itemId))];
+/** 某个场景的待同步标记（给 marks 用）：条目 + 段落。 */
+export function syncPairsOfScene(
+  work: { setting?: Partial<WorkSettingState> },
+  sceneId: string,
+): { itemId: string; para?: number }[] {
+  const pairs = settingStateOf(work).sync.filter((pair) => pair.sceneId === sceneId);
+  const seen = new Set<string>();
+  return pairs
+    .filter((pair) => {
+      const key = `${pair.itemId}:${pair.para ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((pair) => ({ itemId: pair.itemId, ...(pair.para !== undefined ? { para: pair.para } : {}) }));
 }
 
 export type EffectiveSource = 'base' | 'picked' | 'override';

@@ -38,14 +38,11 @@ export type ScanDocument = {
 
 const norm = (value: string) => value.replace(/\s+/g, '');
 
-/** 场景里提到的这条实体/事件（正文里写了什么）。 */
-export function sceneHitsOf(document: CreativeDocument, work: WorkDocument, item: ItemChange): {
-  sceneId: string;
-  chapterId: string;
-  para: number;
-  quote: string;
-}[] {
-  const hits: { sceneId: string; chapterId: string; para: number; quote: string }[] = [];
+export type SceneHit = { sceneId: string; chapterId: string; para: number; quote: string };
+
+/** 一部作品的正文里，每条实体/事件分别在哪里出现（每个场景只算一遍 marks）。 */
+export function sceneHitsByItem(document: CreativeDocument, work: WorkDocument): Map<string, SceneHit[]> {
+  const byItem = new Map<string, SceneHit[]>();
   for (const chapter of work.chapters) {
     for (const scene of chapter.scenes) {
       if (!scene.text.trim()) continue;
@@ -55,19 +52,24 @@ export function sceneHitsOf(document: CreativeDocument, work: WorkDocument, item
         sceneId: scene.id,
         conflicts: [],
         proposals: [],
-      }).filter((mark) => mark.kind === (item.kind === 'event' ? 'event' : 'entity') && mark.refId === item.itemId);
+      });
       if (!marks.length) continue;
       const paragraphs = paragraphsOf(scene.text);
-      for (const mark of marks.slice(0, 3))
-        hits.push({
+      for (const mark of marks) {
+        if (mark.kind !== 'entity' && mark.kind !== 'event') continue;
+        const list = byItem.get(mark.refId) ?? [];
+        if (list.some((hit) => hit.sceneId === scene.id && hit.para === mark.para)) continue;
+        list.push({
           sceneId: scene.id,
           chapterId: chapter.id,
           para: mark.para,
           quote: (paragraphs[mark.para] ?? '').slice(0, 120),
         });
+        byItem.set(mark.refId, list);
+      }
     }
   }
-  return hits;
+  return byItem;
 }
 
 /** 每部作品对这条条目的状态：用哪一版、决定了没有。 */
@@ -99,6 +101,8 @@ export function groupOf(item: ItemChange): string {
 }
 
 export type ImpactInput = {
+  /** 跨试算共享的路由缓存（见 computeImpact）。 */
+  routeCache?: Map<string, unknown>;
   client: pg.PoolClient;
   account: string;
   dossier: string;
@@ -116,11 +120,18 @@ export type ImpactInput = {
 /** 沿引用和依赖算「确定受影响」，加上每部作品的状态与检查试算。 */
 export async function computeImpact(input: ImpactInput): Promise<ImpactReport> {
   const changes = diffDocuments(input.fromDocument, input.toDocument);
+  // 一次请求内共享路由缓存：每条试算只改一条条目，绝大多数路段可以复用（验收 C1）
+  const routeCache = new Map();
+  const withCache: ImpactInput = { ...input, routeCache };
   const currentLegs = await buildLegs(input.client, {
     account: input.account,
     dossier: input.dossier,
     document: input.toDocument,
+    cache: routeCache,
   });
+  // 每部作品的正文标注只算一遍（验收 C1：以前是每条条目 × 每部作品都重算一次 marks）
+  const hitsByWork = new Map<string, Map<string, SceneHit[]>>();
+  for (const work of input.works) hitsByWork.set(work.id, sceneHitsByItem(input.toDocument, work.document));
   const items: ImpactItem[] = [];
   for (const change of changes) {
     const sure: ImpactItem['sure'] = [];
@@ -139,7 +150,7 @@ export async function computeImpact(input: ImpactInput): Promise<ImpactReport> {
               if (scene.eventIds.includes(change.itemId))
                 pushRef({ kind: 'scene', workId: work.id, chapterId: chapter.id, sceneId: scene.id, why: '场景引用了这条事件' });
         } else {
-          for (const hit of sceneHitsOf(input.toDocument, work.document, change))
+          for (const hit of hitsByWork.get(work.id)?.get(change.itemId) ?? [])
             pushRef({
               kind: 'scene',
               workId: work.id,
@@ -186,23 +197,27 @@ export async function computeImpact(input: ImpactInput): Promise<ImpactReport> {
           pushRef({ kind: 'leg', legId: leg.id, why: '这段行程连着受影响的事件' });
     }
 
-    // 4) 每部作品：用哪一版、决定了没有、采用新版后的检查
+    // 4) 每部作品的试算放到后面并发算（验收 C1：以前串行，13 条 × 5 部作品要十几秒）
     const scanHits = (input.scan?.hits ?? []).filter((hit) => hit.itemId === change.itemId);
-    const works: ImpactItem['works'] = [];
-    for (const work of input.works) {
-      const state = settingStateOf(work.document);
-      const status = usesOf({ baseVersion: work.document.baseVersion, setting: state }, change.itemId, input.toVersion);
-      const checkAfter = await trialCheck(input, work, change);
-      works.push({ workId: work.id, uses: status.uses, decision: status.decision, checkAfter });
-    }
     items.push({
       change,
       group: groupOf(change),
       sure,
       maybe: scanHits.map((hit) => hit.ref),
-      works,
+      works: input.works.map((work) => {
+        const state = settingStateOf(work.document);
+        const status = usesOf({ baseVersion: work.document.baseVersion, setting: state }, change.itemId, input.toVersion);
+        return { workId: work.id, uses: status.uses, decision: status.decision, checkAfter: null as CheckRun | null };
+      }),
     });
   }
+  // 试算：每部作品 × 每条条目，限并发跑（每条一次 buildLegs，串行会拖到十几秒）
+  const tasks: { item: ImpactItem; index: number }[] = [];
+  for (const item of items) item.works.forEach((_, index) => tasks.push({ item, index }));
+  await mapLimit(tasks, 4, async (task) => {
+    const work = input.works[task.index];
+    task.item.works[task.index].checkAfter = await trialCheck(withCache, work, task.item.change);
+  });
   return {
     fromVersion: input.fromVersion,
     toVersion: input.toVersion,
@@ -211,6 +226,18 @@ export async function computeImpact(input: ImpactInput): Promise<ImpactReport> {
       ? { state: input.scan.state, cost: input.scan.cost, ...(input.scan.error ? { error: input.scan.error } : {}) }
       : { state: 'none', cost: { value: 0, known: true } },
   };
+}
+
+async function mapLimit<T>(items: T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      await run(items[index]);
+    }
+  });
+  await Promise.all(workers);
 }
 
 /** 采用这条新版以后的检查试算：按这部作品「基准 + picks + 这条换成新版」跑一遍。 */
@@ -229,7 +256,12 @@ async function trialCheck(
   if (item) putItem(effective, item.kind, change.itemId, item.value as never);
   else putItem(effective, change.kind, change.itemId, null);
   try {
-    const legs = await buildLegs(input.client, { account: input.account, dossier: input.dossier, document: effective });
+    const legs = await buildLegs(input.client, {
+      account: input.account,
+      dossier: input.dossier,
+      document: effective,
+      cache: input.routeCache as Map<string, never> | undefined,
+    });
     return runCheck({ document: effective, legs, revision: 0, now: new Date().toISOString() });
   } catch {
     return null;
@@ -297,17 +329,21 @@ export async function scenesAffectedBy(
   workId: string,
   itemId: string,
   toVersion: number,
-): Promise<string[]> {
+): Promise<{ sceneId: string; para?: number }[]> {
   const report = await impactOf(client, account, dossier, Math.max(1, toVersion - 1), toVersion);
   const item = report.items.find((entry) => entry.change.itemId === itemId);
   if (!item) return [];
-  return [
-    ...new Set(
-      item.sure
-        .filter((ref) => ref.kind === 'scene' && (ref as { workId?: string }).workId === workId)
-        .map((ref) => (ref as { sceneId: string }).sceneId),
-    ),
-  ];
+  const seen = new Set<string>();
+  const scenes: { sceneId: string; para?: number }[] = [];
+  for (const ref of item.sure) {
+    if (ref.kind !== 'scene' || (ref as { workId?: string }).workId !== workId) continue;
+    const scene = ref as { sceneId: string; para?: number };
+    const key = `${scene.sceneId}:${scene.para ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    scenes.push({ sceneId: scene.sceneId, ...(scene.para !== undefined ? { para: scene.para } : {}) });
+  }
+  return scenes;
 }
 
 /** 读最近一次扫正文的结果。 */

@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Chapter, Outline, Proposal, Scene, TextEdit, TextMark, Work, WorkOp } from '@reinlab/contracts';
 import type { CreativeDocument } from './world';
-import { settingOf, syncItemsOfScene, type WorkSettingState } from './settings';
+import { settingOf, syncPairsOfScene, type WorkSettingState } from './settings';
 import { ApiFailure } from '../api/errors';
 
 export type WorkDocument = {
@@ -284,7 +284,10 @@ export function applyTextEdit(
     const at = text.indexOf(before);
     return { text: text.slice(0, at) + after + text.slice(at + before.length), from: at, to: at + before.length };
   }
-  // 定位不到原句：接在末尾（continue / draft 的正常情形），不覆盖已有正文。
+  // 改写找不到原句：说明正文又变过，不硬接在末尾（验收 C2：那样会把改稿插到错的段落）
+  if (edit.mode === 'rewrite')
+    throw fail('TEXT_STALE', 409, '要改写的那段正文已经不在了（正文又改过），请重新生成。');
+  // 续写/起稿的正常情形：接在末尾，不覆盖已有正文。
   const glue = text.trim() ? (text.endsWith('\n\n') ? '' : '\n\n') : '';
   return { text: text + glue + after, from: text.length, to: text.length };
 }
@@ -389,12 +392,12 @@ export function workOf(
         ? [
             ...(options.marks ? options.marks(scene.id) : []),
             // 1C：这一段因为某条设定更新待同步（refId = 条目 id）
-            ...syncItemsOfScene(document, scene.id).map((itemId) => ({
-              para: 0,
+            ...syncPairsOfScene(document, scene.id).map((pair) => ({
+              para: pair.para ?? 0,
               from: 0,
               to: 0,
               kind: 'sync' as const,
-              refId: itemId,
+              refId: pair.itemId,
             })),
           ]
         : [],
