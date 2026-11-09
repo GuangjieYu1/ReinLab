@@ -123,8 +123,10 @@ export default function LiveNovel({ adapter, snapshot, onWorld, initial, ...prop
         const from = para.start + ed.range.from, to = para.start + ed.range.to;
         fullText = sc.text.slice(0, from) + after + sc.text.slice(to);
       } else {
+        // 改写只做替换：找不到原文就报错，绝不接到末尾（1C 验收 C2）
         const at = ed.before ? sc.text.indexOf(ed.before) : -1;
-        fullText = at >= 0 ? sc.text.slice(0, at) + after + sc.text.slice(at + ed.before.length) : sc.text + (sc.text.trim() && !sc.text.endsWith('\n\n') ? '\n\n' : '') + after;
+        if (at < 0) throw Error('改稿要替换的原文在这一场里找不到了（正文改过），请重新让助手改。');
+        fullText = sc.text.slice(0, at) + after + sc.text.slice(at + ed.before.length);
       }
     }
     await adapter.workOps(target.id, target.revision, [{ op: 'text.accept', proposalId: p.id, ...(fullText !== undefined ? { text: fullText } : {}) }]); await refresh();

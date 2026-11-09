@@ -91,6 +91,12 @@ export function ImpactPanel({ adapter, snap, works, onOpenScene, onEditItem, onW
     return `《${w?.title ?? '作品'}》${ch ? ` · ${ch.title}` : ''}${sc ? ` · ${sc.title}` : ''}`;
   };
   const versions = snap.versions.map(v => v.n);
+  // 路段：写成「谁：从哪条事件 → 到哪条事件」，不然几段路都叫「一段路线」看着像重复
+  const legName = (id: string) => {
+    const l = snap.legs.find(x => x.id === id); if (!l) return `一段路线（${id.slice(0, 6)}）`;
+    const ev = (e: string) => snap.events.find(x => x.id === e)?.title ?? '?';
+    return `路线 · ${snap.entities.find(x => x.id === l.entityId)?.name ?? '?'}：${ev(l.fromEventId)} → ${ev(l.toEventId)}`;
+  };
   return <div className="cw-pane ci-impact">
     <div className="ci-range"><span>从</span><select value={from} onChange={e => setFrom(Number(e.target.value))}>{versions.map(n => <option key={n} value={n}>v{n}</option>)}</select>
       <span>到</span><select value={to} onChange={e => setTo(Number(e.target.value))}>{versions.map(n => <option key={n} value={n}>v{n}</option>)}</select>
@@ -106,7 +112,7 @@ export function ImpactPanel({ adapter, snap, works, onOpenScene, onEditItem, onW
       {items.map(it => <article key={it.change.itemId} className="ci-item">
         <ChangeRow c={it.change} />
         {it.sure.length > 0 && <div className="ci-refs"><span className="rh-micro">确定受影响 · {it.sure.length}</span>
-          <ul>{it.sure.map((r, i) => <li key={i}>{r.kind === 'scene' ? <button className="cw-link" onClick={() => onOpenScene({ workId: r.workId, chapterId: r.chapterId, sceneId: r.sceneId })}>{sceneName(r)} ↗</button> : <span>{r.kind === 'event' ? `事件 ${snap.events.find(e => e.id === r.eventId)?.title ?? r.eventId.slice(0, 8)}` : '一段路线'}</span>}<small>{r.why}</small></li>)}</ul></div>}
+          <ul>{it.sure.map((r, i) => <li key={i}>{r.kind === 'scene' ? <button className="cw-link" onClick={() => onOpenScene({ workId: r.workId, chapterId: r.chapterId, sceneId: r.sceneId })}>{sceneName(r)} ↗</button> : <span>{r.kind === 'event' ? `事件 ${snap.events.find(e => e.id === r.eventId)?.title ?? r.eventId.slice(0, 8)}` : legName(r.legId)}</span>}<small>{r.why}</small></li>)}</ul></div>}
         {it.maybe.length > 0 && <div className="ci-refs ci-maybe"><span className="rh-micro">可能受影响 · {it.maybe.length} · AI 找的，可能不准</span>
           <ul>{it.maybe.map((r, i) => <li key={i}>{r.kind === 'scene' ? <button className="cw-link" onClick={() => onOpenScene({ workId: r.workId, chapterId: r.chapterId, sceneId: r.sceneId })}>{sceneName(r)} ↗</button> : null}<q>{r.quote}</q><small>{r.why}</small></li>)}</ul></div>}
         {it.works.length > 0 && <div className="ci-works">{it.works.map(w => <div key={w.workId} className="ci-work" data-uses={w.uses}>
