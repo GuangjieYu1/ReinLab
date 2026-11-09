@@ -21,7 +21,7 @@ function blankStyle(glyphs?: string): StyleSpecification {
 }
 
 function addLayers(map: MLMap) {
-  for (const id of ['cw-net', 'cw-edits', 'cw-legs', 'cw-trails', 'cw-places', 'cw-events', 'cw-people', 'cw-draw']) if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
+  for (const id of ['cw-net', 'cw-edits', 'cw-legs', 'cw-trails', 'cw-places', 'cw-events', 'cw-people', 'cw-ghost', 'cw-ai', 'cw-draw']) if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   const add = (l: maplibregl.AddLayerObject, before?: string) => { if (!map.getLayer(l.id)) map.addLayer(l, before && map.getLayer(before) ? before : undefined); };
   // 导入的路网（架空世界没有底图路，只能自己画）：细墨线压在最底下
   add({ id: 'cw-net', type: 'line', source: 'cw-net', layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -66,6 +66,19 @@ function addLayers(map: MLMap) {
     paint: { 'icon-opacity': ['case', ['get', 'faded'], 0.4, ['get', 'inferred'], 0.75, 1] } });
   add({ id: 'cw-person-name', type: 'symbol', source: 'cw-people', layout: { 'text-field': ['get', 'label'], 'text-font': FONT_BOLD, 'text-size': 12.5, 'text-anchor': 'left', 'text-offset': [1.7, 0], 'text-allow-overlap': true },
     paint: { 'text-color': INK, 'text-halo-color': CARD, 'text-halo-width': 3, 'text-opacity': ['case', ['get', 'faded'], 0.5, 1] } });
+  // 1D 虚影：提议采纳后会多出来的东西（橙色虚线路线、虚线空心地点、空心事件、空心头像），改了位置的用细虚线从旧处指到新处
+  add({ id: 'cw-ghost-move', type: 'line', source: 'cw-ghost', filter: ['==', ['get', 'gk'], 'move'], paint: { 'line-color': ORANGE, 'line-width': 1.4, 'line-dasharray': [1, 1.5] } });
+  add({ id: 'cw-ghost-leg', type: 'line', source: 'cw-ghost', filter: ['==', ['get', 'gk'], 'leg'], layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ORANGE, 'line-width': ['case', ['get', 'hi'], 5, 3], 'line-dasharray': [2, 1.4], 'line-opacity': 0.9 } });
+  add({ id: 'cw-ghost-hi', type: 'circle', source: 'cw-ghost', filter: ['all', ['==', ['geometry-type'], 'Point'], ['get', 'hi']], paint: { 'circle-radius': 20, 'circle-color': 'transparent', 'circle-stroke-color': ORANGE, 'circle-stroke-width': 2.5 } });
+  add({ id: 'cw-ghost-pt', type: 'symbol', source: 'cw-ghost', filter: ['all', ['==', ['geometry-type'], 'Point'], ['has', 'icon']],
+    layout: { 'icon-image': ['get', 'icon'], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': ['case', ['==', ['get', 'gk'], 'event'], 'bottom', 'center'] as never, 'icon-offset': ['case', ['==', ['get', 'gk'], 'event'], ['literal', [0, -4]], ['literal', [0, 0]]] as never } });
+  add({ id: 'cw-ghost-name', type: 'symbol', source: 'cw-ghost', filter: ['all', ['==', ['geometry-type'], 'Point'], ['has', 'label']],
+    layout: { 'text-field': ['get', 'label'], 'text-font': FONT_BOLD, 'text-size': 11.5, 'text-anchor': 'left', 'text-offset': [1.4, 0], 'text-allow-overlap': true },
+    paint: { 'text-color': '#c45a12', 'text-halo-color': CARD, 'text-halo-width': 3 } });
+  // AI 正在看：细橙圈 / 粗橙线，透明度由外面一闪一闪地改
+  add({ id: 'cw-ai-line', type: 'line', source: 'cw-ai', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': ORANGE, 'line-width': 7, 'line-opacity': 0.35 } });
+  add({ id: 'cw-ai-pt', type: 'circle', source: 'cw-ai', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 17, 'circle-color': 'transparent', 'circle-stroke-color': ORANGE, 'circle-stroke-width': 2, 'circle-stroke-opacity': 0.9 } });
   // 正在画
   add({ id: 'cw-draw-fill', type: 'fill', source: 'cw-draw', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': ORANGE, 'fill-opacity': 0.12 } });
   add({ id: 'cw-draw-line', type: 'line', source: 'cw-draw', filter: ['!=', ['geometry-type'], 'Point'], paint: { 'line-color': ORANGE, 'line-width': 2.4 } });
@@ -87,6 +100,19 @@ function drawIcon(map: MLMap, id: string, portraits?: Map<string, string>) {
     if (h) { g.lineWidth = 2.4; g.strokeStyle = a === 'hard' ? RED : AMBER; g.stroke(); }
     map.addImage(id, g.getImageData(0, 0, cv.width, cv.height), { pixelRatio: PR }); return;
   }
+  if (type === 'gh') {
+    // gh:place —— 虚线空心圈；gh:av:首字:flag —— 空心虚线头像
+    if (a === 'place') {
+      const S = 14, { c: cv, g } = canvas(S + 6), o = 3 + S / 2;
+      g.setLineDash([3, 2]); g.beginPath(); g.arc(o, o, S / 2, 0, Math.PI * 2); g.fillStyle = CARD; g.fill(); g.lineWidth = 2; g.strokeStyle = ORANGE; g.stroke();
+      map.addImage(id, g.getImageData(0, 0, cv.width, cv.height), { pixelRatio: PR }); return;
+    }
+    const S = 34, { c: cv, g } = canvas(S + 6), r = S / 2, o = 3 + r;
+    g.beginPath(); g.arc(o, o, r, 0, Math.PI * 2); g.fillStyle = 'rgba(251,251,249,0.92)'; g.fill();
+    g.setLineDash([4, 3]); g.lineWidth = 2.4; g.strokeStyle = c === 'hard' ? RED : c === 'suspect' ? AMBER : ORANGE; g.stroke(); g.setLineDash([]);
+    g.fillStyle = '#c45a12'; g.font = `600 16px ${CJK}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(b, o, o + 1);
+    map.addImage(id, g.getImageData(0, 0, cv.width, cv.height), { pixelRatio: PR }); return;
+  }
   if (type === 'av') {
     // av:entityId:sel:首字[:p] —— 圆头像：先画首字，有立绘就异步换成立绘
     const S = 34, { c: cv, g } = canvas(S + 6), r = S / 2, o = 3 + r, sel = b === '1';
@@ -102,6 +128,14 @@ function drawIcon(map: MLMap, id: string, portraits?: Map<string, string>) {
     }; img.src = url; }
   }
 }
+
+export type Ghost = {
+  places: { id: string; name: string; at: LngLat; hi?: boolean }[];
+  events: { id: string; title: string; at: LngLat; flag?: Flag; hi?: boolean }[];
+  people: { id: string; name: string; at: LngLat; flag?: Flag; hi?: boolean }[];
+  legs: { id: string; coords: LngLat[]; hi?: boolean }[];
+  moves: { from: LngLat; to: LngLat }[];
+};
 
 type Props = {
   cfg: MapConfig | null; real: boolean;
@@ -119,6 +153,10 @@ type Props = {
   moment?: { trails: { entityId: string; lines: LngLat[][] }[] } | null;
   /** 有地点坐标的事件；state 由外面按 t 算好（static 时全是 all）。 */
   events?: { id: string; title: string; at: LngLat; state: 'all' | 'past' | 'now' | 'future'; flag?: Flag; hearsay?: boolean }[];
+  /** 1D 虚影；null = 没有在看的提议。 */
+  ghost?: Ghost | null;
+  /** 1D：AI 正在看的东西（点和线），一闪一闪地描出来。 */
+  ai?: { points: LngLat[]; lines: LngLat[][] } | null;
   /** 人物立绘（有的话当头像）。 */
   portraits?: Map<string, string>;
   /** 路网几何（`network/geojson`）；有真实底图时不传。 */
@@ -155,6 +193,19 @@ export default function WorldMap(p: Props) {
       properties: { id: x.entityId, label: x.at ? (x.routeKind === 'inferred' ? `${x.name} · 推断` : x.name) : `${x.name} · ?`, sel, inferred: x.routeKind === 'inferred', faded: !x.at,
         icon: `av:${x.entityId}:${sel ? 1 : 0}:${x.name.slice(0, 1)}${pic ? ':p' : ''}`,
         ...(q.flags.people.has(x.entityId) ? { flag: q.flags.people.get(x.entityId) } : {}) } }]; }) });
+    const g = q.ghost, pt = (c: LngLat) => ({ type: 'Point', coordinates: c });
+    set('cw-ghost', !g ? EMPTY : { type: 'FeatureCollection', features: [
+      ...g.moves.map(m => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: [m.from, m.to] }, properties: { gk: 'move' } })),
+      ...g.legs.filter(l => l.coords.length > 1).map(l => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: l.coords }, properties: { gk: 'leg', id: l.id, hi: !!l.hi } })),
+      ...g.places.map(x => ({ type: 'Feature', geometry: pt(x.at), properties: { gk: 'place', id: x.id, icon: 'gh:place', label: x.name, hi: !!x.hi } })),
+      ...g.events.map(x => ({ type: 'Feature', geometry: pt(x.at), properties: { gk: 'event', id: x.id, icon: `ev:${x.flag ?? ''}:1`, hi: !!x.hi } })),
+      ...g.people.map(x => ({ type: 'Feature', geometry: pt(x.at), properties: { gk: 'person', id: x.id, icon: `gh:av:${x.name.slice(0, 1)}:${x.flag ?? ''}`, label: `${x.name} · 提议`, hi: !!x.hi } })),
+    ] });
+    const ai = q.ai;
+    set('cw-ai', !ai ? EMPTY : { type: 'FeatureCollection', features: [
+      ...ai.points.map(c => ({ type: 'Feature', geometry: pt(c), properties: {} })),
+      ...ai.lines.filter(l => l.length > 1).map(l => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: l }, properties: {} })),
+    ] });
     const d = q.draw, pts = drawPts.current;
     set('cw-draw', !d || !pts.length ? EMPTY : { type: 'FeatureCollection', features: [
       ...pts.map(c => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: {} })),
@@ -223,6 +274,18 @@ export default function WorldMap(p: Props) {
     if (f.coords.length === 1) m.easeTo({ center: f.coords[0], zoom: Math.max(m.getZoom(), 14), duration: 500 });
     else m.fitBounds(b, { padding: 80, maxZoom: 15, duration: 500 });
   }, [p.focus?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // AI 正在看：一闪一闪
+  const aiOn = !!p.ai && (p.ai.points.length + p.ai.lines.length) > 0;
+  useEffect(() => {
+    if (!aiOn) return;
+    let k = 0; const id = window.setInterval(() => {
+      const m = mapRef.current; if (!m || !ready.current || !m.getLayer('cw-ai-pt')) return;
+      k++; const v = 0.35 + 0.55 * Math.abs(Math.sin(k / 3));
+      m.setPaintProperty('cw-ai-pt', 'circle-stroke-opacity', v); m.setPaintProperty('cw-ai-line', 'line-opacity', v * 0.5);
+    }, 120);
+    return () => window.clearInterval(id);
+  }, [aiOn]);
 
   // Esc 取消正在画的；Backspace 撤销上一个点
   useEffect(() => {
