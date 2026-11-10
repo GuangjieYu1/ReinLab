@@ -449,7 +449,7 @@ export type SessionContext = {
 };
 
 /** 把世界观摘要成工具输出（给模型读，不是给页面）。 */
-export function digestOf(document: CreativeDocument): string {
+export function digestOf(document: CreativeDocument, draft?: CreativeDocument): string {
   const lines: string[] = [`# 《${document.title}》`];
   lines.push('## 人物地点');
   for (const entity of document.entities)
@@ -463,7 +463,8 @@ export function digestOf(document: CreativeDocument): string {
   for (const rule of document.rules)
     lines.push(`- ${rule.id}｜${rule.text}${rule.machine ? `（程序可判：${rule.machine.kind}）` : '（自然语言，未翻）'}`);
   lines.push('## 房间（白模按这个轮廓搭）');
-  for (const place of document.entities.filter((item) => item.kind === 'place' && item.place?.room))
+  const roomPlaceList = [...document.entities, ...((draft?.entities ?? []) as typeof document.entities)];
+  for (const place of roomPlaceList.filter((item) => item.kind === 'place' && item.place?.room))
     lines.push(
       `- ${place.id}｜${place.name}｜轮廓 ${JSON.stringify(place.place!.room!.outline)}｜层高 ${place.place!.room!.height}｜ø${place.place!.room!.heading}°`,
     );
@@ -550,7 +551,7 @@ export async function runTool(
 
   switch (call.name) {
     case 'world_snapshot':
-      return { text: digestOf(world), refs: [] };
+      return { text: digestOf(world, worldState.document), refs: [] };
     case 'event_search': {
       const query = String(call.input.query ?? '');
       const hits = world.events.filter((event) => `${event.title} ${event.what}`.includes(query)).slice(0, 20);
@@ -787,7 +788,8 @@ export async function runTool(
         )
       ).rows[0];
       const scene = workRow?.document.chapters.flatMap((chapter) => chapter.scenes).find((item) => item.id === context.sceneId);
-      const roomPlace = world.entities.find((item) => item.id === context.placeId);
+      // 房间几何从世界观草稿里读：作品版本可能是旧的，不包括后来加的房间
+      const roomPlace = worldState.document.entities.find((item) => item.id === context.placeId);
       // 房间还没落账、但本轮刚交的白模提议里带了房间：允许镜头先引用它（白模接受时会把 v0 的镜头升到新版本）
       const pendingRoom = !roomPlace?.place?.room
         ? worldState.document.proposals.find(
@@ -805,7 +807,7 @@ export async function runTool(
           ok: false,
           step: '房间没几何，先补房间',
         };
-      const box = (world.whiteboxes ?? []) as { placeId: string; version: number }[];
+      const box = (worldState.document.whiteboxes ?? []) as { placeId: string; version: number }[];
       const currentBox = box.filter((item) => item.placeId === context.placeId).sort((a, b) => a.version - b.version).at(-1);
       const rows = (call.input.shots as Record<string, unknown>[]) ?? [];
       const ops = rows.map((row, index) => {
