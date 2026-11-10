@@ -77,10 +77,18 @@ export async function downloadVideo(
   let cookieFile: string | null = null;
   try {
     const site = siteOf(input.url);
+    // 先把素材浏览器里的登录临时导出成 cookies.txt：取信息和下载两步都要带，B 站在取信息这一步就会 412
+    let cookieArgs: string[] = [];
+    if (deps.browserProfile) {
+      const { exportCookiesFile } = await import('./browser');
+      const exported = await exportCookiesFile({ profileDir: deps.browserProfile }, input.url);
+      cookieFile = exported.file;
+      cookieArgs = ['--cookies', exported.file];
+    } else if (deps.cookiesFile) cookieArgs = ['--cookies', deps.cookiesFile];
     let meta: string;
     try {
       meta = (
-        await run(ytDlpOf(deps), ['--no-warnings', '--skip-download', '--print', '%(title)s\t%(duration)s\t%(uploader)s', input.url], {
+        await run(ytDlpOf(deps), ['--no-warnings', '--skip-download', ...cookieArgs, '--print', '%(title)s\t%(duration)s\t%(uploader)s', input.url], {
           maxBuffer: 4 * 1024 * 1024,
         })
       ).stdout.trim();
@@ -93,14 +101,7 @@ export async function downloadVideo(
     const title = titleRaw ?? '视频';
     const durationSec = Number(durationRaw) || null;
     const section = input.from ? `*${input.from}-${input.to ?? ''}` : null;
-    const args = ['--no-warnings', '-f', 'bv*[height<=720]+ba/b[height<=720]/b', '-o', join(dir, 'v.%(ext)s')];
-    if (deps.browserProfile) {
-      // 素材浏览器用假钥匙串加密 cookie，yt-dlp 解不开：由 Playwright 临时导出成 cookies.txt，用完即删
-      const { exportCookiesFile } = await import('./browser');
-      const exported = await exportCookiesFile({ profileDir: deps.browserProfile }, input.url);
-      cookieFile = exported.file;
-      args.push('--cookies', exported.file);
-    } else if (deps.cookiesFile) args.push('--cookies', deps.cookiesFile);
+    const args = ['--no-warnings', '-f', 'bv*[height<=720]+ba/b[height<=720]/b', '-o', join(dir, 'v.%(ext)s'), ...cookieArgs];
     if (section) args.push('--download-sections', section, '--force-keyframes-at-cuts');
     args.push(input.url);
     try {
