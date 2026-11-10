@@ -48,6 +48,8 @@ export type KernelRunApiDependencies = {
     writer?: import("../creative/writer").WriterDeps;
     /** 29 号：多轮会话的模型通道（带工具）。 */
     chat?: import("../creative/assistant-session").ChatDeps;
+    /** download_video（契约 §14.7）。 */
+    download?: import("../creative/download").DownloadDeps;
   };
   /** 群研的发起走这一档：建 swarm_run 而不是普通精读运行。 */
   swarm?: import("../swarm/service").SwarmService;
@@ -481,7 +483,11 @@ export function registerKernelRuns(
     if (!row || row.mode !== "creative")
       throw new ApiFailure("RUN_NOT_FOUND", 404, "这不是创作台会话。");
     void runTurn(
-      { db: dependencies.db, ...(dependencies.creative?.chat ? { chat: dependencies.creative.chat } : {}) },
+      {
+        db: dependencies.db,
+        ...(dependencies.creative?.chat ? { chat: dependencies.creative.chat } : {}),
+        ...(dependencies.creative?.download ? { download: dependencies.creative.download } : {}),
+      },
       account,
       id,
       parsed.data.query,

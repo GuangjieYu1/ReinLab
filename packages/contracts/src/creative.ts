@@ -393,6 +393,8 @@ export type CreativeOp =
       decision: 'accepted' | 'rejected' | 'deferred';
       ops?: CreativeOp[];
       candidate?: number;
+      /** 接受镜头表时：替换同一场的现有镜头（默认 true），false = 追加。 */
+      replaceShots?: boolean;
     }
   /** 删约束是明确的设定决定。 */
   | { op: 'constraint.drop'; eventId: string; field: string; reason: string }

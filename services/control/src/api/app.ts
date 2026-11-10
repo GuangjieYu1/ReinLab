@@ -92,6 +92,8 @@ export async function createApp(options: {
   imageProvider?: import("../creative/image/provider").ImageProvider;
   /** 29 号：助手会话的模型通道（带工具、多轮）。 */
   creativeAssistant?: import("../creative/assistant-session").ChatDeps;
+  /** download_video（契约 §14.7）：yt-dlp + 公共素材文件夹。 */
+  creativeDownload?: import("../creative/download").DownloadDeps;
   /** 29 号：自然语言规则判定。 */
   creativeRuleJudge?: import("../creative/rule-judge").JudgeDeps;
   /** 创作台路网导入的取数通道；缺省真实 Overpass。 */
@@ -285,6 +287,7 @@ export async function createApp(options: {
     ...(options.video ? { video: options.video } : {}),
               ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
               ...(options.creativeAssistant ? { chat: options.creativeAssistant } : {}),
+              ...(options.creativeDownload ? { download: options.creativeDownload } : {}),
             },
           }
         : {}),

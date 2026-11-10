@@ -441,6 +441,7 @@ const app = await createApp({
   ...(creativeAdvisor ? { creativeAdvisor } : {}),
   ...(creativeImpactScan ? { creativeImpactScan } : {}),
   ...(creativeAssistant ? { creativeAssistant } : {}),
+  creativeDownload: { ytDlpPath: process.env.REINLAB_YTDLP ?? '/opt/homebrew/bin/yt-dlp' },
   imageProvider,
   video: videoDeps,
   ...(creativeRuleJudge ? { creativeRuleJudge } : {}),

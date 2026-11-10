@@ -21,6 +21,13 @@ import {
   type VideoDeps,
 } from './video/pipeline';
 import type { WorkDocument } from './work';
+import { colorName, fallbackClothColor, type RGB } from '@reinlab/contracts';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { writeFile, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const execFileAsync = promisify(execFile);
 
 type TakeList = ShotTake[];
 
@@ -29,30 +36,123 @@ const shotsOf = (document: { shots?: unknown[] }): Shot[] => (document.shots ?? 
 
 const FURNITURE_LABEL = /八仙桌|长凳|方凳|椅|条案|柜台|货架|碗架|茶炉|屏风|门|窗|灯|坛|匾额/;
 
-/** 按 §13.9 第 3 条的结构拼提示词。 */
+/** 机位能不能看到这个部件（视锥近似：角度 + 距离）。 */
+export function inViewOf(camera: { eye: [number, number, number]; target: [number, number, number]; fov: number }, point: [number, number, number]): boolean {
+  const dir = [camera.target[0] - camera.eye[0], camera.target[1] - camera.eye[1], camera.target[2] - camera.eye[2]];
+  const len = Math.hypot(...dir) || 1;
+  const to = [point[0] - camera.eye[0], point[1] - camera.eye[1], point[2] - camera.eye[2]];
+  const dist = Math.hypot(...to) || 1;
+  const cos = (dir[0] * to[0] + dir[1] * to[1] + dir[2] * to[2]) / (len * dist);
+  const half = ((camera.fov || 45) * Math.PI) / 360;
+  return Math.acos(Math.max(-1, Math.min(1, cos))) <= half + 0.15 && dist < 30;
+}
+
+const positionWord = (point: [number, number, number], prims: { label?: string; c?: number[] }[]): string => {
+  let best: { label: string; distance: number } | null = null;
+  for (const prim of prims) {
+    if (!prim.label || !prim.c) continue;
+    const distance = Math.hypot(point[0] - Number(prim.c[0]), point[2] - Number(prim.c[2]));
+    if (!best || distance < best.distance) best = { label: String(prim.label), distance };
+  }
+  if (best && best.distance < 2.2) return `${best.label}旁`;
+  const x = point[0];
+  const z = point[2];
+  const where: string[] = [];
+  where.push(Math.abs(x) > 2.5 ? (x > 0 ? '东侧' : '西侧') : '屋子中间');
+  if (Math.abs(z) > 2.2) where.push(z > 0 ? '靠南' : '靠北');
+  return where.join('、');
+};
+
+/** 时辰 / 天气 / 光线：shot.light 为空时从正文和事件时间补。 */
+export function lightWordsOf(input: { light?: string | null; sceneText: string; eventTimes: string[] }): string {
+  if (input.light?.trim()) return input.light.trim();
+  const text = `${input.sceneText} ${input.eventTimes.join(' ')}`;
+  const words: string[] = [];
+  if (/天还没亮|天未亮|未明|五更|凌晨|拂晓/.test(text)) words.push('天还没亮');
+  else if (/黎明|清晨|早上/.test(text)) words.push('清晨');
+  else if (/黄昏|傍晚|酉时/.test(text)) words.push('黄昏');
+  else if (/夜|亥时|子时|灯下/.test(text)) words.push('夜里');
+  if (/雨|细雨|下雨/.test(text)) words.push('下着细雨');
+  if (/油灯|烛/.test(text)) words.push('屋里点着油灯，暖黄');
+  else if (/月光|月色/.test(text)) words.push('月光冷白');
+  return words.length ? words.join('，') : '屋里光线偏暗';
+}
+
+/** 按 §13.9 第 3 条的结构拼提示词：人偶↔人物对应、走位、时辰天气光线。 */
 export function promptOfTake(input: {
   shot: Shot;
-  prims: { label?: string; material?: string }[];
-  cast: { name: string; index: number }[];
+  prims: { label?: string; c?: [number, number, number] }[];
+  cast: { name: string; index: number | null; color: string; at: [number, number, number]; to?: [number, number, number] | null; facing?: number }[];
+  visiblePrims?: { label?: string; c?: [number, number, number] }[];
   artStyle: string | null;
   doors: string[];
+  lightText: string;
 }): string {
-  const furniture = [...new Set(input.prims.map((prim) => prim.label ?? '').filter((label) => FURNITURE_LABEL.test(label)))];
-  const people = input.cast.map((member) => `@图片${member.index} 里的${member.name}`);
+  const visible = input.visiblePrims ?? input.prims;
+  const furniture = [...new Set(visible.map((prim) => prim.label ?? '').filter((label) => FURNITURE_LABEL.test(label)))];
+  const people = input.cast.map((member) => {
+    const portrait = member.index ? `（@图片${member.index} 是${member.name}）` : '';
+    const walk = member.to
+      ? `从${positionWord(member.at, input.prims)}走到${positionWord(member.to, input.prims)}，停下面向镜头`
+      : `站在${positionWord(member.at, input.prims)}`;
+    return `${member.color}人偶是${member.name}${portrait}，${walk}`;
+  });
+  const action = input.shot.action?.trim() ? `导演写的动作：${input.shot.action.replace(/[。；;]?$/, '')}。` : '';
+  const dialogue = input.shot.dialogue ? `对白：「${input.shot.dialogue.replace(/[。；;]?$/, '')}」。` : '';
   return [
-    '完全参考 @视频1 的机位、构图、镜头推进、家具位置和人物走位：@视频1 是白模预演，木色的是家具',
-    furniture.length ? `（画面里的家具：${furniture.join('、')}）` : '',
-    people.length ? `，${people.join('、')}` : '',
+    `完全参考 @视频1 的机位、构图、镜头推进、家具位置和人物走位：@视频1 是白模预演`,
+    furniture.length ? `，木色的是家具（画面里的家具：${furniture.join('、')}）` : '',
     '。',
+    people.length ? `${people.join('；')}。` : '',
     input.doors.length ? `门在 ${input.doors.join('、')}，画面里的墙上没有门。` : '',
-    `这一镜：${input.shot.action}`,
-    input.shot.dialogue ? `对白：「${input.shot.dialogue}」。` : '',
-    input.shot.light ? `光线：${input.shot.light}。` : '',
-    input.artStyle ? `画风：${input.artStyle}。` : '',
+    action,
+    dialogue,
+    input.lightText ? `${input.lightText.replace(/[。；;]?$/, '')}。` : '',
+    input.artStyle ? `画风：${input.artStyle.replace(/[。；;]?$/, '')}。` : '',
     '电影感，镜头稳定，人物五官和服装与参考图一致。',
   ]
     .filter(Boolean)
     .join('');
+}
+
+/** 镜头说明和 cast 走位矛盾时提醒作者（不回退，只提示）。 */
+export function contradictionsOf(shot: Shot, prims: { label?: string; c?: number[] }[]): string[] {
+  const out: string[] = [];
+  const words = String(shot.action ?? '');
+  for (const member of shot.cast) {
+    const near = positionWord(member.at as [number, number, number], prims);
+    for (const place of ['门', '柜台', '窗口', '桌'])
+      if (words.includes(place) && !near.includes(place)) out.push(`镜头说明里提到「${place}」，但这一镜的人站在${near}——按走位生成提示词，说明只作补充`);
+  }
+  return [...new Set(out)];
+}
+
+/** 立绘中段平均色（和前端 useClothColors 同一区域/规则），用 ffmpeg 解像素。 */
+async function clothColorOf(deps: VideoDeps, bytes: Uint8Array, mime: string, id: string, index: number): Promise<RGB> {
+  const file = join(tmpdir(), `cloth-${process.pid}-${index}.${mime === 'image/png' ? 'png' : 'jpg'}`);
+  try {
+    await writeFile(file, bytes);
+    const { stdout } = await execFileAsync(
+      deps.ffmpegPath ?? '/opt/homebrew/bin/ffmpeg',
+      ['-v', 'error', '-i', file, '-vf', 'scale=48:72', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
+      { encoding: 'buffer', maxBuffer: 4 * 1024 * 1024 },
+    );
+    let r = 0, g = 0, b = 0, n = 0;
+    const W = 48, H = 72;
+    for (let y = Math.floor(H * 0.35); y < Math.floor(H * 0.75); y += 1)
+      for (let x = Math.floor(W * 0.3); x < Math.floor(W * 0.7); x += 1) {
+        const at = (y * W + x) * 3;
+        const l = (stdout[at]! + stdout[at + 1]! + stdout[at + 2]!) / 3;
+        if (l > 205 || l < 25) continue;
+        r += stdout[at]!; g += stdout[at + 1]!; b += stdout[at + 2]!; n += 1;
+      }
+    if (!n) return fallbackClothColor(id, index);
+    return [r / n, g / n, b / n];
+  } catch {
+    return fallbackClothColor(id, index);
+  } finally {
+    await unlink(file).catch(() => undefined);
+  }
 }
 
 export async function startTake(
@@ -168,9 +268,19 @@ export async function runTake(
     const current = box.filter((item) => item.placeId === shot.placeId).sort((a, b) => a.version - b.version).at(-1);
     const portraits = await selectedPortraits(client, account, dossier);
     const versions = await selectedVersions(client, account, dossier);
-    return { state, take, shot, prims: current?.prims ?? [], portraits, versions };
+    const workRow = (
+      await client.query<{ document: WorkDocument }>(
+        'select document from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3',
+        [account, dossier, shot.workId],
+      )
+    ).rows[0];
+    const scene = workRow?.document.chapters.flatMap((chapter) => chapter.scenes).find((item) => item.id === shot.sceneId);
+    const eventTimes = state.document.events
+      .filter((event) => (scene?.eventIds ?? []).includes(event.id))
+      .map((event) => `${event.start?.label ?? ''} ${event.start?.t ?? ''}`);
+    return { state, take, shot, prims: current?.prims ?? [], portraits, versions, sceneText: scene?.text ?? '', eventTimes };
   });
-  const { state, take, shot, prims, portraits } = context;
+  const { state, take, shot, prims, portraits, sceneText, eventTimes } = context;
   try {
     // 1) 预演 webm → mp4
     const previewUrl = shot.preview?.url;
@@ -184,26 +294,42 @@ export async function runTake(
     const videoUrl = await uploadAndSign(deps.tos, key, mp4, 'video/mp4');
     // 3) 参考图：每个出场人物选用形象的立绘
     const refImages: { mime: string; bytes: Uint8Array }[] = [];
-    const cast: { name: string; index: number }[] = [];
+    const cast: { name: string; index: number | null; color: string; at: [number, number, number]; to?: [number, number, number] | null; facing?: number }[] = [];
+    let index = 0;
     for (const member of shot.cast) {
+      const entity = state.document.entities.find((item) => item.id === member.entityId);
+      const name = entity?.name ?? '人物';
       const portrait = portraits.get(member.entityId);
-      if (!portrait) continue;
-      const pid = portrait.url.split('/').pop() ?? '';
-      try {
-        const image = await db.withAccount(account, (client) => readImage(client, { account, fileId: pid }));
-        cast.push({ name: state.document.entities.find((entity) => entity.id === member.entityId)?.name ?? '人物', index: refImages.length + 1 });
-        refImages.push({ mime: image.mime, bytes: new Uint8Array(image.bytes) });
-      } catch {
-        continue;
+      let colorRgb: RGB = fallbackClothColor(member.entityId, index);
+      let imageIndex: number | null = null;
+      if (portrait) {
+        const pid = portrait.url.split('/').pop() ?? '';
+        try {
+          const image = await db.withAccount(account, (client) => readImage(client, { account, fileId: pid }));
+          const bytes = new Uint8Array(image.bytes);
+          colorRgb = await clothColorOf(deps, bytes, image.mime, member.entityId, index);
+          refImages.push({ mime: image.mime, bytes });
+          imageIndex = refImages.length;
+        } catch {
+          imageIndex = null;
+        }
       }
+      cast.push({ name, index: imageIndex, color: colorName(colorRgb), at: member.at as [number, number, number], to: (member.to ?? null) as [number, number, number] | null, facing: member.facing });
+      index += 1;
     }
     const doors = prims.map((prim) => prim.label ?? '').filter((label) => /门/.test(label));
+    const visiblePrims = prims.filter((prim) => {
+      const c = (prim as { c?: [number, number, number] }).c;
+      return !c || inViewOf(shot.camera as never, c);
+    });
     const prompt = promptOfTake({
       shot,
       prims,
       cast,
+      visiblePrims,
       artStyle: (state.document as { artStyle?: string | null }).artStyle ?? null,
       doors: doors.length ? ['南墙正中（镜头背后）'] : [],
+      lightText: lightWordsOf({ light: shot.light, sceneText, eventTimes }),
     });
     // 4) 提交 + 轮询
     const submitted = await submitSeedance(seedance, {
@@ -218,7 +344,14 @@ export async function runTake(
       provider: 'volcengine-ark',
       model: seedance.model ?? 'doubao-seedance-2-0-260128',
       taskId: submitted.taskId,
-      basis: { ...take.basis, refImages: cast.map((member) => ({ assetVersionId: '', view: 'portrait' as const })), prompt, mode: 'reference_video' },
+      basis: {
+        ...take.basis,
+        refImages: shot.cast
+          .filter((member) => portraits.get(member.entityId))
+          .map((member) => ({ assetVersionId: (context.versions.get(member.entityId)?.versionId ?? '') as string, view: 'portrait' as const })),
+        prompt,
+        mode: 'reference_video',
+      },
     });
     let result = await pollSeedance(seedance, submitted.taskId);
     const started = Date.now();
@@ -228,9 +361,9 @@ export async function runTake(
     }
     if (result.state === 'failed') throw new Error(result.error);
     if (result.state === 'running') throw new Error('等太久还没出（超过 12 分钟）。');
-    // 5) 取回存本机
+    // 5) 取回存本机（取不回来就记下平台地址，重试只重新取回、不再付费）
     const videoResponse = await fetch(result.videoUrl, { signal: AbortSignal.timeout(180_000) });
-    if (!videoResponse.ok) throw new Error(`片子取不回来（${videoResponse.status}）。`);
+    if (!videoResponse.ok) throw new Error(`UNSAVED:${result.videoUrl}:片子取不回来（${videoResponse.status}）。`);
     const bytes = new Uint8Array(await videoResponse.arrayBuffer());
     const file = await db.withAccount(account, (client) => saveImage(client, { account, dossier, bytes, mime: 'video/mp4', width: null, height: null }));
     let posterUrl: string | null = null;
@@ -246,8 +379,53 @@ export async function runTake(
     await recordUsage(db, account, dossier, 'volcengine-ark', seedance.model ?? 'doubao-seedance-2-0-260128', cost);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith('UNSAVED:')) {
+      const [, pendingUrl, reason] = message.split(':');
+      await patchTake(db, account, dossier, takeId, { state: 'unsaved', failure: reason ?? '片子还没取回来。' });
+      await db.withAccount(account, async (client) => {
+        const current = await loadWorld(client, account, dossier, { lock: true });
+        const takes = takesOf(current.document).map((item) =>
+          item.id === takeId ? { ...item, basis: item.basis } : item,
+        );
+        void takes;
+        await client.query('update creative_world set document=$3::jsonb where account_id=$1 and dossier_id=$2', [account, dossier, JSON.stringify({ ...current.document, pendingUrls: { ...(current.document as { pendingUrls?: Record<string, string> }).pendingUrls, [takeId]: pendingUrl } })]);
+      });
+      return;
+    }
     await patchTake(db, account, dossier, takeId, { state: 'failed', failure: message.slice(0, 300) });
     await recordUsage(db, account, dossier, 'volcengine-ark', seedance.model ?? 'doubao-seedance-2-0-260128', { value: 0, known: true }, '平台未收费：这一镜没出成');
+  }
+}
+
+/** 重试：只重新取回 unsaved 的片子，不重新出片。 */
+export async function retryTake(
+  deps: VideoDeps & { db: import('../db/database').Database },
+  account: string,
+  dossier: string,
+  takeId: string,
+): Promise<ShotTake | null> {
+  const db = deps.db;
+  const state = await db.withAccount(account, (client) => loadWorld(client, account, dossier));
+  const take = takesOf(state.document).find((item) => item.id === takeId);
+  if (!take || take.state !== 'unsaved') return take ?? null;
+  const pendingUrl = (state.document as { pendingUrls?: Record<string, string> }).pendingUrls?.[takeId];
+  if (!pendingUrl) return take;
+  try {
+    const response = await fetch(pendingUrl, { signal: AbortSignal.timeout(180_000) });
+    if (!response.ok) throw new Error(`片子还是取不回来（${response.status}）。`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const file = await db.withAccount(account, (client) => saveImage(client, { account, dossier, bytes, mime: 'video/mp4', width: null, height: null }));
+    let posterUrl: string | null = null;
+    try {
+      const poster = await extractPoster(deps, bytes);
+      const posterFile = await db.withAccount(account, (client) => saveImage(client, { account, dossier, bytes: poster, mime: 'image/jpeg', width: null, height: null }));
+      posterUrl = posterFile.url;
+    } catch {
+      posterUrl = null;
+    }
+    return patchTake(db, account, dossier, takeId, { state: 'saved', url: file.url, posterUrl });
+  } catch (error) {
+    return patchTake(db, account, dossier, takeId, { failure: (error instanceof Error ? error.message : String(error)).slice(0, 300) });
   }
 }
 

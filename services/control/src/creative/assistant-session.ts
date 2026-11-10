@@ -15,6 +15,7 @@ import { appendEvents } from './events';
 import { advisorOps } from './advisor';
 import { loadWorld } from './service';
 import { focusStep } from './preview';
+import { downloadVideo } from './download';
 import { selectedVersions } from './asset-query';
 import { buildShell, solveLayout } from './whitebox-layout';
 import { FURNITURE_NAMES, TEMPLATES } from '@reinlab/contracts';
@@ -108,6 +109,25 @@ const ROLE_PROMPT: Record<'advisor' | 'writer' | 'director', string> = {
 底线：只改指定的那一段或那一场，不要替下一场收尾、不要跳到别的时间线；设定里没有的地点人物时间不要编，非写不可就写得含糊并在 why 里说明。`,
 };
 
+const TOOLS_DOWNLOAD: ToolDef[] = [
+  {
+    name: 'download_video',
+    description:
+      '下载一段视频素材（最高 720p，可只取一段）到公共素材文件夹 ~/ReinLab素材/，并记下来源。要视频素材时用它，不要用别的方式。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: '视频链接（B 站、YouTube 等）' },
+        from: { type: 'string', description: '从第几秒开始（可不填）' },
+        to: { type: 'string', description: '到第几秒结束（可不填）' },
+        note: { type: 'string', description: '一句话说明这段是什么（文件名用，≤20 字）' },
+      },
+      required: ['url'],
+      additionalProperties: false,
+    },
+  },
+];
+
 const TOOLS_READ: ToolDef[] = [
   {
     name: 'world_snapshot',
@@ -147,6 +167,7 @@ const TOOLS_READ: ToolDef[] = [
 ];
 
 const TOOLS_ADVISOR: ToolDef[] = [
+  ...TOOLS_DOWNLOAD,
   ...TOOLS_READ,
   {
     name: 'propose_setting',
@@ -240,6 +261,7 @@ const TOOLS_ADVISOR: ToolDef[] = [
 ];
 
 const TOOLS_DIRECTOR: ToolDef[] = [
+  ...TOOLS_DOWNLOAD,
   ...TOOLS_READ,
   {
     name: 'propose_whitebox',
@@ -383,6 +405,7 @@ const TOOLS_DIRECTOR: ToolDef[] = [
 ];
 
 const TOOLS_WRITER: ToolDef[] = [
+  ...TOOLS_DOWNLOAD,
   ...TOOLS_READ,
   {
     name: 'propose_text_edit',
@@ -436,6 +459,8 @@ export function digestOf(document: CreativeDocument): string {
 
 export type SessionRunDeps = {
   db: import('../db/database').Database;
+  /** download_video（契约 §14.7）：yt-dlp + 公共素材文件夹。 */
+  download?: import('./download').DownloadDeps;
   chat?: ChatDeps;
   workspaceRoot?: string;
 };
@@ -483,6 +508,8 @@ export type RunToolContext = {
   context: SessionContext;
   role: 'advisor' | 'writer' | 'director';
   runId: string;
+  /** download_video 的依赖（yt-dlp 路径、素材文件夹）。 */
+  download?: import('./download').DownloadDeps;
   /** 作者在看板虚影上点「改一下」时带的提议 id：交新版时默认替代它。 */
   about?: string;
   /** 本轮新建的提议 id（回复里可以引用）。 */
@@ -829,6 +856,20 @@ export async function runTool(
       });
       return proposed;
     }
+    case 'download_video': {
+      if (!defs.download) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
+      try {
+        const file = await downloadVideo((context as unknown as RunToolContext).download ?? {}, {
+          url: String(call.input.url ?? ''),
+          ...(call.input.from ? { from: String(call.input.from) } : {}),
+          ...(call.input.to ? { to: String(call.input.to) } : {}),
+          ...(call.input.note ? { note: String(call.input.note) } : {}),
+        });
+        return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。同名的 .json 记了来源。`, refs: [] };
+      } catch (error) {
+        return { text: `下载没成：${(error as Error).message.slice(0, 160)}`, refs: [], ok: false };
+      }
+    }
     default:
       return { text: '没有这个工具。', refs: [] };
   }
@@ -1017,6 +1058,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       '要读设定/正文/检查/版本差异用工具；交提议用 propose 工具。回复用 Markdown，简洁。',
       '提议的明细作者会在看板上看到，回复里不复述明细，只说一两句要点和拿不准的地方。',
       '白模和镜头可以在同一轮一起交，不要等作者确认白模再交镜头。',
+      '要视频素材时用 download_video 下载，不要用别的方式。',
       '白模只给尺寸和关系，坐标由服务端求解器算，不要自己写坐标。',
       `家具的 label 用库里的名字（${FURNITURE_NAMES.map((item) => item.name).join('、')}），尺寸用真实尺寸；可套场景模板：${TEMPLATES.map((item) => item.name).join('、')}。`,
     ].join('\n');
@@ -1040,7 +1082,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
         const results: string[] = [];
         for (const call of turn.toolCalls) {
           const outcome = await deps.db.withAccount(account, (client) =>
-            runTool({ client, account, dossier, context, role, runId, ...(about ? { about } : {}), proposals }, call),
+            runTool({ client, account, dossier, context, role, runId, ...(about ? { about } : {}), ...(deps.download ? { download: deps.download } : {}), proposals }, call),
           );
           // 看板「正在看」：每次读工具推一条，refs 是这次读到的东西，step 服务端写（契约 §11.4）
           const focus = focusStep(call.name, call.input);

@@ -754,6 +754,17 @@ export function applyOps(
             by: options.actor,
           },
         };
+        // 接受镜头表：默认替换同一场的现有镜头（契约 §13.8 复验 4），replaceShots:false 才追加
+        if (op.decision === 'accepted' && proposal.kind === 'shots' && (op.replaceShots ?? true)) {
+          const scenes = new Set(
+            decideOps
+              .filter((item) => item.op === 'shot.add')
+              .map((item) => `${(item as { shot?: { workId?: string; sceneId?: string } }).shot?.workId}|${(item as { shot?: { workId?: string; sceneId?: string } }).shot?.sceneId}`),
+          );
+          next.shots = ((next.shots ?? []) as { workId?: string; sceneId?: string }[]).filter(
+            (shot) => !scenes.has(`${shot.workId}|${shot.sceneId}`),
+          );
+        }
         // 「修改后接受」：页面改过的 ops 先执行，再把提议标成接受。
         if (op.decision === 'accepted' && decideOps.length) {
           const nested = applyOps(next, decideOps, options);
