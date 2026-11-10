@@ -31,10 +31,16 @@ import { impactOf } from '../creative/impact';
 import { beginScan, runScan, type ScanDeps } from '../creative/scan';
 import { judgeRules, type JudgeDeps } from '../creative/rule-judge';
 import { previewOf } from '../creative/preview';
+import { shotsOfScene } from '../creative/shots';
+import { appendEvents } from '../creative/events';
+import type { WorkDocument } from '../creative/work';
 import { readAsset, retryUnsaved, runAssetVersion, selectVersion, startAssetVersion, stopAssetVersion } from '../creative/asset-service';
-import { readImage } from '../creative/image/store';
-import { describeFile } from '../creative/asset-query';
+import { readImage, saveImage } from '../creative/image/store';
+import { describeFile, describeVideoFile, selectedVersions } from '../creative/asset-query';
 import type { ImageProvider } from '../creative/image/provider';
+import { cutScene, runTake, selectTake, startTake } from '../creative/takes';
+import { clearSites, listSites, openBrowser } from '../creative/browser';
+import type { VideoDeps } from '../creative/video/pipeline';
 import { readEffectiveSnapshot } from '../creative/work-service';
 import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
 import { advise } from '../creative/advisor';
@@ -77,6 +83,10 @@ export type CreativeApiOptions = {
   impactScan?: ScanDeps;
   /** 29 号：自然语言规则判定用的模型通道。 */
   ruleJudge?: JudgeDeps;
+  /** 素材浏览器（契约 §14.8）。 */
+  browser?: import('../creative/browser').BrowserDeps;
+  /** MVP-3 3B：出片平台（Seedance + TOS + ffmpeg）。 */
+  video?: VideoDeps;
   /** MVP-2：出图的平台（没配时出图返回明确错误，不伪造）。 */
   imageProvider?: ImageProvider;
   /** 写作助手（按场景生成）；没配就生成直接失败。 */
@@ -514,6 +524,174 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     return response;
   });
 
+  // ── MVP-3：白模与镜头（契约 §13.4）──────────────────
+  app.get('/v1/creative/worlds/:dossierId/places/:placeId/whitebox', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const state = await loadWorld(client, c.get('accountId'), c.req.param('dossierId'));
+      const placeId = c.req.param('placeId');
+      const boxes = (state.document.whiteboxes ?? []) as { placeId: string; version: number; prims: unknown[]; updatedAt: string }[];
+      const wanted = c.req.query('version');
+      const box = wanted
+        ? boxes.find((item) => item.placeId === placeId && item.version === Number(wanted))
+        : boxes.filter((item) => item.placeId === placeId).sort((a, b) => a.version - b.version).at(-1);
+      const body = box ?? { placeId, version: 0, prims: [], updatedAt: new Date(0).toISOString() };
+      return c.json(body as Record<string, unknown>);
+    }),
+  );
+
+  app.get('/v1/creative/worlds/:dossierId/works/:workId/scenes/:sceneId/shots', (c) =>
+    database.withAccount(c.get('accountId'), async (client) => {
+      const account = c.get('accountId');
+      const dossier = c.req.param('dossierId');
+      const state = await loadWorld(client, account, dossier);
+      const workRow = (
+        await client.query<{ document: WorkDocument }>(
+          'select document from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3',
+          [account, dossier, c.req.param('workId')],
+        )
+      ).rows[0];
+      const selected = await selectedVersions(client, account, dossier);
+      const sceneId = c.req.param('sceneId');
+      const shots = shotsOfScene(state.document, workRow?.document ?? null, c.req.param('workId'), sceneId, selected);
+      const cut = ((state.document.cuts ?? []) as Record<string, unknown>[]).find(
+        (item) => item.workId === c.req.param('workId') && item.sceneId === sceneId,
+      );
+      const takeIds = new Set(shots.map((shot) => shot.id));
+      const takes = ((state.document.takes ?? []) as { shotId?: string }[]).filter((take) => takeIds.has(String(take.shotId)));
+      return c.json({ shots, takes, cut: cut ?? { workId: c.req.param('workId'), sceneId, shots: [] } });
+    }),
+  );
+
+  /** 前端录的白模预演：视频 + 首帧，存成资产（和出图同一套存储）。 */
+  app.post('/v1/creative/worlds/:dossierId/shots/:shotId/preview', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const shotId = c.req.param('shotId');
+    const form = await c.req.parseBody();
+    const video = form.video;
+    const poster = form.poster;
+    if (!(video instanceof File)) throw new ApiFailure('INVALID_INPUT', 400, '要带一段预演视频（字段名 video）。');
+    if (video.size > 100 * 1024 * 1024) throw new ApiFailure('TOO_LARGE', 413, '预演片段太大了（上限 100 MB）。');
+    const videoBytes = new Uint8Array(await video.arrayBuffer());
+    const videoMime = video.type || 'video/webm';
+    let posterBytes: Uint8Array | null = null;
+    let posterMime = 'image/png';
+    if (poster instanceof File) {
+      posterBytes = new Uint8Array(await poster.arrayBuffer());
+      posterMime = poster.type || 'image/png';
+    }
+    const result = await database.withAccount(account, async (client) => {
+      const state = await loadWorld(client, account, dossier, { lock: true });
+      const list = (state.document.shots ?? []) as { id: string; preview?: unknown }[];
+      const shot = list.find((item) => item.id === shotId);
+      if (!shot) throw new ApiFailure('SHOT_NOT_FOUND', 404, '没有这个镜头。');
+      const file = await saveImage(client, { account, dossier, bytes: videoBytes, mime: videoMime, width: null, height: null });
+      const posterFile = posterBytes
+        ? await saveImage(client, { account, dossier, bytes: posterBytes, mime: posterMime, width: null, height: null })
+        : null;
+      const previewId = `pv_${file.fileId.slice(0, 12)}`;
+      (shot as { preview?: unknown }).preview = {
+        previewId,
+        url: file.url,
+        posterUrl: posterFile?.url ?? null,
+        at: new Date().toISOString(),
+        mime: videoMime,
+      };
+      const revision = state.revision + 1;
+      await client.query('update creative_world set revision=$3, document=$4::jsonb, updated_at=now() where account_id=$1 and dossier_id=$2', [
+        account,
+        dossier,
+        revision,
+        JSON.stringify(state.document),
+      ]);
+      // 统一推整场镜头（契约 §13.5：shots: Shot[]）
+      const workId = (shot as { workId?: string }).workId ?? '';
+      const sceneId = (shot as { sceneId?: string }).sceneId ?? '';
+      const sceneShots = ((state.document.shots ?? []) as { workId?: string; sceneId?: string }[])
+        .filter((item) => item.workId === workId && item.sceneId === sceneId)
+        .sort((a, b) => Number((a as { n?: number }).n ?? 0) - Number((b as { n?: number }).n ?? 0));
+      await appendEvents(client, { account, dossier }, [
+        { type: 'creative.shot', data: { workId, sceneId, shots: sceneShots } },
+      ]);
+      return { previewId, url: file.url, posterUrl: posterFile?.url ?? null };
+    });
+    return c.json(result, 201);
+  });
+
+  // ── 素材浏览器（契约 §14.8）──────────────────
+  app.post('/v1/creative/browser/open', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const url = typeof body?.url === 'string' ? body.url : '';
+    if (!/^https?:\/\//.test(url)) throw new ApiFailure('INVALID_INPUT', 400, '要一个 http(s) 链接。');
+    const result = await openBrowser(options.browser ?? {}, url);
+    return c.json(result);
+  });
+  app.get('/v1/creative/browser/sites', async (c) => c.json(await listSites(options.browser ?? {})));
+  app.delete('/v1/creative/browser/sites/:domain', async (c) =>
+    c.json(await clearSites(options.browser ?? {}, c.req.param('domain'))),
+  );
+  app.delete('/v1/creative/browser/sites', async (c) => c.json(await clearSites(options.browser ?? {})));
+
+  // ── MVP-3 3B：出片候选、选用、拼片（契约 §13.9）──────────────────
+  const TakeBody = z
+    .object({
+      resolution: z.enum(['480p', '720p']).optional(),
+      durationSec: z.number().int().min(4).max(10).optional(),
+      note: z.string().max(300).optional(),
+      draftTakeId: z.string().min(1).max(64).optional(),
+    })
+    .strict();
+
+  app.post('/v1/creative/worlds/:dossierId/shots/:shotId/takes', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const shotId = c.req.param('shotId');
+    let takeId: string | null = null;
+    const response = await mutate(c, database, TakeBody, async (client, input) => {
+      const take = await startTake(client, account, dossier, shotId, {
+        ...(input.resolution ? { resolution: input.resolution } : {}),
+        ...(input.durationSec ? { durationSec: input.durationSec } : {}),
+        ...(input.note ? { note: input.note } : {}),
+        ...(input.draftTakeId ? { draftTakeId: input.draftTakeId } : {}),
+      });
+      takeId = take.id;
+      return { status: 201, body: take as unknown as JsonValue };
+    });
+    const started = takeId as string | null;
+    if (started)
+      void runTake({ db: database, ...(options.video ? options.video : {}) }, account, dossier, started).catch((error) => {
+        console.error(JSON.stringify({ code: 'CREATIVE_TAKE_FAILED', message: String((error as Error)?.message ?? error).slice(0, 200) }));
+      });
+    return response;
+  });
+
+  app.post('/v1/creative/worlds/:dossierId/takes/:takeId/retry', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const takeId = c.req.param('takeId');
+    const response = await mutate(c, database, z.object({}).strict(), async () => ({ status: 200, body: { retried: true } as JsonValue }));
+    void runTake({ db: database, ...(options.video ? options.video : {}) }, account, dossier, takeId).catch(() => undefined);
+    return response;
+  });
+
+  app.put('/v1/creative/worlds/:dossierId/shots/:shotId/selected', (c) =>
+    mutate(c, database, z.object({ takeId: z.string().min(1).max(64).nullable() }).strict(), async (client, input) => {
+      const shots: unknown = await selectTake(client, c.get('accountId'), c.req.param('dossierId'), c.req.param('shotId'), input.takeId);
+      return { status: 200, body: shots as JsonValue };
+    }),
+  );
+
+  app.post('/v1/creative/worlds/:dossierId/scenes/:sceneId/cut', async (c) => {
+    const account = c.get('accountId');
+    const dossier = c.req.param('dossierId');
+    const sceneId = c.req.param('sceneId');
+    const state = await database.withAccount(account, (client) => loadWorld(client, account, dossier));
+    const shot = ((state.document.shots ?? []) as { sceneId?: string; workId?: string }[]).find((item) => item.sceneId === sceneId);
+    if (!shot?.workId) throw new ApiFailure('SHOT_NOT_FOUND', 404, '这一场还没有镜头。');
+    const cut = await cutScene({ db: database, ...(options.video ? options.video : {}) }, account, dossier, shot.workId, sceneId);
+    return c.json(cut as unknown as Record<string, unknown>);
+  });
+
   // ── MVP-2：人物形象（契约 §12.3）──────────────────
   app.get('/v1/creative/worlds/:dossierId/entities/:entityId/asset', (c) =>
     database.withAccount(c.get('accountId'), async (client) => {
@@ -593,9 +771,12 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       if (download) {
         const fileId = c.req.param('fileId');
         const info = await describeFile(client, c.get('accountId'), fileId);
-        const ext = file.mime === 'image/jpeg' ? 'jpg' : file.mime === 'image/png' ? 'png' : 'webp';
+        const ext = file.mime === 'image/jpeg' ? 'jpg' : file.mime === 'image/png' ? 'png' : file.mime === 'video/mp4' ? 'mp4' : 'webp';
         let name = `image-${fileId.slice(0, 8)}`;
-        if (info) {
+        if (file.mime === 'video/mp4') {
+          const videoInfo = await describeVideoFile(client, c.get('accountId'), fileId);
+          if (videoInfo) name = videoInfo;
+        } else if (info) {
           const entity = (
             await client.query<{ name: string }>(
               "select item->>'name' name from creative_world, jsonb_array_elements(document->'entities') item where dossier_id=$1 and item->>'id'=$2",

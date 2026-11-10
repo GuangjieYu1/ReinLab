@@ -8,18 +8,22 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import type { CreativeDocument } from './world';
-import type { BoardRef, CreativeOp, Proposal } from '@reinlab/contracts';
+import type { BoardRef, CreativeOp, LayoutItem, Opening, Proposal, WhiteboxPrim } from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { appendEvent } from '../ledger';
 import { appendEvents } from './events';
 import { advisorOps } from './advisor';
 import { loadWorld } from './service';
 import { focusStep } from './preview';
+import { downloadVideo, LoginRequiredError } from './download';
+import { selectedVersions } from './asset-query';
+import { buildShell, solveLayout } from './whitebox-layout';
+import { FURNITURE_NAMES, TEMPLATES } from '@reinlab/contracts';
 import { effectiveWorldOf } from './effective';
 import { diffDocuments } from './items';
 import { runCheck } from './check';
 import { parseStoryTime } from './story-time';
-import { timeContext } from './world';
+import { timeContext, validatePrim } from './world';
 import { buildLegs } from './routing';
 import { clip } from './text';
 import { paragraphsOf, sceneOf, wordsOf, type WorkDocument } from './work';
@@ -96,12 +100,45 @@ export async function callChat(
   };
 }
 
-const ROLE_PROMPT: Record<'advisor' | 'writer', string> = {
+const ROLE_PROMPT: Record<'advisor' | 'writer' | 'director', string> = {
   advisor: `你是这部小说的设定顾问。你只交提议，作者在待确认里接受才入账。
 底线：只用给到的设定和原文里已有的东西；缺什么就照实说缺什么，并把它写成「还不确定的」。不要替作者拍板历史事实。`,
+  director: `你是这部小说的分镜导演。你只交提议（白模、镜头表），作者接受才入账；你不能自己出片。
+底线：每镜 4–10 秒；人物站位要在房间轮廓里；机位不要穿墙；回复里不复述镜头明细。`,
   writer: `你是这部小说的写作助手。你只交正文改稿提议，作者接受才落笔。
 底线：只改指定的那一段或那一场，不要替下一场收尾、不要跳到别的时间线；设定里没有的地点人物时间不要编，非写不可就写得含糊并在 why 里说明。`,
 };
+
+const TOOLS_REFERENCE: ToolDef[] = [
+  {
+    name: 'read_reference',
+    description: '读素材文件夹里某个参考视频的拆解表（.md）。name 可以是文件名前缀，不给就列最近拆好的几个。',
+    input_schema: {
+      type: 'object',
+      properties: { name: { type: 'string', description: '文件名或前缀（可不填）' } },
+      additionalProperties: false,
+    },
+  },
+];
+
+const TOOLS_DOWNLOAD: ToolDef[] = [
+  {
+    name: 'download_video',
+    description:
+      '下载一段视频素材（最高 720p）到公共素材文件夹 ~/ReinLab素材/，并记下来源。只要一段时必须传 from / to（秒）。要视频素材时用它，不要用别的方式。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: '视频链接（B 站、YouTube 等）' },
+        from: { type: 'string', description: '从第几秒开始（秒数，只要一段时必填）' },
+        to: { type: 'string', description: '到第几秒结束（秒数，只要一段时必填）' },
+        note: { type: 'string', description: '一句话说明这段是什么（文件名用，≤20 字）' },
+      },
+      required: ['url'],
+      additionalProperties: false,
+    },
+  },
+];
 
 const TOOLS_READ: ToolDef[] = [
   {
@@ -142,6 +179,8 @@ const TOOLS_READ: ToolDef[] = [
 ];
 
 const TOOLS_ADVISOR: ToolDef[] = [
+  ...TOOLS_REFERENCE,
+  ...TOOLS_DOWNLOAD,
   ...TOOLS_READ,
   {
     name: 'propose_setting',
@@ -234,8 +273,155 @@ const TOOLS_ADVISOR: ToolDef[] = [
   },
 ];
 
-const TOOLS_WRITER: ToolDef[] = [
+const TOOLS_DIRECTOR: ToolDef[] = [
+  ...TOOLS_DOWNLOAD,
+  ...TOOLS_REFERENCE,
   ...TOOLS_READ,
+  {
+    name: 'propose_whitebox',
+    description:
+      '交一条白模提议：只给房间开口和「放什么、多大、和谁什么关系」，坐标由服务端求解器算（不要自己写坐标）。墙/地面/顶棚由服务端按 room 生成。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        placeId: { type: 'string' },
+        note: { type: 'string' },
+        template: {
+          type: 'string',
+          description: '场景模板名（服务端先摆出初版，再用 items 增删改）：客栈门厅',
+          enum: TEMPLATES.map((item) => item.name),
+        },
+        room: {
+          type: 'object',
+          description: '房间没有几何时一起交：轮廓（局部 x/z，米，逆时针或顺时针都行）和层高',
+          properties: {
+            outline: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
+            height: { type: 'number' },
+          },
+          required: ['outline', 'height'],
+          additionalProperties: false,
+        },
+        openings: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['door', 'window'] },
+              wall: { type: ['string', 'number'] },
+              at: { type: 'number' },
+              width: { type: 'number' },
+              height: { type: 'number' },
+              sill: { type: 'number' },
+              label: { type: 'string' },
+            },
+            required: ['kind', 'wall', 'at', 'width', 'height'],
+            additionalProperties: false,
+          },
+        },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string' },
+              label: { type: 'string' },
+              kind: { type: 'string', enum: ['box', 'cylinder'] },
+              size: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 3,
+                maxItems: 3,
+                description: 'box：宽（东西向）× 高 × 深；cylinder：[半径, 高, 0]',
+              },
+              material: { type: 'string', enum: ['plaster', 'wood', 'stone', 'tile', 'water', 'plant', 'cloth', 'brick'] },
+              color: { type: 'string' },
+              outside: { type: 'boolean' },
+              relations: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    type: {
+                      type: 'string',
+                      enum: ['wall', 'middle', 'corner', 'near', 'far', 'front', 'behind', 'beside', 'align', 'face', 'on'],
+                    },
+                    side: { type: 'string' },
+                    sides: { type: 'array', items: { type: 'string' } },
+                    of: { type: 'string' },
+                  },
+                  required: ['type'],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ['key', 'label', 'kind', 'size', 'relations'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['placeId', 'items'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'propose_shots',
+    description: '交一条镜头表提议（这一场拆成几镜），进待确认。不需要等白模被接受——同一轮里可以先交白模再立刻交镜头。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note: { type: 'string' },
+        shots: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              n: { type: 'number' },
+              para: { type: 'number' },
+              durationSec: { type: 'number' },
+              action: { type: 'string' },
+              dialogue: { type: 'string' },
+              light: { type: 'string' },
+              camera: {
+                type: 'object',
+                properties: {
+                  eye: { type: 'array', items: { type: 'number' } },
+                  target: { type: 'array', items: { type: 'number' } },
+                  fov: { type: 'number' },
+                },
+                required: ['eye', 'target'],
+                additionalProperties: false,
+              },
+              cast: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    entityId: { type: 'string' },
+                    at: { type: 'array', items: { type: 'number' } },
+                    facing: { type: 'number' },
+                    pose: { type: 'string', enum: ['stand', 'sit', 'walk'] },
+                  },
+                  required: ['entityId', 'at'],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ['action', 'camera'],
+            additionalProperties: false,
+          },
+        },
+        emptyShot: { type: 'boolean', description: '明确这些都是空镜（没有人物）' },
+      },
+      required: ['shots'],
+      additionalProperties: false,
+    },
+  },
+];
+
+const TOOLS_WRITER: ToolDef[] = [
+  ...TOOLS_DOWNLOAD,
+  ...TOOLS_READ,
+  ...TOOLS_REFERENCE,
   {
     name: 'propose_text_edit',
     description: '交一条正文改稿提议（作者接受才落笔）。改写要给出被替换的原话 before。',
@@ -258,10 +444,12 @@ export type SessionContext = {
   dossierId: string;
   workId: string | null;
   sceneId: string | null;
+  /** 分镜导演用：这一场所在的房间（地点）。 */
+  placeId?: string | null;
 };
 
 /** 把世界观摘要成工具输出（给模型读，不是给页面）。 */
-export function digestOf(document: CreativeDocument): string {
+export function digestOf(document: CreativeDocument, draft?: CreativeDocument): string {
   const lines: string[] = [`# 《${document.title}》`];
   lines.push('## 人物地点');
   for (const entity of document.entities)
@@ -274,6 +462,12 @@ export function digestOf(document: CreativeDocument): string {
   lines.push('## 规则');
   for (const rule of document.rules)
     lines.push(`- ${rule.id}｜${rule.text}${rule.machine ? `（程序可判：${rule.machine.kind}）` : '（自然语言，未翻）'}`);
+  lines.push('## 房间（白模按这个轮廓搭）');
+  const roomPlaceList = [...document.entities, ...((draft?.entities ?? []) as typeof document.entities)];
+  for (const place of roomPlaceList.filter((item) => item.kind === 'place' && item.place?.room))
+    lines.push(
+      `- ${place.id}｜${place.name}｜轮廓 ${JSON.stringify(place.place!.room!.outline)}｜层高 ${place.place!.room!.height}｜ø${place.place!.room!.heading}°`,
+    );
   lines.push('## 交通方式');
   for (const mode of document.modes) lines.push(`- ${mode.id}｜${mode.name}｜${mode.kmPerHour} km/h｜${mode.network}`);
   return lines.join('\n');
@@ -281,6 +475,8 @@ export function digestOf(document: CreativeDocument): string {
 
 export type SessionRunDeps = {
   db: import('../db/database').Database;
+  /** download_video（契约 §14.7）：yt-dlp + 公共素材文件夹。 */
+  download?: import('./download').DownloadDeps;
   chat?: ChatDeps;
   workspaceRoot?: string;
 };
@@ -326,8 +522,10 @@ export type RunToolContext = {
   account: string;
   dossier: string;
   context: SessionContext;
-  role: 'advisor' | 'writer';
+  role: 'advisor' | 'writer' | 'director';
   runId: string;
+  /** download_video 的依赖（yt-dlp 路径、素材文件夹）。 */
+  download?: import('./download').DownloadDeps;
   /** 作者在看板虚影上点「改一下」时带的提议 id：交新版时默认替代它。 */
   about?: string;
   /** 本轮新建的提议 id（回复里可以引用）。 */
@@ -339,8 +537,11 @@ export async function runTool(
   defs: RunToolContext,
   call: ToolCall,
 ): Promise<{ text: string; refs: BoardRef[]; step?: string; ok?: boolean }> {
-  const { client, account, dossier, context, role } = defs;
+  const { client, account, dossier, context, role, download } = defs;
   const worldState = await loadWorld(client, account, dossier);
+  const selectedVersionIds = new Map(
+    [...(await selectedVersions(client, account, dossier)).values()].map((item) => [item.entityId, item.versionId]),
+  );
   const world =
     context.workId && role !== 'writer'
       ? (await effectiveWorldOf(client, account, dossier, context.workId)).document
@@ -350,7 +551,7 @@ export async function runTool(
 
   switch (call.name) {
     case 'world_snapshot':
-      return { text: digestOf(world), refs: [] };
+      return { text: digestOf(world, worldState.document), refs: [] };
     case 'event_search': {
       const query = String(call.input.query ?? '');
       const hits = world.events.filter((event) => `${event.title} ${event.what}`.includes(query)).slice(0, 20);
@@ -517,6 +718,197 @@ export async function runTool(
         refs: [{ kind: 'scene' as const, workId: context.workId, sceneId }],
       };
     }
+    case 'propose_whitebox': {
+      // run 带了 placeId 就以它为准，不让模型自己换地点
+      const forcedPlace = context.placeId ?? null;
+      const placeId = forcedPlace ?? (call.input.placeId ? String(call.input.placeId) : '');
+      if (!placeId) return { text: '要指定是哪个地点。', refs: [] };
+      const place = world.entities.find((item) => item.id === placeId);
+      const existingRoom = place?.place?.room ?? null;
+      const roomInput = call.input.room as { outline?: [number, number][]; height?: number } | undefined;
+      // 契约 §13.8：地点已有房间时不许再用提议里的 room 覆盖
+      const room = existingRoom ?? (roomInput?.outline && roomInput.height ? { outline: roomInput.outline, height: roomInput.height } : null);
+      if (!room) {
+        return {
+          text: '这个地点还没有房间几何（place.room）。可以在这次提议里带 room: { outline, height }，或者先让作者定房间。',
+          refs: [],
+          ok: false,
+          step: '房间没几何',
+        };
+      }
+      const openings = (call.input.openings as Opening[]) ?? [];
+      const items = (call.input.items as LayoutItem[]) ?? [];
+      // 场景模板：服务端先摆出初版，导演再用 items 增删改
+      const templateName = call.input.template ? String(call.input.template) : '';
+      const template = TEMPLATES.find((item) => item.name === templateName);
+      const templatePrims = template ? template.build(room.outline, room.height) : [];
+      const shell = buildShell(room, openings);
+      // 改版：上一版里没提到的件保持原坐标，当成固定障碍
+      // 同一轮、同一地点只留一条白模：自动替掉本轮已经交的那条
+      const sameRound = worldState.document.proposals.find(
+        (item: Proposal) =>
+          item.kind === 'whitebox' &&
+          item.runId === defs.runId &&
+          item.status === 'pending' &&
+          item.ops.some((op) => (op as { placeId?: string }).placeId === placeId),
+      );
+      const aboutId = call.input.supersedes ? String(call.input.supersedes) : (defs.about ?? sameRound?.id);
+      const previous = aboutId ? worldState.document.proposals.find((item: Proposal) => item.id === aboutId) : undefined;
+      const changedKeys = new Set(items.map((item) => item.key));
+      const prevPrims = (previous?.ops ?? [])
+        .filter((op) => op.op === 'whitebox.prim.add')
+        .map((op) => (op as unknown as { prim: WhiteboxPrim }).prim)
+        .filter((prim) => prim?.key && !changedKeys.has(prim.key));
+      const fixed = prevPrims.length ? prevPrims : [];
+      const solved = solveLayout(room, items, fixed, shell);
+      const ops: unknown[] = [];
+      // 只在原来没有房间时补；用专门的 op，不动 place 的其他字段
+      if (!existingRoom && roomInput?.outline && roomInput.height)
+        ops.push({ op: 'place.room.set', placeId, room: { ...room, origin: place?.place?.room?.origin ?? null, heading: place?.place?.room?.heading ?? 0 } });
+      const templateKeys = new Set(templatePrims.map((prim) => prim.label));
+      const keptTemplate = fixed.filter((prim) => !prim.key || !templateKeys.has(prim.key));
+      for (const prim of [...(template ? [] : shell), ...templatePrims.map((prim, index) => ({ ...prim, from: 'layout' as const, key: `template:${index}`, id: `layout:${index}:${prim.label}` })), ...keptTemplate, ...solved.prims])
+        ops.push({ op: 'whitebox.prim.add', placeId, prim });
+      const proposed = await createProposal(defs, world, {
+        kind: 'whitebox',
+        title: `白模：${shell.length} 个壳件 + ${solved.prims.length + fixed.length} 件摆设`,
+        summary: `${String(call.input.note ?? '')}${existingRoom && roomInput ? '（地点已有房间轮廓，按现有轮廓生成房间壳；提议里的 room 忽略）' : ''}`.trim(),
+        ops,
+        doubts: solved.unmet,
+        ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
+      });
+      return proposed;
+    }
+    case 'propose_shots': {
+      if (!context.workId || !context.sceneId) return { text: '分镜要先打开一场正文（workId + sceneId）。', refs: [] };
+      const workRow = (
+        await client.query<{ document: WorkDocument }>(
+          'select document from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3',
+          [account, dossier, context.workId],
+        )
+      ).rows[0];
+      const scene = workRow?.document.chapters.flatMap((chapter) => chapter.scenes).find((item) => item.id === context.sceneId);
+      // 房间几何从世界观草稿里读：作品版本可能是旧的，不包括后来加的房间
+      const roomPlace = worldState.document.entities.find((item) => item.id === context.placeId);
+      // 房间还没落账、但本轮刚交的白模提议里带了房间：允许镜头先引用它（白模接受时会把 v0 的镜头升到新版本）
+      const pendingRoom = !roomPlace?.place?.room
+        ? worldState.document.proposals.find(
+            (item: Proposal) =>
+              item.kind === 'whitebox' &&
+              item.status === 'pending' &&
+              item.runId === defs.runId &&
+              item.ops.some((op) => op.op === 'place.room.set' && (op as { placeId?: string }).placeId === context.placeId),
+          )
+        : undefined;
+      if (!context.placeId || (!roomPlace?.place?.room && !pendingRoom))
+        return {
+          text: `这一场所在的房间还没有几何（place.room）。先给「${roomPlace?.name ?? '这个地点'}」定轮廓和层高（whitebox 提议里一并写 place.room），再拆镜头。`,
+          refs: [],
+          ok: false,
+          step: '房间没几何，先补房间',
+        };
+      const box = (worldState.document.whiteboxes ?? []) as { placeId: string; version: number }[];
+      const currentBox = box.filter((item) => item.placeId === context.placeId).sort((a, b) => a.version - b.version).at(-1);
+      const rows = (call.input.shots as Record<string, unknown>[]) ?? [];
+      const ops = rows.map((row, index) => {
+        const camera = (row.camera ?? {}) as { eye?: number[]; target?: number[]; fov?: number };
+        const cast = ((row.cast as Record<string, unknown>[]) ?? []).map((member) => ({
+          entityId: String(member.entityId ?? ''),
+          assetVersionId: selectedVersionIds.get(String(member.entityId ?? '')) ?? null,
+          at: (member.at as [number, number, number]) ?? [0, 0, 0],
+          facing: Number(member.facing ?? 0),
+          pose: (['stand', 'sit', 'walk'].includes(String(member.pose)) ? String(member.pose) : 'stand') as 'stand',
+          to: null,
+        }));
+        const paragraph = (scene?.text ?? '').split(/\n\s*\n/)[Number(row.para ?? 0)] ?? '';
+        return {
+          op: 'shot.add',
+          shot: {
+            n: Number(row.n ?? index + 1),
+            workId: context.workId,
+            sceneId: context.sceneId,
+            para: Number(row.para ?? 0),
+            durationSec: Math.min(10, Math.max(4, Number(row.durationSec ?? 5))),
+            placeId: context.placeId!,
+            whiteboxVersion: currentBox?.version ?? 0,
+            cast,
+            camera: {
+              eye: (camera.eye as [number, number, number]) ?? [0, 1.6, 3],
+              target: (camera.target as [number, number, number]) ?? [0, 1.2, 0],
+              fov: Number(camera.fov ?? 45),
+            },
+            action: String(row.action ?? ''),
+            dialogue: row.dialogue ? String(row.dialogue) : null,
+            light: row.light ? String(row.light) : null,
+            basisText: paragraph.trim() || null,
+          },
+        };
+      });
+      // 每镜至少一个人物（除非明确是空镜）；改版时只交改了的镜头，其余沿用旧版
+      const emptyShot = Boolean(call.input.emptyShot);
+      const emptied = rows.filter((row) => !((row.cast as unknown[]) ?? []).length);
+      if (emptied.length && !emptyShot)
+        return {
+          text: `有 ${emptied.length} 个镜头没有人物。要么补上 cast（每镜至少一个人），要么明确说明这是空镜（emptyShot）。`,
+          refs: [],
+          ok: false,
+          step: '有镜头没人物',
+        };
+      const prevProposal = defs.about
+        ? worldState.document.proposals.find((item: Proposal) => item.id === defs.about && item.kind === 'shots')
+        : undefined;
+      const prevShots = (prevProposal?.ops ?? [])
+        .filter((op) => op.op === 'shot.add')
+        .map((op) => (op as unknown as { shot: Record<string, unknown> }).shot);
+      const byN = new Map(prevShots.map((shot: Record<string, unknown>) => [Number(shot.n), shot]));
+      for (const op of ops as { op: string; shot: Record<string, unknown> }[]) byN.set(Number(op.shot.n), op.shot);
+      const merged = [...byN.values()].sort((a: Record<string, unknown>, b: Record<string, unknown>) => Number(a.n) - Number(b.n));
+      const proposed = await createProposal(defs, world, {
+        kind: 'shots',
+        title: `镜头表：${merged.length} 镜`,
+        summary: String(call.input.note ?? ''),
+        ops: merged.map((shot) => ({ op: 'shot.add', shot })),
+        doubts: [],
+        ...(call.input.supersedes ? { supersedes: String(call.input.supersedes) } : defs.about ? { supersedes: defs.about } : {}),
+      });
+      return proposed;
+    }
+    case 'read_reference': {
+      const { readdir, readFile } = await import('node:fs/promises');
+      const folder = (download?.folder ?? `${process.env.HOME}/ReinLab素材`) as string;
+      try {
+        const files = (await readdir(folder)).filter((name) => name.endsWith('.md') && name !== '说明.md');
+        const wanted = call.input.name ? String(call.input.name) : '';
+        const pick = wanted ? files.find((name) => name.includes(wanted)) : files.at(-1);
+        if (!pick) return { text: `素材文件夹里还没有拆好的拆解表（${folder}）。`, refs: [], ok: false };
+        const text = await readFile(`${folder}/${pick}`, 'utf8');
+        return { text: `拆解表「${pick}」：\n${text.slice(0, 4000)}`, refs: [] };
+      } catch {
+        return { text: '还没下载过参考视频。', refs: [], ok: false };
+      }
+    }
+    case 'download_video': {
+      const downloadDeps = download;
+      if (!downloadDeps) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
+      try {
+        const file = await downloadVideo(downloadDeps, {
+          url: String(call.input.url ?? ''),
+          ...(call.input.from ? { from: String(call.input.from) } : {}),
+          ...(call.input.to ? { to: String(call.input.to) } : {}),
+          ...(call.input.note ? { note: String(call.input.note) } : {}),
+        });
+        return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。${file.markdown ? '拆解表也写好了，用 read_reference 看。' : '拆解没做成。'}同名的 .json 记了来源。`, refs: [] };
+      } catch (error) {
+        if (error instanceof LoginRequiredError)
+          return {
+            text: `${error.site} 要登录：点页面上的「打开素材浏览器」，扫码或输密码登录后再让我下（登录状态只留在本机给下载器读）。`,
+            refs: [],
+            ok: false,
+            step: `${error.site} 要登录，先打开素材浏览器`,
+          };
+        return { text: `下载没成：${(error as Error).message.slice(0, 160)}`, refs: [], ok: false };
+      }
+    }
     default:
       return { text: '没有这个工具。', refs: [] };
   }
@@ -661,11 +1053,13 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
     return row;
   });
   const dossier = meta.dossier_id;
-  const role: 'advisor' | 'writer' = meta.input.creativeMode === 'creative_writer' ? 'writer' : 'advisor';
+  const role: 'advisor' | 'writer' | 'director' =
+    meta.input.creativeMode === 'creative_writer' ? 'writer' : meta.input.creativeMode === 'creative_director' ? 'director' : 'advisor';
   const context: SessionContext = {
     dossierId: dossier,
     workId: meta.input.workId ? String(meta.input.workId) : null,
     sceneId: meta.input.sceneId ? String(meta.input.sceneId) : null,
+    ...(meta.input.placeId ? { placeId: String(meta.input.placeId) } : {}),
   };
   const aboutRaw = meta.input.about;
   const about = typeof aboutRaw === 'string' && aboutRaw ? aboutRaw : undefined;
@@ -686,7 +1080,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
   const keyBase = `turn-${(meta.input as { turn?: number }).turn ?? Date.now()}`;
   await say('user', query, `${keyBase}-user`);
 
-  const tools = role === 'advisor' ? TOOLS_ADVISOR : TOOLS_WRITER;
+  const tools = role === 'advisor' ? TOOLS_ADVISOR : role === 'director' ? TOOLS_DIRECTOR : TOOLS_WRITER;
   try {
     const history = await deps.db.withAccount(account, (client) => readHistory(client, account, runId));
     const worldState = await deps.db.withAccount(account, (client) => loadWorld(client, account, dossier));
@@ -702,11 +1096,20 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       about ? `作者在看板上要改的是这条提议：${about}（交新版时会被它替代）。` : '',
       '要读设定/正文/检查/版本差异用工具；交提议用 propose 工具。回复用 Markdown，简洁。',
       '提议的明细作者会在看板上看到，回复里不复述明细，只说一两句要点和拿不准的地方。',
+      '白模和镜头可以在同一轮一起交，不要等作者确认白模再交镜头。',
+      '要视频素材时用 download_video 下载，不要用别的方式。',
+      '下载或拆解失败时先停下来问作者，不要自己按正文往下交白模和镜头表。',
+      '白模只给尺寸和关系，坐标由服务端求解器算，不要自己写坐标。',
+      `家具的 label 用库里的名字（${FURNITURE_NAMES.map((item) => item.name).join('、')}），尺寸用真实尺寸；可套场景模板：${TEMPLATES.map((item) => item.name).join('、')}。`,
     ].join('\n');
     const messages: ChatMessage[] = [...history];
     const proposals: string[] = [];
     let finalText = '';
     let lastToolText = '';
+    let nudged = false;
+    let madeWhitebox = false;
+    let madeShots = false;
+    let blockedByShots: string | null = null;
     for (let step = 0; step < 6; step += 1) {
       const turn = await callChat(deps.chat, {
         system: `${ROLE_PROMPT[role]}\n\n${contextBlock}`,
@@ -719,36 +1122,62 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
         const results: string[] = [];
         for (const call of turn.toolCalls) {
           const outcome = await deps.db.withAccount(account, (client) =>
-            runTool({ client, account, dossier, context, role, runId, ...(about ? { about } : {}), proposals }, call),
+            runTool({ client, account, dossier, context, role, runId, ...(about ? { about } : {}), ...(deps.download ? { download: deps.download } : {}), proposals }, call),
           );
           // 看板「正在看」：每次读工具推一条，refs 是这次读到的东西，step 服务端写（契约 §11.4）
           const focus = focusStep(call.name, call.input);
           // 交提议失败时 step 写真实原因（不能一律写「交了提议」）
           await pushFocus(deps.db, account, dossier, {
             runId,
-            mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
+            mode: role === 'director' ? 'creative_director' : role === 'advisor' ? 'creative_advisor' : 'creative_writer',
             step: outcome.step ?? focus.step,
             refs: outcome.refs.length ? outcome.refs : focus.refs,
             proposalId: outcome.ok === false ? null : defs_proposalId(call, proposals),
             done: false,
           });
           lastToolText = outcome.text;
+          if (call.name === 'propose_whitebox' && outcome.ok !== false) madeWhitebox = true;
+          if (call.name === 'propose_shots' && outcome.ok !== false) madeShots = true;
+          // 镜头因为「房间没几何」被退回：直接把原因发给作者、结束这一轮（不许再交白模绕圈）
+          if (call.name === 'propose_shots' && outcome.ok === false) {
+            blockedByShots = outcome.text;
+            break;
+          }
           results.push(`【${call.name}】\n${outcome.text}`);
+        }
+        if (blockedByShots) {
+          finalText = blockedByShots;
+          break;
         }
         messages.push({ role: 'user', content: results.join('\n\n') });
         finalText = turn.text;
+        continue;
+      }
+      // 导演：交了白模却没交镜头 → 提醒一次，把镜头表也交上（验收要求同一轮交完）
+      if (
+        role === 'director' &&
+        context.sceneId &&
+        !nudged &&
+        madeWhitebox &&
+        !madeShots
+      ) {
+        nudged = true;
+        messages.push({ role: 'user', content: '白模提议已经交上了。现在把这一场的镜头表也用 propose_shots 交上（每镜 4–10 秒、至少一个人物），不要等作者确认白模。' });
+        madeWhitebox = false;
         continue;
       }
       finalText = turn.text;
       break;
     }
     // 模型没给正文（比如最后只调了工具就停）：把工具的结果/拒绝原因当回复，别让作者看到空白
+    // 「（调用工具）」这类占位字也算空：把最后一次工具的结果/退回原因当回复
+    if (/^[（(]\s*调用工具\s*[)）]$/.test(finalText.trim())) finalText = '';
     if (!finalText.trim() && lastToolText.trim()) finalText = lastToolText.trim();
     if (!finalText.trim()) finalText = '这一步没有写出回复。';
     await say('assistant', finalText, `${keyBase}-assistant`);
     await pushFocus(deps.db, account, dossier, {
       runId,
-      mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
+      mode: role === 'director' ? 'creative_director' : role === 'advisor' ? 'creative_advisor' : 'creative_writer',
       step: '完成',
       refs: [],
       done: true,
@@ -775,7 +1204,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       .catch(() => undefined);
     await pushFocus(deps.db, account, dossier, {
       runId,
-      mode: role === 'advisor' ? 'creative_advisor' : 'creative_writer',
+      mode: role === 'director' ? 'creative_director' : role === 'advisor' ? 'creative_advisor' : 'creative_writer',
       step: '完成',
       refs: [],
       done: true,

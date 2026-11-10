@@ -86,10 +86,16 @@ export async function createApp(options: {
   creativeAdvisor?: import("../creative/advisor").AdvisorDeps;
   /** 1C：扫正文的模型通道。 */
   creativeImpactScan?: import("../creative/scan").ScanDeps;
+  /** MVP-3 3B：出片平台（Seedance + TOS + ffmpeg）。 */
+  video?: import("../creative/video/pipeline").VideoDeps;
   /** MVP-2：出图的平台（可换）。 */
   imageProvider?: import("../creative/image/provider").ImageProvider;
   /** 29 号：助手会话的模型通道（带工具、多轮）。 */
   creativeAssistant?: import("../creative/assistant-session").ChatDeps;
+  /** 素材浏览器（契约 §14.8）。 */
+  browser?: import("../creative/browser").BrowserDeps;
+  /** download_video（契约 §14.7）：yt-dlp + 公共素材文件夹。 */
+  creativeDownload?: import("../creative/download").DownloadDeps;
   /** 29 号：自然语言规则判定。 */
   creativeRuleJudge?: import("../creative/rule-judge").JudgeDeps;
   /** 创作台路网导入的取数通道；缺省真实 Overpass。 */
@@ -123,6 +129,8 @@ export async function createApp(options: {
   const smallBody = bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge });
   // 照片续传是分块流式接收：tus 自己按 8 MB 分片处理，这里不能再按整包截断。
   const isUploadsPath = (pathname: string) => /^\/v1\/explore\/uploads(\/|$)/.test(pathname);
+  // 分镜预演是 multipart（视频 + 首帧），bodyLimit 会吃掉 multipart 流，这里整段跳过、由路由自己限量。
+  const isShotPreviewPath = (pathname: string) => /^\/v1\/creative\/worlds\/[^/]+\/shots\/[^/]+\/preview$/.test(pathname);
   // 创作台上传 Azgaar 导出的 GeoJSON：整份文件一次收，上限 8 MB（其余接口仍 1 MB）。
   const isCreativeAssetPath = (pathname: string) => /^\/v1\/creative\/worlds\/[^/]+\/assets$/.test(pathname);
   // 参考图、计划书地图快照（自身上限 4 MB）要能收几 MB 的图；其余接口仍然只收 1MB。
@@ -130,6 +138,7 @@ export async function createApp(options: {
   app.use("/v1/*", (c, next) => {
     const pathname = new URL(c.req.url).pathname;
     if (isUploadsPath(pathname)) return next();
+    if (c.req.method === "POST" && isShotPreviewPath(pathname)) return next();
     if (c.req.method === "POST" && /^\/v1\/explore\/plans\/[^/]+\/(refs|snapshots)$/.test(pathname))
       return imageBody(c, next);
     if (c.req.method === "POST" && isCreativeAssetPath(pathname)) return imageBody(c, next);
@@ -230,6 +239,8 @@ export async function createApp(options: {
     ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
     ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
     ...(options.imageProvider ? { imageProvider: options.imageProvider } : {}),
+    ...(options.video ? { video: options.video } : {}),
+    ...(options.browser ? { browser: options.browser } : {}),
     ...(options.creativeOverpass ? { overpass: options.creativeOverpass } : {}),
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
@@ -276,8 +287,11 @@ export async function createApp(options: {
     ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
     ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
     ...(options.imageProvider ? { imageProvider: options.imageProvider } : {}),
+    ...(options.video ? { video: options.video } : {}),
+    ...(options.browser ? { browser: options.browser } : {}),
               ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
               ...(options.creativeAssistant ? { chat: options.creativeAssistant } : {}),
+              ...(options.creativeDownload ? { download: options.creativeDownload } : {}),
             },
           }
         : {}),

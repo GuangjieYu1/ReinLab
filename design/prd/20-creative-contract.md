@@ -810,3 +810,364 @@ export type AssetImage = {
 5. 只重出侧面：其余三格沿用，新版写「只重出了侧面」。
 6. 故意让一格失败（DSH 留一个办法，例如外貌写进会被平台拒的内容，或者断网取回）：格子写人话原因；「待保存」的能只重试取回、不再花钱。
 7. 花费：每张图都进 `usage_record`，账本能按版本加出总数。5 个人物各出一套，总花费写进账本。
+
+## 13. MVP-3 · 从小说场景到成片：白模、镜头、Seedance（2026-11-10）
+
+**为什么做。** 全链路的最后一段：「小说 → 出图 → **白模 → 视频**」。作者挑一场正文，分镜导演在看板上搭出这场的房间白模、摆好人物和机位、列出镜头；作者在三维视口里看着改；每个镜头真出视频候选，选好拼成一段成片，能下载。
+
+**取向照 1D / MVP-2**：导演的产出是看板上的变化——白模、人偶、机位、镜头条先以虚影出现，作者接受才落账；出片时镜头格子当场「排队 → 出片中 → 片」，新候选和当前选用并排。
+
+### 13.1 分两半交，验收也分两半
+
+- **3A 白模和镜头（不花出片的钱）**：房间几何、白模、人物体型、镜头表、机位、分镜导演模式、白模预演片段、glTF 导出。
+- **3B 真出片（花钱）**：Seedance 候选、选用、拼成片、下载、改设定后镜头标旧。
+
+### 13.2 定下的几件事（我按惯例选的，有异议再改）
+
+1. **白模归地点**（房间这一层），有版本；镜头归作品的某一场，引用白模的明确版本和人物形象的明确版本。改白模、换立绘不自动改已有镜头，只标「依据旧了」。
+2. **房间几何**：轮廓（米，局部坐标）、层高、原点锚到底图的经纬度、朝向。室外场景就把那块地方当一个「房间」，没墙。
+3. **人物体型**：人物加身高（米）和体型（瘦 / 中等 / 壮），人偶按它摆。~~人偶只画躯干和头，不画四肢~~（2026-11-10 实测推翻）：人偶有头、躯干、长袍下摆、双臂双腿，有走位终点时迈腿摆臂走过去再转向（参考开源 Blockout）。预演越清楚，Seedance 跟得越紧（`BENCHMARKS.md` 2026-11-10 夜）。
+4. **分镜导演是 DSH 的第三个模式** `creative_director`，和顾问、写作助手同一套（会话、续一句、focus、提议、改一下）。它只能交提议（白模、镜头表），作者接受才入账；它**不能自己出片**，出片由作者点。
+5. **送给 Seedance 的东西**：用「全模态参考」——人物三视图当参考图（每人 1–3 张，总共不超过 9 张），白模预演片段当参考视频（管机位和走位），提示词由服务端按镜头的动作、对白、光线、画风拼。**实测（2026-11-10）：参考视频只认公网 URL**——预演 mp4（24fps）上传火山 TOS 桶 `rein-lab-creative`（私有），用 S3 兼容接口 + SigV4 预签名出一个 2 小时的下载链接交给 Seedance，已跑通。只给首帧当参考图时机位走位基本不跟，所以不再作为退路。密钥 `TOS_ACCESS_KEY / TOS_SECRET_KEY / TOS_BUCKET / TOS_REGION` 在 `local.env`，只在进程内存里读。
+6. **白模预演片段由前端渲染**：三维视口按镜头机位录一段（和镜头一样长），传给后端存成资产。后端不跑三维渲染。
+7. **成片拼接在服务端**（ffmpeg），只做按顺序硬切拼接，不做转场、配乐、字幕。平台自带的声音保留；不做配音。
+8. **用户定（2026-11-10）：不换平台，继续 Seedance 2.0；默认出 480p 草稿、每镜 5 秒**（实测带参考视频约 ¥2.5 一段，3–4 分钟），作者选定后再按需出 720p 定稿（约 ×2.2）；可改 4–10 秒；每次点「出片」只出一个候选。对比过 MiniMax H3：带参考视频时参考视频也按秒收费，768P 一段约 ¥5，不比 Seedance 便宜。
+
+### 13.3 类型（追加到 `packages/contracts/src/creative.ts`）
+
+```ts
+export type V3 = [number, number, number];   // 米；x 向右、y 向上、z 向镜头外（three.js 习惯）
+
+/** Entity.place 追加（level 为 room 时用；室外场景也可以用）。 */
+room?: {
+  outline: [number, number][];   // 局部坐标 (x, z)，米，首尾不重复
+  height: number;                // 层高，米
+  origin: LngLat | null;         // 局部原点锚在底图上的经纬度
+  heading: number;               // 局部 -z 指向的方位角，度（0 = 北）
+} | null;
+
+/** Entity.person 追加 */
+body?: { heightM: number | null; build: 'slim' | 'average' | 'heavy' | null } | null;
+
+/** 白模：归地点，有版本。 */
+export type WhiteboxPrim = {
+  id: string;
+  kind: 'box' | 'cylinder' | 'prism';
+  c: V3;                         // 底面中心
+  s: V3;                         // box: 长宽高；cylinder / prism: [半径, 高, 0]
+  sides?: number;                // prism 的棱数
+  rotY?: number;                 // 绕 y 转，度
+  label?: string;                // 「柜台」「门」「窗」
+  entityId?: string | null;      // 物件在世界观里有条目就挂上
+};
+export type Whitebox = { placeId: string; version: number; prims: WhiteboxPrim[]; updatedAt: string };
+
+/** 一个镜头：归作品的一场。 */
+export type Shot = {
+  id: string;
+  n: number;                     // 场内顺序
+  workId: string; sceneId: string;
+  para?: number | null;          // 对应正文第几段（看板上和正文互相跳）
+  durationSec: number;           // 4–10
+  placeId: string; whiteboxVersion: number;
+  cast: { entityId: string; assetVersionId: string | null; at: V3; facing: number; pose: 'stand' | 'sit' | 'walk'; to?: V3 | null }[];
+  // facing：度，0 = 朝 -z（镜头外方向），顺时针为正；at 同样是底面中心（y 一般是 0）。
+  camera: { eye: V3; target: V3; fov: number; end?: { eye: V3; target: V3 } | null };
+  action: string;                // 这一镜发生什么（人话）
+  dialogue?: string | null;
+  light?: string | null;         // 「黄昏」「烛光」
+  /** 依据旧了：白模或人物形象出了新版、正文这段改了。前端照显示。 */
+  stale?: string[];
+};
+
+/** 镜头的一个出片候选。 */
+export type ShotTake = {
+  id: string; shotId: string; n: number; createdAt: string;
+  state: 'queued' | 'generating' | 'unsaved' | 'saved' | 'failed';
+  url?: string | null; posterUrl?: string | null;
+  durationSec: number; resolution: '480p' | '720p';
+  /** 出片依据：镜头的样子、白模版本、用了哪些参考图、预演片段、拼好的提示词。 */
+  basis: { shotHash: string; whiteboxVersion: number; refImages: { assetVersionId: string; view: PersonView }[]; previewId: string | null; mode: 'reference_video' | 'reference_image_only'; prompt: string };
+  provider: string; model: string;
+  taskId?: string | null; failure?: string | null;
+  cost: CreativeCny | null;
+};
+
+/** 一场的成片。 */
+export type SceneCut = {
+  workId: string; sceneId: string;
+  shots: { shotId: string; takeId: string | null }[];   // 每镜选用的候选
+  file?: { state: 'building' | 'saved' | 'failed'; url?: string | null; durationSec?: number; failure?: string | null } | null;
+};
+```
+
+提议追加两种 `kind`：`whitebox`（ops 是 `whitebox.prim.add / update / remove`）和 `shots`（ops 是 `shot.add / update / remove / reorder`），走 1D 的预览、改一下、`supersedes`。
+
+### 13.4 接口
+
+**3A**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/v1/creative/worlds/:id/places/:pid/whitebox?version=` | → `Whitebox`（没有就 `prims: []`, `version: 0`） |
+| POST | `/v1/creative/worlds/:id/ops` | 已有。追加 `whitebox.prim.add / update / remove`（带 `placeId`）、`shot.add / update / remove / reorder`；`entity.update` 能改 `place.room`、`person.body` |
+| GET | `/v1/creative/worlds/:id/works/:wid/scenes/:sid/shots` | → `{ shots: Shot[]; cut: SceneCut }` |
+| POST | `.../shots/:shotId/preview` | 前端上传白模预演片段（`video/webm` 或 `mp4`）和首帧（png）→ `{ previewId, url, posterUrl }`；同一镜头新传的覆盖旧的引用，旧文件留着 |
+| POST | `/v1/kernel/runs` | 已有。`mode: 'creative_director'`，带 `workId`、`sceneId` |
+| GET | `/v1/creative/worlds/:id/proposals/:pid/preview` | 已有。`whitebox` / `shots` 提议的预览：`added / changed / removed` 里带 prims 和 shots（复用 `ItemChange`，kind 加 `prim`、`shot`） |
+
+**3B**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `.../shots/:shotId/takes` | 出一个候选。body `{ resolution?: '480p' \| '720p'; durationSec?: number; note?: string }`。没有预演片段时 422 `PREVIEW_MISSING`「先在视口里录一段预演」；镜头里有人物没选用形象时照出，`basis.refImages` 里少那个人并在返回里写一句 |
+| POST | `.../takes/:takeId/retry` | 只重新取回 `unsaved`，不重新付费 |
+| PUT | `.../shots/:shotId/selected` | `{ takeId }` |
+| POST | `.../scenes/:sid/cut` | 按镜头顺序拼选用的候选 → `SceneCut.file` 变 `building`，好了 `saved`；有镜头没选用就 422 `CUT_INCOMPLETE` 并列出哪几镜 |
+| GET | `/v1/creative/assets/files/:fileId` | 已有。视频、海报、预演片段、成片都走这里；`?download=1` 带人话文件名（「阊门夜行-出城-镜03-候选2.mp4」） |
+
+### 13.5 事件（追加）
+
+| `type` | `data` | 前端 |
+|---|---|---|
+| `creative.whitebox` | `Whitebox` | 视口重画 |
+| `creative.shot` | `{ workId, sceneId, shots: Shot[] }` | 镜头条、视口机位重画 |
+| `creative.take` | `ShotTake` | 镜头格子换状态 / 出片 |
+| `creative.cut` | `SceneCut` | 成片进度、好了能播能下 |
+| `creative.focus` | 已有 | 导演读到的场景段落、人物、白模部件、镜头，视口和镜头条上描一圈 |
+| `creative.usage` | 已有 | 每个候选出完记一条 `purpose: 'creative_video'`，按官方价算已知；没出成的记 0 并注明 |
+
+### 13.6 页面（Claude 实现，「03 视频」解锁）
+
+- **布局**：左边场景正文（当前段落高亮），中间三维视口（白模 + 人偶 + 当前镜头机位视锥），下面镜头条（每镜一格：海报 / 状态 / 时长 / 对白），右边详情和导演对话。
+- **视口**：拖人偶、拖机位、切到机位视角；「录预演」按当前镜头机位从 `camera` 运到 `end`，录成和镜头一样长的片段上传。白模和人偶的颜色按 1D：提议是虚影（虚线、半透明橙），改动的描橙边。
+- **导演**：对话框里说「把这一场拆成镜头」，导演读正文和设定时视口、正文上逐个亮起它在看的东西；交上白模和镜头表后虚影出现，提议条「接受 / 拒绝 / 改一下 / 先收起」。
+- **出片**：镜头格子里「出片」→ 当场「排队 → 出片中 → 片」；候选并排，新候选和当前选用对比，点「用这一条」；可以和预演片段并排对比。
+- **成片**：所有镜头都选好了，「拼成片」→ 进度 → 能播、能下载。
+- **标旧**：镜头 `stale` 有内容时格子角上标「依据旧了：沈砚出了第 5 版立绘」，点开能「按新的重出」。
+- **glTF**：视口「导出白模」，前端用 three.js 导出（人偶一起，带地点和人物 ID）。
+
+### 13.7 验收（真实页面）
+
+**3A**
+1. 选《阊门夜行》（或现有作品）里发生在悦来客栈的一场，2–3 个人物；没有就先用写作助手补一场。
+2. 导演里说「把这一场拆成镜头」：导演工作时，正文段落、人物、房间逐个亮起；交上白模和 4–6 个镜头的提议，视口和镜头条上是虚影；接受后变实。
+3. 「改一下：第 3 镜换成从柜台后面拍」：交第 2 版，只有第 3 镜描橙边。
+4. 拖动人偶、改机位，刷新后还在；人偶高矮按人物身高。
+5. 每镜「录预演」：片段长度对、机位按设定运动，刷新后能播。
+6. 导出 glTF，能在别的查看器里打开（人工看一眼）。
+
+**3B**
+7. 对一镜出片：格子当场换状态；出完能播；刷新、重启控制面后还在。
+8. 片子里的人物看得出是立绘那个人（人眼看，写进记录）；机位大致跟预演一致。
+9. 再出一个候选并排，选用其中一个。
+10. 全部镜头选好后拼成片，能播、能下载；长度等于各镜之和。
+11. 给沈砚出新版立绘并选用：用到他的镜头标「依据旧了」。
+12. 花费：每个候选一条 `creative_video`，按官方价记已知；拼片不花钱。账本加出总数。
+
+### 13.8 修订（2026-11-10）：白模改成「房间壳 + 关系布局 + 求解器」
+
+**为什么改。** 3A 两轮验收，导演交的白模一直出界、超高、悬空。根子是让语言模型直接心算每个部件的三维坐标，连墙和顶棚也让它算；另外判断出界用的射线法对轮廓线上的点不对称（右、后两边的线算外面），贴着东墙、南墙的墙心必被判出界。对比开源做法（`design/BENCHMARKS.md` 2026-11-10，Holodeck / Holodeck 2.0）：**模型只说物件之间的关系，坐标由求解器算**，硬约束保证不出房间、不相撞。
+
+**三层：**
+1. **房间壳**：墙、地面、顶棚、门窗洞，服务端按 `place.room` 生成，导演不碰。
+2. **布局**：导演只交「放什么、多大、和谁什么关系」，服务端求解器算坐标。
+3. **外观**：白模阶段仍是带 `material` / `color` 的方块。
+
+**方位约定**（房间局部坐标）：北 = -z、南 = +z、东 = +x、西 = -x，和 `heading`（局部 -z 指向的方位角）一致。轮廓按边编号时从第一个点起顺序数。
+
+#### 类型（追加）
+
+```ts
+export type Side = 'north' | 'south' | 'east' | 'west';
+
+/** 墙上的开口：门、窗。at 是这面墙从西 / 北端算起的位置（0–1 的中点比例）。 */
+export type Opening = { kind: 'door' | 'window'; wall: Side | number; at: number; width: number; height: number; sill?: number; label?: string };
+
+/** 物件之间的关系（照 Holodeck 的约束词表，加「叠在上面」）。软约束尽量满足，满足不了列出来；硬约束见下。 */
+export type Relation3 =
+  | { type: 'wall'; side?: Side | 'any' }               // 靠墙（背贴墙，正面朝屋里）
+  | { type: 'middle' }                                   // 在屋子中间一带
+  | { type: 'corner'; sides?: [Side, Side] }             // 在墙角
+  | { type: 'near' | 'far'; of: string }                 // 靠近 / 远离某件
+  | { type: 'front' | 'behind' | 'beside'; of: string }  // 在某件的前面（它正面那侧）/ 后面 / 旁边
+  | { type: 'align'; of: string }                        // 和某件中心对齐
+  | { type: 'face'; of: string | 'door' | Side }         // 正面朝向某件 / 门 / 某个方向
+  | { type: 'on'; of: string };                          // 叠在某件上面（台面、碗架、灯）
+
+/** 导演交的一件东西：只给尺寸和关系，不给坐标。 */
+export type LayoutItem = {
+  key: string;                         // 本提议内的名字，关系里用它互相引用（「柜台」「桌一」）
+  label: string;
+  kind: 'box' | 'cylinder';
+  size: [number, number, number];      // box: 宽（东西向，未转时）× 高 × 深；cylinder: [半径, 高, 0]
+  material?: WhiteboxPrim['material']; color?: string | null;
+  relations: Relation3[];
+  outside?: boolean;                   // 门外街面这类，按门的位置放到屋外
+  entityId?: string | null;
+};
+```
+
+`WhiteboxPrim` 追加两个只读字段：`from?: 'shell' | 'layout' | 'author'`（房间壳生成 / 求解器摆的 / 作者拖过的），`key?: string`（对应的 `LayoutItem.key`）。前端照旧按 `c` / `s` 画，不用改渲染。
+
+#### 求解器（服务端）
+
+- **硬约束**（满足不了就不摆这件，原因回给导演）：整件在房间轮廓内（按四角判，贴墙件允许贴住墙内皮）；底面落地（`y = 0`），有 `on` 的落在那件的顶面；顶面不超层高；和其他件不穿插；不挡门（门洞前 0.8 米净空）。
+- **软约束**：`relations` 里其余的，尽量多满足；满足不了的写进提议的 `unmet: string[]`（人话：「桌二没能靠近柜台：中间被方凳挡着」）。
+- 做法照 Holodeck：在网格上按依赖顺序（先被引用的、先大件）逐件深度优先搜索，按满足软约束的多少打分；朝向在 0 / 90 / 180 / 270 里选。可以移植 Holodeck 的求解器（**接入前先核实它的许可**），也可以自己写。
+- 结果写成普通的 `whitebox.prim.add`（带 `from: 'layout'`、`key`），所以预览、接受、版本、glTF 都不用改。
+
+#### 工具和接口
+
+- `propose_whitebox` 的输入改成 `{ placeId, openings: Opening[], items: LayoutItem[], note? }`。服务端：生成房间壳（墙按轮廓每条边一段，厚 0.2 米朝屋里长；地面；顶棚放在层高下面；按 `openings` 在墙上开洞）→ 求解布局 → 交提议。导演再也不写坐标。
+- 房间没有 `place.room` 时，`propose_whitebox` 可以带 `room: { outline, height }`，和白模一起成为一条提议（接受时一并写进 `place.room`）。
+- 「改一下」：导演只交改了的 `items`（按 `key` 合并），没提到的件**保持原坐标不动**，只给改了的和受它影响的重新求解。
+- 作者在视口里拖过的件 `from: 'author'`，之后导演改版时这件当固定障碍，不挪。
+- `whitebox.prim.update`（已有）：前端拖家具用；服务端照样跑硬约束校验（出房间、穿插就 422）。
+- 预览：`ProposalPreview` 追加 `unmet?: string[]`。
+
+#### 顺带要修的
+
+- 判断「点在轮廓内」对边界要对称（压在轮廓线上的算在内，留 1 厘米容差）。
+- 交提议时、预览时（带不带 `workId`）、接受时，用**同一套**校验。
+- run 带了 `placeId`，白模和镜头都用它；导演认为该换地点要在回复里说，不自己换。
+- 白模和镜头一轮交完，作者分开接受（提示词底线写明）；不等作者确认白模再交镜头。
+- 回复正文是「（调用工具）」这类占位字也当成空，兜底把最后一次工具的退回原因发给作者。
+
+#### 页面（Claude）
+
+- 视口里能拖家具（`from` 不是 `shell` 的件），松手提交 `whitebox.prim.update`，被拒就弹回原位并写原因。
+- 房间壳的件不能拖，剖开显示照旧。
+- 提议条多一行「没满足的摆放要求：…」（`unmet`）。
+
+#### 验收（替换 §13.7 的第 2、3 条）
+
+2. 门厅里说「把这一场拆成镜头」：一轮交上白模和镜头两条提议；白模四面墙正好沿门厅轮廓、顶棚不超 3.2 米、所有家具落地或叠在指定件上、互不穿插、都在屋里；接受两条都成功，镜头不标「依据旧了」。
+3. 「改一下：柜台挪到西墙，第 3 镜从柜台后面拍」：白模第 2 版只有柜台（和被它挤动的件）变了位置，镜头第 2 版只有第 3 镜变了；其余件、其余镜头（连人物、形象版本）原样。
+
+### 13.9 修订（2026-11-10）：3B 出片按实测定稿 + 场景模板与家具库
+
+**实测依据**（`design/BENCHMARKS.md` 2026-11-10 夜三节，`design/walkthroughs/creative-3/scene-first/`、`kit/`）：同一镜送 Seedance 四次——只给首帧：机位走位不跟；含糊预演（人偶不动、顶棚悬空）：只取大意；清楚预演（人偶会走、白模摆正）：构图走位几乎 1:1；模板门厅 + 家具库：连「什么家具、摆在哪」也跟上。长相靠立绘参考图一直稳。
+
+#### 定下的
+
+1. **平台**：Seedance 2.0（`doubao-seedance-2-0-260128`），用户定不换 H3。**默认 480p 草稿、5 秒**（实测 ¥2.5–2.8 一段、2.5–4 分钟）；作者在候选上点「出定稿」才出 720p（约 ×2.2）。
+2. **参考视频走 TOS 预签名**：预演 webm → 服务端 ffmpeg 转 mp4（H.264、24fps、yuv420p、无音轨）→ 传私有桶 `rein-lab-creative` → 签 2 小时 GET 链接当 `reference_video`。base64 会被平台拒（「reference_video must be provided as a web url」）。TOS 用 S3 兼容接口 `{bucket}.tos-s3-{region}.volces.com` + SigV4 预签名即可（实验脚本 `/tmp/mvp3/seedance-video.mjs` 的做法）。参考图（立绘）照旧 base64。
+3. **送给 Seedance 的内容**：
+   - `content`：文字 + 每个出场人物选用形象的立绘（`reference_image`，首张免费）+ 预演（`reference_video`）；
+   - 提示词服务端拼，结构照实测有效的写法：「完全参考 @视频1 的机位、构图、镜头推进、家具位置和人物走位：@视频1 是白模预演，木色的是家具（列出画面里的家具名），〈颜色〉长袍的人偶是 @图片N 里的〈人物〉……」+ 场景（时代、地点、光线、天气）+ 动作 + 运镜 + 画风；
+   - **画面里看不见的门窗要写明位置**（「门在镜头背后，画面里的墙上没有门」），否则模型会自己补一道；
+   - `resolution`、`duration`、`ratio: '16:9'`、`watermark: false`。
+4. **计费**：按返回的 `usage.total_tokens` × 官方单价（带视频输入 ¥28 / 百万 token，不带 ¥46）记已知；没出成的记 0 并注明平台未收费。
+5. **预演必须清楚**（前端已做，`Viewport3.tsx`）：人偶有四肢，设了走位终点就迈腿摆臂走过去再转向；白模不悬空、贴轮廓；大面切块避免遮挡。录预演时不画标注。
+
+#### 场景模板与家具库（前端已试做，`furniture.ts`）
+
+- **家具库**：15 种明清家具（八仙桌、长凳、方凳、椅、条案、柜台、货架、碗架、茶炉、屏风、门、窗、灯、坛、匾额），给外框尺寸就按参数拆成面、腿、牙板、层板画出来。**按部件 `label` 认**，认不出照旧画方块。所以**导演交白模时，家具的 `label` 要用库里的名字**（可以加修饰，如「柜台后货架」「八仙桌一」），尺寸用真实尺寸。
+- **场景模板**：「客栈门厅」一套（24 件：地面、四墙、临街大门、门外石阶、顶棚、花窗、柜台、货架、油灯、酒坛、茶炉、碗架、条案、匾额、八仙桌 ×2、长凳 ×4），按房间轮廓外接矩形摆，门在南墙正中。页面上「套用场景模板」一键套（先问要不要清掉现有白模），走普通的 `whitebox.prim.add / remove`。
+- **给导演**：`propose_whitebox` 可选 `template: '客栈门厅'`——服务端按模板摆出初版，导演再用 `items` 增删改（§13.8 的关系布局照用）。模板清单和家具名清单作为工具说明给导演；以后加茶馆、街巷、城门、渡口、书房，只加数据不改接口。
+- 模板和家具的生成代码在前端；服务端需要同一份清单（名称、默认尺寸、模板布局）——把 `furniture.ts` 里的 `innLobbyTemplate` 和家具名单抽到 `packages/contracts` 或共享模块，前后端共用。
+
+#### 3B 验收（替换 §13.7 的 7–12）
+
+7. 门厅（套模板）第 2 镜「出片」：格子当场换状态，约 3 分钟出 480p；能播；刷新、重启后还在。
+8. 片子里沈砚是立绘那个人；家具布局、走位、推镜和预演一致（人眼看，写进记录）；画面里没有凭空多出门。
+9. 再出一个候选并排，选用其中一个；对选用的点「出定稿」出 720p。
+10. 门厅三镜都选好后拼成片，能播能下载，长度等于各镜之和。
+11. 给沈砚出新版立绘并选用：用到他的镜头标「依据旧了：沈砚换了形象」。
+12. 花费：每个候选一条 `creative_video`，按 token 和官方价记已知；账本加出总数。
+
+## 14. 参考素材库：放链接 → 下载 → 拆解（2026-11-10）
+
+**为什么做。** 用户：「这样我们就有源源不断的素材积累了。」实测（`BENCHMARKS.md` 2026-11-10 夜「视频片段拆解」，`design/walkthroughs/creative-3/breakdown/`）：MediaPipe 逐帧出动作和表情、背景块匹配出运镜、视觉大模型写成带时间码的拆解表，两层互补（模型还纠正了程序的误报）。把它做成助手的工具，拆过的片段进素材库，以后摆走位、写运镜、出片时能直接引用。
+
+### 14.1 定下的
+
+1. **谁来拿视频**：助手调工具，服务端用 **yt-dlp**（公有领域许可；B 站、抖音、微博、YouTube、X、Vimeo 等上千站点）下载，失败再试 lux / BBDown。**不用 computer use 操作用户电脑。**
+2. **只取够拆解用的**：最高 720p、默认最长 10 分钟（可指定起止时间只取一段）。
+3. **要登录的站点**：用户自己导出 cookie 文件放 `~/.config/reinlab/cookies/<站点>.txt`，服务端只在进程内存里读，不进日志、不回显。没有就照常下公开的，失败把原因说清（要登录 / 地区限制 / 版权加密 / 网站改版）。**有版权加密（DRM）的不下，也不尝试绕过。**
+4. **版权**：素材只用来拆解和参考，原片不进作品、不外传；记来源（链接、站点、标题、作者、抓取时间）。原片默认保留在本机私有存储，作者可以「拆完删原片」，只留关键帧缩略图和拆解数据。
+5. **素材库按账户共享**，跨世界观复用。
+
+### 14.2 拆解管线（服务端，照实验）
+
+1. **切镜**：ffmpeg 场景检测（或 PySceneDetect），每镜一条记录。
+2. **运镜**：背景网格块匹配（抠掉人物框）拟合平移 / 缩放 / 旋转，**每 6 帧比一次**（逐帧会把慢推吞掉）；输出每段的推 / 拉 / 摇 / 移 / 固定 + 幅度。以后要 6 自由度再接 MegaSaM。
+3. **动作**：MediaPipe Pose 逐帧（服务端用 MediaPipe 的 Python 包或无头浏览器，DSH 定），多人。
+4. **表情**：**先按身体关键点裁出头部、放大到 320 再跑 Face Landmarker**（直接跑中景认不出脸）；52 个表情系数 + 头部朝向；人脸太小（≲ 40 像素）就标「表情测不到」，不编。
+5. **事件**：从曲线切出「转头、眨眼、抬眉、皱眉、微笑、张嘴、视线朝下、走 / 停、抬手」等，时间码到毫秒（分辨率一帧）。阈值要防误报（实验里「走动」误报了全程）。
+6. **描述**：`doubao-seed-2-1-pro-260915`（账号已开通，能看图看视频）读关键帧 + 事件 JSON，写**镜头拆解表**：运镜一句、按时间码逐段写每个人的动作表情、程序和画面矛盾处、程序没测到的画面信息。
+7. **标签**：模型顺手给每镜打标签（动作：回头 / 递东西 / 坐下…；运镜：缓推 / 跟拍…；情绪；场景），素材库按标签搜。
+
+### 14.3 类型（追加）
+
+```ts
+export type RefClip = {
+  id: string;
+  source: { url: string; site: string; title: string | null; author: string | null; fetchedAt: CreativeIso; note?: string | null };
+  state: 'queued' | 'downloading' | 'analyzing' | 'ready' | 'failed';
+  failure?: string | null;              // 人话：「这个视频要登录才能看（B 站 1080P）」「有版权加密，不下载」
+  file?: { url: string; durationSec: number; width: number; height: number; kept: boolean } | null;  // kept=false：拆完删了原片
+  shots: RefShot[];
+  cost: CreativeCny | null;
+};
+export type RefShot = {
+  id: string; n: number; fromMs: number; toMs: number;
+  poster: string | null;                // 关键帧缩略图
+  camera: { kind: 'static' | 'push' | 'pull' | 'pan' | 'tilt' | 'track' | 'mixed'; zoom: number; pan: number; tilt: number; text: string };
+  people: { track: number; label: string | null; events: { fromMs: number; toMs: number; what: string }[]; faceMeasured: boolean }[];
+  table: string;                        // 拆解表（Markdown）
+  tags: string[];
+  dataUrl: string | null;               // 逐帧数据（关键点、表情系数、运镜步）JSON，驱动人偶以后用
+};
+```
+
+### 14.4 接口与工具
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/v1/creative/refs` | `{ url, fromSec?, toSec?, note? }` → `RefClip`（queued），之后推 `creative.ref` |
+| GET | `/v1/creative/refs?q=&tag=` | 素材库列表 / 搜索（标题、标签、拆解表全文） |
+| GET | `/v1/creative/refs/:id` | 单条 |
+| POST | `/v1/creative/refs/:id/drop-original` | 拆完删原片（留缩略图和数据） |
+| DELETE | `/v1/creative/refs/:id` | 整条删 |
+
+助手工具（顾问、导演都开）：`fetch_reference(url, from?, to?)`、`search_references(q)`、`read_reference(id)`。导演交镜头时可以在镜头上挂 `refShotId`（「这一镜的动作 / 运镜参考素材库第 n 条第 m 镜」）；3B 出片时，作者可以选「用这段参考的动作」——把那一段剪出来作为第二个 `reference_video`，提示词写「人物动作参考 @视频2」。
+
+### 14.5 页面（Claude）
+
+- 视频面右栏加「素材」：贴链接、看进度、列表和搜索；点开一条：播放器 + 按镜头的时间轴（运镜一轨、每个人一轨，事件是色块，悬停看表情系数），右边是拆解表。
+- 镜头详情里「参考素材」：挂上的参考镜头，并排播放。
+
+### 14.6 验收
+
+1. 贴一个 B 站公开视频链接：下载、切镜、每镜有运镜、动作和表情事件、拆解表、标签；花费记已知或标未知。
+2. 贴一个要登录的高清链接、没放 cookie：给出人话原因，不卡住。
+3. 素材库搜「回头」能找到拆过的那镜。
+4. 门厅第 2 镜挂上一条参考，出片时「用这段参考的动作」，成片里人物动作跟参考一致（人眼看）。
+5. 「拆完删原片」后，缩略图、拆解表、逐帧数据还在，原片没了。
+
+### 14.7 补充（2026-11-10，用户）：yt-dlp 下载工具 + 公共素材文件夹
+
+用户原话：「提供一个用 yt-dlp 下载的工具然后告诉助手用这个下载，把这些素材都下载到一个公共的文件夹里，简短描述内容重命名。」
+
+- **工具**：所有助手（顾问、写作助手、导演）都开 `download_video(url, from?, to?, note?)`。服务端调 yt-dlp（≤720p，可取一段，cookie 照 §14.1 只在内存里读）；提示词底线一句：「要视频素材时用 download_video 下载，不要用别的方式」。下载完自动进 §14.2 的拆解（作者可以在设置里关掉自动拆解）。
+- **公共素材文件夹**：`~/ReinLab素材/`（所有世界观、所有助手共用；作者在 Finder 里也能直接看）。
+  - 文件名：`<简短描述>__<站点>-<视频号>.mp4`，例如 `书生雨夜回头望门内老妇__bilibili-BV1xx411c7mD.mp4`。简短描述 ≤ 20 字，由视觉模型看标题 + 几张关键帧写，只用中文、数字和常见标点，不含 `/ \ : * ? " < > |`。
+  - 同名旁边放 `.json`（来源链接、站点、标题、作者、抓取时间、时长、简短描述、标签、版权提醒）和 `.md`（拆解表，拆完才有）。
+  - 重名就在描述后加 `-2`、`-3`。
+  - 数据库里的 `RefClip.file` 指向这个文件夹里的文件；「拆完删原片」只删 `.mp4`，`.json` 和 `.md` 留着。
+- **版权**：文件夹里放一个 `说明.md`：「这里的视频只用于拆解和参考，不放进作品、不外传」。
+
+### 14.8 补充（2026-11-10，用户）：素材浏览器——要登录时弹窗，作者自己登，下载器自动用上
+
+用户原话：「遇到这种情况可以打开一个浏览器我登陆后自动抓取 cookie 吗？不光是 bilibili，以后有各种各样的视频网站，我不可能都下。」
+
+**起因**：B 站对 yt-dlp 直接请求回 HTTP 412（风控）；手动导出 cookie 每个网站都要做一遍，不现实。**不用伪装浏览器之类绕过风控的参数**——正路是作者以本人身份登录。
+
+- **专用浏览器**：本机栈按需打开一个**独立的 Chromium 窗口**（Playwright 持久化配置目录 `~/.config/reinlab/browser-profile/`，权限 700），和作者平时用的 Chrome 完全隔开。**不读作者主浏览器的登录状态。**
+- **触发**：`download_video` 失败且原因是「要登录 / 412 / 403 / 会员前的登录墙」时，工具结果和回复里写「〈站点〉要登录，点『打开素材浏览器』登录后再试」；页面上给按钮。`POST /v1/creative/browser/open { url }` 打开窗口并跳到那个站点首页；作者自己扫码或输密码（助手不经手、不替作者点登录），登录后关窗口。
+- **下载器用上登录状态**：~~yt-dlp 用 `--cookies-from-browser` 直接读，不导出 cookie 文件~~（2026-11-10 实测不行：Playwright 用假钥匙串加密，yt-dlp 解不开）→ 下载前用 Playwright `context.cookies(url)` 取该站 cookie，写临时 cookies.txt（专用目录内、0600），`--cookies` 交给 yt-dlp，用完立刻删；§14.1 里的手动 cookie 文件作为备用。下次同站直接成功；登录过期再提示。
+- **管理**：`GET /v1/creative/browser/sites` 列出登录过的站点（只列域名和最后使用时间，不回显 cookie）；`DELETE /v1/creative/browser/sites/:domain` 清掉某站，`DELETE /v1/creative/browser/sites` 全清。页面「素材」面板里有入口。
+- **底线**：登录状态等同账号凭据——只在本机、只给下载器读、不进日志、不进模型上下文、不上传；付费会员内容、DRM 内容照旧不下；只在跑本机栈的电脑上能弹窗，手机走局域网时提示回电脑登录。
+- **验收**：贴 B 站链接 → 下载失败提示要登录 → 点「打开素材浏览器」→ 作者扫码登录、关窗 → 再说「下载这个」成功，`~/ReinLab素材/` 出现「描述__bilibili-BV号.mp4」+ 同名 `.json`；「素材浏览器」里能看到 bilibili.com 并能清掉。

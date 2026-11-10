@@ -2443,3 +2443,121 @@ describe("MVP-2：人物形象（立绘和三视图）", () => {
     expect(person.person.portrait.url).toBe(version.views.portrait.url);
   });
 });
+
+describe("MVP-3 3A：白模与镜头", () => {
+  let dossier = "";
+  let placeId = "";
+  let workId = "";
+  let sceneId = "";
+
+  beforeAll(async () => {
+    const created = await api("/v1/dossiers", {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ bench: "creative", title: "MVP-3 白模测试" }),
+    });
+    dossier = (await created.json()).id;
+    const world = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    await api(`/v1/creative/worlds/${dossier}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: world.world.revision,
+        ops: [
+          { op: "entity.add", entity: { kind: "place", name: "悦来客栈", aliases: [], place: { level: "room", parentId: null, geo: { type: "Point", coordinates: [120.6, 31.31] }, geoCertainty: "exact", connects: [], room: { outline: [[-4, -3], [4, -3], [4, 3], [-4, 3]], height: 3.2, origin: [120.6, 31.31], heading: 0 } } } },
+          { op: "entity.add", entity: { kind: "person", name: "沈砚", aliases: [], person: { body: { heightM: 1.78, build: "slim" } } } },
+        ],
+      }),
+    });
+    const after = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    placeId = after.entities.find((item: any) => item.name === "悦来客栈").id;
+    const work = (await (await api(`/v1/creative/worlds/${dossier}/works`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ kind: "novel", title: "客栈一场" }),
+    })).json());
+    workId = work.id;
+    await api(`/v1/creative/worlds/${dossier}/works/${workId}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: 1,
+        ops: [
+          { op: "outline.set", outline: { logline: "客栈", pov: "三", ending: "夜谈", chapters: [{ id: "c1", title: "第一章", scenes: [{ id: "s1", title: "柜台前", goal: "夜谈", eventIds: [], targetWords: 300 }] }] } },
+          { op: "outline.confirm" },
+          { op: "text.set", sceneId: "s1", baseTextVersion: 0, text: "沈砚走进悦来客栈。\n\n他把旧河道图摊在柜台上。" },
+        ],
+      }),
+    });
+    sceneId = "s1";
+  });
+
+  it("白模有版本；镜头记白模版本，白模更新后标「依据旧了」", async () => {
+    const before = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    const prims = [
+      { op: "whitebox.prim.add", placeId, prim: { kind: "box", c: [0, 0, 0], s: [8, 0.2, 6], label: "地台" } },
+      { op: "whitebox.prim.add", placeId, prim: { kind: "box", c: [0, 0, -3], s: [8, 3.2, 0.2], label: "墙" } },
+    ];
+    const added = await api(`/v1/creative/worlds/${dossier}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: before.world.revision, ops: prims }),
+    });
+    expect(added.status).toBe(200);
+    const box = await (await api(`/v1/creative/worlds/${dossier}/places/${placeId}/whitebox`)).json();
+    expect(box.version).toBe(1);
+    expect(box.prims).toHaveLength(2);
+
+    const world = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    const shot = {
+      op: "shot.add",
+      shot: {
+        n: 1, workId, sceneId, para: 0, durationSec: 5, placeId, whiteboxVersion: box.version,
+        cast: [], camera: { eye: [0, 1.6, 2], target: [0, 1.2, 0], fov: 45 }, action: "沈砚进门",
+      },
+    };
+    const made = await api(`/v1/creative/worlds/${dossier}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({ baseRevision: world.world.revision, ops: [shot] }),
+    });
+    expect(made.status).toBe(200);
+    let shots = await (await api(`/v1/creative/worlds/${dossier}/works/${workId}/scenes/${sceneId}/shots`)).json();
+    expect(shots.shots).toHaveLength(1);
+    expect(shots.shots[0].whiteboxVersion).toBe(1);
+    expect(shots.shots[0].stale).toEqual([]);
+
+    // 白模再出一版：镜头应标「依据旧了」
+    const again = await (await api(`/v1/creative/worlds/${dossier}`)).json();
+    await api(`/v1/creative/worlds/${dossier}/ops`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        baseRevision: again.world.revision,
+        ops: [{ op: "whitebox.prim.add", placeId, prim: { kind: "box", c: [0, 0.6, 0], s: [1.2, 1.2, 0.6], label: "柜台" } }],
+      }),
+    });
+    shots = await (await api(`/v1/creative/worlds/${dossier}/works/${workId}/scenes/${sceneId}/shots`)).json();
+    expect(shots.shots[0].stale.some((item: string) => item.includes("白模出了第 2 版"))).toBe(true);
+  });
+
+  it("预演片段上传后存成资产，镜头上有 preview", async () => {
+    const shots = await (await api(`/v1/creative/worlds/${dossier}/works/${workId}/scenes/${sceneId}/shots`)).json();
+    const shotId = shots.shots[0].id;
+    const form = new FormData();
+    form.set("video", new Blob([new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3])], { type: "video/webm" }), "preview.webm");
+    form.set("poster", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])], { type: "image/png" }), "poster.png");
+    // multipart 不能带 JSON 的 content-type：直接给 app 发请求
+    const uploaded = await app.request(`/v1/creative/worlds/${dossier}/shots/${shotId}/preview`, {
+      method: "POST",
+      body: form,
+      headers: { Cookie: cookieA, Origin: "http://localhost", "X-ReinLab-CSRF": "1" },
+    });
+    expect(uploaded.status).toBe(201);
+    const body = await uploaded.json();
+    expect(body.previewId).toBeTruthy();
+    expect(body.url).toMatch(/^\/v1\/creative\/assets\/files\//);
+    const after = await (await api(`/v1/creative/worlds/${dossier}/works/${workId}/scenes/${sceneId}/shots`)).json();
+    expect(after.shots[0].preview.url).toBe(body.url);
+  });
+});

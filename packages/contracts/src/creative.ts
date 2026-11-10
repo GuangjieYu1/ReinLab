@@ -95,6 +95,13 @@ export type Entity = {
   origin: CreativeProvenance;
   status: Decision;
   place?: {
+    /** MVP-3：房间轮廓/层高/原点/朝向（室外场景也可以当一个没墙的房间）。 */
+    room?: {
+      outline: [number, number][];
+      height: number;
+      origin: LngLat | null;
+      heading: number;
+    } | null;
     level: PlaceLevel;
     parentId: string | null;
     geo: GeoJSON.Geometry | null;
@@ -106,6 +113,8 @@ export type Entity = {
   person?: { born?: string | null; died?: string | null;
     /** MVP-2：外貌描述，设定的一部分（出图只从它读）。 */
     look?: string | null;
+    /** MVP-3：人偶按它摆（身高米、体型）。 */
+    body?: { heightM: number | null; build: 'slim' | 'average' | 'heavy' | null } | null;
     /** MVP-2：选用的立绘（稳定资产 ID + 可直接取的图）。地图上用它当头像；没有就用名字首字。 */
     portrait?: { assetId: string; url: string } | null };
   workRefs: { workId: string; chapterId?: string }[];
@@ -301,7 +310,9 @@ export type Proposal = {
     | 'rule'
     | 'map_edit'
     | 'itinerary'
-    | 'text_edit';
+    | 'text_edit'
+    | 'whitebox'
+    | 'shots';
   title: string;
   summary: string;
   /**
@@ -318,6 +329,8 @@ export type Proposal = {
   /** 「让助手改」时模型判断这段不用改：after 和原文一字不差，前端显示「这段不用改」+ 一键 dismiss。 */
   unchanged?: boolean;
   doubts: string[];
+  /** 白模布局里没满足的摆放要求（人话）。 */
+  unmet?: string[];
   dependsOn: string[];
   conflicts: CreativeConflict[];
   candidates?: { label: string; ops: CreativeOp[]; why: string }[];
@@ -380,10 +393,21 @@ export type CreativeOp =
       decision: 'accepted' | 'rejected' | 'deferred';
       ops?: CreativeOp[];
       candidate?: number;
+      /** 接受镜头表时：替换同一场的现有镜头（默认 true），false = 追加。 */
+      replaceShots?: boolean;
     }
   /** 删约束是明确的设定决定。 */
   | { op: 'constraint.drop'; eventId: string; field: string; reason: string }
   | { op: 'world.set'; patch: Partial<Pick<World, 'title' | 'basemap' | 'artStyle'>> }
+  // ── MVP-3：白模与镜头（契约 §13.4）──
+  | { op: 'place.room.set'; placeId: string; room: NonNullable<NonNullable<Entity['place']>['room']> }
+  | { op: 'whitebox.prim.add'; placeId: string; prim: Omit<WhiteboxPrim, 'id'> & { id?: string } }
+  | { op: 'whitebox.prim.update'; placeId: string; id: string; patch: Partial<WhiteboxPrim> }
+  | { op: 'whitebox.prim.remove'; placeId: string; id: string }
+  | { op: 'shot.add'; shot: Omit<Shot, 'id' | 'stale' | 'preview'> & { id?: string } }
+  | { op: 'shot.update'; id: string; patch: Partial<Shot> }
+  | { op: 'shot.remove'; id: string }
+  | { op: 'shot.reorder'; sceneId: string; order: string[] }
   /** 只在作品里落实：`kind:'text_edit'` 的提议用它（契约 §5.1）。世界观账本不执行。 */
   | ({ op: 'text.set' } & TextEdit);
 
@@ -398,6 +422,13 @@ export type CreativeAppliedOp = CreativeOp & {
     leg?: CreativeRouteLeg;
     proposal?: Proposal;
     removedId?: string;
+    /** MVP-3：白模与镜头。 */
+    placeId?: string;
+    version?: number;
+    prim?: WhiteboxPrim;
+    shot?: Shot;
+    sceneId?: string;
+    id?: string;
   };
 };
 
@@ -530,7 +561,7 @@ export type WorkOp =
   | { op: 'sync.dismiss'; itemId: string; sceneId: string; reason: string };
 
 // ── 设定条目与版本差异（1C，契约 §6.2）──────────
-export type ItemKind = 'entity' | 'relation' | 'event' | 'mode' | 'rule' | 'edit';
+export type ItemKind = 'entity' | 'relation' | 'event' | 'mode' | 'rule' | 'edit' | 'prim' | 'shot';
 
 /** 一条设定条目在两个版本之间的变化。 */
 export type ItemChange = {
@@ -595,7 +626,15 @@ export type ProposalPreview = {
   baseRevision: number;
   workId?: string | null;
   /** 新加的条目；id 是预览用临时 id（`pv:` 开头，同一提议同一修订下稳定）。 */
-  added: { entities: Entity[]; events: WorldEvent[]; relations: Relation[]; rules: WorldRule[] };
+  added: {
+    entities: Entity[];
+    events: WorldEvent[];
+    relations: Relation[];
+    rules: WorldRule[];
+    /** MVP-3：白模部件与镜头。 */
+    prims?: WhiteboxPrim[];
+    shots?: Shot[];
+  };
   /** 改已有条目：复用 1C 的 ItemChange（前后对照）。 */
   changed: ItemChange[];
   removed: { kind: ItemChange['kind']; id: string; title: string }[];
@@ -608,6 +647,8 @@ export type ProposalPreview = {
   conflictsGone: string[];
   /** 名字解析不到的（entityName / placeName），人话。 */
   unresolved: string[];
+  /** 白模摆放里没满足的要求（人话）。 */
+  unmet?: string[];
   /** 这一版替代了旧版时：和旧版比变了什么（条目级）。 */
   vsPrevious?: ItemChange[] | null;
 };
@@ -620,7 +661,7 @@ export type BoardRef =
 /** AI 正在看 / 正在做什么（事件流 creative.focus）。 */
 export type BoardFocus = {
   runId: string;
-  mode: 'creative_advisor' | 'creative_writer';
+  mode: 'creative_advisor' | 'creative_writer' | 'creative_director';
   /** 人话，20 字以内。 */
   step: string;
   refs: BoardRef[];
@@ -666,6 +707,136 @@ export type PersonAsset = {
   selectedVersionId: string | null;
   /** 新的在前。 */
   versions: PersonAssetVersion[];
+};
+
+// ── 白模与镜头（MVP-3，契约 §13.3）──────────────
+export type V3 = [number, number, number];
+
+export type WhiteboxPrim = {
+  id: string;
+  kind: 'box' | 'cylinder' | 'prism';
+  /** 底面中心（米）：y 通常是 0；box 的 s 是长宽高，cylinder/prism 的 s 是 [半径, 高, 0]。 */
+  c: V3;
+  s: V3;
+  sides?: number;
+  rotY?: number;
+  label?: string;
+  entityId?: string | null;
+  /** 材质（前端按它上色；没有就按名字猜）。 */
+  material?: 'plaster' | 'wood' | 'stone' | 'tile' | 'water' | 'plant' | 'cloth' | 'brick' | null;
+  color?: string | null;
+  /** 本来就在房间外面（门外街面这类），不按轮廓校验。 */
+  outside?: boolean;
+  /** 这件是房间壳生成的 / 求解器摆的 / 作者拖过的。 */
+  from?: 'shell' | 'layout' | 'author';
+  /** 对应的 LayoutItem.key（求解器摆的件才有）。 */
+  key?: string;
+};
+
+// ── 白模布局（契约 §13.8）────────────────────────
+export type Side = 'north' | 'south' | 'east' | 'west';
+
+/** 墙上的开口：门、窗。at 是这面墙从西/北端算起的位置（0–1 的中点比例）。 */
+export type Opening = {
+  kind: 'door' | 'window';
+  wall: Side | number;
+  at: number;
+  width: number;
+  height: number;
+  sill?: number;
+  label?: string;
+};
+
+/** 物件之间的关系（软约束尽量满足；硬约束见契约 §13.8）。 */
+export type Relation3 =
+  | { type: 'wall'; side?: Side | 'any' }
+  | { type: 'middle' }
+  | { type: 'corner'; sides?: [Side, Side] }
+  | { type: 'near' | 'far'; of: string }
+  | { type: 'front' | 'behind' | 'beside'; of: string }
+  | { type: 'align'; of: string }
+  | { type: 'face'; of: string | 'door' | Side }
+  | { type: 'on'; of: string };
+
+/** 导演交的一件东西：只给尺寸和关系，不给坐标。 */
+export type LayoutItem = {
+  key: string;
+  label: string;
+  kind: 'box' | 'cylinder';
+  /** box：宽（东西向）× 高 × 深；cylinder：[半径, 高, 0]。 */
+  size: [number, number, number];
+  material?: WhiteboxPrim['material'];
+  color?: string | null;
+  relations: Relation3[];
+  outside?: boolean;
+  entityId?: string | null;
+};
+
+export type Whitebox = { placeId: string; version: number; prims: WhiteboxPrim[]; updatedAt: string };
+
+export type Shot = {
+  id: string;
+  n: number;
+  workId: string;
+  sceneId: string;
+  para?: number | null;
+  durationSec: number;
+  placeId: string;
+  whiteboxVersion: number;
+  cast: {
+    entityId: string;
+    assetVersionId: string | null;
+    at: V3;
+    facing: number;
+    pose: 'stand' | 'sit' | 'walk';
+    to?: V3 | null;
+  }[];
+  camera: { eye: V3; target: V3; fov: number; end?: { eye: V3; target: V3 } | null };
+  action: string;
+  dialogue?: string | null;
+  light?: string | null;
+  /** 出这条镜头时那一场的第 para 段原文（正文改过就标旧）。 */
+  basisText?: string | null;
+  /** 选用的候选（3B）。 */
+  selectedTakeId?: string | null;
+  /** 预演片段（前端录，后端只存）：预览 id、视频地址、首帧地址。 */
+  preview?: { previewId: string; url: string; posterUrl: string | null; at: CreativeIso; mime: string } | null;
+  /** 依据旧了：白模/立绘出新版、正文改过。 */
+  stale?: string[];
+};
+
+export type ShotTake = {
+  id: string;
+  shotId: string;
+  n: number;
+  createdAt: string;
+  state: 'queued' | 'generating' | 'unsaved' | 'saved' | 'failed';
+  url?: string | null;
+  posterUrl?: string | null;
+  durationSec: number;
+  resolution: '480p' | '720p';
+  basis: {
+    shotHash: string;
+    whiteboxVersion: number;
+    refImages: { assetVersionId: string; view: PersonView }[];
+    previewId: string | null;
+    mode: 'reference_video' | 'reference_image_only';
+    /** 出定稿时指向草稿候选。 */
+    draftTakeId?: string | null;
+    prompt: string;
+  };
+  provider: string;
+  model: string;
+  taskId?: string | null;
+  failure?: string | null;
+  cost: CreativeCny | null;
+};
+
+export type SceneCut = {
+  workId: string;
+  sceneId: string;
+  shots: { shotId: string; takeId: string | null }[];
+  file?: { state: 'building' | 'saved' | 'failed'; url?: string | null; durationSec?: number; failure?: string | null } | null;
 };
 
 // ── 快照 ──────────────────────────────────────────

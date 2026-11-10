@@ -9,7 +9,7 @@ import type { Sel } from './Panels';
 import './novel-live.css';
 
 type Target = { workId: string; sceneId?: string; chapterId?: string; para?: number };
-export default function LiveNovel({ adapter, snapshot, onWorld, initial, ...props }: BenchProps & { adapter: CreativeAdapter; snapshot: WorldSnapshot; onWorld: (s?: Sel) => void; initial?: Target }) {
+export default function LiveNovel({ adapter, snapshot, onWorld, onVideo, initial, ...props }: BenchProps & { adapter: CreativeAdapter; snapshot: WorldSnapshot; onWorld: (s?: Sel) => void; onVideo?: () => void; initial?: Target }) {
   const [entry] = useState<Target | undefined>(() => { if (initial) return initial; try { return JSON.parse(localStorage.getItem(`creative-selection:${snapshot.world.id}`) ?? 'null') ?? undefined; } catch { return undefined; } });
   const [works, setWorks] = useState<Work[]>([]), [work, setWork] = useState<Work | null>(null), [workId, setWorkId] = useState(entry?.workId ?? '');
   const [sceneId, setSceneId] = useState(entry?.sceneId ?? ''), [snap, setSnap] = useState(snapshot);
@@ -150,8 +150,8 @@ export default function LiveNovel({ adapter, snapshot, onWorld, initial, ...prop
   // 批次下拉：从已载入的提议里归纳（按章抽取的同一批共用 batchId），标上所属章节，不让用户手填 id
   const batches = [...proposals.reduce((m, p) => { if (p.batchId) { const x = m.get(p.batchId) ?? { id: p.batchId, n: 0, label: p.origin.source ? work?.chapters.find(c => c.id === p.origin.source!.chapterId)?.title : undefined }; x.n++; m.set(p.batchId, x); } return m; }, new Map<string, { id: string; n: number; label?: string }>()).values()];
   const showSource = (p: Proposal) => { const src = p.origin.source; if (src) void navigate({ workId: src.workId, chapterId: src.chapterId, para: src.para }); };
-  return <BenchFrame code="CRTV" section="004" file={props.file} reduced={props.reduced} chrome={props.chrome} face="novel" onFace={f => { if (f === 'world') void goWorld(); }}
-    faces={[{ id: 'world', label: '世界观', en: 'WORLD' }, { id: 'novel', label: '小说', en: 'NOVEL' }, { id: 'video', label: '视频', en: 'VIDEO', locked: true }]}
+  return <BenchFrame code="CRTV" section="004" file={props.file} reduced={props.reduced} chrome={props.chrome} face="novel" onFace={f => { if (f === 'world') void goWorld(); else if (f === 'video' && onVideo) void flush().then(ok => { if (ok) onVideo(); }); }}
+    faces={[{ id: 'world', label: '世界观', en: 'WORLD' }, { id: 'novel', label: '小说', en: 'NOVEL' }, { id: 'video', label: '视频', en: 'VIDEO', locked: !onVideo }]}
     strip={<>《{snapshot.world.title}》 · {work?.title ?? '小说'} · 基于 v{work?.baseVersion ?? '—'}</>}
     status={<><span>真实数据</span><span>{work?.words ?? '—'} 字</span><span>作品修订 {work?.revision ?? '—'}</span><span>累计花费 {jobCost ? money(jobCost) : '未知'}</span></>}>
     <div className="cr rh cw cn"><Explorer code="CRTV" title="novel/" open={xp} onToggle={() => setXp(!xp)} view={xpView} onView={setXpView} sections={sections} />

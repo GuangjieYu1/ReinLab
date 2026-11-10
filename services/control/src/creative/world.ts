@@ -10,6 +10,9 @@
 
 import { randomUUID } from 'node:crypto';
 import type {
+  Shot,
+  Whitebox,
+  WhiteboxPrim,
   CreativeAppliedOp,
   CreativeBasemap,
   Calendar,
@@ -32,6 +35,7 @@ import type {
 } from '@reinlab/contracts';
 import { ApiFailure } from '../api/errors';
 import { boundsOf, parseStoryTime, type StoryTimeContext } from './story-time';
+import { insideRoom } from './whitebox-layout';
 
 export type RoutePathEntry = { legId: string; path: GeoJSON.LineString };
 
@@ -48,6 +52,14 @@ export type CreativeDocument = {
   basemap: CreativeBasemap;
   /** MVP-2：画风（同一世界观共用）。 */
   artStyle?: string | null;
+  /** MVP-3：每个地点的白模（历史版本也在，按 version 取）。 */
+  whiteboxes?: { placeId: string; version: number; prims: unknown[]; updatedAt: string }[];
+  /** MVP-3：镜头（归作品的某一场）。 */
+  shots?: unknown[];
+  /** MVP-3：每个镜头的出片候选与预演。 */
+  takes?: unknown[];
+  /** MVP-3：每场的成片。 */
+  cuts?: unknown[];
   calendars: Calendar[];
   entities: Entity[];
   relations: Relation[];
@@ -336,6 +348,53 @@ export function voidRouteProposals(
   return voided;
 }
 
+/** 白模部件的几何校验（契约 §13.3：c 是底面中心，cylinder/prism 的 s=[半径,高,0]；不许穿层高、不许出轮廓）。 */
+export function validatePrim(room: { outline: [number, number][]; height: number } | null, prim: WhiteboxPrim, outside: boolean): void {
+  if (prim.kind === 'cylinder' || prim.kind === 'prism') {
+    if (Math.abs(prim.s[2]) > 0.001 || prim.s[0] <= 0 || prim.s[1] <= 0)
+      throw fail('INVALID_INPUT', 422, '圆柱/棱柱的 s 要写 [半径, 高, 0]（不是直径，也不要占位 z）。');
+  }
+  if (prim.s.some((value) => !Number.isFinite(value) || value < 0)) throw fail('INVALID_INPUT', 422, '部件的尺寸要是正数。');
+  if (!room) return;
+  const top = prim.c[1] + prim.s[1];
+  if (top > room.height + 0.05)
+    throw fail('PRIM_TOO_TALL', 422, `这个部件高到 ${top.toFixed(2)} 米，超过层高 ${room.height} 米；c 是底面中心（y 一般是 0）。`);
+  if (outside || prim.outside) return;
+  // 按「底面中心」判：贴墙的墙心本来就压着轮廓线，按四角判会把正常墙体当成出界
+  if (!insideRoom(room.outline, prim.c[0], prim.c[2]))
+    throw fail('PRIM_OUTSIDE_ROOM', 422, '这个部件出了房间轮廓；本来就在室外（门外街面）的部件请标 outside: true。');
+}
+
+/** MVP-3：某个地点当前的白模。 */
+export function currentWhitebox(document: CreativeDocument, placeId: string): Whitebox | undefined {
+  return ((document.whiteboxes ?? []) as Whitebox[])
+    .filter((box) => box.placeId === placeId)
+    .sort((a, b) => a.version - b.version)
+    .at(-1);
+}
+
+/** 写白模：同一批只升一次版本，之后的改动叠在同一版上。 */
+function writeWhitebox(
+  document: CreativeDocument,
+  placeId: string,
+  prims: WhiteboxPrim[],
+  at: string,
+  bumped: Set<string>,
+): void {
+  const boxes = (document.whiteboxes ?? []) as Whitebox[];
+  if (bumped.has(placeId)) {
+    const last = currentWhitebox(document, placeId);
+    if (last) {
+      last.prims = prims;
+      last.updatedAt = at;
+      return;
+    }
+  }
+  const version = (currentWhitebox(document, placeId)?.version ?? 0) + 1;
+  document.whiteboxes = [...boxes, { placeId, version, prims, updatedAt: at }];
+  bumped.add(placeId);
+}
+
 /** 一个批次的纯计算：要么全成，要么抛错（调用方回滚事务）。 */
 export function applyOps(
   document: CreativeDocument,
@@ -350,6 +409,8 @@ export function applyOps(
   const at = options.at ?? new Date().toISOString();
   /** 这一批里刚建出来的实体 id：同批的后续操作按名字引用时要优先认它们。 */
   const createdHere = new Set<string>();
+  /** MVP-3：这一批已经升过版本的地点（同一批的多次部件改动叠在一版上）。 */
+  const bumpedWhiteboxes = new Set<string>();
   /** 预览：解析不到的名字记在这里，不抛错。 */
   const unresolved = options.unresolved ?? new Set<string>();
   const tolerant = options.tolerant === true;
@@ -681,7 +742,7 @@ export function applyOps(
         const chosen = op.candidate !== undefined ? proposal.candidates?.[op.candidate] : undefined;
         if (op.candidate !== undefined && !chosen) throw fail('INVALID_INPUT', 400, '没有这个候选。');
         // 页面只发「接受」时，用提议自己带的 ops（路线、经历、合并候选都靠它）。
-        const decideOps = op.ops ?? chosen?.ops ?? proposal.ops ?? [];
+        let decideOps = op.ops ?? chosen?.ops ?? proposal.ops ?? [];
         next.proposals[index] = {
           ...proposal,
           status: op.decision,
@@ -693,6 +754,29 @@ export function applyOps(
             by: options.actor,
           },
         };
+        // 地点已经有房间就别再被提议里的 room 覆盖（契约 §13.8）
+        const roomSetTargets = new Set(
+          decideOps
+            .filter((item) => item.op === 'place.room.set')
+            .map((item) => (item as { placeId?: string }).placeId)
+            .filter((placeId): placeId is string => Boolean(placeId)),
+        );
+        for (const placeId of roomSetTargets) {
+          const place = next.entities.find((item) => item.id === placeId);
+          if (place?.place?.room)
+            decideOps = decideOps.filter((item) => !(item.op === 'place.room.set' && (item as { placeId?: string }).placeId === placeId));
+        }
+        // 接受镜头表：默认替换同一场的现有镜头（契约 §13.8 复验 4），replaceShots:false 才追加
+        if (op.decision === 'accepted' && proposal.kind === 'shots' && (op.replaceShots ?? true)) {
+          const scenes = new Set(
+            decideOps
+              .filter((item) => item.op === 'shot.add')
+              .map((item) => `${(item as { shot?: { workId?: string; sceneId?: string } }).shot?.workId}|${(item as { shot?: { workId?: string; sceneId?: string } }).shot?.sceneId}`),
+          );
+          next.shots = ((next.shots ?? []) as { workId?: string; sceneId?: string }[]).filter(
+            (shot) => !scenes.has(`${shot.workId}|${shot.sceneId}`),
+          );
+        }
         // 「修改后接受」：页面改过的 ops 先执行，再把提议标成接受。
         if (op.decision === 'accepted' && decideOps.length) {
           const nested = applyOps(next, decideOps, options);
@@ -737,6 +821,106 @@ export function applyOps(
         event.gaps = gapsOf(event, next);
         touchedEvents.add(event.id);
         push({ event });
+        break;
+      }
+      // ── MVP-3：白模与镜头 ──
+      case 'place.room.set': {
+        const place = next.entities.find((item) => item.id === op.placeId);
+        if (!place || place.kind !== 'place') throw fail('ENTITY_NOT_FOUND', 404, '没有这个地点。');
+        const room = op.room;
+        if (!Array.isArray(room.outline) || room.outline.length < 3)
+          throw fail('INVALID_INPUT', 422, '房间轮廓至少要三个点。');
+        if (!(room.height > 0.5 && room.height < 30)) throw fail('INVALID_INPUT', 422, '层高要在 0.5–30 米之间。');
+        // 只补房间，不动 place.geo / level / parentId 这些
+        place.place = { ...(place.place ?? { level: 'room', parentId: null, geo: null, geoCertainty: 'unlocated', connects: [] }), room };
+        push({ placeId: op.placeId });
+        break;
+      }
+      case 'whitebox.prim.add':
+      case 'whitebox.prim.update':
+      case 'whitebox.prim.remove': {
+        const placeId = op.placeId;
+        const place = next.entities.find((item) => item.id === placeId);
+        if (place && place.kind !== 'place') throw fail('INVALID_INPUT', 400, '白模只能挂在地点上。');
+        const before = currentWhitebox(next, placeId);
+        const prims: WhiteboxPrim[] = JSON.parse(JSON.stringify(before?.prims ?? []));
+        if (op.op === 'whitebox.prim.add') {
+          const prim = { ...op.prim, id: (op.prim as { id?: string }).id ?? ids() } as WhiteboxPrim;
+          try {
+            validatePrim(place?.place?.room ?? null, prim, Boolean(prim.outside));
+          } catch (error) {
+            // 预览：几何不合规的部件跳过并记进 unresolved，其余照画
+            if (tolerant) {
+              unresolved.add(`${String(prim.label ?? prim.kind)}：${(error as Error).message}`);
+              continue;
+            }
+            throw error;
+          }
+          // 同一个 key 再交一次 = 改这件（改版合并、作者拖过都靠它，不会越堆越多）
+          const sameKey = prim.key ? prims.findIndex((item) => item.key === prim.key) : -1;
+          if (sameKey >= 0) prims[sameKey] = { ...prims[sameKey], ...prim } as WhiteboxPrim;
+          else prims.push(prim);
+        } else if (op.op === 'whitebox.prim.update') {
+          const index = prims.findIndex((item) => item.id === op.id);
+          if (index < 0) throw fail('PRIM_NOT_FOUND', 404, '白模里没有这个部件。');
+          const touched = Boolean(op.patch.c || op.patch.s || op.patch.rotY);
+          const merged = { ...prims[index], ...op.patch, ...(touched && prims[index].from !== 'shell' ? { from: 'author' as const } : {}) };
+          // 作者拖动也要过同一套硬约束（出房间、超高、穿模靠不重叠由前端另外提示）
+          try {
+            validatePrim(place?.place?.room ?? null, merged, Boolean(merged.outside));
+          } catch (error) {
+            if (tolerant) unresolved.add(`${merged.label ?? merged.kind}：${(error as Error).message}`);
+            else throw error;
+          }
+          prims[index] = merged;
+        } else {
+          const index = prims.findIndex((item) => item.id === op.id);
+          if (index < 0) throw fail('PRIM_NOT_FOUND', 404, '白模里没有这个部件。');
+          prims.splice(index, 1);
+        }
+        writeWhitebox(next, placeId, prims, at, bumpedWhiteboxes);
+        const box = currentWhitebox(next, placeId)!;
+        // 先接受镜头、后接受白模：同一地点上引用旧版（含 0）的镜头直接升到新版本，不标旧
+        next.shots = ((next.shots ?? []) as Shot[]).map((shot) =>
+          // 只把「还没有白模版本（0）」的镜头直接升到这一版；已经有版本的保持原样，由 stale 提示
+          shot.placeId === placeId && shot.whiteboxVersion === 0 ? { ...shot, whiteboxVersion: box.version } : shot,
+        );
+        push({ placeId, version: box.version });
+        break;
+      }
+      case 'shot.add': {
+        const shot = { ...op.shot, id: (op.shot as { id?: string }).id ?? ids() } as Shot;
+        next.shots = [...((next.shots ?? []) as Shot[]), shot];
+        push({ shot });
+        break;
+      }
+      case 'shot.update': {
+        const list = (next.shots ?? []) as Shot[];
+        const index = list.findIndex((item) => item.id === op.id);
+        if (index < 0) throw fail('SHOT_NOT_FOUND', 404, '没有这个镜头。');
+        list[index] = { ...list[index], ...op.patch };
+        next.shots = list;
+        push({ shot: list[index] });
+        break;
+      }
+      case 'shot.remove': {
+        const list = ((next.shots ?? []) as Shot[]).filter((item) => item.id !== op.id);
+        if (list.length === ((next.shots ?? []) as Shot[]).length) throw fail('SHOT_NOT_FOUND', 404, '没有这个镜头。');
+        next.shots = list;
+        push({ id: op.id });
+        break;
+      }
+      case 'shot.reorder': {
+        const list = (next.shots ?? []) as Shot[];
+        const sceneIds = new Set(op.order);
+        const ordered = op.order.map((id, index) => {
+          const shot = list.find((item) => item.id === id);
+          if (!shot) throw fail('SHOT_NOT_FOUND', 404, '排序里有不存在的镜头。');
+          return { ...shot, n: index + 1 };
+        });
+        const rest = list.filter((item) => item.sceneId !== list.find((shot) => sceneIds.has(shot.id))?.sceneId);
+        next.shots = [...rest, ...ordered];
+        push({ sceneId: op.sceneId });
         break;
       }
       case 'world.set': {

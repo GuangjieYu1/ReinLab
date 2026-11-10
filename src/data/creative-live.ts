@@ -5,7 +5,7 @@ import { readEventStream, request } from './research-live';
 
 const enc = encodeURIComponent;
 
-async function call<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
+async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
   try { return await request(method, path, body) as T; }
   catch (e) { const x = e as { message?: string; code?: string; detail?: unknown }; throw new CreativeError(x.message ?? '没有成功', x.code ?? 'UNKNOWN', x.detail); }
 }
@@ -33,13 +33,31 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement('a'); a.href = url; a.download = `小说.${format}`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
-    startAssistant: async (query, mode, workId, sceneId) => {
-      const run = await call<{ id: string }>('POST', '/v1/kernel/runs', { dossierId, query, mode, workId, sceneId });
+    startAssistant: async (query, mode, workId, sceneId, placeId) => {
+      const run = await call<{ id: string }>('POST', '/v1/kernel/runs', { dossierId, query, mode, workId, sceneId, ...(placeId ? { placeId } : {}) });
       localStorage.setItem(`creative-assistant:${dossierId}:${mode}`, run.id);
       return run;
     },
     sayAssistant: (id, query, about) => call('POST', `/v1/kernel/runs/${enc(id)}/messages`, { query, ...(about ? { about } : {}) }),
     preview: (pid, workId) => call('GET', `${base}/proposals/${enc(pid)}/preview${workId ? `?workId=${enc(workId)}` : ''}`),
+    whitebox: (pid, version) => call('GET', `${base}/places/${enc(pid)}/whitebox${version ? `?version=${version}` : ''}`),
+    shots: (wid, sid) => call('GET', `${base}/works/${enc(wid)}/scenes/${enc(sid)}/shots`),
+    browserOpen: url => call('POST', '/v1/creative/browser/open', { url }),
+    browserSites: () => call('GET', '/v1/creative/browser/sites'),
+    browserClear: domain => call('DELETE', `/v1/creative/browser/sites${domain ? '/' + enc(domain) : ''}`),
+    drawTake: (shotId, req) => call('POST', `${base}/shots/${enc(shotId)}/takes`, req),
+    retryTake: takeId => call('POST', `${base}/takes/${enc(takeId)}/retry`, {}),
+    selectTake: (shotId, takeId) => call('PUT', `${base}/shots/${enc(shotId)}/selected`, { takeId }),
+    cutScene: sceneId => call('POST', `${base}/scenes/${enc(sceneId)}/cut`, {}),
+    uploadPreview: async (shotId, video, poster) => {
+      const form = new FormData();
+      form.append('video', video, video.type.includes('mp4') ? 'preview.mp4' : 'preview.webm');
+      if (poster) form.append('poster', poster, 'poster.png');
+      const res = await fetch(`/backend${base}/shots/${enc(shotId)}/preview`, { method: 'POST', body: form, credentials: 'same-origin', headers: { 'X-ReinLab-CSRF': '1', 'Idempotency-Key': crypto.randomUUID() } });
+      const value = await res.json().catch(() => null);
+      if (!res.ok) throw new CreativeError(value?.message ?? '预演片段没传上去', value?.code ?? `HTTP_${res.status}`, value);
+      return value;
+    },
     asset: eid => call('GET', `${base}/entities/${enc(eid)}/asset`),
     drawAsset: (eid, req) => call('POST', `${base}/entities/${enc(eid)}/asset/versions`, req),
     assetVersion: (eid, vid, action) => call('POST', `${base}/entities/${enc(eid)}/asset/versions/${enc(vid)}/${action}`, {}),
@@ -48,7 +66,7 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
     runs: async () => {
       const page = await call<{ runs: { id: string; mode?: string; state: string }[] }>('GET', `/v1/kernel/dossiers/${enc(dossierId)}/runs`);
       // 内核列表的 mode 是 creative；本机记录启动时选择的具体角色，用于断线恢复。
-      for (const mode of ['creative_advisor', 'creative_writer']) {
+      for (const mode of ['creative_advisor', 'creative_writer', 'creative_director']) {
         const id = localStorage.getItem(`creative-assistant:${dossierId}:${mode}`);
         const row = page.runs.find(r => r.id === id);
         if (row) row.mode = mode;

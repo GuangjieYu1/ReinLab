@@ -22,7 +22,7 @@ import { appendEvents, cursorOf } from './events';
 import { buildLegs, routingSignatureOf } from './routing';
 import { buildTracks, type TrackRange } from './tracks';
 import { edgeCount, fetchOsmEdges, importAzgaar, insertEdges, syncEditEdges, type OverpassTransport } from './network';
-import { applyOps, emptyDocument, worldOf, type CreativeDocument } from './world';
+import { applyOps, currentWhitebox, emptyDocument, worldOf, type CreativeDocument } from './world';
 import { diffDocuments } from './items';
 import { selectedPortraits } from './asset-query';
 
@@ -304,9 +304,31 @@ export async function applyBatch(
   const legEvents = legs
     .filter((leg) => touchedLegIds.has(leg.id))
     .map((leg) => ({ type: 'creative.leg', data: leg }));
+  // MVP-3：白模、镜头变了各推一条
+  const touches = new Set<string>();
+  const scenes = new Set<string>();
+  for (const applied of outcome.applied) {
+    const result = applied.result as { placeId?: string; sceneId?: string; shot?: { workId?: string; sceneId?: string }; version?: number; id?: string };
+    if (result.placeId) touches.add(result.placeId);
+    if (result.shot) scenes.add(`${result.shot.workId}|${result.shot.sceneId}`);
+    if (result.id === undefined && result.sceneId) scenes.add(result.sceneId);
+  }
+  const mvp3Events: { type: string; data: unknown }[] = [];
+  for (const placeId of touches) {
+    const box = currentWhitebox(outcome.next, placeId);
+    if (box) mvp3Events.push({ type: 'creative.whitebox', data: box });
+  }
+  for (const key of scenes) {
+    const [workId, sceneId] = key.includes('|') ? key.split('|') : ['', key];
+    const shots = ((outcome.next.shots ?? []) as { workId?: string; sceneId?: string }[]).filter(
+      (shot) => shot.sceneId === sceneId && (!workId || shot.workId === workId),
+    );
+    if (shots.length) mvp3Events.push({ type: 'creative.shot', data: { workId, sceneId, shots } });
+  }
   await appendEvents(client, { account, dossier }, [
     { type: 'creative.op', data: { revision, applied: outcome.applied } },
     ...legEvents,
+    ...mvp3Events,
     { type: 'creative.check', data: check },
   ]);
 

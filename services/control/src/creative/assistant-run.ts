@@ -16,13 +16,15 @@ import { loadWorld } from './service';
 import { runGenerate, startGenerate, type WriterDeps } from './writer';
 import { runTurn } from './assistant-session';
 
-export type CreativeMode = 'creative_advisor' | 'creative_writer';
+export type CreativeMode = 'creative_advisor' | 'creative_writer' | 'creative_director';
 
 export type CreativeRunDeps = {
   db: import('../db/database').Database;
   advisor?: AdvisorDeps;
   writer?: WriterDeps;
   chat?: import('./assistant-session').ChatDeps;
+  /** download_video（契约 §14.7/14.8）。 */
+  download?: import('./download').DownloadDeps;
 };
 
 const ROLE = 'bench-assist';
@@ -31,7 +33,7 @@ const ROLE = 'bench-assist';
 export async function createCreativeRun(
   client: pg.PoolClient,
   account: string,
-  input: { dossierId: string; mode: CreativeMode; query: string; workId?: string; sceneId?: string },
+  input: { dossierId: string; mode: CreativeMode; query: string; workId?: string; sceneId?: string; placeId?: string },
 ): Promise<string> {
   const dossier = (
     await client.query('select bench from dossier where id=$1 and account_id=$2', [input.dossierId, account])
@@ -54,6 +56,7 @@ export async function createCreativeRun(
         creativeMode: input.mode,
         ...(input.workId ? { workId: input.workId } : {}),
         ...(input.sceneId ? { sceneId: input.sceneId } : {}),
+        ...(input.placeId ? { placeId: input.placeId } : {}),
       }),
     ],
   );
@@ -93,7 +96,7 @@ export async function runCreativeSession(
     ).rows[0];
     return String(row?.input.query ?? '');
   });
-  await runTurn({ db: deps.db, ...(deps.chat ? { chat: deps.chat } : {}) }, account, runId, query);
+  await runTurn({ db: deps.db, ...(deps.chat ? { chat: deps.chat } : {}), ...(deps.download ? { download: deps.download } : {}) }, account, runId, query);
 }
 
 async function legacySession(
