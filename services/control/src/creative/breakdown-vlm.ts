@@ -41,9 +41,10 @@ export async function describeShots(
         model: config.model ?? 'doubao-seed-2-1-pro-260915',
         messages: [{ role: 'user', content }],
         temperature: 0.3,
-        max_tokens: 2000,
+        max_tokens: 700,
+        ...(process.env.REINLAB_VISION_NO_THINK === '1' ? { thinking: { type: 'disabled' } } : {}),
       }),
-      signal: AbortSignal.timeout(180_000),
+      signal: AbortSignal.timeout(300_000),
     });
     const text = await response.text();
     if (!response.ok) throw new Error(`视觉模型拒绝（${response.status}）：${text.slice(0, 200)}`);
