@@ -526,6 +526,8 @@ export type RunToolContext = {
   runId: string;
   /** download_video 的依赖（yt-dlp 路径、素材文件夹）。 */
   download?: import('./download').DownloadDeps;
+  /** 长任务进度要单独提交，不能用外层事务的连接。 */
+  db?: import('../db/database').Database;
   /** 作者在看板虚影上点「改一下」时带的提议 id：交新版时默认替代它。 */
   about?: string;
   /** 本轮新建的提议 id（回复里可以引用）。 */
@@ -899,21 +901,19 @@ export async function runTool(
           ...(call.input.note ? { note: String(call.input.note) } : {}),
           // 下载/拆解一开始就推进度，别让作者看着像卡死
           onProgress: (info) => {
-            void appendEvents(client, { account, dossier }, [
-              {
-                type: 'creative.focus',
-                data: {
-                  runId: defs.runId,
-                  mode,
-                  step: info.step.slice(0, 20),
-                  refs: [],
-                  ...(info.done !== undefined && info.total !== undefined ? { progress: { done: info.done, total: info.total } } : {}),
-                  ...(info.detail ? { detail: info.detail.slice(0, 200) } : {}),
-                },
-              },
-            ]).catch(() => undefined);
+            // 进度必须立刻可见：单开连接提交，不能等外层事务
+            if (!defs.db) return;
+            void pushFocus(defs.db, account, dossier, {
+              runId: defs.runId,
+              mode,
+              step: info.step.slice(0, 20),
+              refs: [],
+              ...(info.done !== undefined && info.total !== undefined ? { progress: { done: info.done, total: info.total } } : {}),
+              ...(info.detail ? { detail: info.detail.slice(0, 200) } : {}),
+            }).catch(() => undefined);
           },
         });
+        if (file.usage && (file.usage.inputTokens || file.usage.outputTokens)) await recordBreakdownUsage(defs, file.usage);
         return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。${file.markdown ? '拆解表也写好了，用 read_reference 看。' : '拆解没做成。'}同名的 .json 记了来源。`, refs: [] };
       } catch (error) {
         if (error instanceof LoginRequiredError)
@@ -1042,6 +1042,22 @@ async function createProposal(
   };
 }
 
+const recordBreakdownUsage = async (
+  defs: RunToolContext,
+  usage: { inputTokens: number | null; outputTokens: number | null },
+): Promise<void> => {
+  if (!defs.db) return;
+  await defs.db
+    .withAccount(defs.account, (client) =>
+      client.query(
+        `insert into usage_record(id,account_id,dossier_id,run_id,provider,model,known,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_cny,purpose,note)
+         values(gen_random_uuid(),$1,$2,$3,'volcengine-ark','doubao-seed-2-1-pro-260915',false,$4,$5,null,null,null,'creative_breakdown','视觉拆解用量；单价未知，按未知记')`,
+        [defs.account, defs.dossier, defs.runId, usage.inputTokens, usage.outputTokens],
+      ),
+    )
+    .catch(() => undefined);
+};
+
 const pushFocus = async (
   db: import('../db/database').Database,
   account: string,
@@ -1139,7 +1155,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
         const results: string[] = [];
         for (const call of turn.toolCalls) {
           const outcome = await deps.db.withAccount(account, (client) =>
-            runTool({ client, account, dossier, context, role, runId, ...(about ? { about } : {}), ...(deps.download ? { download: deps.download } : {}), proposals }, call),
+            runTool({ client, account, dossier, context, role, runId, ...(about ? { about } : {}), ...(deps.download ? { download: deps.download } : {}), db: deps.db, proposals }, call),
           );
           // 看板「正在看」：每次读工具推一条，refs 是这次读到的东西，step 服务端写（契约 §11.4）
           const focus = focusStep(call.name, call.input);

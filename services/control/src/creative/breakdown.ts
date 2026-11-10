@@ -13,6 +13,7 @@ const run = promisify(execFile);
 
 export type BreakdownShot = { n: number; startSec: number; endSec: number; keyframes: string[] };
 export type Breakdown = { source: string; durationSec: number | null; shots: BreakdownShot[] };
+export type BreakdownUsage = { inputTokens: number | null; outputTokens: number | null };
 
 const ffmpegPathOf = (path?: string) => path ?? '/opt/homebrew/bin/ffmpeg';
 
@@ -37,6 +38,18 @@ export async function detectScenes(ffmpeg: string | undefined, videoPath: string
   }
 }
 
+/** 量视频实际时长（切片后以文件为准，不用平台元数据）。 */
+export async function probeDuration(ffmpeg: string | undefined, videoPath: string): Promise<number | null> {
+  try {
+    const { stderr } = await run(ffmpegPathOf(ffmpeg), ['-i', videoPath], { maxBuffer: 8 * 1024 * 1024 }).catch((error) => ({ stderr: String((error as { stderr?: string }).stderr ?? '') }));
+    const match = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+    if (!match) return null;
+    return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+  } catch {
+    return null;
+  }
+}
+
 /** 拆解一个已经下载好的视频，在它旁边写 .md 和 .json。 */
 export async function breakdownVideo(
   deps: { ffmpegPath?: string; vision?: import('./breakdown-vlm').VisionConfig | null },
@@ -48,12 +61,13 @@ export async function breakdownVideo(
     durationSec: number | null;
     onProgress?: (info: { step: string; done?: number; total?: number; detail?: string }) => void;
   },
-): Promise<{ markdownPath: string; shots: BreakdownShot[] }> {
+): Promise<{ markdownPath: string; shots: BreakdownShot[]; usage: BreakdownUsage | null }> {
   input.onProgress?.({ step: '切镜头' });
   const shots = await detectScenes(deps.ffmpegPath, input.videoPath, input.durationSec);
   const framesDir = `${input.basePath}.frames`;
   await run('mkdir', ['-p', framesDir]);
   try {
+    let usage: BreakdownUsage | null = null;
     const result: BreakdownShot[] = [];
     for (const [index, shot] of shots.entries()) {
       const middle = (shot.startSec + shot.endSec) / 2;
@@ -81,6 +95,7 @@ export async function breakdownVideo(
           },
         );
         described = vision.shots;
+        usage = { inputTokens: vision.inputTokens, outputTokens: vision.outputTokens };
         console.log(JSON.stringify({ code: 'BREAKDOWN_VISION_USAGE', inputTokens: vision.inputTokens, outputTokens: vision.outputTokens }));
       } catch (error) {
         console.error(JSON.stringify({ code: 'BREAKDOWN_VISION_FAILED', message: (error as Error).message.slice(0, 160) }));
@@ -106,7 +121,7 @@ export async function breakdownVideo(
     ];
     await writeFile(`${input.basePath}.md`, `${lines.join('\n')}\n`);
     await writeFile(`${input.basePath}.json`, JSON.stringify({ ...input, shots: result }, null, 2));
-    return { markdownPath: `${input.basePath}.md`, shots: result };
+    return { markdownPath: `${input.basePath}.md`, shots: result, usage };
   } catch (error) {
     await rm(framesDir, { recursive: true, force: true }).catch(() => undefined);
     throw error;

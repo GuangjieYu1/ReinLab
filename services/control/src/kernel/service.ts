@@ -131,6 +131,8 @@ export class KernelService {
    * 但页面恰好在那一刻刷收件箱就会把刚建好的运行标成中断（验收时真的发生过）。
    */
   private readonly starting = new Set<string>();
+  /** 控制面自己跑的长会话（创作台助手）：登记成「活着」，别被巡检当成中断。 */
+  private readonly externalLive = new Set<string>();
   private readonly sessions = new Map<string, string>();
   private readonly now: () => number;
   private swarm: SwarmHooks | undefined;
@@ -694,7 +696,14 @@ export class KernelService {
     return { ok: false, reason: lastReason };
   }
 
+  /** 控制面自己跑的长会话上线/下线（创作台助手）。 */
+  beginExternal(runId: string): () => void {
+    this.externalLive.add(runId);
+    return () => this.externalLive.delete(runId);
+  }
+
   isLive(runId: string): boolean {
+    if (this.externalLive.has(runId)) return true;
     if (this.starting.has(runId)) return true;
     return (this.handles.get(runId)?.size ?? 0) > 0;
   }

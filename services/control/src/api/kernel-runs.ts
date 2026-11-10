@@ -154,6 +154,8 @@ export function registerKernelRuns(
     if (!created) return response;
     if (creativeMode) {
       // 创作台会话跑在控制面里：一条消息一条事件，页面照常订阅 /v1/kernel/runs/:id/stream。
+      // 长会话（下载/拆解）登记成活着，巡检不会把它当成中断
+      const releaseLive = dependencies.kernel?.beginExternal(created);
       void runCreativeSession(
         {
           db: dependencies.db,
@@ -168,7 +170,8 @@ export function registerKernelRuns(
         console.error(
           JSON.stringify({ code: "CREATIVE_SESSION_FAILED", message: String((error as Error)?.message ?? error).slice(0, 200) }),
         );
-      });
+      })
+        .finally(() => releaseLive?.());
       return response;
     }
     if (lastInput?.mode === "swarm") {

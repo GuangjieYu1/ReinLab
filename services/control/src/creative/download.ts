@@ -96,7 +96,7 @@ const rangeFromNote = (note?: string): { from?: string; to?: string } => {
 export async function downloadVideo(
   deps: DownloadDeps,
   input: { url: string; from?: string; to?: string; note?: string; onProgress?: (info: { step: string; done?: number; total?: number; detail?: string }) => void },
-): Promise<{ name: string; path: string; title: string; site: string; videoId: string; durationSec: number | null; description: string; markdown: string | null }> {
+): Promise<{ name: string; path: string; title: string; site: string; videoId: string; durationSec: number | null; description: string; markdown: string | null; usage: { inputTokens: number | null; outputTokens: number | null } | null }> {
   const folder = folderOf(deps);
   await mkdir(folder, { recursive: true });
   const readme = join(folder, '说明.md');
@@ -108,6 +108,7 @@ export async function downloadVideo(
   const dir = await mkdtemp(join(tmpdir(), 'reinlab-dl-'));
   let cookieFile: string | null = null;
   try {
+    // 切片时以文件实际时长为准（平台元数据是全片的）
     const site = siteOf(input.url);
     // 先把素材浏览器里的登录临时导出成 cookies.txt：取信息和下载两步都要带，B 站在取信息这一步就会 412
     let cookieArgs: string[] = [];
@@ -164,6 +165,8 @@ export async function downloadVideo(
     const name = `${base}.mp4`;
     const target = join(folder, name);
     await rename(join(dir, file), target);
+    // 切片时以文件实际时长为准（平台元数据是全片的）
+    const clippedDuration = await (await import('./breakdown')).probeDuration(process.env.REINLAB_FFMPEG ?? '/opt/homebrew/bin/ffmpeg', target).catch(() => null);
     await writeFile(
       join(folder, `${base}.json`),
       JSON.stringify(
@@ -174,7 +177,7 @@ export async function downloadVideo(
           title,
           author: uploader ?? null,
           fetchedAt: new Date().toISOString(),
-          durationSec,
+          durationSec: clippedDuration ?? durationSec,
           description,
           tags: [],
           note: '这里的视频只用于拆解和参考，不放进作品、不外传。',
@@ -186,6 +189,7 @@ export async function downloadVideo(
     // 下载完自动拆解（契约 §14.2）：场景切分 + 关键帧 + .md/.json；失败不影响下载结果
     const basePath = target.replace(/\.mp4$/i, '');
     let markdown: string | null = null;
+    let usage: { inputTokens: number | null; outputTokens: number | null } | null = null;
     try {
       const { breakdownVideo } = await import('./breakdown');
       const result = await breakdownVideo({ ffmpegPath: process.env.REINLAB_FFMPEG ?? '/opt/homebrew/bin/ffmpeg', ...(deps.vision ? { vision: deps.vision } : {}) }, {
@@ -193,14 +197,15 @@ export async function downloadVideo(
         basePath,
         title,
         url: input.url,
-        durationSec,
+        durationSec: clippedDuration ?? durationSec,
         ...(input.onProgress ? { onProgress: input.onProgress } : {}),
       });
       markdown = result.markdownPath;
+      usage = result.usage;
     } catch (error) {
       console.error(JSON.stringify({ code: 'BREAKDOWN_FAILED', message: (error as Error).message.slice(0, 160) }));
     }
-    return { name, path: target, title, site, videoId, durationSec, description, markdown };
+    return { name, path: target, title, site, videoId, durationSec: clippedDuration ?? durationSec, description, markdown, usage };
   } finally {
     if (cookieFile) await rm(cookieFile, { force: true });
     await rm(dir, { recursive: true, force: true });
