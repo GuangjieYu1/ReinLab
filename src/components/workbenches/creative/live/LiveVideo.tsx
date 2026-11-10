@@ -7,6 +7,7 @@ import type { BenchProps } from '../../WorkbenchStudio';
 import { CreativeError, type CreativeAdapter } from './adapter';
 import { ProposalBar } from './Board';
 import { exportGlb } from './gltf';
+import { innLobbyTemplate } from './furniture';
 import { CreativeAssistant } from './NovelPanels';
 import { fileUrl } from './PersonLook';
 import { recordShot, Viewport3, type Doll, type Mark, type Scene3, type ViewportHandle } from './Viewport3';
@@ -133,6 +134,15 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   });
   const cleanSceneFor = (s: Shot): Scene3 => ({ ...cleanScene, dolls: s.cast.map(c => { const p = person(c.entityId); return { id: c.entityId, name: p?.name ?? '', at: c.at, to: c.to, facing: c.facing, heightM: p?.person?.body?.heightM ?? 1.7, build: p?.person?.body?.build ?? null, color: cloth[c.entityId] }; }) });
   const decide = (p: Proposal, d: 'accepted' | 'rejected') => act(async () => { await ops([{ op: 'proposal.decide', id: p.id, decision: d }]); setGhostId(null); await Promise.all([loadShots(), loadWb(), loadProps()]); });
+  // 场景模板（试做）：按当前房间轮廓摆一套；已有白模就先问要不要清掉
+  const applyTemplate = (name: string) => act(async () => {
+    if (!room || !placeId) throw new Error('这个地点还没有房间轮廓，先定房间尺寸再套模板。');
+    const old = wb?.prims ?? [];
+    if (old.length && !window.confirm(`这个房间已有 ${old.length} 个白模部件，先清掉再套「${name}」？`)) return;
+    const prims = name === '客栈门厅' ? innLobbyTemplate(room.outline, room.height) : [];
+    await ops([...old.map(p => ({ op: 'whitebox.prim.remove' as const, placeId, id: p.id })), ...prims.map(prim => ({ op: 'whitebox.prim.add' as const, placeId, prim: prim as never }))]);
+    await loadWb(); vp.current?.fit();
+  });
   const glb = () => act(async () => { const place = snap.entities.find(e => e.id === placeId); await exportGlb(`${place?.name ?? '白模'}-白模-v${wb?.version ?? 0}`, placeId, room, wb?.prims ?? [], dolls.filter(d => !d.ghost)); });
 
   const stepLabel = ai ? `导演 · ${ai.step}` : null;
@@ -158,7 +168,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
             <input className="lv-scrub" type="range" min={0} max={1} step={.01} value={t} onChange={e => { setPlaying(false); setT(+e.target.value); }} aria-label="预演进度" /></>}
           <button className="rh-btn" onClick={() => vp.current?.fit()}>看全部</button><span className="lv-grow" />
           {shot && !isGhost(shot.id) && <button className="rh-btn" disabled={busy || !!rec} onClick={() => void record(shot)}>{rec?.id === shot.id ? `录制中 ${Math.round(rec.t * 100)}%` : shot.preview ? '重录预演' : '录预演'}</button>}
-          <button className="rh-btn" disabled={busy || !wb} onClick={() => void glb()}>导出 glTF</button>
+          <select aria-label="套用场景模板" value="" disabled={busy || !room} onChange={e => { const v = e.target.value; if (v) void applyTemplate(v); }}><option value="">套用场景模板…</option><option value="客栈门厅">客栈门厅</option></select><button className="rh-btn" disabled={busy || !wb} onClick={() => void glb()}>导出 glTF</button>
         </header>
         <div className="lv-view">
           <Viewport3 ref={vp} scene={scene3} cam={shot?.camera ?? null} mode={mode} t={t} selDoll={selDoll} editable={editable} onSelDoll={setSelDoll} onMoveDoll={moveDoll} onMoveCam={moveCam} onMovePrim={busy || rec ? undefined : movePrim} onCommit={commit} />

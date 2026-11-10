@@ -4,6 +4,7 @@
 // 同一个 drawScene 既画屏幕上的视口，也画「录预演」的离屏画面，保证录到的就是看到的。
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import type { Shot, V3, WhiteboxPrim } from '../../../../../packages/contracts/src/creative';
+import { furnitureOf } from './furniture';
 
 export type Doll = { id: string; name: string; at: V3; to?: V3 | null; facing: number; heightM: number; build: 'slim' | 'average' | 'heavy' | null; ghost?: boolean; hi?: boolean; ai?: boolean;
   /** 衣服颜色（取立绘主色；没有立绘按人分一个固定色）。 */ color?: [number, number, number] };
@@ -76,6 +77,16 @@ function tess(f: Face, maxLen = .7): Face[] {
   return out;
 }
 function primFaces(p: WhiteboxPrim, m: Mark, alpha?: number): Face[] {
+  // 认得出的家具：按参数拆成木板、腿、面（furniture.ts）；房间壳和认不出的照旧画方块
+  const fur = p.from === 'shell' ? null : furnitureOf(p.label);
+  if (fur) {
+    const w = p.kind === 'box' ? p.s[0] : p.s[0] * 2, h = p.s[1], d = p.kind === 'box' ? p.s[2] : p.s[0] * 2, r = ((p.rotY ?? 0) * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r);
+    return fur.make(w, h, d).flatMap(q => {
+      const c: V3 = [p.c[0] + q.x * cs + q.z * sn, p.c[1] + q.y, p.c[2] - q.x * sn + q.z * cs];
+      const fs = q.k === 'cyl' ? solid(c, 0, circle(q.w / 2, 12), q.h, q.col, m) : solid(c, p.rotY ?? 0, [[-q.w / 2, -q.d / 2], [q.w / 2, -q.d / 2], [q.w / 2, q.d / 2], [-q.w / 2, q.d / 2]], q.h, q.col, m);
+      return fs.map(f => ({ ...f, alpha }));
+    });
+  }
   const col = matOf(p.label, p);
   const fs = p.kind === 'box' ? solid(p.c, p.rotY ?? 0, [[-p.s[0] / 2, -p.s[2] / 2], [p.s[0] / 2, -p.s[2] / 2], [p.s[0] / 2, p.s[2] / 2], [-p.s[0] / 2, p.s[2] / 2]], p.s[1], col, m)
     : solid(p.c, p.rotY ?? 0, circle(p.s[0], p.kind === 'cylinder' ? 18 : Math.max(3, p.sides ?? 6)), p.s[1], col, m);
