@@ -1076,3 +1076,73 @@ export type LayoutItem = {
 10. 门厅三镜都选好后拼成片，能播能下载，长度等于各镜之和。
 11. 给沈砚出新版立绘并选用：用到他的镜头标「依据旧了：沈砚换了形象」。
 12. 花费：每个候选一条 `creative_video`，按 token 和官方价记已知；账本加出总数。
+
+## 14. 参考素材库：放链接 → 下载 → 拆解（2026-11-10）
+
+**为什么做。** 用户：「这样我们就有源源不断的素材积累了。」实测（`BENCHMARKS.md` 2026-11-10 夜「视频片段拆解」，`design/walkthroughs/creative-3/breakdown/`）：MediaPipe 逐帧出动作和表情、背景块匹配出运镜、视觉大模型写成带时间码的拆解表，两层互补（模型还纠正了程序的误报）。把它做成助手的工具，拆过的片段进素材库，以后摆走位、写运镜、出片时能直接引用。
+
+### 14.1 定下的
+
+1. **谁来拿视频**：助手调工具，服务端用 **yt-dlp**（公有领域许可；B 站、抖音、微博、YouTube、X、Vimeo 等上千站点）下载，失败再试 lux / BBDown。**不用 computer use 操作用户电脑。**
+2. **只取够拆解用的**：最高 720p、默认最长 10 分钟（可指定起止时间只取一段）。
+3. **要登录的站点**：用户自己导出 cookie 文件放 `~/.config/reinlab/cookies/<站点>.txt`，服务端只在进程内存里读，不进日志、不回显。没有就照常下公开的，失败把原因说清（要登录 / 地区限制 / 版权加密 / 网站改版）。**有版权加密（DRM）的不下，也不尝试绕过。**
+4. **版权**：素材只用来拆解和参考，原片不进作品、不外传；记来源（链接、站点、标题、作者、抓取时间）。原片默认保留在本机私有存储，作者可以「拆完删原片」，只留关键帧缩略图和拆解数据。
+5. **素材库按账户共享**，跨世界观复用。
+
+### 14.2 拆解管线（服务端，照实验）
+
+1. **切镜**：ffmpeg 场景检测（或 PySceneDetect），每镜一条记录。
+2. **运镜**：背景网格块匹配（抠掉人物框）拟合平移 / 缩放 / 旋转，**每 6 帧比一次**（逐帧会把慢推吞掉）；输出每段的推 / 拉 / 摇 / 移 / 固定 + 幅度。以后要 6 自由度再接 MegaSaM。
+3. **动作**：MediaPipe Pose 逐帧（服务端用 MediaPipe 的 Python 包或无头浏览器，DSH 定），多人。
+4. **表情**：**先按身体关键点裁出头部、放大到 320 再跑 Face Landmarker**（直接跑中景认不出脸）；52 个表情系数 + 头部朝向；人脸太小（≲ 40 像素）就标「表情测不到」，不编。
+5. **事件**：从曲线切出「转头、眨眼、抬眉、皱眉、微笑、张嘴、视线朝下、走 / 停、抬手」等，时间码到毫秒（分辨率一帧）。阈值要防误报（实验里「走动」误报了全程）。
+6. **描述**：`doubao-seed-2-1-pro-260915`（账号已开通，能看图看视频）读关键帧 + 事件 JSON，写**镜头拆解表**：运镜一句、按时间码逐段写每个人的动作表情、程序和画面矛盾处、程序没测到的画面信息。
+7. **标签**：模型顺手给每镜打标签（动作：回头 / 递东西 / 坐下…；运镜：缓推 / 跟拍…；情绪；场景），素材库按标签搜。
+
+### 14.3 类型（追加）
+
+```ts
+export type RefClip = {
+  id: string;
+  source: { url: string; site: string; title: string | null; author: string | null; fetchedAt: CreativeIso; note?: string | null };
+  state: 'queued' | 'downloading' | 'analyzing' | 'ready' | 'failed';
+  failure?: string | null;              // 人话：「这个视频要登录才能看（B 站 1080P）」「有版权加密，不下载」
+  file?: { url: string; durationSec: number; width: number; height: number; kept: boolean } | null;  // kept=false：拆完删了原片
+  shots: RefShot[];
+  cost: CreativeCny | null;
+};
+export type RefShot = {
+  id: string; n: number; fromMs: number; toMs: number;
+  poster: string | null;                // 关键帧缩略图
+  camera: { kind: 'static' | 'push' | 'pull' | 'pan' | 'tilt' | 'track' | 'mixed'; zoom: number; pan: number; tilt: number; text: string };
+  people: { track: number; label: string | null; events: { fromMs: number; toMs: number; what: string }[]; faceMeasured: boolean }[];
+  table: string;                        // 拆解表（Markdown）
+  tags: string[];
+  dataUrl: string | null;               // 逐帧数据（关键点、表情系数、运镜步）JSON，驱动人偶以后用
+};
+```
+
+### 14.4 接口与工具
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/v1/creative/refs` | `{ url, fromSec?, toSec?, note? }` → `RefClip`（queued），之后推 `creative.ref` |
+| GET | `/v1/creative/refs?q=&tag=` | 素材库列表 / 搜索（标题、标签、拆解表全文） |
+| GET | `/v1/creative/refs/:id` | 单条 |
+| POST | `/v1/creative/refs/:id/drop-original` | 拆完删原片（留缩略图和数据） |
+| DELETE | `/v1/creative/refs/:id` | 整条删 |
+
+助手工具（顾问、导演都开）：`fetch_reference(url, from?, to?)`、`search_references(q)`、`read_reference(id)`。导演交镜头时可以在镜头上挂 `refShotId`（「这一镜的动作 / 运镜参考素材库第 n 条第 m 镜」）；3B 出片时，作者可以选「用这段参考的动作」——把那一段剪出来作为第二个 `reference_video`，提示词写「人物动作参考 @视频2」。
+
+### 14.5 页面（Claude）
+
+- 视频面右栏加「素材」：贴链接、看进度、列表和搜索；点开一条：播放器 + 按镜头的时间轴（运镜一轨、每个人一轨，事件是色块，悬停看表情系数），右边是拆解表。
+- 镜头详情里「参考素材」：挂上的参考镜头，并排播放。
+
+### 14.6 验收
+
+1. 贴一个 B 站公开视频链接：下载、切镜、每镜有运镜、动作和表情事件、拆解表、标签；花费记已知或标未知。
+2. 贴一个要登录的高清链接、没放 cookie：给出人话原因，不卡住。
+3. 素材库搜「回头」能找到拆过的那镜。
+4. 门厅第 2 镜挂上一条参考，出片时「用这段参考的动作」，成片里人物动作跟参考一致（人眼看）。
+5. 「拆完删原片」后，缩略图、拆解表、逐帧数据还在，原片没了。
