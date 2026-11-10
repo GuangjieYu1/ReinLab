@@ -36,7 +36,7 @@ import { appendEvents } from '../creative/events';
 import type { WorkDocument } from '../creative/work';
 import { readAsset, retryUnsaved, runAssetVersion, selectVersion, startAssetVersion, stopAssetVersion } from '../creative/asset-service';
 import { readImage, saveImage } from '../creative/image/store';
-import { describeFile, selectedVersions } from '../creative/asset-query';
+import { describeFile, describeVideoFile, selectedVersions } from '../creative/asset-query';
 import type { ImageProvider } from '../creative/image/provider';
 import { cutScene, runTake, selectTake, startTake } from '../creative/takes';
 import type { VideoDeps } from '../creative/video/pipeline';
@@ -752,9 +752,12 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       if (download) {
         const fileId = c.req.param('fileId');
         const info = await describeFile(client, c.get('accountId'), fileId);
-        const ext = file.mime === 'image/jpeg' ? 'jpg' : file.mime === 'image/png' ? 'png' : 'webp';
+        const ext = file.mime === 'image/jpeg' ? 'jpg' : file.mime === 'image/png' ? 'png' : file.mime === 'video/mp4' ? 'mp4' : 'webp';
         let name = `image-${fileId.slice(0, 8)}`;
-        if (info) {
+        if (file.mime === 'video/mp4') {
+          const videoInfo = await describeVideoFile(client, c.get('accountId'), fileId);
+          if (videoInfo) name = videoInfo;
+        } else if (info) {
           const entity = (
             await client.query<{ name: string }>(
               "select item->>'name' name from creative_world, jsonb_array_elements(document->'entities') item where dossier_id=$1 and item->>'id'=$2",

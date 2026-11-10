@@ -48,6 +48,40 @@ export async function describeFile(
   return null;
 }
 
+/** 视频文件名：作品-场-镜号-候选号（契约 §13.9）。 */
+export async function describeVideoFile(
+  client: pg.PoolClient,
+  account: string,
+  fileId: string,
+): Promise<string | null> {
+  const rows = (
+    await client.query<{ dossier_id: string; document: { shots?: { id: string; n: number; workId: string; sceneId: string }[]; takes?: { id: string; shotId: string; n: number; url?: string | null; posterUrl?: string | null }[]; cuts?: { workId: string; sceneId: string; file?: { url?: string | null } | null }[] } }>(
+      'select dossier_id, document from creative_world where account_id=$1',
+      [account],
+    )
+  ).rows;
+  for (const row of rows) {
+    const doc = row.document;
+    for (const take of doc.takes ?? []) {
+      if (!take.url?.endsWith(fileId) && !take.posterUrl?.endsWith(fileId)) continue;
+      const shot = (doc.shots ?? []).find((item) => item.id === take.shotId);
+      if (!shot) continue;
+      const work = (
+        await client.query<{ title: string }>(
+          "select document->>'title' title from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3",
+          [account, row.dossier_id, shot.workId],
+        )
+      ).rows[0]?.title;
+      return `${work ?? '作品'}-第${shot.n}镜-候选${take.n}`;
+    }
+    for (const cut of doc.cuts ?? []) {
+      if (!cut.file?.url?.endsWith(fileId)) continue;
+      return `成片-${cut.sceneId.slice(0, 6)}`;
+    }
+  }
+  return null;
+}
+
 /** 快照里 person.portrait 要用的：每人物选用版本的立绘。 */
 export async function selectedPortraits(
   client: pg.PoolClient,
