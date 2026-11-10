@@ -665,6 +665,10 @@ export type BoardFocus = {
   /** 人话，20 字以内。 */
   step: string;
   refs: BoardRef[];
+  /** 长任务的进度（下载、拆解）：做完几项 / 共几项；不知道总数就不带。 */
+  progress?: { done: number; total: number } | null;
+  /** 刚出来的一小段结果（比如拆解刚写好的那一镜），200 字以内；前端只显示最新一条。 */
+  detail?: string | null;
   /** 交了提议时带上，前端据此取预览。 */
   proposalId?: string | null;
   done?: boolean;

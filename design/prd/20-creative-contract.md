@@ -1171,3 +1171,12 @@ export type RefShot = {
 - **管理**：`GET /v1/creative/browser/sites` 列出登录过的站点（只列域名和最后使用时间，不回显 cookie）；`DELETE /v1/creative/browser/sites/:domain` 清掉某站，`DELETE /v1/creative/browser/sites` 全清。页面「素材」面板里有入口。
 - **底线**：登录状态等同账号凭据——只在本机、只给下载器读、不进日志、不进模型上下文、不上传；付费会员内容、DRM 内容照旧不下；只在跑本机栈的电脑上能弹窗，手机走局域网时提示回电脑登录。
 - **验收**：贴 B 站链接 → 下载失败提示要登录 → 点「打开素材浏览器」→ 作者扫码登录、关窗 → 再说「下载这个」成功，`~/ReinLab素材/` 出现「描述__bilibili-BV号.mp4」+ 同名 `.json`；「素材浏览器」里能看到 bilibili.com 并能清掉。
+
+### 14.9 补充（2026-11-10，用户）：下载和拆解要看得见在干活
+
+用户：「只要看着他在工作就行」。现在下载 + 视觉拆解约 8 分钟，看板上的「导演 · …」只在工具跑完后才变，中间一动不动。
+
+- **服务端**：`download_video` 跑起来就推 `creative.focus`，不等工具返回。顺序：`下载中`（yt-dlp 有百分比就带 `progress`）→ `切镜头`（场景切分 + 关键帧）→ 视觉拆解**每写完一镜推一条**：`step: '视觉拆解 镜 N'`、`progress: { done, total }`、`detail` 写这镜的描述（截 200 字）。导演会话里其他慢工具照此办理。
+- **契约**：`BoardFocus` 加两个可选字段 `progress?: { done: number; total: number } | null`、`detail?: string | null`（已写进 `packages/contracts`）。不知道总数就不带 `progress`；不推 token 级流式，一镜一条足够。
+- **页面（Claude，已做）**：视口左上角「导演 · 步骤 · 5/12」+ 橙色进度条 + 最新一镜描述（最多三行）；`done` 时清掉。
+- 和 §14 已列的「拆解改后台任务 + `creative.ref` 事件」不冲突：改成后台以后，进度照样用 `creative.focus` 推（带原会话的 `runId`）。
