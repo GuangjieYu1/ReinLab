@@ -52,3 +52,4 @@
 .lv-detail dt { font:500 11.5px var(--rh-f-ui); color:var(--rh-ink-3); }
 .lv-detail dd { margin:0; }
 .lv-cast { flex-wrap:wrap; gap:6px; } .lv-cast select { font:400 12px var(--rh-f-ui); }
+.lv-turn { display:inline-flex; gap:4px; align-items:center; font:400 12px var(--rh-f-ui); padding:0 6px 0 0; }

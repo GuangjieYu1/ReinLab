@@ -119,7 +119,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   const draftRef = useRef<Shot | null>(null);
   useEffect(() => { draftRef.current = null; }, [sel]);
   const edit = (f: (s: Shot) => Shot) => { const base = draftRef.current && draftRef.current.id === shot?.id ? draftRef.current : shot; if (!base) return; const next = f(base); draftRef.current = next; setDraft(next); };
-  const moveDoll = (id: string, p: V3) => edit(s => ({ ...s, cast: s.cast.map(c => c.entityId === id ? { ...c, at: p } : c) }));
+  const moveDoll = (id: string, p: V3, which: 'at' | 'to' = 'at') => edit(s => ({ ...s, cast: s.cast.map(c => c.entityId === id ? (which === 'to' ? { ...c, to: p, pose: 'walk' as const } : { ...c, at: p }) : c) }));
   const moveCam = (which: 'eye' | 'target' | 'end', p: V3) => edit(s => { const c = s.camera; return { ...s, camera: which === 'eye' ? { ...c, eye: p } : which === 'target' ? { ...c, target: p } : { ...c, end: c.end ? { ...c.end, eye: p } : null } }; });
   // 拖家具：放 ref 里，松手提交 whitebox.prim.update；被拒就重取白模（弹回原位）并写原因
   const movePrim = (id: string, c: V3) => { primDraft.current = { id, c }; setPrimMove({ id, c }); };
@@ -197,9 +197,11 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
             <button className="cw-link" onClick={() => { const c = shot.camera; const dir = [c.target[0] - c.eye[0], 0, c.target[2] - c.eye[2]] as V3, l = Math.hypot(dir[0], dir[2]) || 1;
               const end = c.end ? null : { eye: [c.eye[0] + dir[0] / l * 1.2, c.eye[1], c.eye[2] + dir[2] / l * 1.2] as V3, target: c.target };
               void act(async () => { await ops([{ op: 'shot.update', id: shot.id, patch: { camera: { ...c, end } } }]); await loadShots(); }); }}>{shot.camera.end ? '去掉运镜' : '加运镜（推近 1.2 米）'}</button>
+            {shot.cast.map(c => { const save = (patch: Partial<typeof c>) => void act(async () => { await ops([{ op: 'shot.update', id: shot.id, patch: { cast: shot.cast.map(x => x.entityId === c.entityId ? { ...x, ...patch } : x) } }]); await loadShots(); });
+              return <span key={'t' + c.entityId} className="lv-turn">{person(c.entityId)?.name}<button className="cw-link" title="左转 45°" onClick={() => save({ facing: (c.facing + 315) % 360 })}>↺</button><button className="cw-link" title="右转 45°" onClick={() => save({ facing: (c.facing + 45) % 360 })}>↻</button>{c.to && <button className="cw-link" onClick={() => save({ to: null, pose: 'stand' })}>去掉走位</button>}</span>; })}
             {shot.cast.map(c => <button key={c.entityId} className="cw-link" onClick={() => void act(async () => { await ops([{ op: 'shot.update', id: shot.id, patch: { cast: shot.cast.filter(x => x.entityId !== c.entityId) } }]); await loadShots(); })}>移出{person(c.entityId)?.name}</button>)}
           </div>}
-          {editable && <p className="cw-muted">在视口里拖人偶、拖机位（橙点：机位 / 看向 / 终点）、拖家具（点住它的顶面），松手就存；墙、地面、顶棚是按房间轮廓生成的，不能拖。</p>}
+          {editable && <p className="cw-muted">在视口里拖人偶、拖机位（橙点：机位 / 看向 / 终点）、拖家具（点住它的顶面）；按住 Shift 拖人偶 = 设走位终点（录预演时人偶会走过去再转身），松手就存；墙、地面、顶棚是按房间轮廓生成的，不能拖。</p>}
         </div> : <p className="cw-pane cw-muted">点一个镜头看详情。</p>)}
         <div hidden={tab !== 'director'}><CreativeAssistant adapter={adapter} workId={workId || undefined} sceneId={sceneId || undefined} placeId={placeId || undefined} initialMode="creative_director" modes={['creative_director']}
           onUpdate={() => { void loadShots(); void loadWb(); void loadProps(); }} onBoard={id => setGhostId(id)} /></div>
