@@ -1,0 +1,56 @@
+<!doctype html><meta charset="utf-8"><title>拆解实验</title>
+<video id="v" src="" muted playsinline crossorigin="anonymous"></video>
+<pre id="log">loading</pre>
+<script type="module">
+import { FilesetResolver, PoseLandmarker, FaceLandmarker } from '/mp-dl/pkg/package/vision_bundle.mjs';
+const log = s => document.getElementById('log').textContent = s;
+const fs = await FilesetResolver.forVisionTasks('/mp-dl/pkg/package/wasm');
+const pose = await PoseLandmarker.createFromOptions(fs, { baseOptions: { modelAssetPath: '/mp-dl/models/pose_landmarker_full.task', delegate: 'CPU' }, runningMode: 'VIDEO', numPoses: 2 });
+const face = await FaceLandmarker.createFromOptions(fs, { baseOptions: { modelAssetPath: '/mp-dl/models/face_landmarker.task', delegate: 'CPU' }, runningMode: 'IMAGE', numFaces: 1, outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true });
+const v = document.getElementById("v"); v.src = new URLSearchParams(location.search).get("src") || "/exp/seedance-vid2.mp4"; await new Promise(r => v.readyState >= 1 ? r() : v.onloadedmetadata = r);
+const fps = 24, n = Math.floor(v.duration * fps), frames = [];
+// 运镜：背景网格块匹配（抠掉人物框）→ 拟合相似变换（平移、缩放、旋转）
+const GW = 384, GH = Math.round(192 * v.videoHeight / v.videoWidth), gc = document.createElement('canvas'); gc.width = GW; gc.height = GH; const gx = gc.getContext('2d', { willReadFrequently: true });
+let prev = null; const hist = [];
+const grayNow = () => { gx.drawImage(v, 0, 0, GW, GH); const d = gx.getImageData(0, 0, GW, GH).data, g = new Float32Array(GW * GH); for (let k = 0; k < GW * GH; k++) g[k] = d[k * 4] * .3 + d[k * 4 + 1] * .59 + d[k * 4 + 2] * .11; return g; };
+function camStep(cur, boxes) {
+  const P = 8, R = 10, pts = [];
+  for (let gy = 1; gy < 7; gy++) for (let gxi = 1; gxi < 11; gxi++) {
+    const x = Math.round(gxi * GW / 11), y = Math.round(gy * GH / 7);
+    if (boxes.some(b => x > b[0] && x < b[2] && y > b[1] && y < b[3])) continue;
+    let best = 1e18, bx = 0, by = 0, base = 0;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { let sad = 0; for (let j = -P; j <= P; j++) for (let i = -P; i <= P; i++) { const a = prev[(y + j) * GW + x + i], b = cur[(y + j + dy) * GW + x + i + dx]; sad += Math.abs(a - b); } if (dx === 0 && dy === 0) base = sad; if (sad < best) { best = sad; bx = dx; by = dy; } }
+    let tex = 0; for (let j = -P; j < P; j++) for (let i = -P; i < P; i++) tex += Math.abs(prev[(y + j) * GW + x + i] - prev[(y + j) * GW + x + i + 1]);
+    if (tex > 500) pts.push([x - GW / 2, y - GH / 2, x - GW / 2 + bx, y - GH / 2 + by]);
+  }
+  if (pts.length < 6) return null;
+  // 最小二乘：x' = a x - b y + tx, y' = b x + a y + ty
+  let Sxx = 0, Sx = 0, Sy = 0, Sxu = 0, Syv = 0, Sxv = 0, Syu = 0, Su = 0, Sv = 0, N = pts.length;
+  for (const [x, y, u, w] of pts) { Sxx += x * x + y * y; Sx += x; Sy += y; Sxu += x * u + y * w; Syv += x * w - y * u; Su += u; Sv += w; }
+  const den = N * Sxx - Sx * Sx - Sy * Sy, a = (N * Sxu - Sx * Su - Sy * Sv) / den, b = (N * Syv - Sx * Sv + Sy * Su) / den, tx = (Su - a * Sx + b * Sy) / N, ty = (Sv - b * Sx - a * Sy) / N;
+  return { tx: tx / GW, ty: ty / GH, scale: Math.hypot(a, b), rot: Math.atan2(b, a) * 180 / Math.PI, n: N };
+}
+for (let i = 0; i < n; i++) {
+  v.currentTime = (i + .5) / fps; await new Promise(r => v.onseeked = r);
+  const ts = Math.round(i * 1000 / fps) + 1;
+  const p = pose.detectForVideo(v, ts);
+  // 人脸太小：按身体关键点裁出头部、放大到 320 再认表情
+  const fl = { faceBlendshapes: [], facialTransformationMatrixes: [], faceLandmarks: [], crops: [] };
+  for (const lm of p.landmarks) {
+    const pts = lm.slice(0, 11).filter(q => (q.visibility ?? 1) > .3); if (pts.length < 3) continue;
+    const xs = pts.map(q => q.x * v.videoWidth), ys = pts.map(q => q.y * v.videoHeight);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2, sz = Math.max(24, (Math.max(...xs) - Math.min(...xs)) * 2.6, (Math.max(...ys) - Math.min(...ys)) * 3.2);
+    const c = document.createElement('canvas'); c.width = c.height = 320; c.getContext('2d').drawImage(v, cx - sz / 2, cy - sz / 2, sz, sz, 0, 0, 320, 320);
+    const r = face.detect(c);
+    if (r.faceBlendshapes.length) { fl.faceBlendshapes.push(r.faceBlendshapes[0]); fl.facialTransformationMatrixes.push(r.facialTransformationMatrixes?.[0]); fl.faceLandmarks.push(r.faceLandmarks[0]); fl.crops.push(Math.round(sz)); }
+  }
+  const f = fl;
+  const cur = grayNow(), boxes = p.landmarks.map(lm => { const xs = lm.map(q => q.x * GW), ys = lm.map(q => q.y * GH); return [Math.min(...xs) - 8, Math.min(...ys) - 10, Math.max(...xs) + 8, Math.max(...ys) + 6]; });
+  hist.push(cur); const K = 6; let cam = null; if (i >= K && i % K === 0) { prev = hist[i - K]; cam = camStep(cur, boxes); if (cam) cam.span = K; }
+  frames.push({ i, ms: Math.round(i * 1000 / fps), cam,
+    poses: p.landmarks.map((lm, k) => ({ lm: lm.map(q => [+q.x.toFixed(4), +q.y.toFixed(4), +(q.visibility ?? 0).toFixed(2)]), w: p.worldLandmarks[k].map(q => [+q.x.toFixed(3), +q.y.toFixed(3), +q.z.toFixed(3)]) })),
+    faces: f.faceBlendshapes.map((b, k) => ({ bs: Object.fromEntries(b.categories.map(c => [c.categoryName, +c.score.toFixed(3)])), m: f.facialTransformationMatrixes?.[k]?.data ? Array.from(f.facialTransformationMatrixes[k].data).map(x => +x.toFixed(4)) : null, nose: f.faceLandmarks[k][1] ? [+f.faceLandmarks[k][1].x.toFixed(4), +f.faceLandmarks[k][1].y.toFixed(4)] : null })) });
+  log(`${i + 1}/${n}`);
+}
+window.__res = { fps, n, w: v.videoWidth, h: v.videoHeight, frames }; log('done ' + n);
+</script>
