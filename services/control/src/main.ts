@@ -441,7 +441,11 @@ const app = await createApp({
   ...(creativeAdvisor ? { creativeAdvisor } : {}),
   ...(creativeImpactScan ? { creativeImpactScan } : {}),
   ...(creativeAssistant ? { creativeAssistant } : {}),
-  creativeDownload: { ytDlpPath: process.env.REINLAB_YTDLP ?? '/opt/homebrew/bin/yt-dlp' },
+  creativeDownload: {
+    ytDlpPath: process.env.REINLAB_YTDLP ?? '/opt/homebrew/bin/yt-dlp',
+    browserProfile: process.env.REINLAB_BROWSER_PROFILE ?? `${process.env.HOME}/.config/reinlab/browser-profile`,
+  },
+  browser: { profileDir: process.env.REINLAB_BROWSER_PROFILE ?? `${process.env.HOME}/.config/reinlab/browser-profile` },
   imageProvider,
   video: videoDeps,
   ...(creativeRuleJudge ? { creativeRuleJudge } : {}),

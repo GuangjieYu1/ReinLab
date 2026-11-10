@@ -76,7 +76,19 @@ export async function describeVideoFile(
     }
     for (const cut of doc.cuts ?? []) {
       if (!cut.file?.url?.endsWith(fileId)) continue;
-      return `成片-${cut.sceneId.slice(0, 6)}`;
+      const work = (
+        await client.query<{ title: string }>(
+          "select document->>'title' title from creative_work where account_id=$1 and dossier_id=$2 and work_id=$3",
+          [account, row.dossier_id, cut.workId],
+        )
+      ).rows[0]?.title;
+      const sceneTitle = (
+        await client.query<{ title: string }>(
+          "select scene->>'title' title from creative_work w, jsonb_array_elements(w.document->'chapters') chapter, jsonb_array_elements(chapter->'scenes') scene where w.account_id=$1 and w.dossier_id=$2 and w.work_id=$3 and scene->>'id'=$4",
+          [account, row.dossier_id, cut.workId, cut.sceneId],
+        )
+      ).rows[0]?.title;
+      return `${work ?? '作品'}-${sceneTitle ?? '一场'}-成片`;
     }
   }
   return null;

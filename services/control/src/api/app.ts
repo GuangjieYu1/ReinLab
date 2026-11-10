@@ -92,6 +92,8 @@ export async function createApp(options: {
   imageProvider?: import("../creative/image/provider").ImageProvider;
   /** 29 号：助手会话的模型通道（带工具、多轮）。 */
   creativeAssistant?: import("../creative/assistant-session").ChatDeps;
+  /** 素材浏览器（契约 §14.8）。 */
+  browser?: import("../creative/browser").BrowserDeps;
   /** download_video（契约 §14.7）：yt-dlp + 公共素材文件夹。 */
   creativeDownload?: import("../creative/download").DownloadDeps;
   /** 29 号：自然语言规则判定。 */
@@ -238,6 +240,7 @@ export async function createApp(options: {
     ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
     ...(options.imageProvider ? { imageProvider: options.imageProvider } : {}),
     ...(options.video ? { video: options.video } : {}),
+    ...(options.browser ? { browser: options.browser } : {}),
     ...(options.creativeOverpass ? { overpass: options.creativeOverpass } : {}),
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
@@ -285,6 +288,7 @@ export async function createApp(options: {
     ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
     ...(options.imageProvider ? { imageProvider: options.imageProvider } : {}),
     ...(options.video ? { video: options.video } : {}),
+    ...(options.browser ? { browser: options.browser } : {}),
               ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
               ...(options.creativeAssistant ? { chat: options.creativeAssistant } : {}),
               ...(options.creativeDownload ? { download: options.creativeDownload } : {}),

@@ -39,6 +39,7 @@ import { readImage, saveImage } from '../creative/image/store';
 import { describeFile, describeVideoFile, selectedVersions } from '../creative/asset-query';
 import type { ImageProvider } from '../creative/image/provider';
 import { cutScene, runTake, selectTake, startTake } from '../creative/takes';
+import { clearSites, listSites, openBrowser } from '../creative/browser';
 import type { VideoDeps } from '../creative/video/pipeline';
 import { readEffectiveSnapshot } from '../creative/work-service';
 import { generateJobOf, readGenerateJob, runGenerate, startGenerate, stopGenerate } from '../creative/writer';
@@ -82,6 +83,8 @@ export type CreativeApiOptions = {
   impactScan?: ScanDeps;
   /** 29 号：自然语言规则判定用的模型通道。 */
   ruleJudge?: JudgeDeps;
+  /** 素材浏览器（契约 §14.8）。 */
+  browser?: import('../creative/browser').BrowserDeps;
   /** MVP-3 3B：出片平台（Seedance + TOS + ffmpeg）。 */
   video?: VideoDeps;
   /** MVP-2：出图的平台（没配时出图返回明确错误，不伪造）。 */
@@ -614,6 +617,20 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     });
     return c.json(result, 201);
   });
+
+  // ── 素材浏览器（契约 §14.8）──────────────────
+  app.post('/v1/creative/browser/open', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const url = typeof body?.url === 'string' ? body.url : '';
+    if (!/^https?:\/\//.test(url)) throw new ApiFailure('INVALID_INPUT', 400, '要一个 http(s) 链接。');
+    const result = await openBrowser(options.browser ?? {}, url);
+    return c.json(result);
+  });
+  app.get('/v1/creative/browser/sites', async (c) => c.json({ sites: await listSites(options.browser ?? {}) }));
+  app.delete('/v1/creative/browser/sites/:domain', async (c) =>
+    c.json(await clearSites(options.browser ?? {}, c.req.param('domain'))),
+  );
+  app.delete('/v1/creative/browser/sites', async (c) => c.json(await clearSites(options.browser ?? {})));
 
   // ── MVP-3 3B：出片候选、选用、拼片（契约 §13.9）──────────────────
   const TakeBody = z

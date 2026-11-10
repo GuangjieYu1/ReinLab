@@ -47,10 +47,25 @@ export function inViewOf(camera: { eye: [number, number, number]; target: [numbe
   return Math.acos(Math.max(-1, Math.min(1, cos))) <= half + 0.15 && dist < 30;
 }
 
+const facingWord = (facing: number | undefined, at: [number, number, number], camera: { eye: [number, number, number] }): string => {
+  if (facing === undefined || Number.isNaN(facing)) return '面向镜头';
+  // facing：0 = 朝 -z，顺时针；换成向量
+  const rad = ((facing ?? 0) * Math.PI) / 180;
+  const dir = [Math.sin(rad), 0, -Math.cos(rad)];
+  const toCam = [camera.eye[0] - at[0], 0, camera.eye[2] - at[2]];
+  const len = Math.hypot(...toCam) || 1;
+  const cos = (dir[0]! * toCam[0]! + dir[2]! * toCam[2]!) / len;
+  if (cos > 0.5) return '面向镜头';
+  if (cos < -0.5) return '背对镜头';
+  return '侧对镜头';
+};
+
 const positionWord = (point: [number, number, number], prims: { label?: string; c?: number[] }[]): string => {
   let best: { label: string; distance: number } | null = null;
   for (const prim of prims) {
     if (!prim.label || !prim.c) continue;
+    // 只认家具库里的名字（「凳乙二」这种不是任何一件家具）
+    if (!FURNITURE_LABEL.test(prim.label)) continue;
     const distance = Math.hypot(point[0] - Number(prim.c[0]), point[2] - Number(prim.c[2]));
     if (!best || distance < best.distance) best = { label: String(prim.label), distance };
   }
@@ -87,17 +102,20 @@ export function promptOfTake(input: {
   artStyle: string | null;
   doors: string[];
   lightText: string;
+  /** 说明和走位矛盾时不附 action。 */
+  dropAction?: boolean;
 }): string {
   const visible = input.visiblePrims ?? input.prims;
   const furniture = [...new Set(visible.map((prim) => prim.label ?? '').filter((label) => FURNITURE_LABEL.test(label)))];
   const people = input.cast.map((member) => {
     const portrait = member.index ? `（@图片${member.index} 是${member.name}）` : '';
+    const facing = facingWord(member.facing, member.to ?? member.at, input.shot.camera);
     const walk = member.to
-      ? `从${positionWord(member.at, input.prims)}走到${positionWord(member.to, input.prims)}，停下面向镜头`
-      : `站在${positionWord(member.at, input.prims)}`;
+      ? `从${positionWord(member.at, input.prims)}走到${positionWord(member.to, input.prims)}，停下${facing}`
+      : `站在${positionWord(member.at, input.prims)}，${facing}`;
     return `${member.color}人偶是${member.name}${portrait}，${walk}`;
   });
-  const action = input.shot.action?.trim() ? `导演写的动作：${input.shot.action.replace(/[。；;]?$/, '')}。` : '';
+  const action = !input.dropAction && input.shot.action?.trim() ? `导演写的动作：${input.shot.action.replace(/[。；;]?$/, '')}。` : '';
   const dialogue = input.shot.dialogue ? `对白：「${input.shot.dialogue.replace(/[。；;]?$/, '')}」。` : '';
   return [
     `完全参考 @视频1 的机位、构图、镜头推进、家具位置和人物走位：@视频1 是白模预演`,
@@ -322,6 +340,7 @@ export async function runTake(
       const c = (prim as { c?: [number, number, number] }).c;
       return !c || inViewOf(shot.camera as never, c);
     });
+    const contradictions = contradictionsOf(shot, prims);
     const prompt = promptOfTake({
       shot,
       prims,
@@ -330,6 +349,7 @@ export async function runTake(
       artStyle: (state.document as { artStyle?: string | null }).artStyle ?? null,
       doors: doors.length ? ['南墙正中（镜头背后）'] : [],
       lightText: lightWordsOf({ light: shot.light, sceneText, eventTimes }),
+      dropAction: contradictions.length > 0,
     });
     // 4) 提交 + 轮询
     const submitted = await submitSeedance(seedance, {

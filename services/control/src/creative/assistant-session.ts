@@ -15,7 +15,7 @@ import { appendEvents } from './events';
 import { advisorOps } from './advisor';
 import { loadWorld } from './service';
 import { focusStep } from './preview';
-import { downloadVideo } from './download';
+import { downloadVideo, LoginRequiredError } from './download';
 import { selectedVersions } from './asset-query';
 import { buildShell, solveLayout } from './whitebox-layout';
 import { FURNITURE_NAMES, TEMPLATES } from '@reinlab/contracts';
@@ -867,6 +867,13 @@ export async function runTool(
         });
         return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。同名的 .json 记了来源。`, refs: [] };
       } catch (error) {
+        if (error instanceof LoginRequiredError)
+          return {
+            text: `${error.site} 要登录：点页面上的「打开素材浏览器」，扫码或输密码登录后再让我下（登录状态只留在本机给下载器读）。`,
+            refs: [],
+            ok: false,
+            step: `${error.site} 要登录，先打开素材浏览器`,
+          };
         return { text: `下载没成：${(error as Error).message.slice(0, 160)}`, refs: [], ok: false };
       }
     }

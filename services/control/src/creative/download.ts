@@ -12,7 +12,20 @@ import { join } from 'node:path';
 
 const run = promisify(execFile);
 
-export type DownloadDeps = { ytDlpPath?: string; folder?: string; cookiesFile?: string | null };
+export type DownloadDeps = {
+  ytDlpPath?: string;
+  folder?: string;
+  cookiesFile?: string | null;
+  /** 专用素材浏览器的配置目录（yt-dlp 用 --cookies-from-browser 直接读，不导出 cookie）。 */
+  browserProfile?: string;
+};
+
+/** 需要作者本人登录（412/403/登录墙）。 */
+export class LoginRequiredError extends Error {
+  constructor(readonly site: string) {
+    super(`${site} 要登录`);
+  }
+}
 
 export const folderOf = (deps: DownloadDeps) => deps.folder ?? join(homedir(), 'ReinLab素材');
 const ytDlpOf = (deps: DownloadDeps) => deps.ytDlpPath ?? '/opt/homebrew/bin/yt-dlp';
@@ -62,12 +75,7 @@ export async function downloadVideo(
   }
   const dir = await mkdtemp(join(tmpdir(), 'reinlab-dl-'));
   try {
-    const info = JSON.parse(
-      (
-        await run(ytDlpOf(deps), ['--no-warnings', '--skip-download', '--print', '%(title)s\t%(duration)s\t%(uploader)s', input.url])
-      ).stdout.trim(),
-    ) as never;
-    void info;
+    const site = siteOf(input.url);
     const [titleRaw, durationRaw, uploader] = (
       (await run(ytDlpOf(deps), ['--no-warnings', '--skip-download', '--print', '%(title)s\t%(duration)s\t%(uploader)s', input.url])).stdout.trim()
     ).split('\t');
@@ -75,13 +83,20 @@ export async function downloadVideo(
     const durationSec = Number(durationRaw) || null;
     const section = input.from ? `*${input.from}-${input.to ?? ''}` : null;
     const args = ['--no-warnings', '-f', 'bv*[height<=720]+ba/b[height<=720]/b', '-o', join(dir, 'v.%(ext)s')];
+    if (deps.browserProfile) args.push('--cookies-from-browser', `chromium:${deps.browserProfile}`);
+    else if (deps.cookiesFile) args.push('--cookies', deps.cookiesFile);
     if (section) args.push('--download-sections', section, '--force-keyframes-at-cuts');
     args.push(input.url);
-    await run(ytDlpOf(deps), args, { maxBuffer: 64 * 1024 * 1024 });
+    try {
+      await run(ytDlpOf(deps), args, { maxBuffer: 64 * 1024 * 1024 });
+    } catch (error) {
+      const text = String((error as { stderr?: string; message?: string }).stderr ?? (error as Error).message ?? '');
+      if (/412|403|login|sign in|登录|风控|Precondition/i.test(text)) throw new LoginRequiredError(siteOf(input.url));
+      throw error;
+    }
     const files = await readdir(dir);
     const file = files.find((name) => name.startsWith('v.'));
     if (!file) throw new Error('yt-dlp 没下下来文件。');
-    const site = siteOf(input.url);
     const videoId = idOf(input.url, title, durationSec);
     const description = short(input.note || title, 20);
     let base = `${description}__${site}-${videoId}`;
