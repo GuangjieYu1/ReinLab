@@ -4,7 +4,7 @@
  * 我们不导出、不打印、不进模型上下文。
  */
 
-import { chmod, mkdir } from 'node:fs/promises';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -39,9 +39,12 @@ export async function openBrowser(deps: BrowserDeps, url: string): Promise<{ ope
 export type BrowserSite = { domain: string; lastUsedAt: string | null };
 
 /** 列出配置目录里登录过的站点（只读域名和最后使用时间，不回显 cookie）。 */
-export async function listSites(deps: BrowserDeps): Promise<BrowserSite[]> {
+export async function listSites(deps: BrowserDeps): Promise<{ sites: BrowserSite[]; note?: string }> {
   const dir = profileDirOf(deps);
-  const file = join(dir, 'Default', 'Network', 'Cookies');
+  const candidates = [join(dir, 'Default', 'Network', 'Cookies'), join(dir, 'Default', 'Cookies')];
+  const { existsSync } = await import('node:fs');
+  const file = candidates.find((item) => existsSync(item));
+  if (!file) return { sites: [], note: '还没有登录过任何站点' };
   try {
     // node:sqlite（Node 22.5+ 实验特性）
     const { DatabaseSync } = (await import('node:sqlite')) as unknown as {
@@ -49,15 +52,49 @@ export async function listSites(deps: BrowserDeps): Promise<BrowserSite[]> {
     };
     const db = new DatabaseSync(file);
     try {
+      // Chromium 的时间从 1601-01-01 起算（微秒），转成 UTC
       const rows = db
-        .prepare('select host_key as domain, datetime(last_access_utc/1000000, "unixepoch") as lastUsedAt from cookies group by host_key order by last_access_utc desc')
+        .prepare(
+          'select host_key as domain, datetime(last_access_utc/1000000 - 11644473600, "unixepoch") as lastUsedAt from cookies group by host_key order by last_access_utc desc',
+        )
         .all();
-      return rows;
+      return { sites: rows };
     } finally {
       db.close();
     }
-  } catch {
-    return [];
+  } catch (error) {
+    return { sites: [], note: `读不到登录记录：${(error as Error).message.slice(0, 120)}` };
+  }
+}
+
+/**
+ * 把某个站点的登录导出成 Netscape cookies.txt（0600），交给 yt-dlp 用一次。
+ * 不碰加密数据库、不导出到别处；下载结束由调用方立刻删掉。
+ */
+export async function exportCookiesFile(deps: BrowserDeps, url: string): Promise<{ file: string; count: number }> {
+  const dir = await ensureProfile(deps);
+  const { chromium } = await import('playwright');
+  let context: Awaited<ReturnType<typeof chromium.launchPersistentContext>>;
+  try {
+    context = await chromium.launchPersistentContext(dir, { headless: true, args: ['--no-first-run'] });
+  } catch (error) {
+    throw new Error(`素材浏览器的窗口还开着（或配置目录被占用），先关掉窗口再下载：${(error as Error).message.slice(0, 80)}`);
+  }
+  try {
+    const cookies = await context.cookies(url);
+    if (!cookies.length) throw new Error('素材浏览器里还没有这个站点的登录：点「打开素材浏览器」登录后再试');
+    const lines = ['# Netscape HTTP Cookie File', '# 由 ReinLab 临时导出，下载结束立刻删除', ''];
+    for (const cookie of cookies) {
+      const domain = cookie.domain.startsWith('.') ? cookie.domain : `.${cookie.domain}`;
+      const expires = Math.floor(cookie.expires && cookie.expires > 0 ? cookie.expires : Date.now() / 1000 + 3600);
+      lines.push(`${domain}	TRUE	${cookie.path}	${cookie.secure ? 'TRUE' : 'FALSE'}	${expires}	${cookie.name}	${cookie.value}`);
+    }
+    const file = join(dir, `cookies-${Date.now()}.txt`);
+    await writeFile(file, `${lines.join('\n')}\n`, { mode: 0o600 });
+    await chmod(file, 0o600).catch(() => undefined);
+    return { file, count: cookies.length };
+  } finally {
+    await context.close().catch(() => undefined);
   }
 }
 

@@ -74,6 +74,7 @@ export async function downloadVideo(
     await writeFile(readme, '# 说明\n\n这里的视频只用于拆解和参考，不放进作品、不外传。\n');
   }
   const dir = await mkdtemp(join(tmpdir(), 'reinlab-dl-'));
+  let cookieFile: string | null = null;
   try {
     const site = siteOf(input.url);
     let meta: string;
@@ -93,8 +94,13 @@ export async function downloadVideo(
     const durationSec = Number(durationRaw) || null;
     const section = input.from ? `*${input.from}-${input.to ?? ''}` : null;
     const args = ['--no-warnings', '-f', 'bv*[height<=720]+ba/b[height<=720]/b', '-o', join(dir, 'v.%(ext)s')];
-    if (deps.browserProfile) args.push('--cookies-from-browser', `chromium:${deps.browserProfile}`);
-    else if (deps.cookiesFile) args.push('--cookies', deps.cookiesFile);
+    if (deps.browserProfile) {
+      // 素材浏览器用假钥匙串加密 cookie，yt-dlp 解不开：由 Playwright 临时导出成 cookies.txt，用完即删
+      const { exportCookiesFile } = await import('./browser');
+      const exported = await exportCookiesFile({ profileDir: deps.browserProfile }, input.url);
+      cookieFile = exported.file;
+      args.push('--cookies', exported.file);
+    } else if (deps.cookiesFile) args.push('--cookies', deps.cookiesFile);
     if (section) args.push('--download-sections', section, '--force-keyframes-at-cuts');
     args.push(input.url);
     try {
@@ -144,6 +150,7 @@ export async function downloadVideo(
     );
     return { name, path: target, title, site, videoId, durationSec, description };
   } finally {
+    if (cookieFile) await rm(cookieFile, { force: true });
     await rm(dir, { recursive: true, force: true });
   }
 }

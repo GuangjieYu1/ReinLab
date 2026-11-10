@@ -626,7 +626,7 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
     const result = await openBrowser(options.browser ?? {}, url);
     return c.json(result);
   });
-  app.get('/v1/creative/browser/sites', async (c) => c.json({ sites: await listSites(options.browser ?? {}) }));
+  app.get('/v1/creative/browser/sites', async (c) => c.json(await listSites(options.browser ?? {})));
   app.delete('/v1/creative/browser/sites/:domain', async (c) =>
     c.json(await clearSites(options.browser ?? {}, c.req.param('domain'))),
   );

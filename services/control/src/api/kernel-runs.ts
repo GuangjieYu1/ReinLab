@@ -160,6 +160,7 @@ export function registerKernelRuns(
           ...(dependencies.creative?.advisor ? { advisor: dependencies.creative.advisor } : {}),
           ...(dependencies.creative?.writer ? { writer: dependencies.creative.writer } : {}),
           ...(dependencies.creative?.chat ? { chat: dependencies.creative.chat } : {}),
+          ...(dependencies.creative?.download ? { download: dependencies.creative.download } : {}),
         },
         account,
         created,

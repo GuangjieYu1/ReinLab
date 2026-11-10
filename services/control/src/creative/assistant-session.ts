@@ -521,7 +521,7 @@ export async function runTool(
   defs: RunToolContext,
   call: ToolCall,
 ): Promise<{ text: string; refs: BoardRef[]; step?: string; ok?: boolean }> {
-  const { client, account, dossier, context, role } = defs;
+  const { client, account, dossier, context, role, download } = defs;
   const worldState = await loadWorld(client, account, dossier);
   const selectedVersionIds = new Map(
     [...(await selectedVersions(client, account, dossier)).values()].map((item) => [item.entityId, item.versionId]),
@@ -857,7 +857,7 @@ export async function runTool(
       return proposed;
     }
     case 'download_video': {
-      const downloadDeps = (context as unknown as RunToolContext).download;
+      const downloadDeps = download;
       if (!downloadDeps) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
       try {
         const file = await downloadVideo(downloadDeps, {

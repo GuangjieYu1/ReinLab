@@ -23,6 +23,8 @@ export type CreativeRunDeps = {
   advisor?: AdvisorDeps;
   writer?: WriterDeps;
   chat?: import('./assistant-session').ChatDeps;
+  /** download_video（契约 §14.7/14.8）。 */
+  download?: import('./download').DownloadDeps;
 };
 
 const ROLE = 'bench-assist';
@@ -94,7 +96,7 @@ export async function runCreativeSession(
     ).rows[0];
     return String(row?.input.query ?? '');
   });
-  await runTurn({ db: deps.db, ...(deps.chat ? { chat: deps.chat } : {}) }, account, runId, query);
+  await runTurn({ db: deps.db, ...(deps.chat ? { chat: deps.chat } : {}), ...(deps.download ? { download: deps.download } : {}) }, account, runId, query);
 }
 
 async function legacySession(
