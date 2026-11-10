@@ -120,7 +120,8 @@ export async function breakdownVideo(
       '> MediaPipe 的骨骼动作/表情还没接；运镜与人物走位以逐镜描述为准。',
     ];
     await writeFile(`${input.basePath}.md`, `${lines.join('\n')}\n`);
-    await writeFile(`${input.basePath}.json`, JSON.stringify({ ...input, shots: result }, null, 2));
+    // 拆解结果另存，别覆盖下载时写的来源元数据（site/videoId/from/to/description）
+    await writeFile(`${input.basePath}.breakdown.json`, JSON.stringify({ ...input, shots: result }, null, 2));
     return { markdownPath: `${input.basePath}.md`, shots: result, usage };
   } catch (error) {
     await rm(framesDir, { recursive: true, force: true }).catch(() => undefined);

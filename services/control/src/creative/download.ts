@@ -107,24 +107,37 @@ export async function downloadVideo(
     await writeFile(readme, '# 说明\n\n这里的视频只用于拆解和参考，不放进作品、不外传。\n');
   }
   // 同一段（站点 + 视频 ID + 起止时间）下过就直接复用，不重复下载/拆解
-  const wantedRange = `${input.from ?? ''}-${input.to ?? ''}`;
+  const seconds = (value: unknown): number | null => {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  };
+  const sameRange = (meta: { from?: unknown; to?: unknown }) =>
+    seconds(meta.from) === seconds(input.from) && seconds(meta.to) === seconds(input.to);
   try {
     for (const name of await readdir(folder)) {
       if (!name.endsWith('.json')) continue;
-      const meta = JSON.parse(await readFile(join(folder, name), 'utf8')) as { url?: string; from?: string; to?: string };
+      // 单个文件坏了就跳过这一个，不影响后面的扫描
+      let meta: { url?: string; from?: unknown; to?: unknown; title?: string; durationSec?: number; description?: string };
+      try {
+        meta = JSON.parse(await readFile(join(folder, name), 'utf8'));
+      } catch {
+        continue;
+      }
+      if (name.endsWith('.breakdown.json')) continue;
       if (meta.url !== input.url) continue;
-      if (`${meta.from ?? ''}-${meta.to ?? ''}` !== wantedRange) continue;
+      if (!sameRange(meta)) continue;
       const base = name.replace(/\.json$/, '');
       const mp4 = join(folder, `${base}.mp4`);
       if (!existsSync(mp4)) continue;
       return {
         name: `${base}.mp4`,
         path: mp4,
-        title: String((meta as { title?: string }).title ?? base),
+        title: String(meta.title ?? base),
         site: siteOf(input.url),
         videoId: idOf(input.url, base, null),
-        durationSec: (meta as { durationSec?: number }).durationSec ?? null,
-        description: String((meta as { description?: string }).description ?? base),
+        durationSec: meta.durationSec ?? null,
+        description: String(meta.description ?? base),
         markdown: existsSync(join(folder, `${base}.md`)) ? join(folder, `${base}.md`) : null,
         usage: null,
         reused: true,
@@ -161,8 +174,8 @@ export async function downloadVideo(
     const [titleRaw, durationRaw, uploader] = meta.split('\t');
     const title = titleRaw ?? '视频';
     const durationSec = Number(durationRaw) || null;
-    const range = { ...rangeFromNote(input.note), ...(input.from ? { from: input.from } : {}), ...(input.to ? { to: input.to } : {}) };
-    const section = range.from ? `*${range.from}-${range.to ?? ''}` : null;
+    const range = { ...rangeFromNote(input.note), ...(input.from !== undefined ? { from: input.from } : {}), ...(input.to !== undefined ? { to: input.to } : {}) };
+    const section = range.from !== undefined ? `*${range.from}-${range.to ?? ''}` : null;
     const args = ['--no-warnings', '-f', 'bv*[height<=720]+ba/b[height<=720]/b', '-o', join(dir, 'v.%(ext)s'), ...cookieArgs];
     if (section) args.push('--download-sections', section, '--force-keyframes-at-cuts');
     args.push(input.url);

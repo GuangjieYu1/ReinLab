@@ -97,3 +97,43 @@ describe("拆解进度（§14.9）", () => {
     }
   });
 });
+
+describe("下载去重（§14.9 补）", () => {
+  it("同一段第二次直接复用，不再调 yt-dlp", async () => {
+    const { mkdtemp, writeFile, chmod, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "reinlab-dedupe-"));
+    const marker = join(dir, "calls.txt");
+    const fake = join(dir, "fake-ytdlp.sh");
+    await writeFile(
+      fake,
+      [
+        "#!/bin/sh",
+        `echo run >> ${marker}`,
+        'prev=""; printed=0; out=""',
+        'for a in "$@"; do',
+        '  if [ "$a" = "--print" ]; then printed=1; fi',
+        '  if [ "$prev" = "-o" ]; then out="$a"; fi',
+        '  prev="$a"',
+        "done",
+        'if [ "$printed" = "1" ]; then',
+        '  printf "测试视频\t8\t作者\n"',
+        "  exit 0",
+        "fi",
+        'p=$(echo "$out" | sed "s/%(ext)s/mp4/")',
+        'printf "x" > "$p"',
+        "exit 0",
+      ].join("\n"),
+    );
+    await chmod(fake, 0o755);
+    const { downloadVideo } = await import("../src/creative/download");
+    const deps = { ytDlpPath: fake, folder: join(dir, "素材") };
+    const first = await downloadVideo(deps as never, { url: "https://www.bilibili.com/video/BV1test/", from: 0, to: 8, note: "测试" });
+    const second = await downloadVideo(deps as never, { url: "https://www.bilibili.com/video/BV1test/", from: "0", to: "8", note: "测试" } as never);
+    expect(first.reused).toBeUndefined();
+    expect(second.reused).toBe(true);
+    const calls = (await readFile(marker, "utf8")).trim().split("\n").filter(Boolean).length;
+    expect(calls).toBe(2);
+  });
+});
