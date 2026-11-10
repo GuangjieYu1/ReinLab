@@ -143,7 +143,8 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
     const old = wb?.prims ?? [];
     if (old.length && !window.confirm(`这个房间已有 ${old.length} 个白模部件，先清掉再套「${name}」？`)) return;
     const prims = name === '客栈门厅' ? innLobbyTemplate(room.outline, room.height) : [];
-    await ops([...old.map(p => ({ op: 'whitebox.prim.remove' as const, placeId, id: p.id })), ...prims.map(prim => ({ op: 'whitebox.prim.add' as const, placeId, prim: prim as never }))]);
+    const list = [...old.map(p => ({ op: 'whitebox.prim.remove' as const, placeId, id: p.id })), ...prims.map(prim => ({ op: 'whitebox.prim.add' as const, placeId, prim: prim as never }))];
+    for (let i = 0; i < list.length; i += 40) await ops(list.slice(i, i + 40)); // 后端一次最多 40 条
     await loadWb(); vp.current?.fit();
   });
   const glb = () => act(async () => { const place = snap.entities.find(e => e.id === placeId); await exportGlb(`${place?.name ?? '白模'}-白模-v${wb?.version ?? 0}`, placeId, room, wb?.prims ?? [], dolls.filter(d => !d.ghost)); });
