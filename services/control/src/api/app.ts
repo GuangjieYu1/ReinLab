@@ -235,6 +235,7 @@ export async function createApp(options: {
     ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
     ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
     ...(options.imageProvider ? { imageProvider: options.imageProvider } : {}),
+    ...(options.video ? { video: options.video } : {}),
     ...(options.creativeOverpass ? { overpass: options.creativeOverpass } : {}),
   });
   app.post("/v1/approvals/:id/decide", async (c) => {
@@ -281,6 +282,7 @@ export async function createApp(options: {
     ...(options.creativeImpactScan ? { impactScan: options.creativeImpactScan } : {}),
     ...(options.creativeRuleJudge ? { ruleJudge: options.creativeRuleJudge } : {}),
     ...(options.imageProvider ? { imageProvider: options.imageProvider } : {}),
+    ...(options.video ? { video: options.video } : {}),
               ...(options.creativeWriter ? { writer: options.creativeWriter } : {}),
               ...(options.creativeAssistant ? { chat: options.creativeAssistant } : {}),
             },
