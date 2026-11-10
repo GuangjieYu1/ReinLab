@@ -125,13 +125,13 @@ const TOOLS_DOWNLOAD: ToolDef[] = [
   {
     name: 'download_video',
     description:
-      '下载一段视频素材（最高 720p，可只取一段）到公共素材文件夹 ~/ReinLab素材/，并记下来源。要视频素材时用它，不要用别的方式。',
+      '下载一段视频素材（最高 720p）到公共素材文件夹 ~/ReinLab素材/，并记下来源。只要一段时必须传 from / to（秒）。要视频素材时用它，不要用别的方式。',
     input_schema: {
       type: 'object',
       properties: {
         url: { type: 'string', description: '视频链接（B 站、YouTube 等）' },
-        from: { type: 'string', description: '从第几秒开始（可不填）' },
-        to: { type: 'string', description: '到第几秒结束（可不填）' },
+        from: { type: 'string', description: '从第几秒开始（秒数，只要一段时必填）' },
+        to: { type: 'string', description: '到第几秒结束（秒数，只要一段时必填）' },
         note: { type: 'string', description: '一句话说明这段是什么（文件名用，≤20 字）' },
       },
       required: ['url'],

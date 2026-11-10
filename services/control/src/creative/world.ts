@@ -742,7 +742,7 @@ export function applyOps(
         const chosen = op.candidate !== undefined ? proposal.candidates?.[op.candidate] : undefined;
         if (op.candidate !== undefined && !chosen) throw fail('INVALID_INPUT', 400, '没有这个候选。');
         // 页面只发「接受」时，用提议自己带的 ops（路线、经历、合并候选都靠它）。
-        const decideOps = op.ops ?? chosen?.ops ?? proposal.ops ?? [];
+        let decideOps = op.ops ?? chosen?.ops ?? proposal.ops ?? [];
         next.proposals[index] = {
           ...proposal,
           status: op.decision,
@@ -754,6 +754,18 @@ export function applyOps(
             by: options.actor,
           },
         };
+        // 地点已经有房间就别再被提议里的 room 覆盖（契约 §13.8）
+        const roomSetTargets = new Set(
+          decideOps
+            .filter((item) => item.op === 'place.room.set')
+            .map((item) => (item as { placeId?: string }).placeId)
+            .filter((placeId): placeId is string => Boolean(placeId)),
+        );
+        for (const placeId of roomSetTargets) {
+          const place = next.entities.find((item) => item.id === placeId);
+          if (place?.place?.room)
+            decideOps = decideOps.filter((item) => !(item.op === 'place.room.set' && (item as { placeId?: string }).placeId === placeId));
+        }
         // 接受镜头表：默认替换同一场的现有镜头（契约 §13.8 复验 4），replaceShots:false 才追加
         if (op.decision === 'accepted' && proposal.kind === 'shots' && (op.replaceShots ?? true)) {
           const scenes = new Set(

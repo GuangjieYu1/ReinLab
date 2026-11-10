@@ -444,6 +444,7 @@ const app = await createApp({
   creativeDownload: {
     ytDlpPath: process.env.REINLAB_YTDLP ?? '/opt/homebrew/bin/yt-dlp',
     browserProfile: process.env.REINLAB_BROWSER_PROFILE ?? `${process.env.HOME}/.config/reinlab/browser-profile`,
+    ...(localSecrets.ARK_API_KEY ? { vision: { apiKey: localSecrets.ARK_API_KEY, ...(localSecrets.ARK_VISION_MODEL ? { model: localSecrets.ARK_VISION_MODEL } : {}) } } : {}),
   },
   browser: { profileDir: process.env.REINLAB_BROWSER_PROFILE ?? `${process.env.HOME}/.config/reinlab/browser-profile` },
   imageProvider,

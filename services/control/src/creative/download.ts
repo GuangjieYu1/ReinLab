@@ -18,6 +18,8 @@ export type DownloadDeps = {
   cookiesFile?: string | null;
   /** 专用素材浏览器的配置目录（yt-dlp 用 --cookies-from-browser 直接读，不导出 cookie）。 */
   browserProfile?: string;
+  /** 能看图的模型（拆解描述用）。 */
+  vision?: import('./breakdown-vlm').VisionConfig | null;
 };
 
 /** 需要作者本人登录（412/403/登录墙）。 */
@@ -61,6 +63,12 @@ const idOf = (url: string, title: string, durationSec: number | null): string =>
 };
 
 /** 下载一个视频到公共素材文件夹；返回文件名和元数据。 */
+/** 「前 30 秒」这种写在 note 里的时间段也认。 */
+const rangeFromNote = (note?: string): { from?: string; to?: string } => {
+  const match = /前\s*(\d+)\s*秒/.exec(note ?? '');
+  return match ? { from: '0', to: match[1] } : {};
+};
+
 export async function downloadVideo(
   deps: DownloadDeps,
   input: { url: string; from?: string; to?: string; note?: string },
@@ -100,7 +108,8 @@ export async function downloadVideo(
     const [titleRaw, durationRaw, uploader] = meta.split('\t');
     const title = titleRaw ?? '视频';
     const durationSec = Number(durationRaw) || null;
-    const section = input.from ? `*${input.from}-${input.to ?? ''}` : null;
+    const range = { ...rangeFromNote(input.note), ...(input.from ? { from: input.from } : {}), ...(input.to ? { to: input.to } : {}) };
+    const section = range.from ? `*${range.from}-${range.to ?? ''}` : null;
     const args = ['--no-warnings', '-f', 'bv*[height<=720]+ba/b[height<=720]/b', '-o', join(dir, 'v.%(ext)s'), ...cookieArgs];
     if (section) args.push('--download-sections', section, '--force-keyframes-at-cuts');
     args.push(input.url);
@@ -154,7 +163,7 @@ export async function downloadVideo(
     let markdown: string | null = null;
     try {
       const { breakdownVideo } = await import('./breakdown');
-      const result = await breakdownVideo({ ffmpegPath: process.env.REINLAB_FFMPEG ?? '/opt/homebrew/bin/ffmpeg' }, {
+      const result = await breakdownVideo({ ffmpegPath: process.env.REINLAB_FFMPEG ?? '/opt/homebrew/bin/ffmpeg', ...(deps.vision ? { vision: deps.vision } : {}) }, {
         videoPath: target,
         basePath,
         title,

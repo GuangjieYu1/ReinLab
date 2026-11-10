@@ -39,7 +39,7 @@ export async function detectScenes(ffmpeg: string | undefined, videoPath: string
 
 /** 拆解一个已经下载好的视频，在它旁边写 .md 和 .json。 */
 export async function breakdownVideo(
-  deps: { ffmpegPath?: string },
+  deps: { ffmpegPath?: string; vision?: import('./breakdown-vlm').VisionConfig | null },
   input: { videoPath: string; basePath: string; title: string; url: string; durationSec: number | null },
 ): Promise<{ markdownPath: string; shots: BreakdownShot[] }> {
   const shots = await detectScenes(deps.ffmpegPath, input.videoPath, input.durationSec);
@@ -59,6 +59,17 @@ export async function breakdownVideo(
       }
       result.push({ n: index + 1, startSec: shot.startSec, endSec: shot.endSec, keyframes });
     }
+    // 描述层：能看图的模型读关键帧，写景别/运镜/人物/场景/光线（纯文字导演也照着搭）
+    let described: { n: number; text: string }[] = [];
+    if (deps.vision)
+      try {
+        const { describeShots } = await import('./breakdown-vlm');
+        const vision = await describeShots(deps.vision, { shots: result, title: input.title });
+        described = vision.shots;
+        console.log(JSON.stringify({ code: 'BREAKDOWN_VISION_USAGE', inputTokens: vision.inputTokens, outputTokens: vision.outputTokens }));
+      } catch (error) {
+        console.error(JSON.stringify({ code: 'BREAKDOWN_VISION_FAILED', message: (error as Error).message.slice(0, 160) }));
+      }
     const lines = [
       `# 拆解：${input.title}`,
       '',
@@ -70,7 +81,13 @@ export async function breakdownVideo(
       '|---|---|---|',
       ...result.map((shot) => `| ${shot.n} | ${shot.startSec}–${shot.endSec} | ${shot.keyframes[0] ?? ''} |`),
       '',
-      '> 运镜、动作、表情（MediaPipe）还没接；先按镜头边界和关键帧交白模/镜头表。',
+      '',
+      '## 逐镜描述（视觉模型读关键帧写的）',
+      ...(described.length
+        ? described.map((item) => `- 镜${item.n}：${item.text.replace(/\n/g, ' ')}`)
+        : ['- （这次没有视觉模型描述；只有镜头边界和关键帧）']),
+      '',
+      '> MediaPipe 的骨骼动作/表情还没接；运镜与人物走位以逐镜描述为准。',
     ];
     await writeFile(`${input.basePath}.md`, `${lines.join('\n')}\n`);
     await writeFile(`${input.basePath}.json`, JSON.stringify({ ...input, shots: result }, null, 2));
