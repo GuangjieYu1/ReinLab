@@ -857,7 +857,7 @@ export async function runTool(
       return proposed;
     }
     case 'download_video': {
-      if (!defs.download) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
+      if (!context.download) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
       try {
         const file = await downloadVideo((context as unknown as RunToolContext).download ?? {}, {
           url: String(call.input.url ?? ''),
