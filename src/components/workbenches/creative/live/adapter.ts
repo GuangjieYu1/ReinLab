@@ -1,6 +1,6 @@
 // 创作台真实模式的数据边界（design/prd/20-creative-contract.md §2、22-creative-1a-frontend-brief.md）。
 // 页面只认这个接口；冲突、路程、故事时间换算都由服务端算，前端不推断。
-import type { CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GenerateJob, GeoJSON, ImpactReport, ImportJob, ItemChange, NetworkStatus, Proposal, TextEdit, Track, Work, WorkOp, WorldSnapshot, WorldVersion, BoardFocus, ProposalPreview, PersonAsset, PersonAssetVersion, PersonView, Whitebox, Shot, SceneCut } from '../../../../../packages/contracts/src/creative';
+import type { CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GenerateJob, GeoJSON, ImpactReport, ImportJob, ItemChange, NetworkStatus, Proposal, TextEdit, Track, Work, WorkOp, WorldSnapshot, WorldVersion, BoardFocus, ProposalPreview, PersonAsset, PersonAssetVersion, PersonView, Whitebox, Shot, SceneCut, ShotTake } from '../../../../../packages/contracts/src/creative';
 import type { MapConfig } from '../../explore/live/adapter';
 
 /** edits/geojson 返回的要素集合（geometry 可能为 null：目标对不上，待确认）。 */
@@ -23,6 +23,8 @@ export type CreativeStreamEvent =
   | { seq: number; type: 'creative.impact'; data: ImpactReport['maybeScan'] }
   | { seq: number; type: 'creative.focus'; data: BoardFocus }
   | { seq: number; type: 'creative.whitebox'; data: Whitebox }
+  | { seq: number; type: 'creative.take'; data: ShotTake }
+  | { seq: number; type: 'creative.cut'; data: SceneCut }
   | { seq: number; type: 'creative.shot'; data: { workId: string; sceneId: string; shots: Shot[] } }
   | { seq: number; type: 'creative.asset'; data: { entityId: string; assetId: string; version: PersonAssetVersion } }
   | { seq: number; type: 'creative.usage'; data: { cost: { value: number | null; known: boolean } } };
@@ -50,7 +52,12 @@ export interface CreativeAdapter {
   judgeRules(): Promise<{ judged: number; skipped: number; cost: { value: number | null; known: boolean }; check: CheckRun }>;
   /** MVP-3 白模、镜头、预演（契约 §13.4）。 */
   whitebox(placeId: string, version?: number): Promise<Whitebox>;
-  shots(workId: string, sceneId: string): Promise<{ shots: Shot[]; cut: SceneCut }>;
+  shots(workId: string, sceneId: string): Promise<{ shots: Shot[]; cut: SceneCut; takes?: ShotTake[] }>;
+  /** 3B 出片（契约 §13.4 / §13.9）。 */
+  drawTake(shotId: string, req: { resolution?: '480p' | '720p'; durationSec?: number; draftTakeId?: string }): Promise<ShotTake>;
+  retryTake(takeId: string): Promise<unknown>;
+  selectTake(shotId: string, takeId: string | null): Promise<unknown>;
+  cutScene(sceneId: string): Promise<SceneCut>;
   uploadPreview(shotId: string, video: Blob, poster: Blob | null): Promise<{ previewId: string; url: string; posterUrl: string | null }>;
   /** MVP-2 人物形象（契约 §12.3）。 */
   asset(entityId: string): Promise<PersonAsset>;

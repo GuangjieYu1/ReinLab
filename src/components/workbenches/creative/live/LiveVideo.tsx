@@ -1,7 +1,7 @@
 // MVP-3 视频面（契约 §13.6）：左正文、中白模视口、下镜头条、右详情 / 导演 / 提议。
 // 取向照 1D：导演交的白模和镜头先是虚影，接受才落账；导演在看什么，正文、视口、镜头条上描一圈。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BoardFocus, Proposal, ProposalPreview, Shot, V3, Whitebox, WhiteboxPrim, Work, WorldSnapshot } from '../../../../../packages/contracts/src/creative';
+import type { BoardFocus, Proposal, ProposalPreview, SceneCut, Shot, ShotTake, V3, Whitebox, WhiteboxPrim, Work, WorldSnapshot } from '../../../../../packages/contracts/src/creative';
 import BenchFrame from '../../BenchFrame';
 import type { BenchProps } from '../../WorkbenchStudio';
 import { CreativeError, type CreativeAdapter } from './adapter';
@@ -19,6 +19,7 @@ const isGhost = (id: string) => id.startsWith('pv:');
 export default function LiveVideo({ adapter, snapshot, onFace, ...props }: BenchProps & { adapter: CreativeAdapter; snapshot: WorldSnapshot; onFace: (f: Face) => void }) {
   const [snap, setSnap] = useState(snapshot); const snapRef = useRef(snap); snapRef.current = snap;
   const [works, setWorks] = useState<Work[]>([]), [workId, setWorkId] = useState(''), [work, setWork] = useState<Work | null>(null), [sceneId, setSceneId] = useState('');
+  const [takes, setTakes] = useState<ShotTake[]>([]), [cut, setCut] = useState<SceneCut | null>(null);
   const [shots, setShots] = useState<Shot[]>([]), [wb, setWb] = useState<Whitebox | null>(null), [placeId, setPlaceId] = useState('');
   const [sel, setSel] = useState<string | null>(null), [draft, setDraft] = useState<Shot | null>(null), [selDoll, setSelDoll] = useState<string | null>(null);
   const [mode, setMode] = useState<'editor' | 'camera'>('editor'), [t, setT] = useState(0), [playing, setPlaying] = useState(false);
@@ -36,7 +37,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   }, e => setErr(e.message)); }, [adapter, snapshot.world.id]);
   useEffect(() => { if (!workId) return; void adapter.work(workId).then(w => { setWork(w); setSceneId(s => w.chapters.some(c => c.scenes.some(x => x.id === s)) ? s : w.chapters[0]?.scenes[0]?.id ?? ''); }, e => setErr(e.message)); }, [adapter, workId]);
   useEffect(() => { if (workId && sceneId) localStorage.setItem(`creative-video:${snapshot.world.id}`, JSON.stringify({ workId, sceneId })); }, [workId, sceneId, snapshot.world.id]);
-  const loadShots = useCallback(async () => { if (!workId || !sceneId) return; const r = await adapter.shots(workId, sceneId); setShots(r.shots); setPlaceId(p => p || r.shots[0]?.placeId || ''); }, [adapter, workId, sceneId]);
+  const loadShots = useCallback(async () => { if (!workId || !sceneId) return; const r = await adapter.shots(workId, sceneId); setShots(r.shots); setTakes(r.takes ?? []); setCut(r.cut ?? null); setPlaceId(p => p || r.shots[0]?.placeId || ''); }, [adapter, workId, sceneId]);
   useEffect(() => { setShots([]); setSel(null); void loadShots().catch(e => setErr(e.message)); }, [loadShots]);
   const rooms = snap.entities.filter(e => e.place?.room);
   useEffect(() => { if (!placeId && rooms[0]) setPlaceId(rooms[0].id); }, [placeId, rooms]);
@@ -52,6 +53,8 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
     const stop = adapter.subscribe(cursor.current, ev => {
       cursor.current = Math.max(cursor.current, ev.seq); const c = cur.current;
       if (ev.type === 'creative.whitebox') { if (ev.data.placeId === c.placeId) setWb(ev.data); }
+      else if (ev.type === 'creative.take') { const t = ev.data; setTakes(xs => xs.some(x => x.id === t.id) ? xs.map(x => x.id === t.id ? t : x) : [...xs, t]); if (t.state === 'saved' || t.state === 'failed') void c.loadShots(); }
+      else if (ev.type === 'creative.cut') { if (ev.data.sceneId === c.sceneId) setCut(ev.data); }
       else if (ev.type === 'creative.shot') { if (ev.data.sceneId === c.sceneId && (!ev.data.workId || ev.data.workId === c.workId)) { setShots(xs => { const m = new Map(xs.map(x => [x.id, x])); ev.data.shots.forEach(x => m.set(x.id, x)); return [...m.values()].sort((a, b) => a.n - b.n); }); void c.loadShots(); } }
       else if (ev.type === 'creative.focus') {
         const f = ev.data;
@@ -180,15 +183,22 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
           onRevise={text => ghostProp.runId ? adapter.sayAssistant(ghostProp.runId, text, { proposalId: ghostProp.id }).then(() => undefined) : Promise.reject(Error('这条提议不是在导演对话里交的。'))} />}
         {ghostProp && mate && <p className="lv-mate">同一轮导演还交了《{mate.title}》，一起画在上面；两条分开接受。<button className="cw-link" onClick={() => setGhostId(mate.id)}>切到那条</button></p>}
         <ol className="lv-shots" aria-label="镜头">
-          {allShots.map(s => <li key={s.id} data-sel={s.id === sel || undefined} data-ghost={isGhost(s.id) || undefined} data-hi={hiIds.has(s.id) || undefined} data-ai={aiIds.has(s.id) || undefined}>
+          {allShots.map(s => <li key={s.id} data-id={s.id} data-sel={s.id === sel || undefined} data-ghost={isGhost(s.id) || undefined} data-hi={hiIds.has(s.id) || undefined} data-ai={aiIds.has(s.id) || undefined}>
             <button onClick={() => { setSel(s.id); setTab('shot'); }}>
-              {s.preview?.posterUrl ? <img src={fileUrl(s.preview.posterUrl)} alt="" /> : <span className="lv-noposter">{isGhost(s.id) ? '提议' : '未录预演'}</span>}
+              {(() => { const pick = takes.find(t => t.id === s.selectedTakeId), poster = pick?.posterUrl ?? s.preview?.posterUrl; return poster ? <img src={fileUrl(poster)} alt="" /> : <span className="lv-noposter">{isGhost(s.id) ? '提议' : '未录预演'}</span>; })()}
+              {(() => { const mine = takes.filter(t => t.shotId === s.id), busy = mine.find(t => t.state === 'queued' || t.state === 'generating'); const ok = mine.filter(t => t.state === 'saved').length; return mine.length ? <em className="lv-takebadge" data-busy={busy || undefined} data-fail={!busy && !ok || undefined}>{busy ? (busy.state === 'queued' ? '排队' : '出片中') : s.selectedTakeId ? '已选片' : ok ? `${ok} 条片` : '没出成'}</em> : null; })()}
               <b>镜 {String(s.n).padStart(2, '0')}</b><small>{s.durationSec} 秒{s.para ? ` · 第 ${s.para} 段` : ''}</small>
               <span className="lv-act">{s.action}</span>
               {!!s.stale?.length && <em className="lv-stale" title={s.stale.join('；')}>依据旧了</em>}
             </button></li>)}
           {!allShots.length && <li className="lv-none">这一场还没有镜头。</li>}
         </ol>
+        {shots.length > 0 && <div className="lv-cut">
+          <span>{shots.filter(x => x.selectedTakeId).length}/{shots.length} 镜已选片</span>
+          <button className="rh-btn" disabled={busy || cut?.file?.state === 'building'} onClick={() => void act(async () => { setCut(await adapter.cutScene(sceneId)); })}>{cut?.file?.state === 'building' ? '拼片中…' : '拼成片'}</button>
+          {cut?.file?.state === 'saved' && cut.file.url && <><video className="lv-cutvid" src={fileUrl(cut.file.url)} controls playsInline /><a className="cw-link" href={`${fileUrl(cut.file.url)}?download=1`} download>下载成片{cut.file.durationSec ? `（${cut.file.durationSec.toFixed(1)} 秒）` : ''}</a></>}
+          {cut?.file?.state === 'failed' && <span className="cw-warn">{cut.file.failure}</span>}
+        </div>}
       </section>
       <aside className="cw-side lv-side"><nav className="cw-tabs">{(['shot', 'director', 'props'] as const).map((p, i) => <button key={p} aria-selected={tab === p} onClick={() => setTab(p)}>{['镜头', '导演', `提议${props2.length ? ` ${props2.length}` : ''}`][i]}</button>)}</nav><div className="cw-side-body">
         {err && <p className="cw-warn" role="alert">{err}</p>}
@@ -200,6 +210,25 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
           <dl><div><dt>机位</dt><dd>{fmt(shot.camera.eye)} → 看 {fmt(shot.camera.target)} · {shot.camera.fov}°{shot.camera.end ? ` · 运到 ${fmt(shot.camera.end.eye)}` : ' · 固定'}</dd></div>
             {shot.cast.map(c => <div key={c.entityId}><dt>{person(c.entityId)?.name ?? '未知'}</dt><dd>{({ stand: '站', sit: '坐', walk: '走' })[c.pose]} · {fmt(c.at)}{c.to ? ` → ${fmt(c.to)}` : ''} · 朝 {c.facing}° · {person(c.entityId)?.person?.body?.heightM ?? '?'} m{c.assetVersionId ? '' : ' · 没挂形象版本'}</dd></div>)}</dl>
           {shot.preview && <><span className="rh-micro">预演片段</span><video className="lv-prev" src={fileUrl(shot.preview.url)} poster={fileUrl(shot.preview.posterUrl)} controls muted playsInline /></>}
+          {!isGhost(shot.id) && (() => {
+            const mine = takes.filter(t => t.shotId === shot.id).sort((a, b) => b.n - a.n), running = mine.some(t => t.state === 'queued' || t.state === 'generating');
+            const money = (t: ShotTake) => t.cost?.known && t.cost.value != null ? `¥${t.cost.value.toFixed(2)}` : t.state === 'failed' ? '平台未收费' : '花费未知';
+            const ST: Record<ShotTake['state'], string> = { queued: '排队', generating: '出片中（约 3–4 分钟）', unsaved: '待保存', saved: '', failed: '没出成' };
+            return <section className="lv-takes">
+              <span className="rh-micro">出片 · Seedance{mine.length ? ` · ${mine.length} 条` : ''}</span>
+              {!shot.preview && <p className="cw-muted">先录预演再出片：预演就是给视频模型的机位和走位参考。</p>}
+              <div className="cw-row"><button className="rh-btn is-solid" disabled={busy || running || !shot.preview} onClick={() => void act(async () => { const t = await adapter.drawTake(shot.id, { resolution: '480p' }); setTakes(xs => [...xs, t]); })}>出片（480p 草稿 · 约 ¥2.8）</button>
+                {!!shot.stale?.length && <small className="cw-warn">依据旧了，出片会按新的来</small>}</div>
+              {mine.map(t => <figure key={t.id} className="lv-take" data-sel={shot.selectedTakeId === t.id || undefined} data-state={t.state}>
+                {t.state === 'saved' && t.url ? <video src={fileUrl(t.url)} poster={fileUrl(t.posterUrl)} controls playsInline /> : <div className="lv-takeph">{(t.state === 'queued' || t.state === 'generating') && <i className="pl-spin" />}<b>{ST[t.state]}</b>{t.failure && <small>{t.failure}</small>}</div>}
+                <figcaption><b>候选 {t.n}</b> · {t.resolution}{t.basis.draftTakeId ? ' 定稿' : ' 草稿'} · {money(t)}
+                  {t.state === 'saved' && (shot.selectedTakeId === t.id ? <em> 已选用</em> : <button className="cw-link" disabled={busy} onClick={() => void act(async () => { await adapter.selectTake(shot.id, t.id); await loadShots(); })}>用这一条</button>)}
+                  {t.state === 'saved' && shot.selectedTakeId === t.id && t.resolution === '480p' && <button className="cw-link" disabled={busy || running} onClick={() => void act(async () => { const n = await adapter.drawTake(shot.id, { resolution: '720p', draftTakeId: t.id }); setTakes(xs => [...xs, n]); })}>出定稿 720p（约 ¥6）</button>}
+                  {t.state === 'unsaved' && <button className="cw-link" disabled={busy} onClick={() => void act(() => adapter.retryTake(t.id))}>重试取回</button>}
+                  {t.state === 'saved' && t.url && <a className="cw-link" href={`${fileUrl(t.url)}?download=1`} download>下载</a>}
+                </figcaption></figure>)}
+            </section>;
+          })()}
           {editable && <div className="cw-row lv-cast">
             <select aria-label="加人物到这一镜" value="" onChange={e => { const id = e.target.value; if (!id) return; const c = room ? [room.outline.reduce((a, p) => a + p[0], 0) / room.outline.length, 0, room.outline.reduce((a, p) => a + p[1], 0) / room.outline.length] as V3 : [0, 0, 0] as V3;
               void act(async () => { await ops([{ op: 'shot.update', id: shot.id, patch: { cast: [...shot.cast, { entityId: id, assetVersionId: null, at: c, facing: 0, pose: 'stand', to: null }] } }]); await loadShots(); }); }}>

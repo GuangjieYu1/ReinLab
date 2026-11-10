@@ -42,6 +42,10 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
     preview: (pid, workId) => call('GET', `${base}/proposals/${enc(pid)}/preview${workId ? `?workId=${enc(workId)}` : ''}`),
     whitebox: (pid, version) => call('GET', `${base}/places/${enc(pid)}/whitebox${version ? `?version=${version}` : ''}`),
     shots: (wid, sid) => call('GET', `${base}/works/${enc(wid)}/scenes/${enc(sid)}/shots`),
+    drawTake: (shotId, req) => call('POST', `${base}/shots/${enc(shotId)}/takes`, req),
+    retryTake: takeId => call('POST', `${base}/takes/${enc(takeId)}/retry`, {}),
+    selectTake: (shotId, takeId) => call('PUT', `${base}/shots/${enc(shotId)}/selected`, { takeId }),
+    cutScene: sceneId => call('POST', `${base}/scenes/${enc(sceneId)}/cut`, {}),
     uploadPreview: async (shotId, video, poster) => {
       const form = new FormData();
       form.append('video', video, video.type.includes('mp4') ? 'preview.mp4' : 'preview.webm');

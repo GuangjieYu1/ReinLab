@@ -8,7 +8,7 @@
 .lv-paras p small { display:block; font:400 10.5px var(--rh-f-mono); color:var(--rh-ink-4); }
 .lv-paras p[data-on] { border-left-color:var(--rh-ink); background:var(--rh-paper); color:var(--rh-ink); }
 .lv-paras p[data-ai] { border-left-color:var(--rh-accent); animation:cw-ai-pulse 1s ease-in-out infinite; }
-.lv-stage { display:grid; grid-template-rows:auto minmax(0,1fr) auto auto auto; min-height:0; min-width:0; }
+.lv-stage { display:grid; grid-template-rows:auto minmax(0,1fr) auto auto auto auto; min-height:0; min-width:0; }
 .lv-bar { display:flex; gap:8px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--rh-line); background:var(--rh-white); flex-wrap:wrap; }
 .lv-bar select { font:400 12.5px var(--rh-f-ui); }
 .lv-seg { display:flex; border:1px solid var(--rh-line); }
@@ -53,3 +53,16 @@
 .lv-detail dd { margin:0; }
 .lv-cast { flex-wrap:wrap; gap:6px; } .lv-cast select { font:400 12px var(--rh-f-ui); }
 .lv-turn { display:inline-flex; gap:4px; align-items:center; font:400 12px var(--rh-f-ui); padding:0 6px 0 0; }
+.lv-takebadge { position:absolute; left:6px; top:6px; font:600 10.5px var(--rh-f-ui); background:var(--rh-ink); color:var(--rh-white); padding:1px 5px; font-style:normal; }
+.lv-takebadge[data-busy] { background:var(--rh-accent); }
+.lv-cut { display:flex; gap:10px; align-items:center; padding:6px 10px; border-top:1px solid var(--rh-line); background:var(--rh-white); font:400 12px var(--rh-f-ui); flex-wrap:wrap; }
+.lv-cutvid { height:72px; background:#000; }
+.lv-takes { display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--rh-line); padding-top:8px; }
+.lv-take { margin:0; border:1px solid var(--rh-line); padding:4px; background:var(--rh-white); }
+.lv-take[data-sel] { border-color:var(--rh-ink); box-shadow:inset 0 0 0 1px var(--rh-ink); }
+.lv-take video, .lv-takeph { width:100%; aspect-ratio:16/9; background:#111; display:block; }
+.lv-takeph { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; color:#d8d4cc; font:400 12px var(--rh-f-ui); text-align:center; padding:6px; box-sizing:border-box; }
+.lv-takeph small { color:#f0a090; }
+.lv-take figcaption { font:400 11.5px var(--rh-f-ui); display:flex; gap:6px; flex-wrap:wrap; align-items:baseline; padding-top:3px; }
+.lv-take figcaption em { color:var(--rh-accent); font-style:normal; font-weight:600; }
+.lv-takebadge[data-fail] { background:var(--rh-danger, #c0392b); }
