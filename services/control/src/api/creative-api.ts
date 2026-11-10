@@ -553,7 +553,9 @@ export function registerCreativeApi(app: Hono<ApiEnv>, database: Database, optio
       const cut = ((state.document.cuts ?? []) as Record<string, unknown>[]).find(
         (item) => item.workId === c.req.param('workId') && item.sceneId === sceneId,
       );
-      return c.json({ shots, cut: cut ?? { workId: c.req.param('workId'), sceneId, shots: [] } });
+      const takeIds = new Set(shots.map((shot) => shot.id));
+      const takes = ((state.document.takes ?? []) as { shotId?: string }[]).filter((take) => takeIds.has(String(take.shotId)));
+      return c.json({ shots, takes, cut: cut ?? { workId: c.req.param('workId'), sceneId, shots: [] } });
     }),
   );
 
