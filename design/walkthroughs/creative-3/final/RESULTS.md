@@ -83,3 +83,12 @@
 | 视觉用量记账 | **不通**。`usage_record` 里没有 `creative_breakdown`。插入写 `known=false` 又带了 token，违反表约束 `known OR (input_tokens/output_tokens/cost_cny 都为空)`，被 `.catch(() => undefined)` 吞了 |
 
 顺带：同一段视频第三次下载，文件名换成了「参考片段前30秒」，素材夹里同一段已有好几份（没去重）。
+
+## 用量记账 + 去重复验（2026-11-11 01:49，后端 `88ffada`）
+
+| 项 | 结果 |
+|---|---|
+| 视觉用量 | **通**。run `8fcece75…` 有一条 `creative_breakdown`、known=false、token 空、note「视觉拆解，输入 2952 / 输出 3313 token，单价未知」 |
+| 同一段再下一次 | **不通**。前 8 秒（from 0 to 8）下第二次，又下载 + 拆解了一遍，存成「参考前8秒__…」（第一次是「参考视频前8秒__…」），回复里也没说「已经有了」 |
+
+断点：`breakdown.ts:123` 拆解完把 `${basePath}.json` 整个覆盖成拆解结果（videoPath / shots…），`download.ts:199` 写的来源元数据（site、videoId、from、to）就没了，去重拿 `from/to` 比不上。另外去重的 `try` 包住整个循环，任一 `.json` 解析失败就整段跳过去重。
