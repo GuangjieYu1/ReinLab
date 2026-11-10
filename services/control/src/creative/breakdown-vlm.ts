@@ -18,7 +18,7 @@ const PROMPT = `你在看一部短剧的分镜关键帧。按镜写拆解，每�
 export async function describeShots(
   config: VisionConfig,
   input: { shots: { n: number; startSec: number; endSec: number; keyframes: string[] }[]; title: string },
-  options: { group?: number } = {},
+  options: { group?: number; onProgress?: (info: { done: number; total: number; text: string }) => void } = {},
 ): Promise<{ shots: ShotDescription[]; inputTokens: number | null; outputTokens: number | null }> {
   const group = options.group ?? 1;
   const out: ShotDescription[] = [];
@@ -57,7 +57,9 @@ export async function describeShots(
     if (body.usage?.completion_tokens) outputTokens = (outputTokens ?? 0) + body.usage.completion_tokens;
     for (const shot of batch) {
       const match = new RegExp(`镜${shot.n}[：:]\\s*([\\s\\S]*?)(?=\\n镜\\d|$)`).exec(reply);
-      out.push({ n: shot.n, text: (match?.[1] ?? reply).trim().slice(0, 600) });
+      const text = (match?.[1] ?? reply).trim().slice(0, 600);
+      out.push({ n: shot.n, text });
+      options.onProgress?.({ done: out.length, total: input.shots.length, text });
     }
   }
   return { shots: out, inputTokens, outputTokens };

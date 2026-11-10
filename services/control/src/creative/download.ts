@@ -4,13 +4,37 @@
  * cookie 只在进程内存里读（契约 §14.1），有 DRM 的直接拒绝。
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, readdir, rename, rm, writeFile, stat, mkdir } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const run = promisify(execFile);
+
+/** 跑 yt-dlp 并把百分比透出来（stderr 里是「[download]  12.3% of ...」）。 */
+function runWithProgress(command: string, args: string[], onPercent?: (percent: number) => void): Promise<{ stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    let last = -1;
+    const feed = (chunk: Buffer) => {
+      stderr += chunk.toString();
+      if (!onPercent) return;
+      const matches = [...stderr.matchAll(/(\d{1,3}(?:\.\d+)?)%/g)];
+      const percent = matches.length ? Math.floor(Number(matches.at(-1)![1])) : -1;
+      if (percent >= 0 && percent !== last && (last < 0 || percent - last >= 5 || percent >= 100)) {
+        last = percent;
+        onPercent(percent);
+      }
+      if (stderr.length > 2_000_000) stderr = stderr.slice(-200_000);
+    };
+    child.stderr.on('data', feed);
+    child.stdout.on('data', feed);
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve({ stderr }) : reject(Object.assign(new Error('yt-dlp 失败'), { stderr }))));
+  });
+}
 
 export type DownloadDeps = {
   ytDlpPath?: string;
@@ -71,7 +95,7 @@ const rangeFromNote = (note?: string): { from?: string; to?: string } => {
 
 export async function downloadVideo(
   deps: DownloadDeps,
-  input: { url: string; from?: string; to?: string; note?: string },
+  input: { url: string; from?: string; to?: string; note?: string; onProgress?: (info: { step: string; done?: number; total?: number; detail?: string }) => void },
 ): Promise<{ name: string; path: string; title: string; site: string; videoId: string; durationSec: number | null; description: string; markdown: string | null }> {
   const folder = folderOf(deps);
   await mkdir(folder, { recursive: true });
@@ -113,8 +137,9 @@ export async function downloadVideo(
     const args = ['--no-warnings', '-f', 'bv*[height<=720]+ba/b[height<=720]/b', '-o', join(dir, 'v.%(ext)s'), ...cookieArgs];
     if (section) args.push('--download-sections', section, '--force-keyframes-at-cuts');
     args.push(input.url);
+    input.onProgress?.({ step: '下载中' });
     try {
-      await run(ytDlpOf(deps), args, { maxBuffer: 64 * 1024 * 1024 });
+      await runWithProgress(ytDlpOf(deps), args, (percent) => input.onProgress?.({ step: `下载中 ${percent}%` }));
     } catch (error) {
       const text = String((error as { stderr?: string; message?: string }).stderr ?? (error as Error).message ?? '');
       if (/412|403|login|sign in|登录|风控|Precondition/i.test(text)) throw new LoginRequiredError(siteOf(input.url));
@@ -169,6 +194,7 @@ export async function downloadVideo(
         title,
         url: input.url,
         durationSec,
+        ...(input.onProgress ? { onProgress: input.onProgress } : {}),
       });
       markdown = result.markdownPath;
     } catch (error) {

@@ -69,3 +69,31 @@ describe("路线推断的触发条件", () => {
     expect(routingSignatureOf(timeChanged)).not.toBe(before);
   });
 });
+
+describe("拆解进度（§14.9）", () => {
+  it("describeShots 每写完一镜回调一次，带 done/total", async () => {
+    const { describeShots } = await import("../src/creative/breakdown-vlm");
+    const calls: { done: number; total: number; text: string }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "镜1：全景；固定；一人。\n镜2：近景；推；两人。" } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      const out = await describeShots(
+        { apiKey: "test" },
+        { shots: [{ n: 1, startSec: 0, endSec: 2, keyframes: [] }, { n: 2, startSec: 2, endSec: 4, keyframes: [] }], title: "测试" },
+        { group: 2, onProgress: (info) => calls.push(info) },
+      );
+      expect(out.shots).toHaveLength(2);
+      expect(calls.map((item) => `${item.done}/${item.total}`)).toEqual(["1/2", "2/2"]);
+      expect(calls[0]!.text).toContain("全景");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

@@ -40,8 +40,16 @@ export async function detectScenes(ffmpeg: string | undefined, videoPath: string
 /** 拆解一个已经下载好的视频，在它旁边写 .md 和 .json。 */
 export async function breakdownVideo(
   deps: { ffmpegPath?: string; vision?: import('./breakdown-vlm').VisionConfig | null },
-  input: { videoPath: string; basePath: string; title: string; url: string; durationSec: number | null },
+  input: {
+    videoPath: string;
+    basePath: string;
+    title: string;
+    url: string;
+    durationSec: number | null;
+    onProgress?: (info: { step: string; done?: number; total?: number; detail?: string }) => void;
+  },
 ): Promise<{ markdownPath: string; shots: BreakdownShot[] }> {
+  input.onProgress?.({ step: '切镜头' });
   const shots = await detectScenes(deps.ffmpegPath, input.videoPath, input.durationSec);
   const framesDir = `${input.basePath}.frames`;
   await run('mkdir', ['-p', framesDir]);
@@ -64,7 +72,14 @@ export async function breakdownVideo(
     if (deps.vision)
       try {
         const { describeShots } = await import('./breakdown-vlm');
-        const vision = await describeShots(deps.vision, { shots: result, title: input.title });
+        const vision = await describeShots(
+          deps.vision,
+          { shots: result, title: input.title },
+          {
+            onProgress: (info) =>
+              input.onProgress?.({ step: `视觉拆解 镜 ${info.done}`, done: info.done, total: info.total, detail: info.text.slice(0, 200) }),
+          },
+        );
         described = vision.shots;
         console.log(JSON.stringify({ code: 'BREAKDOWN_VISION_USAGE', inputTokens: vision.inputTokens, outputTokens: vision.outputTokens }));
       } catch (error) {

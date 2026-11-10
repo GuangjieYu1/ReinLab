@@ -891,11 +891,28 @@ export async function runTool(
       const downloadDeps = download;
       if (!downloadDeps) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
       try {
+        const mode = role === 'director' ? ('creative_director' as const) : role === 'advisor' ? ('creative_advisor' as const) : ('creative_writer' as const);
         const file = await downloadVideo(downloadDeps, {
           url: String(call.input.url ?? ''),
           ...(call.input.from ? { from: String(call.input.from) } : {}),
           ...(call.input.to ? { to: String(call.input.to) } : {}),
           ...(call.input.note ? { note: String(call.input.note) } : {}),
+          // 下载/拆解一开始就推进度，别让作者看着像卡死
+          onProgress: (info) => {
+            void appendEvents(client, { account, dossier }, [
+              {
+                type: 'creative.focus',
+                data: {
+                  runId: defs.runId,
+                  mode,
+                  step: info.step.slice(0, 20),
+                  refs: [],
+                  ...(info.done !== undefined && info.total !== undefined ? { progress: { done: info.done, total: info.total } } : {}),
+                  ...(info.detail ? { detail: info.detail.slice(0, 200) } : {}),
+                },
+              },
+            ]).catch(() => undefined);
+          },
         });
         return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。${file.markdown ? '拆解表也写好了，用 read_reference 看。' : '拆解没做成。'}同名的 .json 记了来源。`, refs: [] };
       } catch (error) {
