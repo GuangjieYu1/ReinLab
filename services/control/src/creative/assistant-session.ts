@@ -109,6 +109,18 @@ const ROLE_PROMPT: Record<'advisor' | 'writer' | 'director', string> = {
 底线：只改指定的那一段或那一场，不要替下一场收尾、不要跳到别的时间线；设定里没有的地点人物时间不要编，非写不可就写得含糊并在 why 里说明。`,
 };
 
+const TOOLS_REFERENCE: ToolDef[] = [
+  {
+    name: 'read_reference',
+    description: '读素材文件夹里某个参考视频的拆解表（.md）。name 可以是文件名前缀，不给就列最近拆好的几个。',
+    input_schema: {
+      type: 'object',
+      properties: { name: { type: 'string', description: '文件名或前缀（可不填）' } },
+      additionalProperties: false,
+    },
+  },
+];
+
 const TOOLS_DOWNLOAD: ToolDef[] = [
   {
     name: 'download_video',
@@ -167,6 +179,7 @@ const TOOLS_READ: ToolDef[] = [
 ];
 
 const TOOLS_ADVISOR: ToolDef[] = [
+  ...TOOLS_REFERENCE,
   ...TOOLS_DOWNLOAD,
   ...TOOLS_READ,
   {
@@ -262,6 +275,7 @@ const TOOLS_ADVISOR: ToolDef[] = [
 
 const TOOLS_DIRECTOR: ToolDef[] = [
   ...TOOLS_DOWNLOAD,
+  ...TOOLS_REFERENCE,
   ...TOOLS_READ,
   {
     name: 'propose_whitebox',
@@ -407,6 +421,7 @@ const TOOLS_DIRECTOR: ToolDef[] = [
 const TOOLS_WRITER: ToolDef[] = [
   ...TOOLS_DOWNLOAD,
   ...TOOLS_READ,
+  ...TOOLS_REFERENCE,
   {
     name: 'propose_text_edit',
     description: '交一条正文改稿提议（作者接受才落笔）。改写要给出被替换的原话 before。',
@@ -856,6 +871,20 @@ export async function runTool(
       });
       return proposed;
     }
+    case 'read_reference': {
+      const { readdir, readFile } = await import('node:fs/promises');
+      const folder = (download?.folder ?? `${process.env.HOME}/ReinLab素材`) as string;
+      try {
+        const files = (await readdir(folder)).filter((name) => name.endsWith('.md') && name !== '说明.md');
+        const wanted = call.input.name ? String(call.input.name) : '';
+        const pick = wanted ? files.find((name) => name.includes(wanted)) : files.at(-1);
+        if (!pick) return { text: `素材文件夹里还没有拆好的拆解表（${folder}）。`, refs: [], ok: false };
+        const text = await readFile(`${folder}/${pick}`, 'utf8');
+        return { text: `拆解表「${pick}」：\n${text.slice(0, 4000)}`, refs: [] };
+      } catch {
+        return { text: '还没下载过参考视频。', refs: [], ok: false };
+      }
+    }
     case 'download_video': {
       const downloadDeps = download;
       if (!downloadDeps) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
@@ -866,7 +895,7 @@ export async function runTool(
           ...(call.input.to ? { to: String(call.input.to) } : {}),
           ...(call.input.note ? { note: String(call.input.note) } : {}),
         });
-        return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。同名的 .json 记了来源。`, refs: [] };
+        return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。${file.markdown ? '拆解表也写好了，用 read_reference 看。' : '拆解没做成。'}同名的 .json 记了来源。`, refs: [] };
       } catch (error) {
         if (error instanceof LoginRequiredError)
           return {
@@ -1067,6 +1096,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       '提议的明细作者会在看板上看到，回复里不复述明细，只说一两句要点和拿不准的地方。',
       '白模和镜头可以在同一轮一起交，不要等作者确认白模再交镜头。',
       '要视频素材时用 download_video 下载，不要用别的方式。',
+      '下载或拆解失败时先停下来问作者，不要自己按正文往下交白模和镜头表。',
       '白模只给尺寸和关系，坐标由服务端求解器算，不要自己写坐标。',
       `家具的 label 用库里的名字（${FURNITURE_NAMES.map((item) => item.name).join('、')}），尺寸用真实尺寸；可套场景模板：${TEMPLATES.map((item) => item.name).join('、')}。`,
     ].join('\n');

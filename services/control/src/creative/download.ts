@@ -64,7 +64,7 @@ const idOf = (url: string, title: string, durationSec: number | null): string =>
 export async function downloadVideo(
   deps: DownloadDeps,
   input: { url: string; from?: string; to?: string; note?: string },
-): Promise<{ name: string; path: string; title: string; site: string; videoId: string; durationSec: number | null; description: string }> {
+): Promise<{ name: string; path: string; title: string; site: string; videoId: string; durationSec: number | null; description: string; markdown: string | null }> {
   const folder = folderOf(deps);
   await mkdir(folder, { recursive: true });
   const readme = join(folder, '说明.md');
@@ -149,7 +149,23 @@ export async function downloadVideo(
         2,
       ),
     );
-    return { name, path: target, title, site, videoId, durationSec, description };
+    // 下载完自动拆解（契约 §14.2）：场景切分 + 关键帧 + .md/.json；失败不影响下载结果
+    const basePath = target.replace(/\.mp4$/i, '');
+    let markdown: string | null = null;
+    try {
+      const { breakdownVideo } = await import('./breakdown');
+      const result = await breakdownVideo({ ffmpegPath: process.env.REINLAB_FFMPEG ?? '/opt/homebrew/bin/ffmpeg' }, {
+        videoPath: target,
+        basePath,
+        title,
+        url: input.url,
+        durationSec,
+      });
+      markdown = result.markdownPath;
+    } catch (error) {
+      console.error(JSON.stringify({ code: 'BREAKDOWN_FAILED', message: (error as Error).message.slice(0, 160) }));
+    }
+    return { name, path: target, title, site, videoId, durationSec, description, markdown };
   } finally {
     if (cookieFile) await rm(cookieFile, { force: true });
     await rm(dir, { recursive: true, force: true });
