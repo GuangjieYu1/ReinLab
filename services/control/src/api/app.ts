@@ -86,6 +86,8 @@ export async function createApp(options: {
   creativeAdvisor?: import("../creative/advisor").AdvisorDeps;
   /** 1C：扫正文的模型通道。 */
   creativeImpactScan?: import("../creative/scan").ScanDeps;
+  /** MVP-3 3B：出片平台（Seedance + TOS + ffmpeg）。 */
+  video?: import("../creative/video/pipeline").VideoDeps;
   /** MVP-2：出图的平台（可换）。 */
   imageProvider?: import("../creative/image/provider").ImageProvider;
   /** 29 号：助手会话的模型通道（带工具、多轮）。 */

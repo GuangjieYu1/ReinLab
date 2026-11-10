@@ -795,6 +795,8 @@ export type Shot = {
   light?: string | null;
   /** 出这条镜头时那一场的第 para 段原文（正文改过就标旧）。 */
   basisText?: string | null;
+  /** 选用的候选（3B）。 */
+  selectedTakeId?: string | null;
   /** 预演片段（前端录，后端只存）：预览 id、视频地址、首帧地址。 */
   preview?: { previewId: string; url: string; posterUrl: string | null; at: CreativeIso; mime: string } | null;
   /** 依据旧了：白模/立绘出新版、正文改过。 */
@@ -817,6 +819,8 @@ export type ShotTake = {
     refImages: { assetVersionId: string; view: PersonView }[];
     previewId: string | null;
     mode: 'reference_video' | 'reference_image_only';
+    /** 出定稿时指向草稿候选。 */
+    draftTakeId?: string | null;
     prompt: string;
   };
   provider: string;

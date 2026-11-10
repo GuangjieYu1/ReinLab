@@ -17,6 +17,7 @@ import { loadWorld } from './service';
 import { focusStep } from './preview';
 import { selectedVersions } from './asset-query';
 import { buildShell, solveLayout } from './whitebox-layout';
+import { FURNITURE_NAMES, TEMPLATES } from '@reinlab/contracts';
 import { effectiveWorldOf } from './effective';
 import { diffDocuments } from './items';
 import { runCheck } from './check';
@@ -249,6 +250,11 @@ const TOOLS_DIRECTOR: ToolDef[] = [
       properties: {
         placeId: { type: 'string' },
         note: { type: 'string' },
+        template: {
+          type: 'string',
+          description: '场景模板名（服务端先摆出初版，再用 items 增删改）：客栈门厅',
+          enum: TEMPLATES.map((item) => item.name),
+        },
         room: {
           type: 'object',
           description: '房间没有几何时一起交：轮廓（局部 x/z，米，逆时针或顺时针都行）和层高',
@@ -689,6 +695,10 @@ export async function runTool(
       }
       const openings = (call.input.openings as Opening[]) ?? [];
       const items = (call.input.items as LayoutItem[]) ?? [];
+      // 场景模板：服务端先摆出初版，导演再用 items 增删改
+      const templateName = call.input.template ? String(call.input.template) : '';
+      const template = TEMPLATES.find((item) => item.name === templateName);
+      const templatePrims = template ? template.build(room.outline, room.height) : [];
       const shell = buildShell(room, openings);
       // 改版：上一版里没提到的件保持原坐标，当成固定障碍
       // 同一轮、同一地点只留一条白模：自动替掉本轮已经交的那条
@@ -712,7 +722,10 @@ export async function runTool(
       // 只在原来没有房间时补；用专门的 op，不动 place 的其他字段
       if (!existingRoom && roomInput?.outline && roomInput.height)
         ops.push({ op: 'place.room.set', placeId, room: { ...room, origin: place?.place?.room?.origin ?? null, heading: place?.place?.room?.heading ?? 0 } });
-      for (const prim of [...shell, ...fixed, ...solved.prims]) ops.push({ op: 'whitebox.prim.add', placeId, prim });
+      const templateKeys = new Set(templatePrims.map((prim) => prim.label));
+      const keptTemplate = fixed.filter((prim) => !prim.key || !templateKeys.has(prim.key));
+      for (const prim of [...(template ? [] : shell), ...templatePrims.map((prim, index) => ({ ...prim, from: 'layout' as const, key: `template:${index}`, id: `layout:${index}:${prim.label}` })), ...keptTemplate, ...solved.prims])
+        ops.push({ op: 'whitebox.prim.add', placeId, prim });
       const proposed = await createProposal(defs, world, {
         kind: 'whitebox',
         title: `白模：${shell.length} 个壳件 + ${solved.prims.length + fixed.length} 件摆设`,
@@ -1005,6 +1018,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
       '提议的明细作者会在看板上看到，回复里不复述明细，只说一两句要点和拿不准的地方。',
       '白模和镜头可以在同一轮一起交，不要等作者确认白模再交镜头。',
       '白模只给尺寸和关系，坐标由服务端求解器算，不要自己写坐标。',
+      `家具的 label 用库里的名字（${FURNITURE_NAMES.map((item) => item.name).join('、')}），尺寸用真实尺寸；可套场景模板：${TEMPLATES.map((item) => item.name).join('、')}。`,
     ].join('\n');
     const messages: ChatMessage[] = [...history];
     const proposals: string[] = [];

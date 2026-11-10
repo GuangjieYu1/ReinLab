@@ -403,6 +403,25 @@ const imageProvider = localSecrets.REINLAB_IMAGE_DEV === 'placeholder'
     : null,
 );
 
+// MVP-3 3B：Seedance + TOS + ffmpeg。key 只在进程内存里读；没配就让出片返回明确错误。
+const videoDeps = {
+  ffmpegPath: process.env.REINLAB_FFMPEG ?? '/opt/homebrew/bin/ffmpeg',
+  tos: localSecrets.TOS_ACCESS_KEY
+    ? {
+        accessKey: localSecrets.TOS_ACCESS_KEY,
+        secretKey: localSecrets.TOS_SECRET_KEY ?? '',
+        bucket: localSecrets.TOS_BUCKET ?? '',
+        region: localSecrets.TOS_REGION ?? 'cn-beijing',
+      }
+    : null,
+  seedance: localSecrets.ARK_API_KEY
+    ? {
+        apiKey: localSecrets.ARK_API_KEY,
+        ...(localSecrets.ARK_SEEDANCE_MODEL ? { model: localSecrets.ARK_SEEDANCE_MODEL } : {}),
+      }
+    : null,
+};
+
 // 29 号：助手会话（多轮 + 工具），同一条模型通道。
 const creativeAssistant = writerModel
   ? { ...writerModel, ...(reviewPricing ? { pricing: reviewPricing } : {}), provider: creativeRoute?.provider }
@@ -423,6 +442,7 @@ const app = await createApp({
   ...(creativeImpactScan ? { creativeImpactScan } : {}),
   ...(creativeAssistant ? { creativeAssistant } : {}),
   imageProvider,
+  video: videoDeps,
   ...(creativeRuleJudge ? { creativeRuleJudge } : {}),
   ...(creativeRoute ? { creativeRouteInference: creativeRoute } : {}),
   session: config.SUPABASE_ANON_KEY

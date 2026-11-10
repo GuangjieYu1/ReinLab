@@ -640,4 +640,5 @@ export type * from './dossier';
 export type * from './explore';
 export type * from './swarm';
 export type * from './creative';
+export * from './furniture';
 export * from './explore-poses';

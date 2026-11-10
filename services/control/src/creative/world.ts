@@ -841,7 +841,15 @@ export function applyOps(
           const index = prims.findIndex((item) => item.id === op.id);
           if (index < 0) throw fail('PRIM_NOT_FOUND', 404, '白模里没有这个部件。');
           const touched = Boolean(op.patch.c || op.patch.s || op.patch.rotY);
-          prims[index] = { ...prims[index], ...op.patch, ...(touched && prims[index].from !== 'shell' ? { from: 'author' as const } : {}) };
+          const merged = { ...prims[index], ...op.patch, ...(touched && prims[index].from !== 'shell' ? { from: 'author' as const } : {}) };
+          // 作者拖动也要过同一套硬约束（出房间、超高、穿模靠不重叠由前端另外提示）
+          try {
+            validatePrim(place?.place?.room ?? null, merged, Boolean(merged.outside));
+          } catch (error) {
+            if (tolerant) unresolved.add(`${merged.label ?? merged.kind}：${(error as Error).message}`);
+            else throw error;
+          }
+          prims[index] = merged;
         } else {
           const index = prims.findIndex((item) => item.id === op.id);
           if (index < 0) throw fail('PRIM_NOT_FOUND', 404, '白模里没有这个部件。');
