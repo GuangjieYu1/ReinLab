@@ -20,7 +20,7 @@ export async function describeShots(
   input: { shots: { n: number; startSec: number; endSec: number; keyframes: string[] }[]; title: string },
   options: { group?: number } = {},
 ): Promise<{ shots: ShotDescription[]; inputTokens: number | null; outputTokens: number | null }> {
-  const group = options.group ?? 3;
+  const group = options.group ?? 1;
   const out: ShotDescription[] = [];
   let inputTokens: number | null = null;
   let outputTokens: number | null = null;
