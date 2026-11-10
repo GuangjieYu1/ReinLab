@@ -76,9 +76,19 @@ export async function downloadVideo(
   const dir = await mkdtemp(join(tmpdir(), 'reinlab-dl-'));
   try {
     const site = siteOf(input.url);
-    const [titleRaw, durationRaw, uploader] = (
-      (await run(ytDlpOf(deps), ['--no-warnings', '--skip-download', '--print', '%(title)s\t%(duration)s\t%(uploader)s', input.url])).stdout.trim()
-    ).split('\t');
+    let meta: string;
+    try {
+      meta = (
+        await run(ytDlpOf(deps), ['--no-warnings', '--skip-download', '--print', '%(title)s\t%(duration)s\t%(uploader)s', input.url], {
+          maxBuffer: 4 * 1024 * 1024,
+        })
+      ).stdout.trim();
+    } catch (error) {
+      const text = String((error as { stderr?: string; message?: string }).stderr ?? (error as Error).message ?? '');
+      if (/412|403|login|sign in|登录|风控|Precondition/i.test(text)) throw new LoginRequiredError(site);
+      throw new Error(`yt-dlp 取信息失败：${text.split('\n').slice(-2).join(' ').slice(0, 160)}`);
+    }
+    const [titleRaw, durationRaw, uploader] = meta.split('\t');
     const title = titleRaw ?? '视频';
     const durationSec = Number(durationRaw) || null;
     const section = input.from ? `*${input.from}-${input.to ?? ''}` : null;
