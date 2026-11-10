@@ -2444,6 +2444,28 @@ describe("MVP-2：人物形象（立绘和三视图）", () => {
   });
 });
 
+describe("视觉拆解用量记账（§14.9）", () => {
+  it("未知单价：known=false、token 留空、写进 note；行真的落库", async () => {
+    const { Database } = await import("../src/db/database");
+    const { recordBreakdownUsage } = await import("../src/creative/vision-usage");
+    const db = new Database(pool);
+    const marker = randomUUID().slice(0, 8);
+    await recordBreakdownUsage(db, A, dossierA, null, { inputTokens: 4476, outputTokens: 5181 });
+    const row = (await admin.query(
+      "select known, input_tokens, output_tokens, cost_cny, note, purpose from usage_record where account_id=$1 and purpose='creative_breakdown' order by recorded_at desc limit 1",
+      [A],
+    )).rows[0];
+    void marker;
+    expect(row).toBeTruthy();
+    expect(row.known).toBe(false);
+    expect(row.input_tokens).toBeNull();
+    expect(row.output_tokens).toBeNull();
+    expect(row.cost_cny).toBeNull();
+    expect(row.purpose).toBe("creative_breakdown");
+    expect(row.note).toContain("4476");
+  });
+});
+
 describe("MVP-3 3A：白模与镜头", () => {
   let dossier = "";
   let placeId = "";

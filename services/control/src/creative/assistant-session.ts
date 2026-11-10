@@ -16,6 +16,7 @@ import { advisorOps } from './advisor';
 import { loadWorld } from './service';
 import { focusStep } from './preview';
 import { downloadVideo, LoginRequiredError } from './download';
+import { recordBreakdownUsage } from './vision-usage';
 import { selectedVersions } from './asset-query';
 import { buildShell, solveLayout } from './whitebox-layout';
 import { FURNITURE_NAMES, TEMPLATES } from '@reinlab/contracts';
@@ -913,7 +914,10 @@ export async function runTool(
             }).catch(() => undefined);
           },
         });
-        if (file.usage && (file.usage.inputTokens || file.usage.outputTokens)) await recordBreakdownUsage(defs, file.usage);
+        if (defs.db && file.usage && (file.usage.inputTokens || file.usage.outputTokens))
+          await recordBreakdownUsage(defs.db, account, dossier, defs.runId, file.usage);
+        if (file.reused)
+          return { text: `已经有了：~/ReinLab素材/${file.name}（同一段，之前下过并拆过，直接复用，不再下载）。`, refs: [] };
         return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。${file.markdown ? '拆解表也写好了，用 read_reference 看。' : '拆解没做成。'}同名的 .json 记了来源。`, refs: [] };
       } catch (error) {
         if (error instanceof LoginRequiredError)
@@ -1041,22 +1045,6 @@ async function createProposal(
     refs,
   };
 }
-
-const recordBreakdownUsage = async (
-  defs: RunToolContext,
-  usage: { inputTokens: number | null; outputTokens: number | null },
-): Promise<void> => {
-  if (!defs.db) return;
-  await defs.db
-    .withAccount(defs.account, (client) =>
-      client.query(
-        `insert into usage_record(id,account_id,dossier_id,run_id,provider,model,known,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_cny,purpose,note)
-         values(gen_random_uuid(),$1,$2,$3,'volcengine-ark','doubao-seed-2-1-pro-260915',false,$4,$5,null,null,null,'creative_breakdown','视觉拆解用量；单价未知，按未知记')`,
-        [defs.account, defs.dossier, defs.runId, usage.inputTokens, usage.outputTokens],
-      ),
-    )
-    .catch(() => undefined);
-};
 
 const pushFocus = async (
   db: import('../db/database').Database,

@@ -6,7 +6,8 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readdir, rename, rm, writeFile, stat, mkdir } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rename, rm, writeFile, stat, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -96,7 +97,7 @@ const rangeFromNote = (note?: string): { from?: string; to?: string } => {
 export async function downloadVideo(
   deps: DownloadDeps,
   input: { url: string; from?: string; to?: string; note?: string; onProgress?: (info: { step: string; done?: number; total?: number; detail?: string }) => void },
-): Promise<{ name: string; path: string; title: string; site: string; videoId: string; durationSec: number | null; description: string; markdown: string | null; usage: { inputTokens: number | null; outputTokens: number | null } | null }> {
+): Promise<{ name: string; path: string; title: string; site: string; videoId: string; durationSec: number | null; description: string; markdown: string | null; usage: { inputTokens: number | null; outputTokens: number | null } | null; reused?: boolean }> {
   const folder = folderOf(deps);
   await mkdir(folder, { recursive: true });
   const readme = join(folder, '说明.md');
@@ -104,6 +105,33 @@ export async function downloadVideo(
     await stat(readme);
   } catch {
     await writeFile(readme, '# 说明\n\n这里的视频只用于拆解和参考，不放进作品、不外传。\n');
+  }
+  // 同一段（站点 + 视频 ID + 起止时间）下过就直接复用，不重复下载/拆解
+  const wantedRange = `${input.from ?? ''}-${input.to ?? ''}`;
+  try {
+    for (const name of await readdir(folder)) {
+      if (!name.endsWith('.json')) continue;
+      const meta = JSON.parse(await readFile(join(folder, name), 'utf8')) as { url?: string; from?: string; to?: string };
+      if (meta.url !== input.url) continue;
+      if (`${meta.from ?? ''}-${meta.to ?? ''}` !== wantedRange) continue;
+      const base = name.replace(/\.json$/, '');
+      const mp4 = join(folder, `${base}.mp4`);
+      if (!existsSync(mp4)) continue;
+      return {
+        name: `${base}.mp4`,
+        path: mp4,
+        title: String((meta as { title?: string }).title ?? base),
+        site: siteOf(input.url),
+        videoId: idOf(input.url, base, null),
+        durationSec: (meta as { durationSec?: number }).durationSec ?? null,
+        description: String((meta as { description?: string }).description ?? base),
+        markdown: existsSync(join(folder, `${base}.md`)) ? join(folder, `${base}.md`) : null,
+        usage: null,
+        reused: true,
+      } as never;
+    }
+  } catch {
+    // 扫不动就照常下载
   }
   const dir = await mkdtemp(join(tmpdir(), 'reinlab-dl-'));
   let cookieFile: string | null = null;
@@ -178,6 +206,8 @@ export async function downloadVideo(
           author: uploader ?? null,
           fetchedAt: new Date().toISOString(),
           durationSec: clippedDuration ?? durationSec,
+          from: range.from ?? null,
+          to: range.to ?? null,
           description,
           tags: [],
           note: '这里的视频只用于拆解和参考，不放进作品、不外传。',
