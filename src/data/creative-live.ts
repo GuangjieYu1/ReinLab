@@ -5,7 +5,7 @@ import { readEventStream, request } from './research-live';
 
 const enc = encodeURIComponent;
 
-async function call<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
+async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
   try { return await request(method, path, body) as T; }
   catch (e) { const x = e as { message?: string; code?: string; detail?: unknown }; throw new CreativeError(x.message ?? '没有成功', x.code ?? 'UNKNOWN', x.detail); }
 }
@@ -42,6 +42,9 @@ export function createLiveCreativeAdapter(dossierId: string): CreativeAdapter {
     preview: (pid, workId) => call('GET', `${base}/proposals/${enc(pid)}/preview${workId ? `?workId=${enc(workId)}` : ''}`),
     whitebox: (pid, version) => call('GET', `${base}/places/${enc(pid)}/whitebox${version ? `?version=${version}` : ''}`),
     shots: (wid, sid) => call('GET', `${base}/works/${enc(wid)}/scenes/${enc(sid)}/shots`),
+    browserOpen: url => call('POST', '/v1/creative/browser/open', { url }),
+    browserSites: () => call('GET', '/v1/creative/browser/sites'),
+    browserClear: domain => call('DELETE', `/v1/creative/browser/sites${domain ? '/' + enc(domain) : ''}`),
     drawTake: (shotId, req) => call('POST', `${base}/shots/${enc(shotId)}/takes`, req),
     retryTake: takeId => call('POST', `${base}/takes/${enc(takeId)}/retry`, {}),
     selectTake: (shotId, takeId) => call('PUT', `${base}/shots/${enc(shotId)}/selected`, { takeId }),

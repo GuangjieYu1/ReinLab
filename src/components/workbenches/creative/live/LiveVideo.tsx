@@ -23,7 +23,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   const [shots, setShots] = useState<Shot[]>([]), [wb, setWb] = useState<Whitebox | null>(null), [placeId, setPlaceId] = useState('');
   const [sel, setSel] = useState<string | null>(null), [draft, setDraft] = useState<Shot | null>(null), [selDoll, setSelDoll] = useState<string | null>(null);
   const [mode, setMode] = useState<'editor' | 'camera'>('editor'), [t, setT] = useState(0), [playing, setPlaying] = useState(false);
-  const [tab, setTab] = useState<'shot' | 'director' | 'props'>('shot'), [busy, setBusy] = useState(false), [err, setErr] = useState(''), [rec, setRec] = useState<{ id: string; t: number } | null>(null);
+  const [tab, setTab] = useState<'shot' | 'director' | 'props' | 'refs'>('shot'), [busy, setBusy] = useState(false), [err, setErr] = useState(''), [rec, setRec] = useState<{ id: string; t: number } | null>(null);
   const [props2, setProps2] = useState<Proposal[]>([]), [ghostId, setGhostId] = useState<string | null>(null), [preview, setPreview] = useState<ProposalPreview | null>(null), [pvErr, setPvErr] = useState('');
   const vp = useRef<ViewportHandle>(null);
   const primDraft = useRef<{ id: string; c: V3 } | null>(null), [primMove, setPrimMove] = useState<{ id: string; c: V3 } | null>(null);
@@ -200,7 +200,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
           {cut?.file?.state === 'failed' && <span className="cw-warn">{cut.file.failure}</span>}
         </div>}
       </section>
-      <aside className="cw-side lv-side"><nav className="cw-tabs">{(['shot', 'director', 'props'] as const).map((p, i) => <button key={p} aria-selected={tab === p} onClick={() => setTab(p)}>{['镜头', '导演', `提议${props2.length ? ` ${props2.length}` : ''}`][i]}</button>)}</nav><div className="cw-side-body">
+      <aside className="cw-side lv-side"><nav className="cw-tabs">{(['shot', 'director', 'props', 'refs'] as const).map((p, i) => <button key={p} aria-selected={tab === p} onClick={() => setTab(p)}>{['镜头', '导演', `提议${props2.length ? ` ${props2.length}` : ''}`, '素材'][i]}</button>)}</nav><div className="cw-side-body">
         {err && <p className="cw-warn" role="alert">{err}</p>}
         {tab === 'shot' && (shot ? <div className="cw-pane lv-detail">
           <span className="rh-micro">镜 {shot.n} · {shot.durationSec} 秒{isGhost(shot.id) ? ' · 提议（未接受）' : ''}</span>
@@ -244,6 +244,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
         </div> : <p className="cw-pane cw-muted">点一个镜头看详情。</p>)}
         <div hidden={tab !== 'director'}><CreativeAssistant adapter={adapter} workId={workId || undefined} sceneId={sceneId || undefined} placeId={placeId || undefined} initialMode="creative_director" modes={['creative_director']}
           onUpdate={() => { void loadShots(); void loadWb(); void loadProps(); }} onBoard={id => setGhostId(id)} /></div>
+        {tab === 'refs' && <RefsPane adapter={adapter} />}
         {tab === 'props' && <div className="cw-pane">{props2.map(p => <button key={p.id} className="lv-prop" data-on={p.id === ghostId || undefined} onClick={() => setGhostId(p.id)}><b>{p.title}</b><small>{p.kind === 'whitebox' ? '白模' : '镜头表'} · {p.ops.length} 项 · {(() => { const id = (p.ops as { placeId?: string; shot?: { placeId?: string } }[]).map(o => o.placeId ?? o.shot?.placeId).find(Boolean); return snap.entities.find(e => e.id === id)?.name ?? '地点未定'; })()}</small></button>)}{!props2.length && <p className="cw-muted">没有待确认的白模或镜头提议。</p>}</div>}
       </div></aside>
     </div>
@@ -274,4 +275,21 @@ function useClothColors(people: { id: string; portrait?: string | null }[]) {
     return () => { off = true; };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   return cols;
+}
+
+/** §14.8 素材浏览器：登录过哪些视频网站（只列域名），能清掉；也能手动打开去登录。素材文件在 ~/ReinLab素材/。 */
+function RefsPane({ adapter }: { adapter: CreativeAdapter }) {
+  const [sites, setSites] = useState<{ domain: string; lastUsed?: string | null }[] | null>(null), [url, setUrl] = useState('https://www.bilibili.com'), [err, setErr] = useState('');
+  const load = useCallback(() => adapter.browserSites().then(r => { setSites(r.sites); setErr(''); }, e => setErr((e as Error).message)), [adapter]);
+  useEffect(() => { void load(); }, [load]);
+  return <div className="cw-pane lv-refs">
+    <span className="rh-micro">素材浏览器 · 要登录的视频网站在这里登</span>
+    <p className="cw-muted">下载要登录时，在导演对话里点「打开素材浏览器」；也可以在这里先登好。窗口是独立的，和你平时的 Chrome 分开；登录状态只给下载器用。</p>
+    <div className="cw-row"><input value={url} onChange={e => setUrl(e.target.value)} placeholder="网站地址" /><button className="rh-btn" onClick={() => void adapter.browserOpen(url).then(() => setErr(''), e => setErr((e as Error).message))}>打开素材浏览器</button></div>
+    {err && <p className="cw-warn">{err}</p>}
+    <span className="rh-micro">登录过的站点</span>
+    {sites === null ? <p className="cw-muted">读取中…</p> : sites.length ? sites.map(s => <div key={s.domain} className="cw-row"><b>{s.domain}</b><small className="cw-muted">{s.lastUsed ? new Date(s.lastUsed).toLocaleString('zh-CN') : ''}</small><button className="cw-link" onClick={() => void adapter.browserClear(s.domain).then(load)}>清掉</button></div>) : <p className="cw-muted">还没有。</p>}
+    <div className="cw-row"><button className="cw-link" onClick={() => void load()}>刷新</button>{!!sites?.length && <button className="cw-link" onClick={() => { if (window.confirm('清掉全部站点的登录状态？')) void adapter.browserClear().then(load); }}>全部清掉</button>}</div>
+    <p className="cw-muted">下载的素材在 ~/ReinLab素材/（视频 + 同名 .json 来源说明），只用于拆解和参考，不放进作品。</p>
+  </div>;
 }

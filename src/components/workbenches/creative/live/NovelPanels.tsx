@@ -116,7 +116,7 @@ export function CreativeAssistant({ adapter, workId, sceneId, placeId, onUpdate,
       body: <button className="cw-link cw-board-chip" onClick={() => board.current?.(p.id)}>在看板上看《{p.title}》 ↗</button> }))]);
   };
   // 29：同一个会话里续着聊；「新会话」才另开一个 run
-  const runId = useRef<string | null>(null);
+  const runId = useRef<string | null>(null), lastUrl = useRef<string | null>(null);
   const follow = async (id: string, token: number) => {
     let after = 0, last = false;
     while (epoch.current === token) {
@@ -130,6 +130,10 @@ export function CreativeAssistant({ adapter, workId, sceneId, placeId, onUpdate,
           const text = Array.isArray(msg.content) ? msg.content.map((b: { text?: string }) => b.text ?? '').join('') : typeof msg.content === 'string' ? msg.content : '';
           const key = `${id}:${ev.seq}`;
           if (text && (ev.action === 'user/message' || ev.action === 'assistant/message')) setEvents(xs => xs.some(x => x.id === key) ? xs : [...xs, { id: key, kind: ev.action === 'user/message' ? 'user' : 'agent', text, at: '' }]);
+          // §14.8：下载要登录时，回复下挂「打开素材浏览器」；网址取作者最近贴的链接
+          if (ev.action === 'user/message') { const m = /https?:\/\/[^\s，。]+/.exec(text); if (m) lastUrl.current = m[0]; }
+          if (ev.action === 'assistant/message' && /素材浏览器/.test(text) && lastUrl.current) { const url = lastUrl.current; setEvents(xs => xs.some(x => x.id === `browser:${key}`) ? xs : [...xs, { id: `browser:${key}`, kind: 'card' as const,
+            body: <span className="cw-row"><button className="rh-btn is-solid" onClick={() => void adapter.browserOpen(url).then(() => setError(''), e => setError(`素材浏览器没打开：${(e as Error).message}`))}>打开素材浏览器</button><small className="cw-muted">在弹出的窗口里自己登录（扫码或输密码），登完关掉窗口，再说「下载这个」。</small></span> }]); }
           if (ev.action === 'tool/call') setEvents(xs => xs.some(x => x.id === key) ? xs : [...xs, { id: key, kind: 'note', text: `正在调用：${p.name ?? '创作工具'}`, at: '' }]);
         }
         if (page.hasMore) continue;

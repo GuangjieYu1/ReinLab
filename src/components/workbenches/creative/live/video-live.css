@@ -66,3 +66,4 @@
 .lv-take figcaption { font:400 11.5px var(--rh-f-ui); display:flex; gap:6px; flex-wrap:wrap; align-items:baseline; padding-top:3px; }
 .lv-take figcaption em { color:var(--rh-accent); font-style:normal; font-weight:600; }
 .lv-takebadge[data-fail] { background:var(--rh-danger, #c0392b); }
+.lv-refs input { flex:1; min-width:0; font:400 12.5px var(--rh-f-ui); border:1px solid var(--rh-line); padding:4px 6px; }
