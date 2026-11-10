@@ -279,7 +279,7 @@ function useClothColors(people: { id: string; portrait?: string | null }[]) {
 
 /** §14.8 素材浏览器：登录过哪些视频网站（只列域名），能清掉；也能手动打开去登录。素材文件在 ~/ReinLab素材/。 */
 function RefsPane({ adapter }: { adapter: CreativeAdapter }) {
-  const [sites, setSites] = useState<{ domain: string; lastUsed?: string | null }[] | null>(null), [url, setUrl] = useState('https://www.bilibili.com'), [err, setErr] = useState('');
+  const [sites, setSites] = useState<{ domain: string; lastUsed?: string | null; lastUsedAt?: string | null }[] | null>(null), [url, setUrl] = useState('https://www.bilibili.com'), [err, setErr] = useState('');
   const load = useCallback(() => adapter.browserSites().then(r => { setSites(r.sites); setErr(''); }, e => setErr((e as Error).message)), [adapter]);
   useEffect(() => { void load(); }, [load]);
   return <div className="cw-pane lv-refs">
@@ -288,7 +288,7 @@ function RefsPane({ adapter }: { adapter: CreativeAdapter }) {
     <div className="cw-row"><input value={url} onChange={e => setUrl(e.target.value)} placeholder="网站地址" /><button className="rh-btn" onClick={() => void adapter.browserOpen(url).then(() => setErr(''), e => setErr((e as Error).message))}>打开素材浏览器</button></div>
     {err && <p className="cw-warn">{err}</p>}
     <span className="rh-micro">登录过的站点</span>
-    {sites === null ? <p className="cw-muted">读取中…</p> : sites.length ? sites.map(s => <div key={s.domain} className="cw-row"><b>{s.domain}</b><small className="cw-muted">{s.lastUsed ? new Date(s.lastUsed).toLocaleString('zh-CN') : ''}</small><button className="cw-link" onClick={() => void adapter.browserClear(s.domain).then(load)}>清掉</button></div>) : <p className="cw-muted">还没有。</p>}
+    {sites === null ? <p className="cw-muted">读取中…</p> : sites.length ? sites.map(s => <div key={s.domain} className="cw-row"><b>{s.domain}</b><small className="cw-muted">{s.lastUsed ?? s.lastUsedAt ?? ''}</small><button className="cw-link" onClick={() => void adapter.browserClear(s.domain).then(load)}>清掉</button></div>) : <p className="cw-muted">还没有。</p>}
     <div className="cw-row"><button className="cw-link" onClick={() => void load()}>刷新</button>{!!sites?.length && <button className="cw-link" onClick={() => { if (window.confirm('清掉全部站点的登录状态？')) void adapter.browserClear().then(load); }}>全部清掉</button>}</div>
     <p className="cw-muted">下载的素材在 ~/ReinLab素材/（视频 + 同名 .json 来源说明），只用于拆解和参考，不放进作品。</p>
   </div>;

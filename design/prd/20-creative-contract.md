@@ -1167,7 +1167,7 @@ export type RefShot = {
 
 - **专用浏览器**：本机栈按需打开一个**独立的 Chromium 窗口**（Playwright 持久化配置目录 `~/.config/reinlab/browser-profile/`，权限 700），和作者平时用的 Chrome 完全隔开。**不读作者主浏览器的登录状态。**
 - **触发**：`download_video` 失败且原因是「要登录 / 412 / 403 / 会员前的登录墙」时，工具结果和回复里写「〈站点〉要登录，点『打开素材浏览器』登录后再试」；页面上给按钮。`POST /v1/creative/browser/open { url }` 打开窗口并跳到那个站点首页；作者自己扫码或输密码（助手不经手、不替作者点登录），登录后关窗口。
-- **下载器用上登录状态**：yt-dlp 用 `--cookies-from-browser chromium:<专用配置目录>` 直接读，不导出 cookie 文件；§14.1 里的手动 cookie 文件作为备用。下次同站直接成功；登录过期再提示。
+- **下载器用上登录状态**：~~yt-dlp 用 `--cookies-from-browser` 直接读，不导出 cookie 文件~~（2026-11-10 实测不行：Playwright 用假钥匙串加密，yt-dlp 解不开）→ 下载前用 Playwright `context.cookies(url)` 取该站 cookie，写临时 cookies.txt（专用目录内、0600），`--cookies` 交给 yt-dlp，用完立刻删；§14.1 里的手动 cookie 文件作为备用。下次同站直接成功；登录过期再提示。
 - **管理**：`GET /v1/creative/browser/sites` 列出登录过的站点（只列域名和最后使用时间，不回显 cookie）；`DELETE /v1/creative/browser/sites/:domain` 清掉某站，`DELETE /v1/creative/browser/sites` 全清。页面「素材」面板里有入口。
 - **底线**：登录状态等同账号凭据——只在本机、只给下载器读、不进日志、不进模型上下文、不上传；付费会员内容、DRM 内容照旧不下；只在跑本机栈的电脑上能弹窗，手机走局域网时提示回电脑登录。
 - **验收**：贴 B 站链接 → 下载失败提示要登录 → 点「打开素材浏览器」→ 作者扫码登录、关窗 → 再说「下载这个」成功，`~/ReinLab素材/` 出现「描述__bilibili-BV号.mp4」+ 同名 `.json`；「素材浏览器」里能看到 bilibili.com 并能清掉。

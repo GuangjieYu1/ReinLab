@@ -52,7 +52,7 @@ export interface CreativeAdapter {
   judgeRules(): Promise<{ judged: number; skipped: number; cost: { value: number | null; known: boolean }; check: CheckRun }>;
   /** §14.8 素材浏览器：作者自己登录视频网站，下载器读专用配置。 */
   browserOpen(url: string): Promise<unknown>;
-  browserSites(): Promise<{ sites: { domain: string; lastUsed?: string | null }[] }>;
+  browserSites(): Promise<{ sites: { domain: string; lastUsed?: string | null; lastUsedAt?: string | null }[] }>;
   browserClear(domain?: string): Promise<unknown>;
   /** MVP-3 白模、镜头、预演（契约 §13.4）。 */
   whitebox(placeId: string, version?: number): Promise<Whitebox>;

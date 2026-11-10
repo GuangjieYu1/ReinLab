@@ -57,3 +57,14 @@
 1. **`download_video` 读错了变量。** `assistant-session.ts:1093` 把下载依赖作为 `download` 传给 `runTool({ …, context, download })`，可 `:860` 读的是 `(context as RunToolContext).download`——这里的 `context` 是会话共享上下文对象，不是 `runTool` 的参数，所以永远是空 → 「这台机器没配 yt-dlp」。改成读 `runTool` 参数上的 `download`。
 2. **新会话第一句不带下载依赖。** `assistant-run.ts:97` 的 `runCreativeSession` 只传 `chat`，`kernel-runs.ts:157` 那条调用也没传 `download`。续一句那条（`:489`）传了。两处都补上。
 3. 修完请用真会话跑一次：新会话第一句就说「下载这个：https://www.bilibili.com/video/BV1m54y137g1/ 前 30 秒」，看回复是不是「bilibili 要登录：点『打开素材浏览器』……」。
+
+### 作者登录后（同日）
+
+- 作者在素材浏览器里扫码登录了 B 站。专用配置里有 `.bilibili.com` 19 条、`www.bilibili.com` 11 条 cookie（只数了条数，没看值）。
+- **站点列表仍为空**：`browser.ts` 读的是 `Default/Network/Cookies`，这个 Chromium（Playwright chromium-1248）存在 `Default/Cookies`。另外接口字段叫 `lastUsedAt`（前端已兼容），时间换算按 Unix 纪元算错了——Chromium 的 `last_access_utc` 是从 1601-01-01 起的微秒。
+- **yt-dlp 读不到登录状态**：`--cookies-from-browser chromium:<专用目录>` → 「cannot decrypt v10 cookies: no key found，Extracted 0 cookies (42 could not be decrypted)」→ 照样 412。原因：Playwright 用假钥匙串（mock keychain）加密 cookie，yt-dlp 去 macOS 钥匙串找不到。
+
+### 给 DSH（追加）
+
+4. **下载时用 Playwright 导出该站 cookie 给 yt-dlp**：下载前用持久化上下文的 `context.cookies(url)` 取这个站点的 cookie，写成 Netscape 格式的临时 cookies.txt（放在专用目录里、权限 0600），`--cookies <文件>` 交给 yt-dlp，下载结束（成功或失败）立刻删掉。契约 §14.8「不导出 cookie 文件」改为「临时导出、用完即删」。浏览器窗口开着时持久化上下文是占用的——要么复用同一个上下文，要么提示作者先关窗口。
+5. **站点列表路径**：两个位置都找（`Default/Cookies`、`Default/Network/Cookies`）；时间按 1601 纪元换算；或者也改用 Playwright 的 `context.cookies()` 列域名。
