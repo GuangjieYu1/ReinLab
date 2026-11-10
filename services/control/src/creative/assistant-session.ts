@@ -857,9 +857,10 @@ export async function runTool(
       return proposed;
     }
     case 'download_video': {
-      if (!context.download) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
+      const downloadDeps = (context as unknown as RunToolContext).download;
+      if (!downloadDeps) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
       try {
-        const file = await downloadVideo((context as unknown as RunToolContext).download ?? {}, {
+        const file = await downloadVideo(downloadDeps, {
           url: String(call.input.url ?? ''),
           ...(call.input.from ? { from: String(call.input.from) } : {}),
           ...(call.input.to ? { to: String(call.input.to) } : {}),
