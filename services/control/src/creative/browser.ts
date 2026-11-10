@@ -55,7 +55,7 @@ export async function listSites(deps: BrowserDeps): Promise<{ sites: BrowserSite
       // Chromium 的时间从 1601-01-01 起算（微秒），转成 UTC
       const rows = db
         .prepare(
-          'select host_key as domain, datetime(last_access_utc/1000000 - 11644473600, "unixepoch") as lastUsedAt from cookies group by host_key order by last_access_utc desc',
+          'select host_key as domain, datetime(last_access_utc/1000000 - 11644473600, \'unixepoch\') as lastUsedAt from cookies group by host_key order by last_access_utc desc',
         )
         .all();
       return { sites: rows };
