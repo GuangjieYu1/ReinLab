@@ -69,3 +69,71 @@ describe("路线推断的触发条件", () => {
     expect(routingSignatureOf(timeChanged)).not.toBe(before);
   });
 });
+
+describe("拆解进度（§14.9）", () => {
+  it("describeShots 每写完一镜回调一次，带 done/total", async () => {
+    const { describeShots } = await import("../src/creative/breakdown-vlm");
+    const calls: { done: number; total: number; text: string }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "镜1：全景；固定；一人。\n镜2：近景；推；两人。" } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      const out = await describeShots(
+        { apiKey: "test" },
+        { shots: [{ n: 1, startSec: 0, endSec: 2, keyframes: [] }, { n: 2, startSec: 2, endSec: 4, keyframes: [] }], title: "测试" },
+        { group: 2, onProgress: (info) => calls.push(info) },
+      );
+      expect(out.shots).toHaveLength(2);
+      expect(calls.map((item) => `${item.done}/${item.total}`)).toEqual(["1/2", "2/2"]);
+      expect(calls[0]!.text).toContain("全景");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+describe("下载去重（§14.9 补）", () => {
+  it("同一段第二次直接复用，不再调 yt-dlp", async () => {
+    const { mkdtemp, writeFile, chmod, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "reinlab-dedupe-"));
+    const marker = join(dir, "calls.txt");
+    const fake = join(dir, "fake-ytdlp.sh");
+    await writeFile(
+      fake,
+      [
+        "#!/bin/sh",
+        `echo run >> ${marker}`,
+        'prev=""; printed=0; out=""',
+        'for a in "$@"; do',
+        '  if [ "$a" = "--print" ]; then printed=1; fi',
+        '  if [ "$prev" = "-o" ]; then out="$a"; fi',
+        '  prev="$a"',
+        "done",
+        'if [ "$printed" = "1" ]; then',
+        '  printf "测试视频\t8\t作者\n"',
+        "  exit 0",
+        "fi",
+        'p=$(echo "$out" | sed "s/%(ext)s/mp4/")',
+        'printf "x" > "$p"',
+        "exit 0",
+      ].join("\n"),
+    );
+    await chmod(fake, 0o755);
+    const { downloadVideo } = await import("../src/creative/download");
+    const deps = { ytDlpPath: fake, folder: join(dir, "素材") };
+    const first = await downloadVideo(deps as never, { url: "https://www.bilibili.com/video/BV1test/", from: 0, to: 8, note: "测试" });
+    const second = await downloadVideo(deps as never, { url: "https://www.bilibili.com/video/BV1test/", from: "0", to: "8", note: "测试" } as never);
+    expect(first.reused).toBeUndefined();
+    expect(second.reused).toBe(true);
+    const calls = (await readFile(marker, "utf8")).trim().split("\n").filter(Boolean).length;
+    expect(calls).toBe(2);
+  });
+});

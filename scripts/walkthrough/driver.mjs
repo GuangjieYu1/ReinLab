@@ -3,6 +3,7 @@
 // 接口（POST JSON）：/goto {url} /click {text|sel, nth?} /fill {sel, value} /press {key} /type {text}
 //   /wait {ms|sel} /shot {name} /text {sel} /eval {js} /caption {html} /files {sel, paths} /offline {on} /reload /close
 // 视口：--w 1180 --h 820（iPad 横屏）；--mobile 模拟手机触屏
+// --no-video：不录屏。长时间开着的验收浏览器要加——录屏不停地写，一天十几 G（2026-11-11 攒到 36G 把磁盘占满）
 import http from 'node:http';
 import { mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
@@ -12,7 +13,7 @@ mkdirSync(join(OUT, 'shots'), { recursive: true }); mkdirSync(join(OUT, 'raw'), 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE);
 const browser = await chromium.launch();
 const W = Number(arg('w', '1440')), H = Number(arg('h', '900')), MOBILE = process.argv.includes('--mobile');
-const ctx = await browser.newContext({ viewport: { width: W, height: H }, isMobile: MOBILE, hasTouch: MOBILE, recordVideo: { dir: join(OUT, 'raw'), size: { width: W, height: H } } });
+const ctx = await browser.newContext({ viewport: { width: W, height: H }, isMobile: MOBILE, hasTouch: MOBILE, ...(process.argv.includes('--no-video') ? {} : { recordVideo: { dir: join(OUT, 'raw'), size: { width: W, height: H } } }) });
 const page = await ctx.newPage();
 const logs = [];
 page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.type() + ': ' + m.text()); });
@@ -37,7 +38,7 @@ const ops = {
   logs: () => logs.splice(0).join('\n'),
   reload: () => page.reload({ waitUntil: 'domcontentloaded' }),
   caption: b => caption(b.html ?? ''),
-  close: async () => { await ctx.close(); await browser.close(); const v = readdirSync(join(OUT, 'raw')).find(f => f.endsWith('.webm')); if (v) renameSync(join(OUT, 'raw', v), join(OUT, 'video.webm')); setTimeout(() => process.exit(0), 200); return 'closed'; },
+  close: async () => { await ctx.close(); await browser.close(); let v; try { v = readdirSync(join(OUT, 'raw')).find(f => f.endsWith('.webm')); } catch { v = undefined; } if (v) renameSync(join(OUT, 'raw', v), join(OUT, 'video.webm')); setTimeout(() => process.exit(0), 200); return 'closed'; },
 };
 http.createServer((req, res) => {
   let body = ''; req.on('data', c => body += c); req.on('end', async () => {

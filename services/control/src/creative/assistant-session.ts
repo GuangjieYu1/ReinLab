@@ -16,6 +16,7 @@ import { advisorOps } from './advisor';
 import { loadWorld } from './service';
 import { focusStep } from './preview';
 import { downloadVideo, LoginRequiredError } from './download';
+import { recordBreakdownUsage } from './vision-usage';
 import { selectedVersions } from './asset-query';
 import { buildShell, solveLayout } from './whitebox-layout';
 import { FURNITURE_NAMES, TEMPLATES } from '@reinlab/contracts';
@@ -526,6 +527,8 @@ export type RunToolContext = {
   runId: string;
   /** download_video 的依赖（yt-dlp 路径、素材文件夹）。 */
   download?: import('./download').DownloadDeps;
+  /** 长任务进度要单独提交，不能用外层事务的连接。 */
+  db?: import('../db/database').Database;
   /** 作者在看板虚影上点「改一下」时带的提议 id：交新版时默认替代它。 */
   about?: string;
   /** 本轮新建的提议 id（回复里可以引用）。 */
@@ -891,12 +894,30 @@ export async function runTool(
       const downloadDeps = download;
       if (!downloadDeps) return { text: '这台机器没配 yt-dlp，下载不了。', refs: [], ok: false };
       try {
+        const mode = role === 'director' ? ('creative_director' as const) : role === 'advisor' ? ('creative_advisor' as const) : ('creative_writer' as const);
         const file = await downloadVideo(downloadDeps, {
           url: String(call.input.url ?? ''),
           ...(call.input.from ? { from: String(call.input.from) } : {}),
           ...(call.input.to ? { to: String(call.input.to) } : {}),
           ...(call.input.note ? { note: String(call.input.note) } : {}),
+          // 下载/拆解一开始就推进度，别让作者看着像卡死
+          onProgress: (info) => {
+            // 进度必须立刻可见：单开连接提交，不能等外层事务
+            if (!defs.db) return;
+            void pushFocus(defs.db, account, dossier, {
+              runId: defs.runId,
+              mode,
+              step: info.step.slice(0, 20),
+              refs: [],
+              ...(info.done !== undefined && info.total !== undefined ? { progress: { done: info.done, total: info.total } } : {}),
+              ...(info.detail ? { detail: info.detail.slice(0, 200) } : {}),
+            }).catch(() => undefined);
+          },
         });
+        if (defs.db && file.usage && (file.usage.inputTokens || file.usage.outputTokens))
+          await recordBreakdownUsage(defs.db, account, dossier, defs.runId, file.usage);
+        if (file.reused)
+          return { text: `已经有了：~/ReinLab素材/${file.name}（同一段，之前下过并拆过，直接复用，不再下载）。`, refs: [] };
         return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。${file.markdown ? '拆解表也写好了，用 read_reference 看。' : '拆解没做成。'}同名的 .json 记了来源。`, refs: [] };
       } catch (error) {
         if (error instanceof LoginRequiredError)
@@ -1122,7 +1143,7 @@ export async function runTurn(deps: SessionRunDeps, account: string, runId: stri
         const results: string[] = [];
         for (const call of turn.toolCalls) {
           const outcome = await deps.db.withAccount(account, (client) =>
-            runTool({ client, account, dossier, context, role, runId, ...(about ? { about } : {}), ...(deps.download ? { download: deps.download } : {}), proposals }, call),
+            runTool({ client, account, dossier, context, role, runId, ...(about ? { about } : {}), ...(deps.download ? { download: deps.download } : {}), db: deps.db, proposals }, call),
           );
           // 看板「正在看」：每次读工具推一条，refs 是这次读到的东西，step 服务端写（契约 §11.4）
           const focus = focusStep(call.name, call.input);

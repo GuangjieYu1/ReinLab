@@ -39,7 +39,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   useEffect(() => { if (workId && sceneId) localStorage.setItem(`creative-video:${snapshot.world.id}`, JSON.stringify({ workId, sceneId })); }, [workId, sceneId, snapshot.world.id]);
   const loadShots = useCallback(async () => { if (!workId || !sceneId) return; const r = await adapter.shots(workId, sceneId); setShots(r.shots); setTakes(r.takes ?? []); setCut(r.cut ?? null); setPlaceId(p => p || r.shots[0]?.placeId || ''); }, [adapter, workId, sceneId]);
   useEffect(() => { setShots([]); setSel(null); void loadShots().catch(e => setErr(e.message)); }, [loadShots]);
-  const rooms = snap.entities.filter(e => e.place?.room);
+  const rooms = snap.entities.filter(e => e.place?.room), bare = snap.entities.filter(e => e.kind === 'place' && !e.place?.room); // 没房间的地点也能选：导演可以一并提议房间
   useEffect(() => { if (!placeId && rooms[0]) setPlaceId(rooms[0].id); }, [placeId, rooms]);
   const loadWb = useCallback(async () => { if (placeId) setWb(await adapter.whitebox(placeId)); }, [adapter, placeId]);
   useEffect(() => { void loadWb().catch(e => setErr(e.message)); }, [loadWb]);
@@ -58,7 +58,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
       else if (ev.type === 'creative.shot') { if (ev.data.sceneId === c.sceneId && (!ev.data.workId || ev.data.workId === c.workId)) { setShots(xs => { const m = new Map(xs.map(x => [x.id, x])); ev.data.shots.forEach(x => m.set(x.id, x)); return [...m.values()].sort((a, b) => a.n - b.n); }); void c.loadShots(); } }
       else if (ev.type === 'creative.focus') {
         const f = ev.data;
-        if (f.done) { setAi(x => x?.runId === f.runId ? { ...x, step: '看完了' } : x); window.setTimeout(() => setAi(x => x?.runId === f.runId ? null : x), 4000); }
+        if (f.done) { setAi(x => x?.runId === f.runId ? { ...x, step: '看完了', progress: null, detail: null } : x); window.setTimeout(() => setAi(x => x?.runId === f.runId ? null : x), 4000); }
         else setAi(x => { const prev = x?.runId === f.runId ? x.refs : [], k = (r: unknown) => JSON.stringify(r), seen = new Set(prev.map(k)); return { ...f, refs: [...prev, ...f.refs.filter(r => !seen.has(k(r)))] }; });
         if (f.proposalId) { setGhostId(f.proposalId); soon(); }
       }
@@ -149,7 +149,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   });
   const glb = () => act(async () => { const place = snap.entities.find(e => e.id === placeId); await exportGlb(`${place?.name ?? '白模'}-白模-v${wb?.version ?? 0}`, placeId, room, wb?.prims ?? [], dolls.filter(d => !d.ghost)); });
 
-  const stepLabel = ai ? `导演 · ${ai.step}` : null;
+  const stepLabel = ai ? `导演 · ${ai.step}${ai.progress?.total ? ` · ${ai.progress.done}/${ai.progress.total}` : ''}` : null;
   const recorded = shots.filter(s => s.preview).length;
   return <BenchFrame code="CRTV" section="004" file={props.file} reduced={props.reduced} chrome={props.chrome} face="video" onFace={f => onFace(f as Face)}
     faces={[{ id: 'world', label: '世界观', en: 'WORLD' }, { id: 'novel', label: '小说', en: 'NOVEL' }, { id: 'video', label: '视频', en: 'VIDEO', badge: shots.length }]}
@@ -166,7 +166,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
       </aside>
       <section className="lv-stage">
         <header className="lv-bar">
-          <select aria-label="房间" value={placeId} onChange={e => setPlaceId(e.target.value)}>{rooms.map(r => <option key={r.id} value={r.id}>{r.name}{r.place?.room ? ` · ${Math.round(r.place.room.height * 10) / 10} m 高` : ''}</option>)}{placeId && !rooms.some(r => r.id === placeId) && <option value={placeId}>{snap.entities.find(e => e.id === placeId)?.name ?? '地点'} · 没有房间几何</option>}{!rooms.length && <option value="">还没有房间几何</option>}</select>
+          <select aria-label="房间" value={placeId} onChange={e => setPlaceId(e.target.value)}>{rooms.map(r => <option key={r.id} value={r.id}>{r.name}{r.place?.room ? ` · ${Math.round(r.place.room.height * 10) / 10} m 高` : ''}</option>)}{bare.length > 0 && <optgroup label="没有房间几何">{bare.map(r => <option key={r.id} value={r.id}>{r.name} · 没有房间几何</option>)}</optgroup>}{!rooms.length && !bare.length && <option value="">还没有地点</option>}</select>
           <div className="lv-seg">{(['editor', 'camera'] as const).map(m => <button key={m} aria-pressed={mode === m} disabled={m === 'camera' && !shot} onClick={() => setMode(m)}>{m === 'editor' ? '编辑视角' : '机位视角'}</button>)}</div>
           {shot && <><button className="rh-btn" disabled={!!rec} onClick={() => { if (t >= 1) setT(0); setMode('camera'); setPlaying(p => !p); }}>{playing ? '暂停' : '▶ 预演'}</button>
             <input className="lv-scrub" type="range" min={0} max={1} step={.01} value={t} onChange={e => { setPlaying(false); setT(+e.target.value); }} aria-label="预演进度" /></>}
@@ -176,8 +176,8 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
         </header>
         <div className="lv-view">
           <Viewport3 ref={vp} scene={scene3} cam={shot?.camera ?? null} mode={mode} t={t} selDoll={selDoll} editable={editable} onSelDoll={setSelDoll} onMoveDoll={moveDoll} onMoveCam={moveCam} onMovePrim={busy || rec ? undefined : movePrim} onCommit={commit} />
-          {stepLabel && <div className="cw-ai-step" role="status"><i />{stepLabel}</div>}
-          {!wb?.prims.length && !ghostPrims.length && <div className="lv-empty">这个房间还没有白模。去右边「导演」说「把这一场拆成镜头」。</div>}
+          {stepLabel && <div className="cw-ai-step lv-ai-step" role="status"><span><i />{stepLabel}</span>{ai?.progress?.total ? <meter min={0} max={ai.progress.total} value={ai.progress.done} /> : null}{ai?.detail && <small>{ai.detail}</small>}</div>}
+          {!wb?.prims.length && !ghostPrims.length && <div className="lv-empty">{room ? '这个房间还没有白模。' : '这个地点还没有房间几何。'}去右边「导演」说「把这一场拆成镜头」{room ? '' : '，导演会一并提议房间尺寸'}。</div>}
         </div>
         {ghostProp && (pv || pvErr) && <ProposalBar proposal={ghostProp} preview={pv} previewError={pvErr} proposals={props2} busy={busy}
           onDecide={d => void decide(ghostProp, d)} onClose={() => setGhostId(null)}
