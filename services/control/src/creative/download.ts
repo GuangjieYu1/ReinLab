@@ -37,6 +37,26 @@ function runWithProgress(command: string, args: string[], onPercent?: (percent: 
   });
 }
 
+export type DownloadResult = {
+  name: string;
+  path?: string;
+  title?: string;
+  site?: string;
+  videoId?: string;
+  durationSec?: number | null;
+  description?: string;
+  markdown?: string | null;
+  usage?: { inputTokens: number | null; outputTokens: number | null } | null;
+  shots?: number;
+  breakdownState?: 'queued' | 'analyzing';
+  failure?: string | null;
+  reused?: boolean;
+  busy?: boolean;
+  done?: number;
+  total?: number;
+  state?: string;
+};
+
 export type DownloadDeps = {
   ytDlpPath?: string;
   folder?: string;
@@ -110,24 +130,7 @@ export async function downloadVideo(
       onUsage?: (usage: { inputTokens: number | null; outputTokens: number | null }) => void | Promise<void>;
     };
   },
-): Promise<{
-  name: string;
-  path?: string;
-  title?: string;
-  site?: string;
-  videoId?: string;
-  durationSec?: number | null;
-  description?: string;
-  markdown?: string | null;
-  usage?: { inputTokens: number | null; outputTokens: number | null } | null;
-  shots?: number;
-  breakdownState?: 'queued';
-  reused?: boolean;
-  busy?: boolean;
-  done?: number;
-  total?: number;
-  state?: string;
-}> {
+): Promise<DownloadResult> {
   const folder = folderOf(deps);
   await mkdir(folder, { recursive: true });
   const readme = join(folder, '说明.md');
@@ -159,7 +162,13 @@ export async function downloadVideo(
       if (!sameRange(meta)) continue;
       const breakdown = (meta as { breakdown?: { state: string; done: number; total: number } }).breakdown;
       if (breakdown && breakdown.state !== 'ready') {
-        return { busy: true, name: name.replace(/\.json$/, '.mp4'), done: breakdown.done, total: breakdown.total, state: breakdown.state } as never;
+        return {
+          busy: true,
+          name: name.replace(/\.json$/, '.mp4'),
+          done: breakdown.done,
+          total: breakdown.total,
+          state: breakdown.state,
+        } satisfies DownloadResult;
       }
       const base = name.replace(/\.json$/, '');
       const mp4 = join(folder, `${base}.mp4`);

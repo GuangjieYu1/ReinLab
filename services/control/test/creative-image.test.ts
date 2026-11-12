@@ -234,3 +234,24 @@ describe("后台视觉拆解（§14.10）", () => {
     }
   });
 });
+
+describe("download_video 的回话（§14.10 补）", () => {
+  it("后台还在拆时不能说「拆解没做成」", async () => {
+    const { downloadReplyOf } = await import("../src/creative/assistant-session");
+    const queued = downloadReplyOf({ name: "参考__bilibili-BV1.mp4", title: "测试", shots: 8, breakdownState: "queued" });
+    expect(queued).toContain("正在后台逐镜拆解");
+    expect(queued).not.toContain("没做成");
+    const analyzing = downloadReplyOf({ name: "参考__bilibili-BV1.mp4", title: "测试", shots: 8, breakdownState: "analyzing" });
+    expect(analyzing).toContain("正在后台逐镜拆解");
+    const failed = downloadReplyOf({ name: "参考__bilibili-BV1.mp4", failure: "视觉模型超时" });
+    expect(failed).toContain("拆解没做成：视觉模型超时");
+  });
+
+  it("拆着时再下：回「正在拆 k/N」，不说 undefined", async () => {
+    const { downloadReplyOf } = await import("../src/creative/assistant-session");
+    const busy = downloadReplyOf({ name: "参考__bilibili-BV1.mp4", busy: true, done: 3, total: 8, state: "analyzing" });
+    expect(busy).toContain("正在拆（3/8）");
+    expect(busy).toContain("read_reference");
+    expect(busy).not.toContain("undefined");
+  });
+});

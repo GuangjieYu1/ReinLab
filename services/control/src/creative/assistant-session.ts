@@ -536,6 +536,17 @@ export type RunToolContext = {
 };
 
 /** 执行一轮里的一个工具调用。写工具只交提议。返回给模型的文字 + 看板上要描亮的 refs。 */
+/** download_video 的回话：拆解在后台时不能说「没做成」（回归测试直接测这里）。 */
+export function downloadReplyOf(file: import('./download').DownloadResult): string {
+  if (file.busy) return `这段正在拆（${file.done ?? 0}/${file.total ?? 0}），不重新下载；已拆好的镜头用 read_reference 看。`;
+  if (file.reused) return `已经有了：~/ReinLab素材/${file.name}（同一段，之前下过并拆过，直接复用，不再下载）。`;
+  if (file.failure) return `下好了：~/ReinLab素材/${file.name}，但拆解没做成：${file.failure}。同名的 .json 记了来源。`;
+  if (file.breakdownState === 'queued' || file.breakdownState === 'analyzing')
+    return `下好了：~/ReinLab素材/${file.name}（${file.title ?? ''}），共 ${file.shots ?? 0} 镜，正在后台逐镜拆解，拆完会通知；想先看已拆好的就用 read_reference。`;
+  if (file.markdown) return `下好了：~/ReinLab素材/${file.name}（${file.title ?? ''}），拆解表也写好了，用 read_reference 看。同名的 .json 记了来源。`;
+  return `下好了：~/ReinLab素材/${file.name}（${file.title ?? ''}）。同名的 .json 记了来源。`;
+}
+
 export async function runTool(
   defs: RunToolContext,
   call: ToolCall,
@@ -960,9 +971,7 @@ export async function runTool(
         });
         if (defs.db && file.usage && (file.usage.inputTokens || file.usage.outputTokens))
           await recordBreakdownUsage(defs.db, account, dossier, defs.runId, file.usage);
-        if (file.reused)
-          return { text: `已经有了：~/ReinLab素材/${file.name}（同一段，之前下过并拆过，直接复用，不再下载）。`, refs: [] };
-        return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。${file.markdown ? '拆解表也写好了，用 read_reference 看。' : '拆解没做成。'}同名的 .json 记了来源。`, refs: [] };
+        return { text: downloadReplyOf(file), refs: [] };
       } catch (error) {
         if (error instanceof LoginRequiredError)
           return {
