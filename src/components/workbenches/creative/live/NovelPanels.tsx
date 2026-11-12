@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Outline, Proposal, TextEdit, Work, WorldSnapshot } from '../../../../../packages/contracts/src/creative';
+import type { BoardFocus, Outline, Proposal, TextEdit, Work, WorldSnapshot } from '../../../../../packages/contracts/src/creative';
 import AgentDock, { type DockEvent } from '../../AgentDock';
 import type { CreativeAdapter } from './adapter';
 
@@ -101,7 +101,8 @@ export function OutlineEditor({ work, snap, save, busy, onDirty }: { work: Work;
 
 type AssistantMode = 'creative_writer' | 'creative_advisor' | 'creative_director';
 const MODE_ZH: Record<AssistantMode, string> = { creative_writer: '写作助手', creative_advisor: '设定顾问', creative_director: '分镜导演' };
-export function CreativeAssistant({ adapter, workId, sceneId, placeId, onUpdate, onBoard, initialMode = 'creative_writer', modes = ['creative_writer', 'creative_advisor'] }: { initialMode?: AssistantMode; modes?: AssistantMode[]; placeId?: string; adapter: CreativeAdapter; workId?: string; sceneId?: string; onUpdate: () => void;
+export function CreativeAssistant({ adapter, workId, sceneId, placeId, onUpdate, onBoard, focusLog, initialMode = 'creative_writer', modes = ['creative_writer', 'creative_advisor'] }: { initialMode?: AssistantMode; modes?: AssistantMode[]; placeId?: string; adapter: CreativeAdapter; workId?: string; sceneId?: string; onUpdate: () => void;
+  /** §14.9：拆解逐镜的 focus（按到达顺序）。每写完一镜，对话里就多一行，不用等整轮回复。 */ focusLog?: BoardFocus[];
   /** 1D：顾问交了提议，回复下挂「在看板上看」，点了在世界观面画虚影。 */ onBoard?: (proposalId: string) => void }) {
   const [mode, setMode] = useState<AssistantMode>(initialMode);
   const [events, setEvents] = useState<DockEvent[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -153,6 +154,11 @@ export function CreativeAssistant({ adapter, workId, sceneId, placeId, onUpdate,
     adapter.runs().then(({ runs }) => { if (epoch.current !== token) return; const last = runs.find(r => r.mode === mode); runId.current = last?.id ?? null; if (last) void follow(last.id, token); }).catch(e => setError(e.message));
     return () => { epoch.current++; };
   }, [adapter, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 拆解逐镜出结果：focus 里每来一镜「视觉拆解 镜 N」就在对话里记一行（刷新后不留，完整表在素材夹 .md）
+  useEffect(() => {
+    const add = (focusLog ?? []).flatMap(f => { const m = /^视觉拆解 镜 (\d+)/.exec(f.step); return m && f.detail && f.runId === runId.current ? [{ id: `shot:${f.runId}:${m[1]}`, kind: 'note' as const, text: `镜 ${m[1]}${f.progress?.total ? `/${f.progress.total}` : ''} · ${f.detail}`, at: '' }] : []; });
+    if (add.length) setEvents(xs => { const have = new Set(xs.map(x => x.id)), fresh = add.filter(a => !have.has(a.id)); return fresh.length ? [...xs, ...fresh] : xs; });
+  }, [focusLog]);
   const send = async (text: string) => {
     if (running.current) { setError('助手仍在工作，请等本轮完成。'); return; }
     running.current = true; setBusy(true); setError('');
