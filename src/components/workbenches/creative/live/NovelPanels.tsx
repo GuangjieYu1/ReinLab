@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { BoardFocus, Outline, Proposal, TextEdit, Work, WorldSnapshot } from '../../../../../packages/contracts/src/creative';
+import type { BoardFocus, RefEvent, Outline, Proposal, TextEdit, Work, WorldSnapshot } from '../../../../../packages/contracts/src/creative';
 import AgentDock, { type DockEvent } from '../../AgentDock';
 import type { CreativeAdapter } from './adapter';
 
@@ -101,8 +101,9 @@ export function OutlineEditor({ work, snap, save, busy, onDirty }: { work: Work;
 
 type AssistantMode = 'creative_writer' | 'creative_advisor' | 'creative_director';
 const MODE_ZH: Record<AssistantMode, string> = { creative_writer: '写作助手', creative_advisor: '设定顾问', creative_director: '分镜导演' };
-export function CreativeAssistant({ adapter, workId, sceneId, placeId, onUpdate, onBoard, focusLog, initialMode = 'creative_writer', modes = ['creative_writer', 'creative_advisor'] }: { initialMode?: AssistantMode; modes?: AssistantMode[]; placeId?: string; adapter: CreativeAdapter; workId?: string; sceneId?: string; onUpdate: () => void;
+export function CreativeAssistant({ adapter, workId, sceneId, placeId, onUpdate, onBoard, focusLog, refLog, initialMode = 'creative_writer', modes = ['creative_writer', 'creative_advisor'] }: { initialMode?: AssistantMode; modes?: AssistantMode[]; placeId?: string; adapter: CreativeAdapter; workId?: string; sceneId?: string; onUpdate: () => void;
   /** §14.9：拆解逐镜的 focus（按到达顺序）。每写完一镜，对话里就多一行，不用等整轮回复。 */ focusLog?: BoardFocus[];
+  /** §14.10：后台拆解拆好 / 失败（creative.ref）。 */ refLog?: RefEvent[];
   /** 1D：顾问交了提议，回复下挂「在看板上看」，点了在世界观面画虚影。 */ onBoard?: (proposalId: string) => void }) {
   const [mode, setMode] = useState<AssistantMode>(initialMode);
   const [events, setEvents] = useState<DockEvent[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -159,6 +160,14 @@ export function CreativeAssistant({ adapter, workId, sceneId, placeId, onUpdate,
     const add = (focusLog ?? []).flatMap(f => { const m = /^视觉拆解 镜 (\d+)/.exec(f.step); return m && f.detail && f.runId === runId.current ? [{ id: `shot:${f.runId}:${m[1]}`, kind: 'note' as const, text: `镜 ${m[1]}${f.progress?.total ? `/${f.progress.total}` : ''} · ${f.detail}`, at: '' }] : []; });
     if (add.length) setEvents(xs => { const have = new Set(xs.map(x => x.id)), fresh = add.filter(a => !have.has(a.id)); return fresh.length ? [...xs, ...fresh] : xs; });
   }, [focusLog]);
+  useEffect(() => {
+    // 去重命中别人正在拆的那份时 runId 不是这个会话的：对话里提到过这个文件名也算
+    const said = events.map(e => 'text' in e ? e.text : '').join('\n');
+    const vid = (r: RefEvent) => r.name.split('__').pop()?.replace(/^[a-z]+-/, '') ?? r.name; // 「…__bilibili-BV1BobV6kEpX」→ 视频号；对话里贴过同一个视频也算
+    const add = (refLog ?? []).filter(r => (r.runId && r.runId === runId.current) || said.includes(r.name) || said.includes(vid(r))).map(r => ({ id: `ref:${r.name}:${r.state}`, kind: 'note' as const,
+      text: r.state === 'ready' ? `拆好了：${r.name} · ${r.total} 镜${r.summary ? ` · ${r.summary}` : ''}` : `拆解没成：${r.failure ?? '原因未知'}（已拆 ${r.done}/${r.total}）`, at: '' }));
+    if (add.length) setEvents(xs => { const have = new Set(xs.map(x => x.id)), fresh = add.filter(a => !have.has(a.id)); return fresh.length ? [...xs, ...fresh] : xs; });
+  }, [refLog]);
   const send = async (text: string) => {
     if (running.current) { setError('助手仍在工作，请等本轮完成。'); return; }
     running.current = true; setBusy(true); setError('');
