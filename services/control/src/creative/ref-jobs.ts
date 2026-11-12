@@ -214,7 +214,7 @@ export async function resumeRefJobs(deps: RefJobDeps): Promise<number> {
     const source = await readJson<{ breakdown?: RefBreakdown }>(join(deps.folder, name));
     if (!source?.breakdown || !['queued', 'analyzing'].includes(source.breakdown.state)) continue;
     if (source.breakdown.shots.every((shot) => shot.text)) continue;
-    enqueue({ deps, basePath: basePathOf(deps.folder, name), title: String((source as { title?: string }).title ?? name) });
+    enqueue({ deps, basePath, title: String((source as { title?: string }).title ?? name) });
     resumed += 1;
   }
   return resumed;
