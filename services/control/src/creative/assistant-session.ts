@@ -934,7 +934,11 @@ export async function runTool(
               }).catch(() => undefined);
             },
             onRef: (event) => {
-              void appendEvents(client, { account, dossier }, [{ type: 'creative.ref', data: event }]).catch(() => undefined);
+              // 后台拆解可能跑在工具事务之后：必须用新连接写，不能用工具调用里的 client
+              if (!defs.db) return;
+              void defs.db
+                .withAccount(account, (c) => appendEvents(c, { account, dossier }, [{ type: 'creative.ref', data: event }]))
+                .catch((error) => console.error(JSON.stringify({ code: 'REF_EVENT_FAILED', message: String((error as Error)?.message ?? error).slice(0, 120) })));
             },
             ...(defs.db
               ? { onUsage: (usage: { inputTokens: number | null; outputTokens: number | null }) => recordBreakdownUsage(defs.db!, account, dossier, defs.runId, usage) }
