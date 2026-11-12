@@ -588,7 +588,7 @@ const server = serve(
       const { appendEvents } = await import("./creative/events");
       const { recordBreakdownUsage } = await import("./creative/vision-usage");
       const resumed = await resumeRefJobs({
-        folder: `${process.env.HOME}/ReinLab素材`,
+        folder: `${homedir()}/ReinLab素材`,
         ...(videoDeps.ffmpegPath ? { ffmpegPath: videoDeps.ffmpegPath } : {}),
         ...(localSecrets.ARK_API_KEY ? { vision: { apiKey: localSecrets.ARK_API_KEY } } : {}),
         onFocus: (info, origin) => {
