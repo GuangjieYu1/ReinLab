@@ -399,7 +399,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
               sel={{ entityId: sel?.kind === 'person' ? sel.id : undefined, placeId: sel?.kind === 'place' ? sel.id : undefined, legIds: sel?.kind === 'leg' ? [sel.id] : undefined }}
               flags={{ legs: flags.legs, people: flags.people }} hiLegs={new Set(selConf?.legIds ?? [])} focus={focus} draw={draw}
               onPick={onMapPick} onView={b => { bbox.current = b; }} />
-            {aiFocus && <div className="cw-ai-step" role="status"><i />{aiFocus.mode === 'creative_writer' ? '写作助手' : '顾问'} · {aiFocus.step}</div>}
+            {aiFocus && <div className="cw-ai-step" role="status"><i />{aiFocus.mode === 'creative_writer' ? '写作助手' : aiFocus.mode === 'creative_director' ? '导演' : '顾问'} · {aiFocus.step}</div>}
             {ghostProp && (preview?.proposalId === ghostProp.id || pvErr) && <ProposalBar proposal={ghostProp} preview={preview?.proposalId === ghostProp.id ? preview : null} previewError={pvErr} proposals={[...advProps, ...snap.proposals]} ruleJudged={snap.check?.conflicts.filter(c => c.kind === 'rule_model').length ?? 0} busy={busy || readOnly}
               onDecide={d => { decide(ghostProp, d); setGhostId(null); }} onClose={() => setGhostId(null)}
               onRevise={text => ghostProp.runId ? adapter.sayAssistant(ghostProp.runId, text, { proposalId: ghostProp.id }).then(() => setNotice(null)) : Promise.reject(Error('这条提议不是在顾问对话里交的，没法续着改。'))} />}
