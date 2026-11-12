@@ -1180,3 +1180,14 @@ export type RefShot = {
 - **契约**：`BoardFocus` 加两个可选字段 `progress?: { done: number; total: number } | null`、`detail?: string | null`（已写进 `packages/contracts`）。不知道总数就不带 `progress`；不推 token 级流式，一镜一条足够。
 - **页面（Claude，已做）**：视口左上角「导演 · 步骤 · 5/12」+ 橙色进度条 + 最新一镜描述（最多三行）；`done` 时清掉。
 - 和 §14 已列的「拆解改后台任务 + `creative.ref` 事件」不冲突：改成后台以后，进度照样用 `creative.focus` 推（带原会话的 `runId`）。
+
+### 14.10 补充（2026-11-12）：视觉拆解改后台
+
+开场 [37](37-creative-breakdown-background-brief.md)。`download_video` 下载 + 切镜头完就返回（约 15 秒），视觉拆解在后台排队逐镜跑（一次一份）；每镜照旧推 `creative.focus`（§14.9），状态变化推 `creative.ref`：
+
+```ts
+type RefEvent = { name: string; runId: string | null; state: 'queued' | 'analyzing' | 'ready' | 'failed'; done: number; total: number; failure?: string | null; summary?: string | null };
+```
+
+- 拆解状态写在来源 `.json` 的 `breakdown`，重启后从断点接着拆；`read_reference` 拆到一半返回已拆好的镜头 +「还在拆 k/N」。
+- 页面（Claude，已做）：导演对话里逐镜一行（§14.9）；收到 `ready` 加一行「拆好了：名字 · N 镜 · 总述」，`failed` 显示原因。`runId` 是发起下载的那个会话；别的会话里贴过同一个视频号，也显示这一行。

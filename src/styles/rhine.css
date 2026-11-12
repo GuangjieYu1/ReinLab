@@ -2,6 +2,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Serif+SC:wght@400;600&display=swap');
 
 :root, [data-theme='light'] {
+  /* 所有工作台的助手栏共用一个宽度；助手头部「放大」时占半屏（html[data-ad-wide]） */
+  --ad-w:clamp(380px, 30vw, 440px);
   --rh-white:#fbfbf9; --rh-paper:#f0eeea; --rh-paper-2:#e6e4df; --rh-paper-3:#d9d7d1;
   --rh-ink:#141213; --rh-ink-2:#3a3837; --rh-ink-3:#6b6865; --rh-ink-4:#9a9792;
   --rh-line:#c9c6c0; --rh-line-2:#dcdad5; --rh-ghost:#e1dfda;
@@ -149,3 +151,10 @@
 .rh[data-motion='reduce'].rh-grain::before { display:none; }
 
 .rh-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+
+html[data-ad-wide] { --ad-w:50vw; }
+/* 放大时左边材料栏收成图标条，视频面的正文栏收起 */
+html[data-ad-wide] .xp[data-open] { width:48px; }
+html[data-ad-wide] .xp[data-open] .xp-panel { display:none; }
+html[data-ad-wide] .cr.cw.lv { grid-template-columns:0 minmax(0,1fr) var(--ad-w); }
+html[data-ad-wide] .cr.cw.lv > .lv-text { min-width:0; overflow:hidden; visibility:hidden; padding:0; border:0; }

@@ -1,6 +1,6 @@
 // 创作台真实模式的数据边界（design/prd/20-creative-contract.md §2、22-creative-1a-frontend-brief.md）。
 // 页面只认这个接口；冲突、路程、故事时间换算都由服务端算，前端不推断。
-import type { CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GenerateJob, GeoJSON, ImpactReport, ImportJob, ItemChange, NetworkStatus, Proposal, TextEdit, Track, Work, WorkOp, WorldSnapshot, WorldVersion, BoardFocus, ProposalPreview, PersonAsset, PersonAssetVersion, PersonView, Whitebox, Shot, SceneCut, ShotTake } from '../../../../../packages/contracts/src/creative';
+import type { CheckRun, CreativeAppliedOp, CreativeOp, CreativeRouteLeg, GenerateJob, GeoJSON, ImpactReport, ImportJob, ItemChange, NetworkStatus, Proposal, TextEdit, Track, Work, WorkOp, WorldSnapshot, WorldVersion, BoardFocus, RefEvent, ProposalPreview, PersonAsset, PersonAssetVersion, PersonView, Whitebox, Shot, SceneCut, ShotTake } from '../../../../../packages/contracts/src/creative';
 import type { MapConfig } from '../../explore/live/adapter';
 
 /** edits/geojson 返回的要素集合（geometry 可能为 null：目标对不上，待确认）。 */
@@ -22,6 +22,7 @@ export type CreativeStreamEvent =
   | { seq: number; type: 'creative.version'; data: WorldVersion }
   | { seq: number; type: 'creative.impact'; data: ImpactReport['maybeScan'] }
   | { seq: number; type: 'creative.focus'; data: BoardFocus }
+  | { seq: number; type: 'creative.ref'; data: RefEvent }
   | { seq: number; type: 'creative.whitebox'; data: Whitebox }
   | { seq: number; type: 'creative.take'; data: ShotTake }
   | { seq: number; type: 'creative.cut'; data: SceneCut }

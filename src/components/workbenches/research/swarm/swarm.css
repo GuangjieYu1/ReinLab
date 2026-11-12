@@ -1,5 +1,5 @@
 /* 研究台 · 群研模式 · 莱茵生命。反驳用锈红，求助用橙，其余单色。 */
-.sw { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) 352px; }
+.sw { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) var(--ad-w); }
 .sw > .ad, .sw > .sw-log { border:0; border-left:1px solid var(--rh-ink); }
 .sw .xp[data-open] { --xp-w:250px; }
 .sw-center { min-height:0; display:grid; grid-template-rows:56px minmax(0,1fr) 46px; background:var(--rh-white); }

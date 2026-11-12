@@ -1,5 +1,5 @@
 /* 课程台 CURR · 备课 / 学习 · 莱茵生命：门禁是一道道黑闸，橙色只给「待你批准 / 正在进行 / 当前位置」，红色只给不通过。 */
-.cu { position:relative; height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) 340px; }
+.cu { position:relative; height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) var(--ad-w); }
 .cu > .ad { border:0; border-left:1px solid var(--rh-ink); }
 .cu .xp[data-open] { --xp-w:248px; }
 .cu-center { min-width:0; min-height:0; display:grid; grid-template-rows:60px minmax(0,1fr); background:var(--rh-white); }
@@ -185,4 +185,4 @@
 .cu-modal > div > * { margin:0 16px; } .cu-modal header { display:flex; justify-content:space-between; margin:0; padding:10px 16px; background:var(--rh-ink); color:var(--rh-paper); } .cu-modal header button { border:0; background:none; color:var(--rh-paper); font-size:18px; }
 .cu-modal pre { max-height:220px; overflow:auto; padding:10px; background:var(--rh-ink); color:#ecebe7; font:400 10.5px/1.6 var(--rh-f-mono); } .cu-modal p { font-size:12.5px; }
 [data-motion='reduce'] .cu *, [data-motion='reduce'] .cu *::before { animation-duration:1ms !important; animation-iteration-count:1 !important; }
-@media (max-width:1279px) { .cu { grid-template-columns:auto minmax(0,1fr) 300px; } .cu-bounds { display:none; } .cu-cols, .cu-two, .cu-methods { grid-template-columns:1fr; } .cu-routes, .cu-bp { grid-template-columns:1fr; } }
+@media (max-width:1279px) { .cu { grid-template-columns:auto minmax(0,1fr) var(--ad-w); } .cu-bounds { display:none; } .cu-cols, .cu-two, .cu-methods { grid-template-columns:1fr; } .cu-routes, .cu-bp { grid-template-columns:1fr; } }

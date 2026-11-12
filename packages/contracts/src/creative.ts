@@ -862,4 +862,15 @@ export type WorldSnapshot = {
 };
 
 // ── 事件流 ────────────────────────────────────────
+/** 参考素材拆解状态（事件 creative.ref，契约 §14.10）。 */
+export type RefEvent = {
+  name: string;
+  runId: string | null;
+  state: 'queued' | 'analyzing' | 'ready' | 'failed';
+  done: number;
+  total: number;
+  failure?: string | null;
+  summary?: string | null;
+};
+
 export type CreativeEvent = { seq: number; at: CreativeIso; dossierId: string; type: string; data: unknown };

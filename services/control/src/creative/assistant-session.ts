@@ -536,6 +536,17 @@ export type RunToolContext = {
 };
 
 /** 执行一轮里的一个工具调用。写工具只交提议。返回给模型的文字 + 看板上要描亮的 refs。 */
+/** download_video 的回话：拆解在后台时不能说「没做成」（回归测试直接测这里）。 */
+export function downloadReplyOf(file: import('./download').DownloadResult): string {
+  if (file.busy) return `这段正在拆（${file.done ?? 0}/${file.total ?? 0}），不重新下载；已拆好的镜头用 read_reference 看。`;
+  if (file.reused) return `已经有了：~/ReinLab素材/${file.name}（同一段，之前下过并拆过，直接复用，不再下载）。`;
+  if (file.failure) return `下好了：~/ReinLab素材/${file.name}，但拆解没做成：${file.failure}。同名的 .json 记了来源。`;
+  if (file.breakdownState === 'queued' || file.breakdownState === 'analyzing')
+    return `下好了：~/ReinLab素材/${file.name}（${file.title ?? ''}），共 ${file.shots ?? 0} 镜，正在后台逐镜拆解，拆完会通知；想先看已拆好的就用 read_reference。`;
+  if (file.markdown) return `下好了：~/ReinLab素材/${file.name}（${file.title ?? ''}），拆解表也写好了，用 read_reference 看。同名的 .json 记了来源。`;
+  return `下好了：~/ReinLab素材/${file.name}（${file.title ?? ''}）。同名的 .json 记了来源。`;
+}
+
 export async function runTool(
   defs: RunToolContext,
   call: ToolCall,
@@ -880,12 +891,32 @@ export async function runTool(
       const { readdir, readFile } = await import('node:fs/promises');
       const folder = (download?.folder ?? `${process.env.HOME}/ReinLab素材`) as string;
       try {
-        const files = (await readdir(folder)).filter((name) => name.endsWith('.md') && name !== '说明.md');
+        const names = await readdir(folder);
         const wanted = call.input.name ? String(call.input.name) : '';
-        const pick = wanted ? files.find((name) => name.includes(wanted)) : files.at(-1);
-        if (!pick) return { text: `素材文件夹里还没有拆好的拆解表（${folder}）。`, refs: [], ok: false };
-        const text = await readFile(`${folder}/${pick}`, 'utf8');
-        return { text: `拆解表「${pick}」：\n${text.slice(0, 4000)}`, refs: [] };
+        // 先看来源 .json 的拆解状态：还在拆就返回已拆好的镜头，不报错
+        const sources = names.filter((name) => name.endsWith('.json') && !name.endsWith('.breakdown.json'));
+        const pick = wanted ? sources.find((name) => name.includes(wanted)) : sources.at(-1);
+        if (pick) {
+          const source = JSON.parse(await readFile(`${folder}/${pick}`, 'utf8')) as {
+            title?: string;
+            breakdown?: { state: string; done: number; total: number; shots?: { n: number; text?: string | null }[]; summary?: string | null; failure?: string | null };
+          };
+          const breakdown = source.breakdown;
+          if (breakdown && breakdown.state !== 'ready') {
+            const done = (breakdown.shots ?? []).filter((shot) => shot.text);
+            return {
+              text: `「${pick.replace(/\.json$/, '')}」还在拆（${breakdown.done}/${breakdown.total}）。已拆好的：\n${done.map((shot) => `镜${shot.n}：${shot.text}`).join('\n') || '（还没有拆好的镜头）'}`,
+              refs: [],
+            };
+          }
+          if (breakdown?.state === 'failed')
+            return { text: `这份素材拆解失败：${breakdown.failure ?? '未知原因'}，可以让我重试。`, refs: [], ok: false };
+        }
+        const files = names.filter((name) => name.endsWith('.md') && name !== '说明.md');
+        const markdown = wanted ? files.find((name) => name.includes(wanted)) : files.at(-1);
+        if (!markdown) return { text: `素材文件夹里还没有拆好的拆解表（${folder}）。`, refs: [], ok: false };
+        const text = await readFile(`${folder}/${markdown}`, 'utf8');
+        return { text: `拆解表「${markdown}」：\n${text.slice(0, 4000)}`, refs: [] };
       } catch {
         return { text: '还没下载过参考视频。', refs: [], ok: false };
       }
@@ -900,6 +931,30 @@ export async function runTool(
           ...(call.input.from ? { from: String(call.input.from) } : {}),
           ...(call.input.to ? { to: String(call.input.to) } : {}),
           ...(call.input.note ? { note: String(call.input.note) } : {}),
+          background: {
+            origin: { account, dossier, runId: defs.runId },
+            onFocus: (info: { step: string; done: number; total: number; detail: string }) => {
+              if (!defs.db) return;
+              void pushFocus(defs.db, account, dossier, {
+                runId: defs.runId,
+                mode,
+                step: info.step.slice(0, 20),
+                refs: [],
+                progress: { done: info.done, total: info.total },
+                detail: info.detail.slice(0, 200),
+              }).catch(() => undefined);
+            },
+            onRef: (event) => {
+              // 后台拆解可能跑在工具事务之后：必须用新连接写，不能用工具调用里的 client
+              if (!defs.db) return;
+              void defs.db
+                .withAccount(account, (c) => appendEvents(c, { account, dossier }, [{ type: 'creative.ref', data: event }]))
+                .catch((error) => console.error(JSON.stringify({ code: 'REF_EVENT_FAILED', message: String((error as Error)?.message ?? error).slice(0, 120) })));
+            },
+            ...(defs.db
+              ? { onUsage: (usage: { inputTokens: number | null; outputTokens: number | null }) => recordBreakdownUsage(defs.db!, account, dossier, defs.runId, usage) }
+              : {}),
+          },
           // 下载/拆解一开始就推进度，别让作者看着像卡死
           onProgress: (info) => {
             // 进度必须立刻可见：单开连接提交，不能等外层事务
@@ -916,9 +971,7 @@ export async function runTool(
         });
         if (defs.db && file.usage && (file.usage.inputTokens || file.usage.outputTokens))
           await recordBreakdownUsage(defs.db, account, dossier, defs.runId, file.usage);
-        if (file.reused)
-          return { text: `已经有了：~/ReinLab素材/${file.name}（同一段，之前下过并拆过，直接复用，不再下载）。`, refs: [] };
-        return { text: `下好了：~/ReinLab素材/${file.name}（${file.title}）。${file.markdown ? '拆解表也写好了，用 read_reference 看。' : '拆解没做成。'}同名的 .json 记了来源。`, refs: [] };
+        return { text: downloadReplyOf(file), refs: [] };
       } catch (error) {
         if (error instanceof LoginRequiredError)
           return {

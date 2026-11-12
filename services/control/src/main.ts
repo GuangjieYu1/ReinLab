@@ -572,6 +572,35 @@ if (realModels && providerKey) {
     },
   });
 }
+// 后台拆解兜底：每 30 秒扫一次素材夹（启动时序不确定时也能接上）
+{
+  const { startRefSweeper } = await import("./creative/ref-jobs");
+  const { appendEvents } = await import("./creative/events");
+  const { recordBreakdownUsage } = await import("./creative/vision-usage");
+  startRefSweeper({
+    folder: `${homedir()}/ReinLab素材`,
+    ...(videoDeps.ffmpegPath ? { ffmpegPath: videoDeps.ffmpegPath } : {}),
+    ...(localSecrets.ARK_API_KEY ? { vision: { apiKey: localSecrets.ARK_API_KEY } } : {}),
+    onFocus: (info, origin) => {
+      if (!origin) return;
+      void database
+        .withAccount(origin.account, (c) =>
+          appendEvents(c, { account: origin.account, dossier: origin.dossier }, [
+            { type: "creative.focus", data: { runId: origin.runId ?? "", mode: "creative_director", step: info.step, refs: [], progress: { done: info.done, total: info.total }, detail: info.detail } },
+          ]),
+        )
+        .catch(() => undefined);
+    },
+    onRef: (event, origin) => {
+      if (!origin) return;
+      void database
+        .withAccount(origin.account, (c) => appendEvents(c, { account: origin.account, dossier: origin.dossier }, [{ type: "creative.ref", data: event }]))
+        .catch(() => undefined);
+    },
+    onUsage: (usage, origin) => (origin ? recordBreakdownUsage(database, origin.account, origin.dossier, origin.runId, usage) : undefined),
+  });
+}
+
 const server = serve(
   {
     fetch: app.fetch,
@@ -582,6 +611,50 @@ const server = serve(
     console.log(JSON.stringify({ code: "CONTROL_READY", port: info.port }));
     const marker = process.argv.indexOf("--instance"),
       instance = marker < 0 ? undefined : process.argv[marker + 1];
+    // 后台拆解：重启后从断点接着拆（契约 §14.10）
+    void (async () => {
+      const { resumeRefJobs } = await import("./creative/ref-jobs");
+      const { appendEvents } = await import("./creative/events");
+      const { recordBreakdownUsage } = await import("./creative/vision-usage");
+      const resumed = await resumeRefJobs({
+        folder: `${homedir()}/ReinLab素材`,
+        ...(videoDeps.ffmpegPath ? { ffmpegPath: videoDeps.ffmpegPath } : {}),
+        ...(localSecrets.ARK_API_KEY ? { vision: { apiKey: localSecrets.ARK_API_KEY } } : {}),
+        onFocus: (info, origin) => {
+          if (!origin) return;
+          void database
+            .withAccount(origin.account, (client) =>
+              appendEvents(client, { account: origin.account, dossier: origin.dossier }, [
+                {
+                  type: "creative.focus",
+                  data: {
+                    runId: origin.runId ?? "",
+                    mode: "creative_director",
+                    step: info.step,
+                    refs: [],
+                    progress: { done: info.done, total: info.total },
+                    detail: info.detail,
+                  },
+                },
+              ]),
+            )
+            .catch(() => undefined);
+        },
+        onRef: (event, origin) => {
+          if (!origin) return;
+          void database
+            .withAccount(origin.account, (client) =>
+              appendEvents(client, { account: origin.account, dossier: origin.dossier }, [{ type: "creative.ref", data: event }]),
+            )
+            .catch(() => undefined);
+        },
+        onUsage: (usage, origin) => {
+          if (!origin) return;
+          return recordBreakdownUsage(database, origin.account, origin.dossier, origin.runId, usage);
+        },
+      });
+      if (resumed) console.log(JSON.stringify({ code: "REF_JOBS_RESUMED", count: resumed }));
+    })().catch((error) => console.error(JSON.stringify({ code: "REF_JOBS_RESUME_FAILED", message: String((error as Error)?.message ?? error).slice(0, 160) })));
     if (
       nodeProcess.connected &&
       nodeProcess.send &&

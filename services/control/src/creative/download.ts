@@ -37,6 +37,26 @@ function runWithProgress(command: string, args: string[], onPercent?: (percent: 
   });
 }
 
+export type DownloadResult = {
+  name: string;
+  path?: string;
+  title?: string;
+  site?: string;
+  videoId?: string;
+  durationSec?: number | null;
+  description?: string;
+  markdown?: string | null;
+  usage?: { inputTokens: number | null; outputTokens: number | null } | null;
+  shots?: number;
+  breakdownState?: 'queued' | 'analyzing';
+  failure?: string | null;
+  reused?: boolean;
+  busy?: boolean;
+  done?: number;
+  total?: number;
+  state?: string;
+};
+
 export type DownloadDeps = {
   ytDlpPath?: string;
   folder?: string;
@@ -96,8 +116,21 @@ const rangeFromNote = (note?: string): { from?: string; to?: string } => {
 
 export async function downloadVideo(
   deps: DownloadDeps,
-  input: { url: string; from?: string; to?: string; note?: string; onProgress?: (info: { step: string; done?: number; total?: number; detail?: string }) => void },
-): Promise<{ name: string; path: string; title: string; site: string; videoId: string; durationSec: number | null; description: string; markdown: string | null; usage: { inputTokens: number | null; outputTokens: number | null } | null; reused?: boolean }> {
+  input: {
+    url: string;
+    from?: string;
+    to?: string;
+    note?: string;
+    onProgress?: (info: { step: string; done?: number; total?: number; detail?: string }) => void;
+    /** 后台拆解的回调与发起会话（契约 §14.10）。 */
+    background?: {
+      origin: { account: string; dossier: string; runId: string | null };
+      onFocus?: (info: { step: string; done: number; total: number; detail: string }) => void;
+      onRef?: (event: import('@reinlab/contracts').RefEvent) => void;
+      onUsage?: (usage: { inputTokens: number | null; outputTokens: number | null }) => void | Promise<void>;
+    };
+  },
+): Promise<DownloadResult> {
   const folder = folderOf(deps);
   await mkdir(folder, { recursive: true });
   const readme = join(folder, '说明.md');
@@ -127,6 +160,16 @@ export async function downloadVideo(
       if (name.endsWith('.breakdown.json')) continue;
       if (meta.url !== input.url) continue;
       if (!sameRange(meta)) continue;
+      const breakdown = (meta as { breakdown?: { state: string; done: number; total: number } }).breakdown;
+      if (breakdown && breakdown.state !== 'ready') {
+        return {
+          busy: true,
+          name: name.replace(/\.json$/, '.mp4'),
+          done: breakdown.done,
+          total: breakdown.total,
+          state: breakdown.state,
+        } satisfies DownloadResult;
+      }
       const base = name.replace(/\.json$/, '');
       const mp4 = join(folder, `${base}.mp4`);
       if (!existsSync(mp4)) continue;
@@ -229,26 +272,27 @@ export async function downloadVideo(
         2,
       ),
     );
-    // 下载完自动拆解（契约 §14.2）：场景切分 + 关键帧 + .md/.json；失败不影响下载结果
+    // 下载完只切镜头 + 关键帧（约 10–20 秒）；逐镜视觉拆解进后台队列（契约 §14.10）
     const basePath = target.replace(/\.mp4$/i, '');
-    let markdown: string | null = null;
-    let usage: { inputTokens: number | null; outputTokens: number | null } | null = null;
-    try {
-      const { breakdownVideo } = await import('./breakdown');
-      const result = await breakdownVideo({ ffmpegPath: process.env.REINLAB_FFMPEG ?? '/opt/homebrew/bin/ffmpeg', ...(deps.vision ? { vision: deps.vision } : {}) }, {
-        videoPath: target,
-        basePath,
-        title,
-        url: input.url,
-        durationSec: clippedDuration ?? durationSec,
-        ...(input.onProgress ? { onProgress: input.onProgress } : {}),
-      });
-      markdown = result.markdownPath;
-      usage = result.usage;
-    } catch (error) {
-      console.error(JSON.stringify({ code: 'BREAKDOWN_FAILED', message: (error as Error).message.slice(0, 160) }));
-    }
-    return { name, path: target, title, site, videoId, durationSec: clippedDuration ?? durationSec, description, markdown, usage };
+    const { prepareRef } = await import('./ref-jobs');
+    const background = input.background;
+    const prepared = await prepareRef(
+      {
+        folder,
+        ffmpegPath: process.env.REINLAB_FFMPEG ?? '/opt/homebrew/bin/ffmpeg',
+        ...(deps.vision ? { vision: deps.vision } : {}),
+        ...(background?.origin ? { origin: background.origin } : {}),
+        ...(background?.onFocus ? { onFocus: background.onFocus } : {}),
+        ...(background?.onRef ? { onRef: background.onRef } : {}),
+        ...(background?.onUsage ? { onUsage: background.onUsage } : {}),
+      },
+      { videoPath: target, basePath, title, url: input.url, durationSec: clippedDuration ?? durationSec },
+    );
+    input.onProgress?.({ step: '已切镜头', done: 0, total: prepared.total });
+    return {
+      name, path: target, title, site, videoId, durationSec: clippedDuration ?? durationSec, description,
+      shots: prepared.total, breakdownState: 'queued' as const, markdown: null, usage: null,
+    };
   } finally {
     if (cookieFile) await rm(cookieFile, { force: true });
     await rm(dir, { recursive: true, force: true });

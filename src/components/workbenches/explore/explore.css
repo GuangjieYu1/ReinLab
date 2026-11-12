@@ -1,5 +1,5 @@
 /* 探索台 EXPL · 拍照计划 · 莱茵生命：纸色地图、墨线、方角；橙色只给太阳、机位与「现在」。 */
-.ex { position:relative; height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) 336px; }
+.ex { position:relative; height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) var(--ad-w); }
 .ex > .ad { border:0; border-left:1px solid var(--rh-ink); }
 .ex .xp[data-open] { --xp-w:240px; }
 .ex-list { display:grid; }
@@ -206,5 +206,5 @@
 .ex-cardlist em { font-style:normal; display:grid; place-items:center; height:20px; background:var(--rh-ink); color:var(--rh-paper); font:700 10.5px/1 var(--rh-f-mono); } .ex-cardlist small { font:400 10px/1 var(--rh-f-mono); color:var(--rh-ink-4); }
 .ex-cardlist button[data-warn] { border-color:var(--rh-accent); background:var(--rh-accent-wash); } .ex-cardlist button[data-warn] em { background:var(--rh-accent); color:var(--rh-ink); }
 [data-motion='reduce'] .ex *, [data-motion='reduce'] .ex *::before { animation-duration:1ms !important; animation-iteration-count:1 !important; }
-@media (max-width:1279px) { .ex { grid-template-columns:auto minmax(0,1fr) 300px; } .ex-facts li:nth-child(n+3) { display:none; } .ex-spotbody, .ex-reviewbody { grid-template-columns:minmax(0,1fr) 320px; } .ex-looks { grid-template-columns:1fr; } }
+@media (max-width:1279px) { .ex { grid-template-columns:auto minmax(0,1fr) var(--ad-w); } .ex-facts li:nth-child(n+3) { display:none; } .ex-spotbody, .ex-reviewbody { grid-template-columns:minmax(0,1fr) 320px; } .ex-looks { grid-template-columns:1fr; } }
 .dl[data-compact] .dl-wx b, .dl[data-compact] .dl-wx small { display:none; }
