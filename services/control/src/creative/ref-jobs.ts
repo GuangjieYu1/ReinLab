@@ -209,7 +209,7 @@ export async function resumeRefJobs(deps: RefJobDeps): Promise<number> {
   let resumed = 0;
   for (const name of names) {
     if (!name.endsWith('.json') || name.endsWith('.breakdown.json')) continue;
-    const basePath = basePathOf(deps.folder, name);
+    const basePath = join(deps.folder, name.replace(/\.json$/, ''));
     if (basePath === current?.basePath || active.has(basePath)) continue;
     const source = await readJson<{ breakdown?: RefBreakdown }>(join(deps.folder, name));
     if (!source?.breakdown || !['queued', 'analyzing'].includes(source.breakdown.state)) continue;
