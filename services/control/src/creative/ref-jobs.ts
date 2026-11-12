@@ -81,8 +81,19 @@ export async function prepareRef(
 type QueueItem = { deps: RefJobDeps; basePath: string; title: string };
 const queue: QueueItem[] = [];
 let current: QueueItem | null = null;
+const active = new Set<string>();
+
+/** 定时扫盘（启动时可能因为控制面时序没扫到；每 30 秒兜底一次，已排队的不重复排）。 */
+export function startRefSweeper(deps: RefJobDeps, everyMs = 30_000): () => void {
+  const timer = setInterval(() => {
+    void resumeRefJobs(deps).catch(() => undefined);
+  }, everyMs);
+  return () => clearInterval(timer);
+}
 
 function enqueue(item: QueueItem): void {
+  if (item.basePath === current?.basePath || active.has(item.basePath)) return;
+  active.add(item.basePath);
   queue.push(item);
   void drain();
 }
@@ -95,6 +106,7 @@ async function drain(): Promise<void> {
   try {
     await runRefJob(next.deps, next.basePath, next.title);
   } finally {
+    active.delete(next.basePath);
     current = null;
     void drain();
   }
@@ -197,6 +209,8 @@ export async function resumeRefJobs(deps: RefJobDeps): Promise<number> {
   let resumed = 0;
   for (const name of names) {
     if (!name.endsWith('.json') || name.endsWith('.breakdown.json')) continue;
+    const basePath = basePathOf(deps.folder, name);
+    if (basePath === current?.basePath || active.has(basePath)) continue;
     const source = await readJson<{ breakdown?: RefBreakdown }>(join(deps.folder, name));
     if (!source?.breakdown || !['queued', 'analyzing'].includes(source.breakdown.state)) continue;
     if (source.breakdown.shots.every((shot) => shot.text)) continue;

@@ -572,6 +572,35 @@ if (realModels && providerKey) {
     },
   });
 }
+// 后台拆解兜底：每 30 秒扫一次素材夹（启动时序不确定时也能接上）
+{
+  const { startRefSweeper } = await import("./creative/ref-jobs");
+  const { appendEvents } = await import("./creative/events");
+  const { recordBreakdownUsage } = await import("./creative/vision-usage");
+  startRefSweeper({
+    folder: `${homedir()}/ReinLab素材`,
+    ...(videoDeps.ffmpegPath ? { ffmpegPath: videoDeps.ffmpegPath } : {}),
+    ...(localSecrets.ARK_API_KEY ? { vision: { apiKey: localSecrets.ARK_API_KEY } } : {}),
+    onFocus: (info, origin) => {
+      if (!origin) return;
+      void database
+        .withAccount(origin.account, (c) =>
+          appendEvents(c, { account: origin.account, dossier: origin.dossier }, [
+            { type: "creative.focus", data: { runId: origin.runId ?? "", mode: "creative_director", step: info.step, refs: [], progress: { done: info.done, total: info.total }, detail: info.detail } },
+          ]),
+        )
+        .catch(() => undefined);
+    },
+    onRef: (event, origin) => {
+      if (!origin) return;
+      void database
+        .withAccount(origin.account, (c) => appendEvents(c, { account: origin.account, dossier: origin.dossier }, [{ type: "creative.ref", data: event }]))
+        .catch(() => undefined);
+    },
+    onUsage: (usage, origin) => (origin ? recordBreakdownUsage(database, origin.account, origin.dossier, origin.runId, usage) : undefined),
+  });
+}
+
 const server = serve(
   {
     fetch: app.fetch,
