@@ -1,5 +1,5 @@
 /* 工程台 · 本体面 · 莱茵生命设计语言。新增 = 橙，修改 = 墨虚线，删除 = 划线，冲突 = 锈色虚线 + ▲。 */
-.on { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) 352px; }
+.on { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) var(--ad-w); }
 .on > .ad { border:0; border-left:1px solid var(--rh-ink); }
 .on .xp[data-open] { --xp-w:290px; }
 .on-center { min-height:0; display:grid; grid-template-rows:56px minmax(0,1fr); background:var(--rh-white); }

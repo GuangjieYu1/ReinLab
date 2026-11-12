@@ -1,6 +1,6 @@
 /* 研究台 RSCH · 莱茵生命。复用工程台的外壳、资源管理器、控制条（dev.css）与 Agent 坞。 */
 .rs-plan, .rs-run { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) 380px; background:transparent; }
-.rs-run { grid-template-columns:auto minmax(0,1fr) 352px; }
+.rs-run { grid-template-columns:auto minmax(0,1fr) var(--ad-w); }
 .rs-run > .ad { border:0; border-left:1px solid var(--rh-ink); }
 .rs-plan .xp[data-open], .rs-run .xp[data-open] { --xp-w:280px; }
 .rs-xp-meta { font:400 10px/1 var(--rh-f-mono); color:var(--rh-ink-4); }

@@ -56,7 +56,7 @@
 .rh-ghost { position:absolute; pointer-events:none; }
 
 /* ———— 需求面：四栏 ———— */
-.en-req { height:100%; display:grid; grid-template-columns:236px minmax(0,1fr) 300px 340px; gap:8px; background:transparent; }
+.en-req { height:100%; display:grid; grid-template-columns:236px minmax(0,1fr) 300px var(--ad-w); gap:8px; background:transparent; }
 .en-req > .rh-panel { min-height:0; overflow:hidden; }
 .en .rh-ph { padding:8px 10px; } .en .rh-ph-no { padding:6px; font-size:11px; } .en .rh-ph-title strong { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .en .rh-ph-title .rh-micro { font-size:10px; }

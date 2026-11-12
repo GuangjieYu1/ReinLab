@@ -26,7 +26,12 @@ export type Suggestion = { id: string; label: string; onClick?: () => void; fill
 
 const RISK_LABEL: Record<Risk, string> = { read: '只读', write: '写入 · 需审批', danger: '危险 · 只能你点' };
 
-export default function AgentDock({ name, target, plan, suggestions, events, busy, loop, onSend, placeholder = '对助手说，或用 / 调用动作', footnote }: {
+/** 放大：助手占半屏（所有工作台共用一个开关，存在 html[data-ad-wide] 上，刷新后保留）。 */
+const WIDE_KEY = 'reinlab.ad-wide';
+const applyWide = (on: boolean) => { if (on) document.documentElement.setAttribute('data-ad-wide', ''); else document.documentElement.removeAttribute('data-ad-wide'); };
+if (typeof window !== 'undefined') applyWide(window.localStorage?.getItem(WIDE_KEY) === '1');
+
+export default function AgentDock({ name, target, plan, suggestions, events, busy, loop, onSend, placeholder = '对助手说，或用 / 调用动作', footnote, actions }: {
   name: string; target: string;
   plan: { stages: string[]; current: number };
   suggestions: Suggestion[];
@@ -36,9 +41,13 @@ export default function AgentDock({ name, target, plan, suggestions, events, bus
   loop?: { stages: string[]; current: number } | null;
   onSend: (text: string) => void;
   placeholder?: string; footnote?: string;
+  /** 头部右侧的小控件（切换角色、新会话……），和名字同一行。 */
+  actions?: ReactNode;
 }) {
   const [draft, setDraft] = useState('');
-  const [planOpen, setPlanOpen] = useState(true);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [wide, setWide] = useState(() => typeof document !== 'undefined' && document.documentElement.hasAttribute('data-ad-wide'));
+  const toggleWide = () => setWide(v => { const n = !v; applyWide(n); try { window.localStorage.setItem(WIDE_KEY, n ? '1' : '0'); } catch { /* 隐私模式不存 */ } window.dispatchEvent(new window.Event('resize')); return n; });
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const use = (s: Suggestion) => { if (s.fill !== undefined) { setDraft(s.fill); requestAnimationFrame(() => { const el = input.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }); } else s.onClick?.(); };
@@ -46,30 +55,32 @@ export default function AgentDock({ name, target, plan, suggestions, events, bus
   const submit = (event?: FormEvent) => { event?.preventDefault(); const text = draft.trim(); if (!text) return; onSend(text); setDraft(''); };
   return (
     <aside className="ad rh-panel" data-wb-panel aria-label={`${name} · Agent 坞`}>
+      {/* 一行头部：身份块 + 名字 · 计划进度（点开看阶段）+ 宿主控件 + 状态 + 放大 */}
       <header className="ad-head">
-        <span className="ad-block">AGENT<i /></span>
-        <div><strong>{name}</strong><span className="rh-micro" title={target}>{target}</span></div>
-        <SignalDot state={busy ? 'wait' : 'on'} label={busy ? '工作中' : '在线'} />
-      </header>
-
-      <section className="ad-plan">
-        <button className="ad-plan-head" onClick={() => setPlanOpen(v => !v)} aria-expanded={planOpen}>
-          <span className="rh-micro">PLAN · 计划</span><b>{plan.current + 1} / {plan.stages.length}</b><em>{planOpen ? '收起' : '展开'}</em>
+        <span className="ad-block">AI<i /></span>
+        <button className="ad-title" onClick={() => setPlanOpen(v => !v)} aria-expanded={planOpen} title={`${target}\n点开看计划`}>
+          <strong>{name}</strong><span className="ad-step">{plan.stages[plan.current] ?? ''} · {plan.current + 1}/{plan.stages.length}</span>
         </button>
+        {actions && <div className="ad-actions">{actions}</div>}
+        <SignalDot state={busy ? 'wait' : 'on'} label={busy ? '工作中' : '在线'} />
+        <button className="ad-wide" onClick={toggleWide} aria-pressed={wide} title={wide ? '还原' : '放大到半屏'}>{wide ? '⤡' : '⤢'}</button>
+      </header>
+      {planOpen && <section className="ad-plan">
+        <span className="rh-micro ad-target">{target}</span>
         <div className="rh-rail" aria-hidden="true">{plan.stages.map((_, i) => <i key={i} className={i < plan.current ? 'is-done' : i === plan.current ? 'is-now' : ''} />)}</div>
-        {planOpen && <ol className="ad-plan-list">{plan.stages.map((s, i) => <li key={s} data-state={i < plan.current ? 'done' : i === plan.current ? 'now' : undefined}><em>{String(i + 1).padStart(2, '0')}</em>{s}</li>)}</ol>}
-      </section>
+        <ol className="ad-plan-list">{plan.stages.map((s, i) => <li key={s} data-state={i < plan.current ? 'done' : i === plan.current ? 'now' : undefined}><em>{String(i + 1).padStart(2, '0')}</em>{s}</li>)}</ol>
+      </section>}
 
       {loop && <div className="ad-loop"><Mobius stages={loop.stages} current={loop.current} running width={200} /></div>}
-
-      <div className="ad-suggest" role="group" aria-label="建议动作">
-        {suggestions.map(s => <button key={s.id} className="rh-btn is-ghost" onClick={() => use(s)} title={s.hint} disabled={busy && s.fill === undefined}>{s.label}</button>)}
-      </div>
 
       <div className="ad-stream" ref={list} aria-live="polite">
         {events.map(e => <Event key={e.id} e={e} />)}
         {busy && <div className="ad-typing"><i /><i /><i /></div>}
       </div>
+
+      {suggestions.length > 0 && <div className="ad-suggest" role="group" aria-label="建议动作">
+        {suggestions.map(s => <button key={s.id} className="rh-btn is-ghost" onClick={() => use(s)} title={s.hint} disabled={busy && s.fill === undefined}>{s.label}</button>)}
+      </div>}
 
       <form className="ad-input" onSubmit={submit}>
         <textarea ref={input} value={draft} onChange={e => setDraft(e.target.value)} placeholder={placeholder} rows={2}

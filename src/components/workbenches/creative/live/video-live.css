@@ -1,5 +1,5 @@
 /* MVP-3 视频面 */
-.cr.cw.lv { display:grid; grid-template-columns:minmax(220px,22%) minmax(0,1fr) minmax(300px,24%); height:100%; min-height:0; }
+.cr.cw.lv { display:grid; grid-template-columns:minmax(220px,22%) minmax(0,1fr) var(--ad-w); height:100%; min-height:0; }
 .lv-text { border-right:1px solid var(--rh-line); display:flex; flex-direction:column; min-height:0; background:var(--rh-white); }
 .lv-pick { padding:8px; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--rh-line); }
 .lv-pick select { font:400 12.5px var(--rh-f-ui); max-width:100%; }

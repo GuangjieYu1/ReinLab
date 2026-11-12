@@ -2,8 +2,8 @@
    单色为底、一色为信号；超大展示字与 11px 等宽微标注同屏（尺度反差）；黑块区块名、幽灵大字、引线标注、编号刻度。
    「写完」用一种可读的深绿做字色（用户指定）。 */
 .rq { --rq-done:#2d6a3e; --rq-done-2:#4f8a5c; --rq-grid:#14121309;
-  height:100%; display:grid; grid-template-columns:248px minmax(0,1fr) 344px; gap:6px; background:transparent; }
-.rq[data-dir='closed'] { grid-template-columns:40px minmax(0,1fr) 344px; }
+  height:100%; display:grid; grid-template-columns:248px minmax(0,1fr) var(--ad-w); gap:6px; background:transparent; }
+.rq[data-dir='closed'] { grid-template-columns:40px minmax(0,1fr) var(--ad-w); }
 .rq > .rh-panel, .rq-center { min-height:0; overflow:hidden; }
 .rq .rh-panel { border-color:var(--rh-line); }
 
@@ -307,7 +307,7 @@
 @keyframes rq-tick { from { transform:scaleY(0); } }
 
 /* ———— 像 IDE 一样贴边：资源管理器在最左（收起后只剩活动栏），助手贴最右，栏与栏之间只用细线 ———— */
-.rq, .rq[data-dir='closed'] { grid-template-columns:auto minmax(0,1fr) 352px; gap:0; transition:none; }
+.rq, .rq[data-dir='closed'] { grid-template-columns:auto minmax(0,1fr) var(--ad-w); gap:0; transition:none; }
 .rq > .ad { border:0; border-left:1px solid var(--rh-ink); }
 .rq-center { gap:0; }
 .rq-bar { border:0; border-bottom:1px solid var(--rh-line); }

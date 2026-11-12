@@ -1,5 +1,5 @@
 /* 创作台 CRTV · 世界观 · 莱茵生命 */
-.cr { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) 352px; }
+.cr { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) var(--ad-w); }
 .cr > .ad { border:0; border-left:1px solid var(--rh-ink); }
 .cr .xp[data-open] { --xp-w:250px; }
 .cr-xp-meta { font:400 10px/1 var(--rh-f-mono); color:var(--rh-ink-4); }
@@ -195,7 +195,7 @@
 @container (min-width:980px) { .nv-row[data-has-notes] { grid-template-columns:minmax(0,34em) minmax(240px,280px); } }
 
 /* ———— 视频面 ———— */
-.vf { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) 340px; }
+.vf { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) var(--ad-w); }
 .vf > .ad { border:0; border-left:1px solid var(--rh-ink); }
 .vf .xp[data-open] { --xp-w:260px; }
 .vf-center { min-height:0; display:grid; grid-template-rows:56px minmax(0,1fr) 112px; background:#0d0b0e; }

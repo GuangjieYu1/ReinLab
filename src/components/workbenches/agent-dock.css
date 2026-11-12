@@ -116,3 +116,28 @@
 .ad-rich .rt-h { margin:.6em 0 .25em; }
 .ad-rich .rt-table { border-collapse:collapse; font-size:.92em; margin:.4em 0; display:block; overflow-x:auto; }
 .ad-rich .rt-table th, .ad-rich .rt-table td { border:1px solid var(--rh-line, #d8d5cf); padding:3px 7px; text-align:left; }
+
+/* ———— 统一助手样式（2026-11-12）：一行头部、计划点开才显示、对话区占满、字号放大 ———— */
+.ad-head { grid-template-columns:auto minmax(0,1fr) auto auto auto; gap:10px; padding:8px 10px; }
+.ad-head::after { display:none; }
+.ad-block { align-self:center; padding:6px 8px; font-size:11px; }
+.ad-title { display:flex; align-items:baseline; gap:10px; min-width:0; padding:0; border:0; background:none; text-align:left; cursor:pointer; color:inherit; }
+.ad-title strong { font:800 16px/1.2 var(--rh-f-display); font-stretch:112%; white-space:nowrap; }
+.ad-step { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:500 11.5px/1 var(--rh-f-mono); color:var(--rh-ink-3); }
+.ad-title:hover .ad-step { color:var(--rh-ink); }
+.ad-actions { display:flex; align-items:center; gap:6px; }
+.ad-actions select, .ad-actions .rh-btn { height:28px; padding:0 8px; font-size:12px; }
+.ad-wide { width:28px; height:28px; display:grid; place-items:center; border:1px solid var(--rh-ink); background:var(--rh-white); font-size:14px; cursor:pointer; }
+.ad-wide[aria-pressed='true'] { background:var(--rh-ink); color:var(--rh-paper); }
+.ad-plan { padding:8px 12px; gap:8px; }
+.ad-target { display:block; text-transform:none; letter-spacing:.04em; font-size:11px; }
+.ad-stream { padding:14px 16px; gap:14px; }
+.ad-msg { grid-template-columns:28px 1fr; column-gap:12px; }
+.ad-who { width:28px; height:28px; font-size:11px; }
+.ad-msg p, .ad-msg > div { font-size:14.5px; line-height:1.7; }
+.ad-note { font-size:13px; line-height:1.6; padding:2px 0 2px 40px; color:var(--rh-ink-3); }
+.ad-tool { font-size:13px; }
+.ad-card { font-size:13.5px; }
+.ad-suggest { padding:8px 12px 0; border-bottom:0; background:var(--rh-paper); border-top:1.5px solid var(--rh-ink); }
+.ad-suggest + .ad-input { border-top:0; }
+.ad-input textarea { font-size:14.5px; }

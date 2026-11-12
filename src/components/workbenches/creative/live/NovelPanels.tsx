@@ -181,8 +181,9 @@ export function CreativeAssistant({ adapter, workId, sceneId, placeId, onUpdate,
     }
     catch (e) { running.current = false; setBusy(false); setError((e as Error).message); }
   };
-  return <><div className="cw-row cw-pane">{modes.length > 1 && <select aria-label="助手角色" disabled={busy} value={mode} onChange={e => setMode(e.target.value as typeof mode)}>{modes.map(m => <option key={m} value={m}>{MODE_ZH[m]}</option>)}</select>}
-    <button className="rh-btn" disabled={busy || !events.length} onClick={() => { epoch.current++; runId.current = null; setEvents([]); setError(''); }} title="清掉这段对话，下一句另开一个会话">新会话</button>{error && <p role="alert">{error}</p>}</div>
-    <AgentDock name={MODE_ZH[mode]} target="当前世界观 · 真实会话" plan={{ stages: ['阅读资料', '提出建议', '作者确认'], current: 0 }} events={events} busy={busy} suggestions={mode === 'creative_director' ? [{ id: 'cut', label: '拆镜头', fill: '把这一场拆成镜头。' }] : [{ id: 'add', label: '加人物', fill: '加一个人物：请提出与现有事件、路线接得上的经历，先做硬检查再提交提议。' }]} onSend={text => void send(text)} footnote="AI 只提议，接受后才入账或落笔" />
+  const controls = <>{modes.length > 1 && <select aria-label="助手角色" disabled={busy} value={mode} onChange={e => setMode(e.target.value as typeof mode)}>{modes.map(m => <option key={m} value={m}>{MODE_ZH[m]}</option>)}</select>}
+    <button className="rh-btn" disabled={busy || !events.length} onClick={() => { epoch.current++; runId.current = null; setEvents([]); setError(''); }} title="清掉这段对话，下一句另开一个会话">新会话</button></>;
+  return <>{error && <p className="cw-ad-err" role="alert">{error}</p>}
+    <AgentDock name={MODE_ZH[mode]} target="当前世界观 · 真实会话" actions={controls} plan={{ stages: ['阅读资料', '提出建议', '作者确认'], current: 0 }} events={events} busy={busy} suggestions={mode === 'creative_director' ? [{ id: 'cut', label: '拆镜头', fill: '把这一场拆成镜头。' }] : [{ id: 'add', label: '加人物', fill: '加一个人物：请提出与现有事件、路线接得上的经历，先做硬检查再提交提议。' }]} onSend={text => void send(text)} footnote="AI 只提议，接受后才入账或落笔" />
   </>;
 }

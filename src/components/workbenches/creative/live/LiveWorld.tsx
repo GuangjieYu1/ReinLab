@@ -435,7 +435,7 @@ export default function LiveWorld({ adapter, file, reduced, chrome, dossier }: B
             : tab === 'impact' ? <ImpactPanel adapter={adapter} snap={snap} works={works} onOpenScene={ref => { setNovelTarget(ref); setFace('novel'); }}
                 onWorksChanged={() => void adapter.works().then(setWorks)}
                 onEditItem={c => { setAsWork(null); setViewing(null); const ent = snap.entities.find(e => e.id === c.itemId); const s: Sel | null = c.kind === 'event' ? { kind: 'event', id: c.itemId } : ent ? { kind: ent.kind === 'place' ? 'place' : 'person', id: c.itemId } : c.kind === 'rule' ? { kind: 'rule', id: c.itemId } : c.kind === 'mode' ? { kind: 'mode', id: c.itemId } : c.kind === 'edit' ? { kind: 'edit', id: c.itemId } : null; if (s) { setSel(s); editSel(s); setNotice('改完存成新版本，影响清单会按新版本重算。'); } }} />
-            : tab === 'assistant' ? <CreativeAssistant adapter={adapter} onUpdate={() => void reload()} initialMode="creative_advisor" onBoard={id => { setAllConf(false); setGhostId(id); }} />
+            : tab === 'assistant' ? <div className="cw-dock"><CreativeAssistant adapter={adapter} onUpdate={() => void reload()} initialMode="creative_advisor" onBoard={id => { setAllConf(false); setGhostId(id); }} /></div>
             : tab === 'form' && form ? formFor(form)
             : sel ? <><Detail extra={sel.kind === 'person' && look.entities.get(sel.id) ? <PersonLook entity={look.entities.get(sel.id)!} artStyle={snap.world.artStyle} adapter={adapter} readOnly={readOnly} ev={assetEv}
               onSaveLook={async v => { const e = look.entities.get(sel.id)!; await send([{ op: 'entity.update', id: e.id, patch: { person: { ...(e.person ?? {}), look: v || null } } }]); }}

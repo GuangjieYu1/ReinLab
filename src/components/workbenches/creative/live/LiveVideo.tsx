@@ -247,7 +247,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
           </div>}
           {editable && <p className="cw-muted">在视口里拖人偶、拖机位（橙点：机位 / 看向 / 终点）、拖家具（点住它的顶面）；按住 Shift 拖人偶 = 设走位终点（录预演时人偶会走过去再转身），松手就存；墙、地面、顶棚是按房间轮廓生成的，不能拖。</p>}
         </div> : <p className="cw-pane cw-muted">点一个镜头看详情。</p>)}
-        <div hidden={tab !== 'director'}><CreativeAssistant adapter={adapter} focusLog={shotLog} refLog={refLog} workId={workId || undefined} sceneId={sceneId || undefined} placeId={placeId || undefined} initialMode="creative_director" modes={['creative_director']}
+        <div className="cw-dock" hidden={tab !== 'director'}><CreativeAssistant adapter={adapter} focusLog={shotLog} refLog={refLog} workId={workId || undefined} sceneId={sceneId || undefined} placeId={placeId || undefined} initialMode="creative_director" modes={['creative_director']}
           onUpdate={() => { void loadShots(); void loadWb(); void loadProps(); }} onBoard={id => setGhostId(id)} /></div>
         {tab === 'refs' && <RefsPane adapter={adapter} />}
         {tab === 'props' && <div className="cw-pane">{props2.map(p => <button key={p.id} className="lv-prop" data-on={p.id === ghostId || undefined} onClick={() => setGhostId(p.id)}><b>{p.title}</b><small>{p.kind === 'whitebox' ? '白模' : '镜头表'} · {p.ops.length} 项 · {(() => { const id = (p.ops as { placeId?: string; shot?: { placeId?: string } }[]).map(o => o.placeId ?? o.shot?.placeId).find(Boolean); return snap.entities.find(e => e.id === id)?.name ?? '地点未定'; })()}</small></button>)}{!props2.length && <p className="cw-muted">没有待确认的白模或镜头提议。</p>}</div>}

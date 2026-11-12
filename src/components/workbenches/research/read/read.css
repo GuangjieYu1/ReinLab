@@ -12,7 +12,7 @@
 .rs-inbox { display:grid; gap:6px; width:100%; padding:12px 14px; border:1.5px solid var(--rh-ink); background:var(--rh-accent-wash); animation:en-approval .5s var(--rh-ease-enter) both; }
 .rs-inbox .rh-micro { font-size:10px; } .rs-inbox p { margin:0; display:flex; gap:10px; font-size:13px; } .rs-inbox em { font:normal 600 11px/1.6 var(--rh-f-mono); }
 
-.rd { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) 352px; }
+.rd { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) var(--ad-w); }
 .rd > .ad { border:0; border-left:1px solid var(--rh-ink); }
 .rd .xp[data-open] { --xp-w:260px; }
 .rd-xp-meta { font:400 10px/1 var(--rh-f-mono); color:var(--rh-ink-4); }

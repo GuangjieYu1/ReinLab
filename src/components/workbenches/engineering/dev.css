@@ -1,5 +1,5 @@
 /* 工程台 · 开发面 · 莱茵生命设计语言。贴边布局：资源管理器 | 工作区 + Archify | 开发助手。 */
-.dv { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) 352px; gap:0; background:transparent; }
+.dv { height:100%; display:grid; grid-template-columns:auto minmax(0,1fr) var(--ad-w); gap:0; background:transparent; }
 .dv > .ad { border:0; border-left:1px solid var(--rh-ink); }
 .dv .xp[data-open] { --xp-w:300px; }
 
