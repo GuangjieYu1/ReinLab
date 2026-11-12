@@ -27,6 +27,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
   const [props2, setProps2] = useState<Proposal[]>([]), [ghostId, setGhostId] = useState<string | null>(null), [preview, setPreview] = useState<ProposalPreview | null>(null), [pvErr, setPvErr] = useState('');
   const vp = useRef<ViewportHandle>(null);
   const primDraft = useRef<{ id: string; c: V3 } | null>(null), [primMove, setPrimMove] = useState<{ id: string; c: V3 } | null>(null);
+  const [shotLog, setShotLog] = useState<BoardFocus[]>([]); // 拆解逐镜结果，按到达顺序攒着给导演对话（不能只看 ai：最后一镜和下一步常常前后脚到，被合并掉）
   const [ai, setAi] = useState<BoardFocus | null>(null), [pv2, setPv2] = useState<ProposalPreview | null>(null);
 
   // ── 读 ──
@@ -58,6 +59,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
       else if (ev.type === 'creative.shot') { if (ev.data.sceneId === c.sceneId && (!ev.data.workId || ev.data.workId === c.workId)) { setShots(xs => { const m = new Map(xs.map(x => [x.id, x])); ev.data.shots.forEach(x => m.set(x.id, x)); return [...m.values()].sort((a, b) => a.n - b.n); }); void c.loadShots(); } }
       else if (ev.type === 'creative.focus') {
         const f = ev.data;
+        if (/^视觉拆解 镜/.test(f.step) && f.detail) setShotLog(xs => [...xs.slice(-200), f]);
         if (f.done) { setAi(x => x?.runId === f.runId ? { ...x, step: '看完了', progress: null, detail: null } : x); window.setTimeout(() => setAi(x => x?.runId === f.runId ? null : x), 4000); }
         else setAi(x => { const prev = x?.runId === f.runId ? x.refs : [], k = (r: unknown) => JSON.stringify(r), seen = new Set(prev.map(k)); return { ...f, refs: [...prev, ...f.refs.filter(r => !seen.has(k(r)))] }; });
         if (f.proposalId) { setGhostId(f.proposalId); soon(); }
@@ -243,7 +245,7 @@ export default function LiveVideo({ adapter, snapshot, onFace, ...props }: Bench
           </div>}
           {editable && <p className="cw-muted">在视口里拖人偶、拖机位（橙点：机位 / 看向 / 终点）、拖家具（点住它的顶面）；按住 Shift 拖人偶 = 设走位终点（录预演时人偶会走过去再转身），松手就存；墙、地面、顶棚是按房间轮廓生成的，不能拖。</p>}
         </div> : <p className="cw-pane cw-muted">点一个镜头看详情。</p>)}
-        <div hidden={tab !== 'director'}><CreativeAssistant adapter={adapter} workId={workId || undefined} sceneId={sceneId || undefined} placeId={placeId || undefined} initialMode="creative_director" modes={['creative_director']}
+        <div hidden={tab !== 'director'}><CreativeAssistant adapter={adapter} focusLog={shotLog} workId={workId || undefined} sceneId={sceneId || undefined} placeId={placeId || undefined} initialMode="creative_director" modes={['creative_director']}
           onUpdate={() => { void loadShots(); void loadWb(); void loadProps(); }} onBoard={id => setGhostId(id)} /></div>
         {tab === 'refs' && <RefsPane adapter={adapter} />}
         {tab === 'props' && <div className="cw-pane">{props2.map(p => <button key={p.id} className="lv-prop" data-on={p.id === ghostId || undefined} onClick={() => setGhostId(p.id)}><b>{p.title}</b><small>{p.kind === 'whitebox' ? '白模' : '镜头表'} · {p.ops.length} 项 · {(() => { const id = (p.ops as { placeId?: string; shot?: { placeId?: string } }[]).map(o => o.placeId ?? o.shot?.placeId).find(Boolean); return snap.entities.find(e => e.id === id)?.name ?? '地点未定'; })()}</small></button>)}{!props2.length && <p className="cw-muted">没有待确认的白模或镜头提议。</p>}</div>}
