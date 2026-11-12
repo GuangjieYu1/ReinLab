@@ -130,10 +130,107 @@ describe("下载去重（§14.9 补）", () => {
     const { downloadVideo } = await import("../src/creative/download");
     const deps = { ytDlpPath: fake, folder: join(dir, "素材") };
     const first = await downloadVideo(deps as never, { url: "https://www.bilibili.com/video/BV1test/", from: 0, to: 8, note: "测试" });
-    const second = await downloadVideo(deps as never, { url: "https://www.bilibili.com/video/BV1test/", from: "0", to: "8", note: "测试" } as never);
     expect(first.reused).toBeUndefined();
+    // 还在拆时再下：回「正在拆」，不重复下载
+    const busy = await downloadVideo(deps as never, { url: "https://www.bilibili.com/video/BV1test/", from: "0", to: "8", note: "测试" } as never);
+    expect(busy.busy).toBe(true);
+    // 拆完再下：直接复用
+    const metaPath = join(dir, "素材", `${(first.name || "").replace(/\.mp4$/, "")}.json`);
+    const meta = JSON.parse(await readFile(metaPath, "utf8"));
+    meta.breakdown.state = "ready";
+    await writeFile(metaPath, JSON.stringify(meta));
+    const second = await downloadVideo(deps as never, { url: "https://www.bilibili.com/video/BV1test/", from: "0", to: "8", note: "测试" } as never);
     expect(second.reused).toBe(true);
     const calls = (await readFile(marker, "utf8")).trim().split("\n").filter(Boolean).length;
     expect(calls).toBe(2);
+  });
+});
+
+describe("后台视觉拆解（§14.10）", () => {
+  const ffmpeg = "/opt/homebrew/bin/ffmpeg";
+  const hasFfmpeg = async () => {
+    const { existsSync } = await import("node:fs");
+    return existsSync(ffmpeg);
+  };
+  const stubVision = () => {
+    const calls: string[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = String(init?.body ?? "");
+      calls.push(body.slice(0, 80));
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: "镜1：全景；固定；一人站在桥头。" } }], usage: { prompt_tokens: 100, completion_tokens: 20 } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    return { calls, restore: () => (globalThis.fetch = real) };
+  };
+
+  it("下载完先返回：切完镜头就返回，视觉模型还没开始调用", async () => {
+    if (!(await hasFfmpeg())) return;
+    const { mkdtemp, writeFile, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const run = promisify(execFile);
+    const dir = await mkdtemp(join(tmpdir(), "reinlab-ref-"));
+    const video = join(dir, "v.mp4");
+    await run(ffmpeg, ["-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=12:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", video]);
+    const base = join(dir, "参考片段__bilibili-BVtest");
+    await writeFile(`${base}.json`, JSON.stringify({ url: "https://www.bilibili.com/video/BVtest/", title: "测试" }));
+    const vision = stubVision();
+    try {
+      const { prepareRef, refQueueIdle } = await import("../src/creative/ref-jobs");
+      const prepared = await prepareRef(
+        { folder: dir, ffmpegPath: ffmpeg, vision: { apiKey: "test" } },
+        { videoPath: video, basePath: base, title: "测试", url: "https://www.bilibili.com/video/BVtest/", durationSec: 3 },
+      );
+      expect(prepared.total).toBeGreaterThan(0);
+      expect(vision.calls.length).toBe(0); // 返回时还没调视觉模型
+      const meta = JSON.parse(await readFile(`${base}.json`, "utf8"));
+      expect(["queued", "analyzing"]).toContain(meta.breakdown.state);
+      await refQueueIdle();
+      const after = JSON.parse(await readFile(`${base}.json`, "utf8"));
+      expect(after.breakdown.state).toBe("ready");
+      expect(vision.calls.length).toBeGreaterThan(0);
+    } finally {
+      vision.restore();
+    }
+  });
+
+  it("重启后从断点接着拆：已拆好的镜头不重调视觉模型", async () => {
+    const { mkdtemp, writeFile, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "reinlab-resume-"));
+    const base = join(dir, "参考片段__bilibili-BVtest");
+    await writeFile(
+      `${base}.json`,
+      JSON.stringify({
+        url: "https://www.bilibili.com/video/BVtest/",
+        title: "测试",
+        breakdown: {
+          state: "analyzing",
+          done: 1,
+          total: 2,
+          shots: [
+            { n: 1, startSec: 0, endSec: 1, keyframes: [], text: "已经拆好的第一镜" },
+            { n: 2, startSec: 1, endSec: 2, keyframes: [], text: null },
+          ],
+        },
+      }),
+    );
+    const vision = stubVision();
+    try {
+      const { runRefJob } = await import("../src/creative/ref-jobs");
+      await runRefJob({ folder: dir, ffmpegPath: ffmpeg, vision: { apiKey: "test" } }, base, "测试");
+      expect(vision.calls.length).toBe(1); // 只拆第二镜
+      const meta = JSON.parse(await readFile(`${base}.json`, "utf8"));
+      expect(meta.breakdown.state).toBe("ready");
+      expect(meta.breakdown.shots[1].text).toContain("全景");
+    } finally {
+      vision.restore();
+    }
   });
 });
